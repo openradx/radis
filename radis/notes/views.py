@@ -72,10 +72,7 @@ class NoteEditView(LoginRequiredMixin, HtmxOnlyMixin, UpdateView):
         text: str = note.text
         if note.id is not None and len(text.strip()) == 0:
             note.delete()
-            print("delete")
             if self.reload_on_note_delete:
-                print("reload")
-
                 return HttpResponseClientRefresh()
         elif len(text.strip()) > 0:
             form.save()
