@@ -48,8 +48,7 @@ class NoteEditView(LoginRequiredMixin, HtmxOnlyMixin, UpdateView):
     request: AuthenticatedHttpRequest
 
     def get_object(self, queryset: QuerySet[Note] | None = None) -> Note | None:
-        reload_on_note_delete = self.request.GET.get("reload_on_note_delete")
-        self.reload_on_note_delete = reload_on_note_delete == "yes"
+        self.reload_on_note_delete = self.request.GET.get("reload_on_note_delete") == "yes"
 
         if queryset is None:
             queryset = self.get_queryset()
