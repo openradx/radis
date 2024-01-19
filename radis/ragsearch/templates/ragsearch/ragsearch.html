@@ -1,0 +1,35 @@
+{% extends "ragsearch/ragsearch_layout.html" %}
+{% load static from static %}
+{% load crispy from crispy_forms_tags %}
+{% load bootstrap_icon from core_extras %}
+{% block heading %}
+<h4 class="mb-3">Search reports using retrieval augmented generation (RAG)</h4>
+{% endblock heading %}
+{% block content %}
+<div class="d-flex flex-column mb-3">
+    <form method="get">
+        <div class="input-group">
+            <input type="text" name="query" value="{{ query }}" maxlength="200" placeholder="Text / keyword(s)"
+                class="form-control" />
+            <input type="text" name="rag_request" value="{{ rag_request }}" maxlength="200" placeholder="Search request"
+                class="form-control" />
+            <button type="submit" class="btn btn-success">{% bootstrap_icon "search" %}</button>
+        </div>
+    </form>
+    {% if query and total_count %}
+    <small class="ms-2">Ranked {{ total_count }} report{{ total_count|pluralize }}.</small>
+    {% endif %}
+</div>
+<div>
+    {% if query %}
+    {% for report in reports %}
+    {% include "ragsearch/_result_report.html" %}
+    {% empty %}
+    <div class="alert alert-light" role="alert">No results found</div>
+    {% endfor %}
+    {% else %}
+    <div class="alert alert-light" role="alert">TODO: Help</div>
+    {% endif %}
+</div>
+{% include "core/_pagination.html" %}
+{% endblock content %}
