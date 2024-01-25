@@ -4,7 +4,10 @@
     <h4 class="mb-3">Notes</h4>
 {% endblock heading %}
 {% block content %}
-    <div class="mb-3">{% crispy filter.form %}</div>
+    <div class="d-flex justify-content-between mb-2">
+        <div>{% crispy filter.form %}</div>
+        <div>{% crispy page_size_select %}</div>
+    </div>
     {% for note in notes %}
         {% include "notes/_note_list_item.html" %}
     {% empty %}

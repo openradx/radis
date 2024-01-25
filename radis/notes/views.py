@@ -21,6 +21,7 @@ class NoteListView(LoginRequiredMixin, PageSizeSelectMixin, FilterView):
     context_object_name = "notes"
     filterset_class = NoteFilter
     paginate_by = 10
+    page_sizes = [10, 25, 50]
     request: AuthenticatedHttpRequest
 
     def get_queryset(self) -> QuerySet[Note]:
