@@ -11,9 +11,8 @@ from django.shortcuts import get_object_or_404, render
 from django.urls import reverse_lazy
 from django.views.generic import CreateView, DeleteView, ListView, UpdateView, View
 from django.views.generic.detail import SingleObjectMixin
-from django_filters.views import FilterView
 from django_htmx.http import HttpResponseClientRefresh, trigger_client_event
-from django_tables2 import SingleTableMixin
+from django_tables2 import SingleTableView
 
 from radis.core.mixins import PageSizeSelectMixin
 from radis.core.types import AuthenticatedHttpRequest
@@ -31,11 +30,12 @@ class AnnotatedCollection(Protocol):
     has_report: bool
 
 
-class CollectionListView(LoginRequiredMixin, SingleTableMixin, PageSizeSelectMixin, FilterView):
+class CollectionListView(LoginRequiredMixin, SingleTableView):
     request: AuthenticatedHttpRequest
     model = Collection
     table_class = CollectionTable
     filterset_class = CollectionFilter
+    paginate_by = 30
 
     def get_template_names(self) -> list[str]:
         if self.request.htmx:
