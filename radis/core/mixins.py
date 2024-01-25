@@ -117,6 +117,7 @@ class RelatedFilterMixin(FilterMixin):
 
 class PageSizeSelectMixinProtocol(ViewProtocol, Protocol):
     paginate_by: int
+    page_sizes: list[int]
 
 
 class PageSizeSelectMixin:
@@ -141,5 +142,6 @@ class PageSizeSelectMixin:
 
     def get_context_data(self: PageSizeSelectMixinProtocol, **kwargs):
         context = super().get_context_data(**kwargs)
-        context["page_size_select"] = PageSizeSelectForm(self.request.GET, [50, 100, 250, 500])
+        pages_sizes = [50, 100, 250, 500] if not self.page_sizes else self.page_sizes
+        context["page_size_select"] = PageSizeSelectForm(self.request.GET, pages_sizes)
         return context
