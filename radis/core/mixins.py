@@ -142,6 +142,9 @@ class PageSizeSelectMixin:
 
     def get_context_data(self: PageSizeSelectMixinProtocol, **kwargs):
         context = super().get_context_data(**kwargs)
-        pages_sizes = [50, 100, 250, 500] if not self.page_sizes else self.page_sizes
-        context["page_size_select"] = PageSizeSelectForm(self.request.GET, pages_sizes)
+
+        if self.page_sizes is None:
+            self.page_sizes = [50, 100, 250, 500]
+        context["page_size_select"] = PageSizeSelectForm(self.request.GET, self.page_sizes)
+
         return context
