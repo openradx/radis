@@ -12,9 +12,9 @@ def convert_institutes_to_groups(apps: AppConfig, schema_editor):
     for group in Group.objects.all():
         group.delete()
 
-    for institute in Institute.objects.all():
+    for institute in Institute.objects.all():  # type: ignore
         group = Group.objects.create(name=institute.name)
-        for user in institute.users.all():
+        for user in institute.uses.all():
             group.user_set.add(user)
             if not user.active_group:
                 user.active_group = group

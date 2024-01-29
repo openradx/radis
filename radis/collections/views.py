@@ -93,7 +93,7 @@ class CollectionUpdateView(LoginRequiredMixin, UpdateView):
         return HttpResponseClientRefresh()
 
 
-class CollectionDeleteView(LoginRequiredMixin, SuccessMessageMixin, DeleteView):
+class CollectionDeleteView(LoginRequiredMixin, SuccessMessageMixin, DeleteView):  # type: ignore
     model = Collection
     success_url = reverse_lazy("collection_list")
     success_message = "Collection successfully deleted"
@@ -102,7 +102,7 @@ class CollectionDeleteView(LoginRequiredMixin, SuccessMessageMixin, DeleteView):
         return super().get_queryset().filter(owner=self.request.user)
 
 
-class CollectionDetailView(
+class CollectionDetailView(  # type: ignore
     LoginRequiredMixin,
     PageSizeSelectMixin,
     SingleObjectMixin,

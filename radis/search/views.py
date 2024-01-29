@@ -1,3 +1,5 @@
+from typing import Any
+
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import BadRequest
 from django.core.paginator import Paginator
@@ -22,7 +24,7 @@ class SearchView(LoginRequiredMixin, View):
         page_size: int = serializer.validated_data["per_page"]
         offset = (page_number - 1) * page_size
 
-        context = {}
+        context: dict[str, Any] = {}
         if query:
             result = ReportQuery.query_reports(query, offset, page_size)
             total_count = result.total_count

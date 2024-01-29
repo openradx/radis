@@ -198,13 +198,13 @@ def format(ctx: Context):
 
 @task
 def lint(ctx: Context):
-    """Lint the source code (ruff, djlint, pyright)"""
+    """Lint the source code (ruff, djlint, mypy)"""
     cmd_ruff = "poetry run ruff ."
     run_cmd(ctx, cmd_ruff)
     cmd_djlint = "poetry run djlint . --lint"
     run_cmd(ctx, cmd_djlint)
-    cmd_pyright = "poetry run pyright"
-    run_cmd(ctx, cmd_pyright)
+    cmd_mypy = "poetry run mypy ./radis"
+    run_cmd(ctx, cmd_mypy)
 
 
 @task

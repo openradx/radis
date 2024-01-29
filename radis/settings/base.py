@@ -297,7 +297,7 @@ CELERY_BROKER_URL = REDIS_URL
 CELERY_WORKER_HIJACK_ROOT_LOGGER = False
 CELERY_IGNORE_RESULT = True
 CELERY_TASK_DEFAULT_QUEUE = "default_queue"
-CELERY_BEAT_SCHEDULE = {}
+CELERY_BEAT_SCHEDULE = {}  # type: ignore
 
 # Flower is integrated in RADIS by using a reverse proxy (django-revproxy).
 # This allows to use the authentication of RADIS.
