@@ -1,0 +1,26 @@
+version: "3.8"
+
+services:
+  vllm:
+    build: ../vllm
+    environment:
+      BACKED_URL: "http://vllm:8000/v1"
+      OPENAI_API_KEY: "EMPTY"
+      MODEL_CACHE_DIR: "/model_cache"
+      VLLM_ENTRYPOINT: "vllm.entrypoints.openai.api_server"
+      LLM_MODEL: "mistralai/Mistral-7B-Instruct-v0.2"
+      VLLM_CMD_LINE_OPTS:
+      VLLM_PORT: "8901"
+    ports:
+      - "8901:8901"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              capabilities: [ gpu ]
+    volumes:
+      - vllm_model_cache:/model_cache
+
+volumes:
+  vllm_model_cache:

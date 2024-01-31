@@ -22,6 +22,7 @@ compose_dir = project_dir / "compose"
 compose_file_base = compose_dir / "docker-compose.base.yml"
 compose_file_dev = compose_dir / "docker-compose.dev.yml"
 compose_file_prod = compose_dir / "docker-compose.prod.yml"
+compose_file_gpu = compose_dir / "docker-compose.gpu.yml"
 
 ###
 # Helper functions
@@ -37,8 +38,10 @@ def get_stack_name(env: Environments):
         raise ValueError(f"Unknown environment: {env}")
 
 
-def build_compose_cmd(env: Environments):
+def build_compose_cmd(env: Environments, gpu: bool = False):
     base_compose_cmd = f"docker compose -f '{compose_file_base}'"
+    if gpu:
+        base_compose_cmd += f" -f '{compose_file_gpu}'"
     stack_name = get_stack_name(env)
     if env == "dev":
         return f"{base_compose_cmd} -f '{compose_file_dev}' -p {stack_name}"
@@ -99,11 +102,12 @@ def compose_up(
     ctx: Context,
     env: Environments = "dev",
     no_build: bool = False,
+    gpu: bool = False,
     profile: Literal["full", "web", "extra", "db"] = "full",
 ):
     """Start RADIS containers in specified environment"""
     build_opt = "--no-build" if no_build else "--build"
-    cmd = f"{build_compose_cmd(env)} --profile {profile} up {build_opt} --detach"
+    cmd = f"{build_compose_cmd(env, gpu)} --profile {profile} up {build_opt} --detach"
     run_cmd(ctx, cmd)
 
 
@@ -113,9 +117,10 @@ def compose_down(
     env: Environments = "dev",
     profile: Literal["full", "web", "extra", "db"] = "full",
     cleanup: bool = False,
+    gpu: bool = False,
 ):
     """Stop RADIS containers in specified environment"""
-    cmd = f"{build_compose_cmd(env)} --profile {profile} down"
+    cmd = f"{build_compose_cmd(env, gpu)} --profile {profile} down"
     if cleanup:
         cmd += " --remove-orphans --volumes"
     run_cmd(ctx, cmd)
