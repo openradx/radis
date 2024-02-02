@@ -1,7 +1,6 @@
 version: "3.8"
 
-x-app:
-  &default-app
+x-app: &default-app
   volumes:
     - /mnt:/mnt
   depends_on:
@@ -29,14 +28,14 @@ services:
       - radis_data:/var/www/radis
 
   postgres:
-    image: postgres:13.13
+    image: postgres:15.5
     expose:
       - "5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
   vespa:
-    image: vespaengine/vespa
+    image: vespaengine/vespa:8
     healthcheck:
       test: curl http://localhost:19071/state/v1/health
       timeout: 10s
@@ -66,7 +65,7 @@ services:
       "
 
   redis:
-    image: redis:7.2.3
+    image: redis:7.2
     expose:
       - "6379"
     volumes:
