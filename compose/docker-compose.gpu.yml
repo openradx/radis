@@ -1,16 +1,20 @@
 version: "3.8"
 
-services:
-  vllm:
-    build: ../vllm
-    environment:
-      BACKED_URL: "http://vllm:8000/v1"
+x-app:
+  &default-app
+  environment:
+      BACKEND_URL: "http://vllm:8901/v1"
       OPENAI_API_KEY: "EMPTY"
       MODEL_CACHE_DIR: "/model_cache"
       VLLM_ENTRYPOINT: "vllm.entrypoints.openai.api_server"
       LLM_MODEL: "mistralai/Mistral-7B-Instruct-v0.2"
       VLLM_CMD_LINE_OPTS:
       VLLM_PORT: "8901"
+
+services:
+  vllm:
+    <<: *default-app
+    build: ../vllm
     ports:
       - "8901:8901"
     deploy:
@@ -21,6 +25,15 @@ services:
               capabilities: [ gpu ]
     volumes:
       - vllm_model_cache:/model_cache
+  
+  web:
+    <<: *default-app
+  
+  worker_default:
+    <<: *default-app
+
+  celery_beat:
+    <<: *default-app
 
 volumes:
   vllm_model_cache:
