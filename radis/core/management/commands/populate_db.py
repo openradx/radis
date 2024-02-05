@@ -34,7 +34,7 @@ def feed_report(body: str):
     report = ReportFactory.create(body=body)
     groups = fake.random_elements(elements=list(Group.objects.all()), unique=True)
     report.groups.set(groups)
-    ReportDocument.from_report_model(report).create()
+    ReportDocument(report).create()
 
 
 def feed_reports():

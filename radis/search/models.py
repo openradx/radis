@@ -1,7 +1,7 @@
 import logging
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from datetime import date, datetime, time
-from typing import Literal
+from typing import Any, Literal
 
 from rest_framework.status import HTTP_200_OK
 from vespa.io import VespaQueryResponse
@@ -21,73 +21,66 @@ class SearchAppSettings(AppSettings):
         verbose_name_plural = "Search app settings"
 
 
-@dataclass(kw_only=True)
 class ReportDocument:
-    document_id: str
-    groups: list[int]
-    pacs_aet: str
-    pacs_name: str
-    patient_birth_date: date
-    patient_sex: Literal["F", "M", "U"]
-    study_description: str
-    study_datetime: datetime
-    modalities_in_study: list[str]
-    references: list[str]
-    body: str
+    def __init__(self, report: Report) -> None:
+        self.report = report
 
-    @staticmethod
-    def from_report_model(report: Report):
-        assert report.patient_sex in ("M", "F", "U")
+    def _dictify_for_vespa(self) -> dict[str, Any]:
+        """Dictify the report for Vespa.
 
-        return ReportDocument(
-            document_id=report.document_id,
-            groups=[group.id for group in report.groups.all()],
-            pacs_aet=report.pacs_aet,
-            pacs_name=report.pacs_name,
-            patient_birth_date=report.patient_birth_date,
-            patient_sex=report.patient_sex,
-            study_description=report.study_description,
-            study_datetime=report.study_datetime,
-            modalities_in_study=report.modalities_in_study,
-            references=report.references,
-            body=report.body.strip(),
+        Must be in the same format as schema in vespa_app.py
+        """
+        # Vespa can't store dates and datetimes natively, so we store them as a number.
+        patient_birth_date = int(
+            datetime.combine(self.report.patient_birth_date, time()).timestamp()
         )
+        study_datetime = int(self.report.study_datetime.timestamp())
 
-    def dictify_for_vespa(self):
-        fields = asdict(self)
+        return {
+            "groups": [group.id for group in self.report.groups.all()],
+            "pacs_aet": self.report.pacs_aet,
+            "pacs_name": self.report.pacs_name,
+            "patient_birth_date": patient_birth_date,
+            "patient_sex": self.report.patient_sex,
+            "study_description": self.report.study_description,
+            "study_datetime": study_datetime,
+            "modalities_in_study": self.report.modalities_in_study,
+            "references": self.report.references,
+            "body": self.report.body.strip(),
+        }
 
-        # Vespa can't store dates and datetimes natively, so we store them as a number,
-        # see also schema in vespa_app.py
-        fields["patient_birth_date"] = int(
-            datetime.combine(fields["patient_birth_date"], time()).timestamp()
-        )
-        fields["study_datetime"] = int(fields["study_datetime"].timestamp())
+    def fetch(self) -> dict[str, Any]:
+        response = vespa_app.get_client().get_data(REPORT_SCHEMA_NAME, self.report.document_id)
 
-        return fields
+        if response.get_status_code() != HTTP_200_OK:
+            message = response.get_json()
+            raise Exception(f"Error while fetching report from Vespa: {message}")
 
-    def create(self):
-        fields = self.dictify_for_vespa()
-        del fields["document_id"]
+        return response.get_json()
+
+    def create(self) -> None:
+        fields = self._dictify_for_vespa()
         response = vespa_app.get_client().feed_data_point(
-            REPORT_SCHEMA_NAME, self.document_id, fields
+            REPORT_SCHEMA_NAME, self.report.document_id, fields
         )
-        # TODO: improve error handling
+
         if response.get_status_code() != HTTP_200_OK:
             message = response.get_json()
             raise Exception(f"Error while feeding report to Vespa: {message}")
 
-    def update(self):
-        fields = self.dictify_for_vespa()
-        del fields["document_id"]
-        response = vespa_app.get_client().update_data("report", self.document_id, fields)
-        # TODO: improve error handling
+    def update(self) -> None:
+        fields = self._dictify_for_vespa()
+        response = vespa_app.get_client().update_data(
+            REPORT_SCHEMA_NAME, self.report.document_id, fields
+        )
+
         if response.get_status_code() != HTTP_200_OK:
             message = response.get_json()
             raise Exception(f"Error while updating report on Vespa: {message}")
 
-    def delete(self):
-        response = vespa_app.get_client().delete_data("report", self.document_id)
-        # TODO: improve error handling
+    def delete(self) -> None:
+        response = vespa_app.get_client().delete_data(REPORT_SCHEMA_NAME, self.report.document_id)
+
         if response.get_status_code() != HTTP_200_OK:
             message = response.get_json()
             raise Exception(f"Error while deleting report on Vespa: {message}")
@@ -107,7 +100,7 @@ class ReportSummary:
     body: str
 
     @staticmethod
-    def from_vespa_response(record: dict):
+    def from_vespa_response(record: dict) -> "ReportSummary":
         patient_birth_date = date.fromtimestamp(record["fields"]["patient_birth_date"])
         study_datetime = datetime.fromtimestamp(record["fields"]["study_datetime"])
 
@@ -125,7 +118,7 @@ class ReportSummary:
         )
 
     @property
-    def report_full(self):
+    def report_full(self) -> Report:
         return Report.objects.get(document_id=self.document_id)
 
 
@@ -164,8 +157,13 @@ class ReportQuery:
 def handle_report(event_type: ReportEventType, report: Report):
     # Sync reports with Vespa
     if event_type == "created":
-        ReportDocument.from_report_model(report).create()
+        ReportDocument(report).create()
     elif event_type == "updated":
-        ReportDocument.from_report_model(report).update()
+        ReportDocument(report).update()
     elif event_type == "deleted":
-        ReportDocument.from_report_model(report).delete()
+        ReportDocument(report).delete()
+
+
+def fetch_document(report: Report) -> dict[str, Any]:
+    doc = ReportDocument(report).fetch()
+    return doc

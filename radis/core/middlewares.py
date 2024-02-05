@@ -10,7 +10,7 @@ from .models import CoreSettings
 
 
 def is_html_response(response):
-    return response["Content-Type"].startswith("text/html")
+    return response.has_header("Content-Type") and response["Content-Type"].startswith("text/html")
 
 
 class MaintenanceMiddleware:
