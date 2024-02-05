@@ -378,17 +378,6 @@ def purge_celery(
 
 
 @task
-def publish_client(ctx: Context):
-    """Publish RADIS Client to PyPI
-
-    - Make sure PyPI API token is set: poetry config pypi-token.pypi your-api-token
-    - Set version in radis_client/pyproject.toml
-    """
-    with ctx.cd("radis_client"):
-        run_cmd(ctx, "poetry publish --build")
-
-
-@task
 def backup_db(ctx: Context, env: Environments = "prod"):
     """Backup database
 
