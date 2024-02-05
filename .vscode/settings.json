@@ -1,42 +1,52 @@
 {
+  "cSpell.diagnosticLevel": "Hint",
+  "docker.containers.label": "ContainerName",
   "editor.formatOnSave": true,
+  "javascript.validate.enable": true,
+  "js/ts.implicitProjectConfig.checkJs": true,
   "python.analysis.typeCheckingMode": "off",
   "python.defaultInterpreterPath": "${workspaceFolder}/.venv/bin/python",
-  "python.testing.pytestEnabled": true,
   "python.testing.pytestArgs": ["radis"],
+  "python.testing.pytestEnabled": true,
   "python.testing.unittestEnabled": false,
-  "docker.containers.label": "ContainerName",
-  "javascript.validate.enable": true,
-  "cSpell.diagnosticLevel": "Hint",
+  "[css]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  "[javascript]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  "[json]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  "[jsonc]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  "[dockercompose]": {
+    "editor.defaultFormatter": "ms-azuretools.vscode-docker"
+  },
+  "[dockerfile]": {
+    "editor.defaultFormatter": "ms-azuretools.vscode-docker"
+  },
+  "[html][django-html]": {
+    "editor.defaultFormatter": "monosans.djlint"
+  },
+  "[markdown]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
   "[python]": {
     "editor.defaultFormatter": "ms-python.black-formatter",
     "editor.codeActionsOnSave": {
       "source.organizeImports": "explicit"
     }
   },
+  "[toml]": {
+    "editor.defaultFormatter": "tamasfe.even-better-toml"
+  },
   "[typescript]": {
     "editor.defaultFormatter": "esbenp.prettier-vscode"
   },
-  "[javascript]": {
+  "[yaml]": {
     "editor.defaultFormatter": "esbenp.prettier-vscode"
-  },
-  "[jsonc]": {
-    "editor.defaultFormatter": "esbenp.prettier-vscode"
-  },
-  "[json]": {
-    "editor.defaultFormatter": "esbenp.prettier-vscode"
-  },
-  "[markdown]": {
-    "editor.defaultFormatter": "esbenp.prettier-vscode"
-  },
-  "[dockerfile]": {
-    "editor.defaultFormatter": "ms-azuretools.vscode-docker"
-  },
-  "[dockercompose]": {
-    "editor.defaultFormatter": "ms-azuretools.vscode-docker"
-  },
-  "[html][django-html]": {
-    "editor.defaultFormatter": "monosans.djlint"
   },
   "auto-close-tag.activationOnLanguage": [
     "django-html",
@@ -59,6 +69,5 @@
     "HTML (EEx)",
     "HTML (Eex)",
     "plist"
-  ],
-  "js/ts.implicitProjectConfig.checkJs": true
+  ]
 }
