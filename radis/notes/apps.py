@@ -1,9 +1,6 @@
 from django.apps import AppConfig
 from django.db.models.signals import post_migrate
 
-from radis.core.site import register_main_menu_item
-from radis.reports.site import register_report_panel_button
-
 
 class NotesConfig(AppConfig):
     name = "radis.notes"
@@ -16,6 +13,9 @@ class NotesConfig(AppConfig):
 
 
 def register_app():
+    from radis.core.site import register_main_menu_item
+    from radis.reports.site import register_report_panel_button
+
     register_main_menu_item(
         url_name="note_list",
         label="Notes",

@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from radis.reports.models import Report
+from ..models import Report
 
 
 class ReportSerializer(serializers.ModelSerializer):

@@ -7,10 +7,9 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
 
-from radis.reports.models import Report
-
+from ..models import Report
+from ..site import document_fetchers, report_event_handlers
 from .serializers import ReportSerializer
-from .site import document_fetchers, report_event_handlers
 
 
 class ReportViewSet(

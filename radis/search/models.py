@@ -6,9 +6,9 @@ from typing import Any, Literal
 from rest_framework.status import HTTP_200_OK
 from vespa.io import VespaQueryResponse
 
-from radis.api.site import ReportEventType
 from radis.core.models import AppSettings
 from radis.reports.models import Report
+from radis.reports.site import ReportEventType
 
 from .utils.search_utils import extract_document_id
 from .vespa_app import REPORT_SCHEMA_NAME, vespa_app

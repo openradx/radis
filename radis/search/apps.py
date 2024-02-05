@@ -1,8 +1,6 @@
 from django.apps import AppConfig
 from django.db.models.signals import post_migrate
 
-from radis.core.site import register_main_menu_item
-
 
 class SearchConfig(AppConfig):
     name = "radis.search"
@@ -15,7 +13,8 @@ class SearchConfig(AppConfig):
 
 
 def register_app():
-    from radis.api.site import register_document_fetcher, register_report_handler
+    from radis.core.site import register_main_menu_item
+    from radis.reports.site import register_document_fetcher, register_report_handler
 
     from .models import fetch_document, handle_report
 
