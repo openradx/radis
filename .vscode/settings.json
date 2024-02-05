@@ -4,6 +4,11 @@
   "editor.formatOnSave": true,
   "javascript.validate.enable": true,
   "js/ts.implicitProjectConfig.checkJs": true,
+  "notebook.formatOnSave.enabled": true,
+  "notebook.codeActionsOnSave": {
+    "notebook.source.fixAll": true,
+    "notebook.source.organizeImports": true
+  },
   "python.analysis.typeCheckingMode": "off",
   "python.defaultInterpreterPath": "${workspaceFolder}/.venv/bin/python",
   "python.testing.pytestArgs": ["radis"],
@@ -34,10 +39,11 @@
     "editor.defaultFormatter": "esbenp.prettier-vscode"
   },
   "[python]": {
-    "editor.defaultFormatter": "ms-python.black-formatter",
     "editor.codeActionsOnSave": {
-      "source.organizeImports": "explicit"
-    }
+      "source.fixAll": "always",
+      "source.organizeImports": "always"
+    },
+    "editor.defaultFormatter": "charliermarsh.ruff"
   },
   "[toml]": {
     "editor.defaultFormatter": "tamasfe.even-better-toml"
