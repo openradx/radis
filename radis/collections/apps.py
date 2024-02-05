@@ -2,6 +2,7 @@ from django.apps import AppConfig
 from django.db.models.signals import post_migrate
 
 from radis.core.site import register_main_menu_item
+from radis.reports.site import register_report_panel_button
 
 
 class CollectionsConfig(AppConfig):
@@ -19,6 +20,8 @@ def register_app():
         url_name="collection_list",
         label="Collections",
     )
+
+    register_report_panel_button(1, "collections/_collection_select_button.html")
 
 
 def init_db(**kwargs):

@@ -12,8 +12,10 @@
             {% bootstrap_icon "eye" %}
             Preview
         </button>
-        {% include "collections/_collection_select_button.html" %}
-        {% include "notes/_note_edit_button.html" %}
+        {# Additional buttons that can be registered by other apps #}
+        {% for button in report_panel_buttons %}
+            {% include button.template_name %}
+        {% endfor %}
     </div>
     {% include "reports/_references.html" %}
 </div>

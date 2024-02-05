@@ -2,6 +2,7 @@ from django.apps import AppConfig
 from django.db.models.signals import post_migrate
 
 from radis.core.site import register_main_menu_item
+from radis.reports.site import register_report_panel_button
 
 
 class NotesConfig(AppConfig):
@@ -19,6 +20,8 @@ def register_app():
         url_name="note_list",
         label="Notes",
     )
+
+    register_report_panel_button(2, "notes/_note_edit_button.html")
 
 
 def init_db(**kwargs):
