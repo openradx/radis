@@ -15,8 +15,9 @@
                        margin-left: -40px;
                        padding: 0;
                        z-index: 100">{% bootstrap_icon "x" 20 %}</button>
-        <select hx-get=""
+        <select hx-get="{% url "search_help" %}"
                 hx-trigger="change"
+                hx-target="#search-panel"
                 name="algorithm"
                 class="form-select"
                 style="max-width: 200px"

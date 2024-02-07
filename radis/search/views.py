@@ -1,11 +1,12 @@
 from typing import Any
 
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.core.exceptions import BadRequest
+from django.core.exceptions import BadRequest, ValidationError
 from django.core.paginator import Paginator
 from django.shortcuts import render
 from django.views import View
 
+from radis.core.mixins import HtmxOnlyMixin
 from radis.core.types import AuthenticatedRequest
 
 from .serializers import SearchParamsSerializer
@@ -58,3 +59,21 @@ class SearchView(LoginRequiredMixin, View):
             context["documents"] = result.documents
 
         return render(request, "search/search.html", context)
+
+
+class HelpView(LoginRequiredMixin, HtmxOnlyMixin, View):
+    def get(self, request: AuthenticatedRequest, *args, **kwargs):
+        algorithm = request.GET.get("algorithm", "")
+        search_handler = search_handlers.get(algorithm)
+
+        if not search_handler:
+            raise ValidationError(f"Invalid search algorithm: {algorithm}")
+
+        return render(
+            request,
+            "search/_search_help.html",
+            {
+                "selected_algorithm": algorithm,
+                "help_template_name": search_handler.template_name,
+            },
+        )

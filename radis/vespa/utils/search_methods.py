@@ -20,3 +20,11 @@ def search_bm25(query: str, offset: int, page_size: int) -> SearchResult:
         coverage=response.json["root"]["coverage"]["coverage"],
         documents=[document_from_vespa_response(hit) for hit in response.hits],
     )
+
+
+def search_hybrid(query: str, offset: int, page_size: int) -> SearchResult:
+    return SearchResult(
+        total_count=0,
+        coverage=0,
+        documents=[],
+    )

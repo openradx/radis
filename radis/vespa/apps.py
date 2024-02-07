@@ -26,7 +26,7 @@ def register_app():
         fetch_document,
         update_document,
     )
-    from .utils.search_methods import search_bm25
+    from .utils.search_methods import search_bm25, search_hybrid
 
     def handle_report(event_type: ReportEventType, report: Report):
         # Sync reports with Vespa
@@ -48,3 +48,8 @@ def register_app():
         return search_bm25(search.query, search.offset, search.page_size)
 
     register_search_handler("Vespa BM25", search_vespa_bm25, "vespa/_bm25_help.html")
+
+    def search_vespa_hybrid(search: Search) -> SearchResult:
+        return search_hybrid(search.query, search.offset, search.page_size)
+
+    register_search_handler("Vespa Hybrid", search_vespa_hybrid, "vespa/_hybrid_help.html")

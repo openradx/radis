@@ -22,7 +22,7 @@ search_handlers: dict[str, SearchHandler] = {}
 
 
 def register_search_handler(
-    name: str,
+    name: str,  # TODO: may rename to algorithm
     searcher: Searcher,
     template_name: str,
 ) -> None:
