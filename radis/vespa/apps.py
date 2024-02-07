@@ -19,22 +19,21 @@ def register_app():
     )
     from radis.search.models import SearchResult
     from radis.search.site import Search, register_search_handler
-    from radis.vespa.utils.vespa_utils import (
+
+    from .utils.document_utils import (
         create_document,
         delete_document,
         fetch_document,
-        search_bm25,
         update_document,
     )
-
-    from .utils.vespa_utils import dictify_report_for_vespa
+    from .utils.search_methods import search_bm25
 
     def handle_report(event_type: ReportEventType, report: Report):
         # Sync reports with Vespa
         if event_type == "created":
-            create_document(report.document_id, dictify_report_for_vespa(report))
+            create_document(report.document_id, report)
         elif event_type == "updated":
-            update_document(report.document_id, dictify_report_for_vespa(report))
+            update_document(report.document_id, report)
         elif event_type == "deleted":
             delete_document(report.document_id)
 

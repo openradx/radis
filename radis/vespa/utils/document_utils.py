@@ -2,12 +2,12 @@ from datetime import date, datetime, time
 from typing import Any
 
 from radis.reports.models import Report
-from radis.search.models import ReportDocument, SearchResult
+from radis.search.models import ReportDocument
 
 from ..vespa_app import REPORT_SCHEMA_NAME, vespa_app
 
 
-def dictify_report_for_vespa(report: Report) -> dict[str, Any]:
+def _dictify_report_for_vespa(report: Report) -> dict[str, Any]:
     """Dictify the report for Vespa.
 
     Must be in the same format as schema in vespa_app.py
@@ -40,7 +40,8 @@ def fetch_document(document_id: str) -> dict[str, Any]:
     return response.get_json()
 
 
-def create_document(document_id: str, fields: dict[str, Any]) -> None:
+def create_document(document_id: str, report: Report) -> None:
+    fields = _dictify_report_for_vespa(report)
     response = vespa_app.get_client().feed_data_point(REPORT_SCHEMA_NAME, document_id, fields)
 
     if response.get_status_code() != 200:
@@ -48,7 +49,8 @@ def create_document(document_id: str, fields: dict[str, Any]) -> None:
         raise Exception(f"Error while feeding document to Vespa: {message}")
 
 
-def update_document(document_id: str, fields: dict[str, Any]) -> None:
+def update_document(document_id: str, report: Report) -> None:
+    fields = _dictify_report_for_vespa(report)
     response = vespa_app.get_client().update_data(REPORT_SCHEMA_NAME, document_id, fields)
 
     if response.get_status_code() != 200:
@@ -80,23 +82,4 @@ def document_from_vespa_response(record: dict[str, Any]) -> ReportDocument:
         modalities_in_study=record["fields"].get("modalities_in_study", []),
         references=record["fields"].get("references", []),
         body=record["fields"]["body"],
-    )
-
-
-def search_bm25(query: str, offset: int, page_size: int) -> SearchResult:
-    client = vespa_app.get_client()
-    response = client.query(
-        {
-            "yql": "select * from report where userQuery()",
-            "query": query,
-            "type": "web",
-            "hits": page_size,
-            "offset": offset,
-        }
-    )
-
-    return SearchResult(
-        total_count=response.json["root"]["fields"]["totalCount"],
-        coverage=response.json["root"]["coverage"]["coverage"],
-        documents=[document_from_vespa_response(hit) for hit in response.hits],
     )
