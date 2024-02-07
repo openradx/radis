@@ -1,0 +1,33 @@
+{% load bootstrap_icon from core_extras %}
+<form method="get">
+    <div class="input-group">
+        <span class="input-group-text">Search</span>
+        <input type="text"
+               name="query"
+               value="{{ query }}"
+               maxlength="200"
+               placeholder="Type in your search query and press enter"
+               class="form-control" />
+        <button type="button"
+                onclick="location.href='{% url 'search' %}?algorithm={{ request.GET.algorithm }}'"
+                class="btn bg-transparent"
+                style="width: 40px;
+                       margin-left: -40px;
+                       padding: 0;
+                       z-index: 100">{% bootstrap_icon "x" 20 %}</button>
+        <select hx-get=""
+                hx-trigger="change"
+                name="algorithm"
+                class="form-select"
+                style="max-width: 200px"
+                aria-label="Select search algorithm">
+            {% for available_algorithm in available_algorithms %}
+                <option value="{{ available_algorithm }}"
+                        {% if available_algorithm == selected_algorithm %}selected{% endif %}>
+                    {{ available_algorithm }}
+                </option>
+            {% endfor %}
+        </select>
+        <button type="submit" class="btn btn-success">{% bootstrap_icon "search" 20 %}</button>
+    </div>
+</form>

@@ -1,37 +1,22 @@
 {% extends "search/search_layout.html" %}
 {% load static from static %}
-{% load crispy from crispy_forms_tags %}
 {% load bootstrap_icon from core_extras %}
 {% block heading %}
-    <h4 class="mb-3">Search reports</h4>
+    <h4 class="mb-3">Search Reports</h4>
 {% endblock heading %}
 {% block content %}
-    <div class="d-flex flex-column mb-3">
-        <form method="get">
-            <div class="input-group">
-                <input type="text"
-                       name="query"
-                       value="{{ query }}"
-                       maxlength="200"
-                       placeholder="Search"
-                       class="form-control" />
-                <button type="submit" class="btn btn-success">{% bootstrap_icon "search" %}</button>
-            </div>
-        </form>
-        {% if query and total_count %}
-            <small class="ms-2">Ranked {{ total_count }} report{{ total_count|pluralize }}.</small>
-        {% endif %}
-    </div>
-    <div>
+    {% include "search/_search_form.html" %}
+    {% if not selected_algorithm %}
+        <div class="alert alert-danger d-flex align-items-center mt-3"
+             role="alert">
+            {% bootstrap_icon "exclamation-triangle-fill" %}
+            <div class="ms-2">Setup of RADIS is incomplete. No search algorithms are registered.</div>
+        </div>
+    {% else %}
         {% if query %}
-            {% for report in reports %}
-                {% include "search/_result_report.html" %}
-            {% empty %}
-                <div class="alert alert-light" role="alert">No results found</div>
-            {% endfor %}
+            {% include "search/_search_results.html" %}
         {% else %}
-            <div class="alert alert-light" role="alert">TODO: Help</div>
+            <div class="mt-3">{% include help_template_name %}</div>
         {% endif %}
-    </div>
-    {% include "core/_pagination.html" %}
+    {% endif %}
 {% endblock content %}

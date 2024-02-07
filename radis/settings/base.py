@@ -68,6 +68,7 @@ INSTALLED_APPS = [
     "radis.search.apps.SearchConfig",
     "radis.collections.apps.CollectionsConfig",
     "radis.notes.apps.NotesConfig",
+    "radis.vespa.apps.VespaConfig",
     "channels",
 ]
 

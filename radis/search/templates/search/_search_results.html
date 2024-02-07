@@ -1,0 +1,11 @@
+<div class="d-flex flex-column">
+    <div class="mb-3">
+        {% if total_count %}<small class="ms-2">Ranked {{ total_count }} report{{ total_count|pluralize }}.</small>{% endif %}
+    </div>
+    {% for document in documents %}
+        {% include "search/_result_document.html" %}
+    {% empty %}
+        <div class="alert alert-light" role="alert">No results found</div>
+    {% endfor %}
+    {% include "core/_pagination.html" %}
+</div>

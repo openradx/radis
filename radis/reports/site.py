@@ -28,7 +28,7 @@ class DocumentFetcher(NamedTuple):
     fetch: FetchDocument
 
 
-document_fetchers: list[DocumentFetcher] = []
+document_fetchers: dict[str, DocumentFetcher] = {}
 
 
 def register_document_fetcher(source: str, fetch: FetchDocument) -> None:
@@ -38,7 +38,7 @@ def register_document_fetcher(source: str, fetch: FetchDocument) -> None:
     database and returns a document in the form of a dictionary from another
     database (like Vespa).
     """
-    document_fetchers.append(DocumentFetcher(source, fetch))
+    document_fetchers[source] = DocumentFetcher(source, fetch)
 
 
 class ReportPanelButton(NamedTuple):

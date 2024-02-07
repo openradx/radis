@@ -2,8 +2,8 @@
     <div class="card-body">
         <div class="d-flex flex-column gap-1">
             {% include "search/_result_header.html" with counter=forloop.counter %}
-            <div class="text-summary">{{ report.body|safe }}</div>
-            {% include "reports/_report_buttons_panel.html" with report=report.report_full %}
+            <div class="text-summary">{{ document.body|safe }}</div>
+            {% include "reports/_report_buttons_panel.html" with report=document.full_report %}
         </div>
     </div>
 </div>

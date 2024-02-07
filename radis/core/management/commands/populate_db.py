@@ -4,15 +4,14 @@ from pathlib import Path
 
 from django.conf import settings
 from django.contrib.auth.models import Group, Permission
-from django.core.management import call_command
-from django.core.management.base import BaseCommand, CommandParser
+from django.core.management.base import BaseCommand
 from faker import Faker
 
 from radis.accounts.factories import AdminUserFactory, GroupFactory, UserFactory
 from radis.accounts.models import User
 from radis.reports.factories import ReportFactory
-from radis.search.models import ReportDocument
-from radis.search.vespa_app import vespa_app
+from radis.reports.models import Report
+from radis.reports.site import report_event_handlers
 from radis.token_authentication.factories import TokenFactory
 from radis.token_authentication.models import FRACTION_LENGTH
 from radis.token_authentication.utils.crypto import hash_token
@@ -34,7 +33,8 @@ def feed_report(body: str):
     report = ReportFactory.create(body=body)
     groups = fake.random_elements(elements=list(Group.objects.all()), unique=True)
     report.groups.set(groups)
-    ReportDocument(report).create()
+    for handler in report_event_handlers:
+        handler("created", report)
 
 
 def feed_reports():
@@ -107,16 +107,7 @@ def create_groups(users: list[User]) -> list[Group]:
 class Command(BaseCommand):
     help = "Populates the database with example data."
 
-    def add_arguments(self, parser: CommandParser) -> None:
-        parser.add_argument("--reset", action="store_true")
-
     def handle(self, *args, **options):
-        if options["reset"]:
-            # Can only be done when dev server is not running and needs django_extensions installed
-            call_command("reset_db", "--noinput")
-            call_command("migrate")
-            vespa_app.get_client().delete_all_docs("radis_content", "report")
-
         if User.objects.count() > 0:
             print("Development database already populated. Skipping.")
         else:
@@ -124,11 +115,8 @@ class Command(BaseCommand):
             users = create_users()
             create_groups(users)
 
-        results = vespa_app.get_client().query(
-            {"yql": "select * from sources * where true", "hits": 1}
-        )
-        if results.number_documents_retrieved > 0:
-            print("Vespa already populated. Skipping.")
+        if Report.objects.first():
+            print("Reports already populated. Skipping.")
         else:
-            print("Populating Vespa with example reports.")
+            print("Populating database with example reports.")
             feed_reports()

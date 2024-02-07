@@ -37,7 +37,7 @@ class ReportViewSet(
         instance: Report = self.get_object()
 
         extra = {}
-        for fetcher in document_fetchers:
+        for fetcher in document_fetchers.values():
             document = fetcher.fetch(instance)
             if document:
                 extra[fetcher.source] = document

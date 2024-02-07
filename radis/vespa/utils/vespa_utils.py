@@ -1,0 +1,102 @@
+from datetime import date, datetime, time
+from typing import Any
+
+from radis.reports.models import Report
+from radis.search.models import ReportDocument, SearchResult
+
+from ..vespa_app import REPORT_SCHEMA_NAME, vespa_app
+
+
+def dictify_report_for_vespa(report: Report) -> dict[str, Any]:
+    """Dictify the report for Vespa.
+
+    Must be in the same format as schema in vespa_app.py
+    """
+    # Vespa can't store dates and datetimes natively, so we store them as a number.
+    patient_birth_date = int(datetime.combine(report.patient_birth_date, time()).timestamp())
+    study_datetime = int(report.study_datetime.timestamp())
+
+    return {
+        "groups": [group.id for group in report.groups.all()],
+        "pacs_aet": report.pacs_aet,
+        "pacs_name": report.pacs_name,
+        "patient_birth_date": patient_birth_date,
+        "patient_sex": report.patient_sex,
+        "study_description": report.study_description,
+        "study_datetime": study_datetime,
+        "modalities_in_study": report.modalities_in_study,
+        "references": report.references,
+        "body": report.body.strip(),
+    }
+
+
+def fetch_document(document_id: str) -> dict[str, Any]:
+    response = vespa_app.get_client().get_data(REPORT_SCHEMA_NAME, document_id)
+
+    if response.get_status_code() != 200:
+        message = response.get_json()
+        raise Exception(f"Error while fetching document from Vespa: {message}")
+
+    return response.get_json()
+
+
+def create_document(document_id: str, fields: dict[str, Any]) -> None:
+    response = vespa_app.get_client().feed_data_point(REPORT_SCHEMA_NAME, document_id, fields)
+
+    if response.get_status_code() != 200:
+        message = response.get_json()
+        raise Exception(f"Error while feeding document to Vespa: {message}")
+
+
+def update_document(document_id: str, fields: dict[str, Any]) -> None:
+    response = vespa_app.get_client().update_data(REPORT_SCHEMA_NAME, document_id, fields)
+
+    if response.get_status_code() != 200:
+        message = response.get_json()
+        raise Exception(f"Error while updating document on Vespa: {message}")
+
+
+def delete_document(document_id: str) -> None:
+    response = vespa_app.get_client().delete_data(REPORT_SCHEMA_NAME, document_id)
+
+    if response.get_status_code() != 200:
+        message = response.get_json()
+        raise Exception(f"Error while deleting document on Vespa: {message}")
+
+
+def document_from_vespa_response(record: dict[str, Any]) -> ReportDocument:
+    document_id = record["id"].split(":")[-1]
+    patient_birth_date = date.fromtimestamp(record["fields"]["patient_birth_date"])
+    study_datetime = datetime.fromtimestamp(record["fields"]["study_datetime"])
+
+    return ReportDocument(
+        relevance=record["relevance"],
+        document_id=document_id,
+        pacs_name=record["fields"]["pacs_name"],
+        patient_birth_date=patient_birth_date,
+        patient_sex=record["fields"]["patient_sex"],
+        study_description=record["fields"].get("study_description", ""),
+        study_datetime=study_datetime,
+        modalities_in_study=record["fields"].get("modalities_in_study", []),
+        references=record["fields"].get("references", []),
+        body=record["fields"]["body"],
+    )
+
+
+def search_bm25(query: str, offset: int, page_size: int) -> SearchResult:
+    client = vespa_app.get_client()
+    response = client.query(
+        {
+            "yql": "select * from report where userQuery()",
+            "query": query,
+            "type": "web",
+            "hits": page_size,
+            "offset": offset,
+        }
+    )
+
+    return SearchResult(
+        total_count=response.json["root"]["fields"]["totalCount"],
+        coverage=response.json["root"]["coverage"]["coverage"],
+        documents=[document_from_vespa_response(hit) for hit in response.hits],
+    )
