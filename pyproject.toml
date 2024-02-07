@@ -81,7 +81,7 @@ pydicom = "^2.4.3"
 django-types = "^0.19.1"
 
 [tool.pyright]
-ignore = ["**/migrations"]
+ignore = ["**/migrations", "**/*.ipynb"]
 typeCheckingMode = "basic"
 reportUnnecessaryTypeIgnoreComment = true
 
