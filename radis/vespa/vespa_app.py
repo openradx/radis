@@ -80,7 +80,7 @@ def _create_report_schema():
             FieldSet(name="default", fields=["body"]),
         ],
         rank_profiles=[
-            RankProfile(name="default", first_phase="bm25(body)"),
+            RankProfile(name="bm25", first_phase="bm25(body)"),
         ],
     )
 
