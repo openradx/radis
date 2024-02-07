@@ -9,7 +9,7 @@
                placeholder="Type in your search query and press enter"
                class="form-control" />
         <button type="button"
-                onclick="location.href='{% url 'search' %}?algorithm={{ request.GET.algorithm }}'"
+                onclick="location.assign('?algorithm={{ selected_algorithm|urlencode }}')"
                 class="btn bg-transparent"
                 style="width: 40px;
                        margin-left: -40px;
