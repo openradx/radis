@@ -1,25 +1,29 @@
 {% load bootstrap_icon from core_extras %}
-<form method="get">
+<form method="get" x-data="SearchForm()">
     <div class="input-group">
         <span class="input-group-text">Search</span>
-        <input type="text"
+        <input id="query"
                name="query"
+               type="text"
                value="{{ query }}"
                maxlength="200"
                placeholder="Input your search terms and press enter"
                class="form-control" />
         <button type="button"
-                onclick="location.assign('?algorithm={{ selected_algorithm|urlencode }}')"
                 class="btn bg-transparent"
+                @click="clear()"
+                hx-get="{% url 'search_help' %}?algorithm={{ selected_algorithm }}"
+                hx-target="#search-panel"
                 style="width: 40px;
                        margin-left: -40px;
                        padding: 0;
                        z-index: 100">{% bootstrap_icon "x" 20 %}</button>
-        <select hx-get="{% url "search_help" %}"
-                hx-trigger="change"
-                hx-target="#search-panel"
-                name="algorithm"
+        {# algorithm GET parameter is added by the select itself #}
+        <select name="algorithm"
                 class="form-select"
+                hx-get="{% url 'search_help' %}"
+                hx-target="#search-panel"
+                @change="algorithmChanged"
                 style="max-width: 200px"
                 aria-label="Select search algorithm">
             {% for available_algorithm in available_algorithms %}
