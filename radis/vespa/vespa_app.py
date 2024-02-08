@@ -98,13 +98,15 @@ def _create_report_schema():
             RankProfile(name="bm25", first_phase="bm25(body)"),
             RankProfile(
                 name="semantic",
-                inputs=[("query(q)", "tensor<float>(x[384])")],
+                # TODO: fix issue with type hint https://github.com/vespa-engine/pyvespa/issues/676
+                inputs=[("query(q)", "tensor<float>(x[384])")],  # type: ignore
                 first_phase="closeness(field, embedding)",
             ),
             RankProfile(
                 name="fusion",
                 inherits="bm25",
-                inputs=[("query(q)", "tensor<float>(x[384])")],
+                # TODO: fix issue with type hint https://github.com/vespa-engine/pyvespa/issues/676
+                inputs=[("query(q)", "tensor<float>(x[384])")],  # type: ignore
                 first_phase="closeness(field, embedding)",
                 global_phase=GlobalPhaseRanking(
                     expression="reciprocal_rank_fusion(bm25(body), closeness(field, embedding))",
