@@ -5,16 +5,24 @@ from pathlib import Path
 from django.conf import settings
 from vespa.application import Vespa
 from vespa.package import (
+    HNSW,
     ApplicationPackage,
+    Component,
     Document,
     Field,
     FieldSet,
+    GlobalPhaseRanking,
+    Parameter,
     RankProfile,
     Schema,
     Summary,
 )
 
 REPORT_SCHEMA_NAME = "report"
+EMBEDDER_MODEL_URL = "https://github.com/vespa-engine/sample-apps/raw/master/\
+simple-semantic-search/model/e5-small-v2-int8.onnx"
+TOKENIZER_MODEL_URL = "https://raw.githubusercontent.com/vespa-engine/sample-apps/master/\
+simple-semantic-search/model/tokenizer.json"
 
 
 def _create_report_schema():
@@ -74,6 +82,13 @@ def _create_report_schema():
                     index="enable-bm25",
                     summary=Summary(None, None, ["dynamic"]),
                 ),
+                Field(
+                    name="embedding",
+                    type="tensor<float>(x[384])",
+                    indexing=["input body", "embed", "index", "attribute"],
+                    ann=HNSW(distance_metric="angular"),
+                    is_document_field=False,
+                ),
             ]
         ),
         fieldsets=[
@@ -81,12 +96,48 @@ def _create_report_schema():
         ],
         rank_profiles=[
             RankProfile(name="bm25", first_phase="bm25(body)"),
+            RankProfile(
+                name="semantic",
+                # TODO: fix issue with type hint https://github.com/vespa-engine/pyvespa/issues/676
+                inputs=[("query(q)", "tensor<float>(x[384])")],  # type: ignore
+                first_phase="closeness(field, embedding)",
+            ),
+            RankProfile(
+                name="fusion",
+                inherits="bm25",
+                # TODO: fix issue with type hint https://github.com/vespa-engine/pyvespa/issues/676
+                inputs=[("query(q)", "tensor<float>(x[384])")],  # type: ignore
+                first_phase="closeness(field, embedding)",
+                global_phase=GlobalPhaseRanking(
+                    expression="reciprocal_rank_fusion(bm25(body), closeness(field, embedding))",
+                    rerank_count=1000,
+                ),
+            ),
         ],
     )
 
 
 def _create_app_package(schemas: list[Schema]):
-    return ApplicationPackage(name="radis", schema=schemas)
+    return ApplicationPackage(
+        name="radis",
+        schema=schemas,
+        components=[
+            Component(
+                id="e5",
+                type="hugging-face-embedder",
+                parameters=[
+                    Parameter(
+                        "transformer-model",
+                        {"url": EMBEDDER_MODEL_URL},
+                    ),
+                    Parameter(
+                        "tokenizer-model",
+                        {"url": TOKENIZER_MODEL_URL},
+                    ),
+                ],
+            )
+        ],
+    )
 
 
 class VespaConfigurator:
