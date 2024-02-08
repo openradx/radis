@@ -2,6 +2,7 @@
 
 ## High Priority
 
+- Allow to reindex the data somehow
 - Type site.py (also in ADIT)
 - Secure API view
   -- Create group that can use API
@@ -23,6 +24,12 @@
 ## Fix
 
 ## Features
+
+- Categories app
+  -- LLMs answers to questions abouts reports to tag them with different categories like LAE, emphysema, ...
+- Subscriptions app
+  -- Users can subscribe to Patient IDs, categories, queries, ... and get notified by Email when new matching reports arrive
+- Allow to export collections to ADIT
 
 ## Maybe
 
