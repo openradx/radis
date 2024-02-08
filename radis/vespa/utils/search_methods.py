@@ -26,7 +26,8 @@ def search_bm25(query: str, offset: int, page_size: int) -> SearchResult:
 def search_hybrid(query: str, offset: int, page_size: int) -> SearchResult:
     client = vespa_app.get_client()
     response = client.query(
-        yql="select * from sources * where userQuery() or ({targetHits:1000}nearestNeighbor(embedding,q)) limit 5",
+        yql="select * from sources * where userQuery() or \
+            ({targetHits:1000}nearestNeighbor(embedding,q)) limit 5",
         query=query,
         ranking="fusion",
         body={"input.query(q)": f"embed({query})"},
