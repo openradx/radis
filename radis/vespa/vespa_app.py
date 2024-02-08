@@ -12,6 +12,10 @@ from vespa.package import (
     RankProfile,
     Schema,
     Summary,
+    HNSW,
+    GlobalPhaseRanking,
+    Component,
+    Parameter,
 )
 
 REPORT_SCHEMA_NAME = "report"
@@ -74,6 +78,13 @@ def _create_report_schema():
                     index="enable-bm25",
                     summary=Summary(None, None, ["dynamic"]),
                 ),
+                Field(
+                    name="embedding",
+                    type="tensor<float>(x[384])",
+                    indexing=["input body", "embed", "index", "attribute"],
+                    ann=HNSW(distance_metric="angular"),
+                    is_document_field=False,
+                ),
             ]
         ),
         fieldsets=[
@@ -81,12 +92,50 @@ def _create_report_schema():
         ],
         rank_profiles=[
             RankProfile(name="bm25", first_phase="bm25(body)"),
+            RankProfile(
+                name="semantic",
+                inputs=[("query(q)", "tensor<float>(x[384])")],
+                first_phase="closeness(field, embedding)",
+            ),
+            RankProfile(
+                name="fusion",
+                inherits="bm25",
+                inputs=[("query(q)", "tensor<float>(x[384])")],
+                first_phase="closeness(field, embedding)",
+                global_phase=GlobalPhaseRanking(
+                    expression="reciprocal_rank_fusion(bm25(body), closeness(field, embedding))",
+                    rerank_count=1000,
+                ),
+            ),
         ],
     )
 
 
 def _create_app_package(schemas: list[Schema]):
-    return ApplicationPackage(name="radis", schema=schemas)
+    return ApplicationPackage(
+        name="radis",
+        schema=schemas,
+        components=[
+            Component(
+                id="e5",
+                type="hugging-face-embedder",
+                parameters=[
+                    Parameter(
+                        "transformer-model",
+                        {
+                            "url": "https://github.com/vespa-engine/sample-apps/raw/master/simple-semantic-search/model/e5-small-v2-int8.onnx"
+                        },
+                    ),
+                    Parameter(
+                        "tokenizer-model",
+                        {
+                            "url": "https://raw.githubusercontent.com/vespa-engine/sample-apps/master/simple-semantic-search/model/tokenizer.json"
+                        },
+                    ),
+                ],
+            )
+        ],
+    )
 
 
 class VespaConfigurator:
