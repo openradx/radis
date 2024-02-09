@@ -7,14 +7,14 @@ from django.shortcuts import render
 from django.views import View
 
 from radis.core.mixins import HtmxOnlyMixin
-from radis.core.types import AuthenticatedRequest
+from radis.core.types import AuthenticatedApiRequest
 
 from .serializers import SearchParamsSerializer
 from .site import Search, SearchHandler, search_handlers
 
 
 class SearchView(LoginRequiredMixin, View):
-    def get(self, request: AuthenticatedRequest, *args, **kwargs):
+    def get(self, request: AuthenticatedApiRequest, *args, **kwargs):
         serializer = SearchParamsSerializer(data=request.GET)
 
         if not serializer.is_valid():
@@ -62,7 +62,7 @@ class SearchView(LoginRequiredMixin, View):
 
 
 class InfoView(LoginRequiredMixin, HtmxOnlyMixin, View):
-    def post(self, request: AuthenticatedRequest, *args, **kwargs):
+    def post(self, request: AuthenticatedApiRequest, *args, **kwargs):
         algorithm = request.POST.get("algorithm", "")
         search_handler = search_handlers.get(algorithm)
 

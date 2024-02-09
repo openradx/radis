@@ -13,5 +13,5 @@ class AuthenticatedHttpRequest(HtmxHttpRequest):
     user: User
 
 
-class AuthenticatedRequest(Request):
+class AuthenticatedApiRequest(Request):
     user: User
