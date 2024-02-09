@@ -1,14 +1,20 @@
-from typing import Any
+from typing import Any, NamedTuple
 
 from django.conf import settings
 from django.http import HttpRequest
 from django.middleware.csrf import get_token
 
-nav_menu_items = []
+
+class NavMenuItem(NamedTuple):
+    url_name: str
+    label: str
+
+
+nav_menu_items: list[NavMenuItem] = []
 
 
 def register_main_menu_item(url_name: str, label: str) -> None:
-    nav_menu_items.append({"url_name": url_name, "label": label})
+    nav_menu_items.append(NavMenuItem(url_name, label))
 
 
 def base_context_processor(request: HttpRequest) -> dict[str, Any]:
