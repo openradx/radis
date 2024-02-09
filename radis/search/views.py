@@ -35,13 +35,13 @@ class SearchView(LoginRequiredMixin, View):
             search_handler = search_handlers.get(algorithm)
             if search_handler:
                 context["selected_algorithm"] = algorithm
-                context["help_template_name"] = search_handler.template_name
+                context["info_template_name"] = search_handler.info_template_name
 
         if available_algorithms and not search_handler:
             algorithm = available_algorithms[0]
             search_handler = search_handlers[available_algorithms[0]]
             context["selected_algorithm"] = algorithm
-            context["help_template_name"] = search_handler.template_name
+            context["info_template_name"] = search_handler.info_template_name
 
         if query and search_handler:
             search = Search(query=query, offset=offset, page_size=page_size)
@@ -61,7 +61,7 @@ class SearchView(LoginRequiredMixin, View):
         return render(request, "search/search.html", context)
 
 
-class HelpView(LoginRequiredMixin, HtmxOnlyMixin, View):
+class InfoView(LoginRequiredMixin, HtmxOnlyMixin, View):
     def post(self, request: AuthenticatedRequest, *args, **kwargs):
         algorithm = request.POST.get("algorithm", "")
         search_handler = search_handlers.get(algorithm)
@@ -71,9 +71,9 @@ class HelpView(LoginRequiredMixin, HtmxOnlyMixin, View):
 
         return render(
             request,
-            "search/_search_help.html",
+            "search/_search_info.html",
             {
                 "selected_algorithm": algorithm,
-                "help_template_name": search_handler.template_name,
+                "info_template_name": search_handler.info_template_name,
             },
         )
