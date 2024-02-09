@@ -62,8 +62,8 @@ class SearchView(LoginRequiredMixin, View):
 
 
 class HelpView(LoginRequiredMixin, HtmxOnlyMixin, View):
-    def get(self, request: AuthenticatedRequest, *args, **kwargs):
-        algorithm = request.GET.get("algorithm", "")
+    def post(self, request: AuthenticatedRequest, *args, **kwargs):
+        algorithm = request.POST.get("algorithm", "")
         search_handler = search_handlers.get(algorithm)
 
         if not search_handler:

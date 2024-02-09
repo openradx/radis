@@ -12,7 +12,7 @@
         <button type="button"
                 class="btn bg-transparent"
                 @click="clear()"
-                hx-get="{% url 'search_help' %}?algorithm={{ selected_algorithm }}"
+                hx-post="{% url 'search_help' %}"
                 hx-target="#search-panel"
                 style="width: 40px;
                        margin-left: -40px;
@@ -21,7 +21,7 @@
         {# algorithm GET parameter is added by the select itself #}
         <select name="algorithm"
                 class="form-select"
-                hx-get="{% url 'search_help' %}"
+                hx-post="{% url 'search_help' %}"
                 hx-target="#search-panel"
                 @change="algorithmChanged"
                 style="max-width: 200px"
