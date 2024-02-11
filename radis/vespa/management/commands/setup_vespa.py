@@ -1,3 +1,4 @@
+import shutil
 import subprocess
 import tempfile
 from pathlib import Path
@@ -84,6 +85,11 @@ class Command(BaseCommand):
 
             configurator = VespaConfigurator(app_folder)
             configurator.apply()
+
+            models_folder = app_folder / "files" / "models"
+            models_folder.mkdir()
+            shutil.copy("/opt/models/model.onnx", models_folder)
+            shutil.copy("/opt/models/tokenizer.json", models_folder)
 
         if options["deploy"]:
             vespa_host: str

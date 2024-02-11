@@ -19,10 +19,6 @@ from vespa.package import (
 )
 
 REPORT_SCHEMA_NAME = "report"
-EMBEDDER_MODEL_URL = "https://github.com/vespa-engine/sample-apps/raw/master/\
-simple-semantic-search/model/e5-small-v2-int8.onnx"
-TOKENIZER_MODEL_URL = "https://raw.githubusercontent.com/vespa-engine/sample-apps/master/\
-simple-semantic-search/model/tokenizer.json"
 
 
 def _create_report_schema():
@@ -128,11 +124,11 @@ def _create_app_package(schemas: list[Schema]):
                 parameters=[
                     Parameter(
                         "transformer-model",
-                        {"url": EMBEDDER_MODEL_URL},
+                        {"path": "files/models/model.onnx"},
                     ),
                     Parameter(
                         "tokenizer-model",
-                        {"url": TOKENIZER_MODEL_URL},
+                        {"path": "files/models/tokenizer.json"},
                     ),
                 ],
             )
