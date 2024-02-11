@@ -7,10 +7,9 @@ from django.views.generic import TemplateView
 from django_filters.filterset import FilterSet
 from django_filters.views import FilterMixin
 
-from radis.core.types import HtmxHttpRequest
-
 from .forms import PageSizeSelectForm
 from .models import AppSettings
+from .types import HtmxHttpRequest
 from .utils.auth_utils import is_logged_in_user
 
 
@@ -127,7 +126,7 @@ class PageSizeSelectMixin:
         self: PageSizeSelectMixinProtocol, request: HttpRequest, *args: Any, **kwargs: Any
     ) -> HttpResponse:
         # Make the initial paginate_by attribute the default page size if set
-        if self.paginate_by is None:
+        if not hasattr(self, "paginate_by") or self.paginate_by is None:
             self.paginate_by = 50
 
         try:
@@ -136,14 +135,14 @@ class PageSizeSelectMixin:
             per_page = self.paginate_by
 
         per_page = min(per_page, 100)
-        self.paginate_by = per_page  # used by MultipleObjectMixin
+        self.paginate_by = per_page  # used by MultipleObjectMixin and django-tables2
 
         return super().get(request, *args, **kwargs)
 
     def get_context_data(self: PageSizeSelectMixinProtocol, **kwargs):
         context = super().get_context_data(**kwargs)
 
-        if self.page_sizes is None:
+        if not hasattr(self, "page_sizes") or self.page_sizes is None:
             self.page_sizes = [50, 100, 250, 500]
         context["page_size_select"] = PageSizeSelectForm(self.request.GET, self.page_sizes)
 
