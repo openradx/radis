@@ -29,8 +29,6 @@ services:
 
   postgres:
     image: postgres:15.5
-    expose:
-      - "5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
@@ -56,8 +54,6 @@ services:
 
   flower:
     <<: *default-app
-    expose:
-      - "5555"
     command: >
       bash -c "
         wait-for-it -s redis:6379 -t 60 &&
@@ -66,8 +62,6 @@ services:
 
   redis:
     image: redis:7.2
-    expose:
-      - "6379"
     volumes:
       - redis_data:/data
 
