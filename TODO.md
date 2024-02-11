@@ -25,11 +25,19 @@
 
 ## Features
 
+- RAG search (maybe needs a GPU)
 - Categories app
   -- LLMs answers to questions abouts reports to tag them with different categories like LAE, emphysema, ...
 - Subscriptions app
-  -- Users can subscribe to Patient IDs, categories, queries, ... and get notified by Email when new matching reports arrive
+  -- Users can subscribe to Patient IDs, modalities, keywords, question (evaluated by LLM), categories (see above)
+  -- Cave, make sure categories app are evaluated before subscriptions
+  -- Users get notified by Email when new matching reports arrive
+  -- Link to report in RADIS in Email, optionally full report text in Email
+  -- Maximum number of reports in Email (maybe 20)
 - Allow to export collections to ADIT
+- Re-Feed Vespa documents
+  -- Already WIP in branch vespa-re-feed
+  -- Optionally allow to re-feed without full reset (only update documents, feed_iterable has an option for that)
 
 ## Maybe
 
