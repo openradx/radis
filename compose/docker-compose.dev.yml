@@ -26,10 +26,10 @@ services:
       - vscode-server-insiders:/root/.vscode-server-insiders/extensions
     command: >
       bash -c "
-        wait-for-it -s postgres:5432 -t 60 && 
+        wait-for-it -s postgres.local:5432 -t 60 && 
         ./manage.py migrate &&
         ./manage.py collectstatic --no-input &&
-        wait-for-it -s vespa:19071 -t 60 &&
+        wait-for-it -s vespa.local:19071 -t 60 &&
         ./manage.py setup_vespa --generate --deploy &&
         ./manage.py populate_db &&
         ./manage.py runserver 0.0.0.0:8000
