@@ -47,9 +47,9 @@ def register_app():
     def search_vespa_bm25(search: Search) -> SearchResult:
         return search_bm25(search.query, search.offset, search.page_size)
 
-    register_search_handler("Vespa BM25", search_vespa_bm25, "vespa/_bm25_help.html")
+    register_search_handler("Vespa BM25", search_vespa_bm25, "vespa/_bm25_info.html")
 
     def search_vespa_hybrid(search: Search) -> SearchResult:
         return search_hybrid(search.query, search.offset, search.page_size)
 
-    register_search_handler("Vespa Hybrid", search_vespa_hybrid, "vespa/_hybrid_help.html")
+    register_search_handler("Vespa Hybrid", search_vespa_hybrid, "vespa/_hybrid_info.html")
