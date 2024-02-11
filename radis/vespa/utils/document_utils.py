@@ -7,7 +7,7 @@ from radis.search.models import ReportDocument
 from ..vespa_app import REPORT_SCHEMA_NAME, vespa_app
 
 
-def _dictify_report_for_vespa(report: Report) -> dict[str, Any]:
+def dictify_report_for_vespa(report: Report) -> dict[str, Any]:
     """Dictify the report for Vespa.
 
     Must be in the same format as schema in vespa_app.py
@@ -41,7 +41,7 @@ def fetch_document(document_id: str) -> dict[str, Any]:
 
 
 def create_document(document_id: str, report: Report) -> None:
-    fields = _dictify_report_for_vespa(report)
+    fields = dictify_report_for_vespa(report)
     response = vespa_app.get_client().feed_data_point(REPORT_SCHEMA_NAME, document_id, fields)
 
     if response.get_status_code() != 200:
@@ -50,7 +50,7 @@ def create_document(document_id: str, report: Report) -> None:
 
 
 def update_document(document_id: str, report: Report) -> None:
-    fields = _dictify_report_for_vespa(report)
+    fields = dictify_report_for_vespa(report)
     response = vespa_app.get_client().update_data(REPORT_SCHEMA_NAME, document_id, fields)
 
     if response.get_status_code() != 200:

@@ -20,5 +20,10 @@
             <a href="/flower/">Flower (Celery Monitoring)</a>
         </li>
         <!-- djlint:on-->
+        {% for item in admin_section_items %}
+            <li class="list-group-item">
+                <a href="{% url item.url_name %}">{{ item.label }}</a>
+            </li>
+        {% endfor %}
     </ul>
 {% endblock content %}

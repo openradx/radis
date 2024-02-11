@@ -1,0 +1,11 @@
+{% extends "core/core_layout.html" %}
+{% load static from static %}
+{% block css %}
+    <link rel="stylesheet"
+          type="text/css"
+          href="{% static 'vespa/vespa.css' %}" />
+{% endblock css %}
+{% block script %}
+    {{ block.super }}
+    <script src="{% static 'vespa/vespa.js' %}"></script>
+{% endblock script %}

@@ -17,6 +17,18 @@ def register_main_menu_item(url_name: str, label: str) -> None:
     nav_menu_items.append(NavMenuItem(url_name, label))
 
 
+class AdminSectionItem(NamedTuple):
+    url_name: str
+    label: str
+
+
+admin_section_items: list[AdminSectionItem] = []
+
+
+def register_admin_section_item(url_name: str, label: str) -> None:
+    admin_section_items.append(AdminSectionItem(url_name, label))
+
+
 def base_context_processor(request: HttpRequest) -> dict[str, Any]:
     from .utils.auth_utils import is_logged_in_user
 
@@ -33,6 +45,7 @@ def base_context_processor(request: HttpRequest) -> dict[str, Any]:
         "base_url": settings.BASE_URL,
         "support_email": settings.SUPPORT_EMAIL,
         "nav_menu_items": nav_menu_items,
+        "admin_section_items": admin_section_items,
         "theme": theme,
         "theme_color": theme_color,
         # Variables in public are also available on the client via JavaScript,
