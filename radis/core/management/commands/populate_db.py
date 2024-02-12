@@ -18,7 +18,6 @@ from radis.token_authentication.utils.crypto import hash_token
 
 USER_COUNT = 20
 GROUP_COUNT = 3
-ADMIN_AUTH_TOKEN = "f2e7412ca332a85e37f3fce88c6a1904fe35ad63"
 PACS_ITEMS = [
     {"pacs_aet": "gepacs", "pacs_name": "GE PACS"},
     {"pacs_aet": "synapse", "pacs_name": "Synapse"},
@@ -46,25 +45,34 @@ def feed_reports():
         feed_report(report)
 
 
-def create_users() -> list[User]:
+def create_admin() -> User:
     if "ADMIN_USERNAME" not in environ or "ADMIN_PASSWORD" not in environ:
         print("Cave! No admin credentials found in environment. Using default ones.")
 
-    admin_data = {
-        "username": environ.get("ADMIN_USERNAME", "admin"),
-        "first_name": environ.get("ADMIN_FIRST_NAME", "Wilhelm"),
-        "last_name": environ.get("ADMIN_LAST_NAME", "Röntgen"),
-        "email": environ.get("ADMIN_EMAIL", "wilhelm.roentgen@example.org"),
-        "password": environ.get("ADMIN_PASSWORD", "mysecret"),
-    }
-    admin = AdminUserFactory.create(**admin_data)
-
-    TokenFactory.create(
-        token_hashed=hash_token(ADMIN_AUTH_TOKEN),
-        fraction=ADMIN_AUTH_TOKEN[:FRACTION_LENGTH],
-        owner=admin,
-        expires=None,
+    admin = AdminUserFactory.create(
+        username=environ.get("ADMIN_USERNAME", "admin"),
+        first_name=environ.get("ADMIN_FIRST_NAME", "Wilhelm"),
+        last_name=environ.get("ADMIN_LAST_NAME", "Röntgen"),
+        email=environ.get("ADMIN_EMAIL", "wilhelm.roentgen@example.org"),
+        password=environ.get("ADMIN_PASSWORD", "mysecret"),
     )
+
+    if "ADMIN_AUTH_TOKEN" not in environ:
+        print("No admin auth token in environment. Skipping auth token creation.")
+    else:
+        auth_token = environ["ADMIN_AUTH_TOKEN"]
+        TokenFactory.create(
+            token_hashed=hash_token(auth_token),
+            fraction=auth_token[:FRACTION_LENGTH],
+            owner=admin,
+            expires=None,
+        )
+
+    return admin
+
+
+def create_users() -> list[User]:
+    admin = create_admin()
 
     users = [admin]
 
