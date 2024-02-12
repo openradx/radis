@@ -14,7 +14,7 @@ x-app: &default-app
     VESPA_CONFIG_PORT: "19071"
     VESPA_DATA_PORT: "8080"
     REDIS_URL: "redis://redis.local:6379/0"
-    FLOWER_HOST: "flower"
+    FLOWER_HOST: "flower.local"
     FLOWER_PORT: "5555"
 
 services:
