@@ -1,4 +1,4 @@
-import shutil
+import os
 import subprocess
 import tempfile
 from pathlib import Path
@@ -88,8 +88,8 @@ class Command(BaseCommand):
 
             models_folder = app_folder / "files" / "models"
             models_folder.mkdir()
-            shutil.copy("/opt/models/model.onnx", models_folder)
-            shutil.copy("/opt/models/tokenizer.json", models_folder)
+            os.symlink("/opt/models/model.onnx", models_folder / "model.onnx")
+            os.symlink("/opt/models/tokenizer.json", models_folder / "tokenizer.json")
 
         if options["deploy"]:
             vespa_host: str
