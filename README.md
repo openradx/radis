@@ -6,15 +6,33 @@ RADIS (Radiology Report Archive and Discovery System) is an application to archi
 
 ## Features
 
+- Store radiology reports in structured way and allow to retrieve them
+- Full text search using different algorithms (BM25, vector hybrid search)
+- Add user specific notes to reports
+- Add reports to creatable collections
+- Directly open the PACS viewer with the corresponding study
+
 ## Upcoming features
+
+- Search using Retrieval Augmented Generation (RAG)
+- Subscriptions to get informed by Email when newly added reports match some specific criteria
+- Export collected reports and allow the corresponding studies to be transferred by using [ADIT](https://github.com/openradx/adit)
+- Automatically categorize all reports by using an LLM
+
+## API Client
+
+[RADIS Client](https://github.com/openradx/radis-client) is a Python library to search for reports on RADIS in a programmatic way. It also allows admins to feed new reports to RADIS.
 
 ## Screenshots
 
 ## Architectural overview
 
+RADIS is built using the Django web framework, and data is stored in a [PostgreSQL](https://www.postgresql.org/) database. Uploaded radiology reports are additionally stored and indexed for full text search in a [Vespa](https://vespa.ai/) vector database. The design of RADIS is very modular so that other text search databases can easily be integrated.
+
 ## Contributors
 
 [![medihack](https://github.com/medihack.png?size=50)](https://github.com/medihack)
+[![julihereu](https://github.com/julihereu.png?size=50)](https://github.com/julihereu)
 
 ## Disclaimer
 
