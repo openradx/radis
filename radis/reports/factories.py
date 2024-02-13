@@ -30,7 +30,7 @@ class ReportFactory(BaseDjangoModelFactory[Report]):
     patient_sex = factory.Faker("random_element", elements=["F", "M", "U"])
     study_instance_uid = factory.LazyFunction(generate_uid)
     accession_number = factory.Faker("numerify", text="############")
-    study_description = factory.Faker("sentence")
+    study_description = factory.Faker("text", max_nb_chars=64)
     study_datetime = factory.Faker("date_time_between", start_date="-10y", tzinfo=timezone.utc)
     series_instance_uid = factory.LazyFunction(generate_uid)
     modalities_in_study = factory.LazyFunction(
