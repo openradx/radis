@@ -37,5 +37,5 @@ class ReportFactory(BaseDjangoModelFactory[Report]):
         lambda: fake.random_elements(elements=("CT", "MR", "DX", "PT", "US"), unique=True)
     )
     sop_instance_uid = factory.LazyFunction(generate_uid)
-    references = factory.LazyFunction(lambda: [fake.url() for _ in range(fake.random_int(1, 3))])
+    links = factory.LazyFunction(lambda: [fake.url() for _ in range(fake.random_int(1, 3))])
     body = factory.Faker("paragraph")

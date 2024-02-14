@@ -67,7 +67,7 @@ def _create_report_schema():
                     indexing=["summary", "attribute"],
                 ),
                 Field(
-                    name="references",
+                    name="links",
                     type="array<string>",
                     indexing=["summary"],
                 ),

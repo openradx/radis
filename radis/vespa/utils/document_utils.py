@@ -25,7 +25,7 @@ def _dictify_report_for_vespa(report: Report) -> dict[str, Any]:
         "study_description": report.study_description,
         "study_datetime": study_datetime,
         "modalities_in_study": report.modalities_in_study,
-        "references": report.references,
+        "links": report.links,
         "body": report.body.strip(),
     }
 
@@ -80,6 +80,6 @@ def document_from_vespa_response(record: dict[str, Any]) -> ReportDocument:
         study_description=record["fields"].get("study_description", ""),
         study_datetime=study_datetime,
         modalities_in_study=record["fields"].get("modalities_in_study", []),
-        references=record["fields"].get("references", []),
+        links=record["fields"].get("links", []),
         body=record["fields"]["body"],
     )

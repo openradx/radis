@@ -22,7 +22,7 @@ class ReportDocument(NamedTuple):
     study_description: str
     study_datetime: datetime
     modalities_in_study: list[str]
-    references: list[str]
+    links: list[str]
     body: str
 
     @property
