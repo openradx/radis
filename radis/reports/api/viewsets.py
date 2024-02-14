@@ -34,17 +34,19 @@ class ReportViewSet(
 
         It also fetches the associated document from the Vespa database.
         """
+        full = request.GET.get("full", "").lower() in ["true", "1", "yes"]
+
         instance: Report = self.get_object()
-
-        extra = {}
-        for fetcher in document_fetchers.values():
-            document = fetcher.fetch(instance)
-            if document:
-                extra[fetcher.source] = document
-
         serializer = self.get_serializer(instance)
         data = serializer.data
-        data.update(extra)
+
+        if full:
+            documents = {}
+            for fetcher in document_fetchers.values():
+                document = fetcher.fetch(instance)
+                if document:
+                    documents[fetcher.source] = document
+            data["documents"] = documents
 
         return Response(data)
 
