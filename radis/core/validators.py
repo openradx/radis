@@ -22,5 +22,5 @@ no_wildcard_chars_validator = RegexValidator(
 
 
 def validate_patient_sex(patient_sex: str):
-    if patient_sex not in ["F", "M", "U"]:
+    if patient_sex not in ["M", "F", "O"]:
         raise ValidationError(f"Invalid patient sex: {patient_sex}")
