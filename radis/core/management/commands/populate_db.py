@@ -4,7 +4,7 @@ from pathlib import Path
 
 from django.conf import settings
 from django.contrib.auth.models import Group, Permission
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandParser
 from faker import Faker
 
 from radis.accounts.factories import AdminUserFactory, GroupFactory, UserFactory
@@ -115,6 +115,15 @@ def create_groups(users: list[User]) -> list[Group]:
 class Command(BaseCommand):
     help = "Populates the database with example data."
 
+    def add_arguments(self, parser: CommandParser) -> None:
+        super().add_arguments(parser)
+
+        parser.add_argument(
+            "--skip-reports",
+            action="store_true",
+            help="Skip populating the database with example reports.",
+        )
+
     def handle(self, *args, **options):
         if User.objects.count() > 0:
             print("Development database already populated. Skipping.")
@@ -123,8 +132,9 @@ class Command(BaseCommand):
             users = create_users()
             create_groups(users)
 
-        if Report.objects.first():
-            print("Reports already populated. Skipping.")
-        else:
-            print("Populating database with example reports.")
-            feed_reports()
+        if not options["skip_reports"]:
+            if Report.objects.first():
+                print("Reports already populated. Skipping.")
+            else:
+                print("Populating database with example reports.")
+                feed_reports()
