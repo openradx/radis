@@ -82,7 +82,7 @@ class Report(models.Model):
             no_wildcard_chars_validator,
         ],
     )
-    links = ArrayField(models.URLField())
+    links = ArrayField(models.CharField(max_length=200))
     body = models.TextField()
 
     if TYPE_CHECKING:
