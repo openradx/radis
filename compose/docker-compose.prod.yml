@@ -1,7 +1,6 @@
 version: "3.8"
 
-x-app:
-  &default-app
+x-app: &default-app
   restart: always
   image: radis_prod:latest
   env_file:
@@ -18,8 +17,8 @@ services:
     build:
       target: production
     ports:
-      - "80:80"
-      - "443:443"
+      - "${RADIS_HTTP_PORT:-80}:80"
+      - "${RADIS_HTTPS_PORT:-443}:443"
     command: >
       bash -c "
         wait-for-it -s postgres.local:5432 -t 60 && 
@@ -29,6 +28,7 @@ services:
         ./manage.py generate_cert &&
         wait-for-it -s vespa.local:19071 -t 60 &&
         ./manage.py setup_vespa --generate --deploy &&
+        echo 'Starting web server ...'
         daphne -b 0.0.0.0 -p 80 -e ssl:443:privateKey=/var/www/radis/ssl/key.pem:certKey=/var/www/radis/ssl/cert.pem radis.asgi:application
       "
     deploy:
