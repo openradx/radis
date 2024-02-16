@@ -1,9 +1,10 @@
 from typing import Any
 
-from rest_framework import mixins, viewsets
+from django.http import Http404
+from rest_framework import mixins, status, viewsets
 from rest_framework.exceptions import MethodNotAllowed
 from rest_framework.permissions import IsAdminUser
-from rest_framework.request import Request
+from rest_framework.request import Request, clone_request
 from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
 
@@ -56,6 +57,33 @@ class ReportViewSet(
         report: Report = serializer.instance
         for handler in report_event_handlers:
             handler("created", report)
+
+    def update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        # DRF itself does not support upsert (create the object to update if it does not exist).
+        # This workaround is inspired by https://gist.github.com/tomchristie/a2ace4577eff2c603b1b
+        upsert = request.GET.get("upsert", "").lower() in ["true", "1", "yes"]
+        if not upsert:
+            return super().update(request, *args, **kwargs)
+        else:
+            instance = self.get_object_or_none()
+            serializer = self.get_serializer(instance, data=request.data)
+            serializer.is_valid(raise_exception=True)
+
+            if instance is None:
+                self.perform_create(serializer)
+                return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+            self.perform_update(serializer)
+            return Response(serializer.data)
+
+    def get_object_or_none(self) -> Report | None:
+        try:
+            return self.get_object()
+        except Http404:
+            if self.request.method == "PUT":
+                self.check_permissions(clone_request(self.request, "POST"))
+            else:
+                raise
 
     def perform_update(self, serializer: BaseSerializer) -> None:
         super().perform_update(serializer)
