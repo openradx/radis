@@ -27,6 +27,7 @@ class ReportsAppSettings(AppSettings):
 class Report(models.Model):
     id: int
     document_id = models.CharField(max_length=128, unique=True)
+    language = models.CharField(max_length=10)
     groups = models.ManyToManyField(
         Group,
         related_name="reports",

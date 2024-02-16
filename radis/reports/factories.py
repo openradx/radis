@@ -23,6 +23,7 @@ class ReportFactory(BaseDjangoModelFactory[Report]):
         model = Report
 
     document_id = factory.Faker("uuid4")
+    language = "en"
     pacs_aet = factory.Faker("word")
     pacs_name = factory.Faker("word")
     patient_id = factory.Faker("numerify", text="##########")

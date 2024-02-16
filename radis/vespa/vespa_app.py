@@ -27,6 +27,11 @@ def _create_report_schema():
         document=Document(
             fields=[
                 Field(
+                    name="language",
+                    type="string",
+                    indexing=["set_language", "attribute"],
+                ),
+                Field(
                     name="groups",
                     type="array<int>",
                     indexing=["attribute"],
