@@ -1,17 +1,21 @@
 {% load bootstrap_icon access_item from core_extras %}
 <div class="mt-2 d-flex justify-content-between">
     <div class="d-flex gap-2">
-        <a href="{% url 'report_detail' report.id %}"
-           class="btn btn-secondary btn-sm">
-            {% bootstrap_icon "arrow-right-short" %}
-            View
-        </a>
-        <button hx-get="{% url 'report_preview' report.id %}"
-                hx-target="#htmx-dialog"
-                class="btn btn-secondary btn-sm">
-            {% bootstrap_icon "eye" %}
-            Preview
-        </button>
+        {% if not no_view_button %}
+            <a href="{% url 'report_detail' report.id %}"
+               class="btn btn-secondary btn-sm">
+                {% bootstrap_icon "arrow-right-short" %}
+                View
+            </a>
+        {% endif %}
+        {% if not no_preview_button %}
+            <button hx-get="{% url 'report_preview' report.id %}"
+                    hx-target="#htmx-dialog"
+                    class="btn btn-secondary btn-sm">
+                {% bootstrap_icon "eye" %}
+                Preview
+            </button>
+        {% endif %}
         {# Additional buttons that can be registered by other apps #}
         {% for button in report_panel_buttons %}
             {% include button.template_name %}
