@@ -2,6 +2,9 @@
 
 ## High Priority
 
+- Upgrade Github actions workflows (also ADIT)
+- Allow to set filters when using search
+  -- from:2024-01-01 until:2024-02-01 modality:ct description:"CT*"
 - Improve TokenFactory (+ ADIT)
 - <https://docs.vespa.ai/en/operations/docker-containers.html#mounting-persistent-volumes>
 - Change maxHits and maxOffset for farer pagination
