@@ -32,6 +32,7 @@ RADIS is built using the Django web framework, and data is stored in a [PostgreS
 ## Contributors
 
 [![medihack](https://github.com/medihack.png?size=50)](https://github.com/medihack)
+[![hagisgit](https://github.com/hagisgit.png?size=50)](https://github.com/hagisgit)
 [![julihereu](https://github.com/julihereu.png?size=50)](https://github.com/julihereu)
 
 ## Disclaimer
