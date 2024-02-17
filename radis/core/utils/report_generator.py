@@ -1,17 +1,35 @@
 from random import randint
 from time import sleep
-from typing import Any, Callable
+from typing import Any, Callable, Literal
 
 import openai
 import tiktoken
+from openai import OpenAI
 from openai.types.chat import ChatCompletionMessageParam
 
-ReportGeneratedCallback = Callable[[str, int], None]
+INITIAL_SYSTEM_PROMPT = {
+    "de": "Du bist ein radiologischer Facharzt.",
+    "en": "You are a senior radiologist.",
+}
+
+INITIAL_INSTRUCTION = {
+    "de": "Schreibe einen radiologischen Befund als Beispiel.",
+    "en": "Write an example radiology report.",
+}
+
+FOLLOWUP_INSTRUCTION = {
+    "de": "Schreibe einen weiteren radiologischen Befund als Beispiel.",
+    "en": "Write another example radiology report.",
+}
 
 
-# from https://github.com/openai/openai-cookbook/blob/main/examples/How_to_count_tokens_with_tiktoken.ipynb
-def num_tokens_from_messages(messages, model="gpt-3.5-turbo-0613", silent=False):
-    """Return the number of tokens used by a list of messages."""
+def num_tokens_from_messages(
+    messages: list[ChatCompletionMessageParam], model="gpt-3.5-turbo-0613", silent=False
+):
+    """Return the number of tokens used by a list of messages.
+
+    From https://cookbook.openai.com/examples/how_to_count_tokens_with_tiktoken
+    """
     try:
         encoding = tiktoken.encoding_for_model(model)
     except KeyError:
@@ -52,6 +70,7 @@ def num_tokens_from_messages(messages, model="gpt-3.5-turbo-0613", silent=False)
     for message in messages:
         num_tokens += tokens_per_message
         for key, value in message.items():
+            assert isinstance(value, str)
             num_tokens += len(encoding.encode(value))
             if key == "name":
                 num_tokens += tokens_per_name
@@ -59,59 +78,62 @@ def num_tokens_from_messages(messages, model="gpt-3.5-turbo-0613", silent=False)
     return num_tokens
 
 
+ReportGeneratedCallback = Callable[[str, int], None]
+
+
 class ReportGenerator:
     def __init__(
         self,
         api_key: str,
-        model="gpt-3.5-turbo",
-        max_tokens=4096,
+        model: str = "gpt-3.5-turbo",
+        max_tokens: int = 4096,
+        language: Literal["en", "de"] = "en",
         callback: ReportGeneratedCallback | None = None,
     ) -> None:
-        self.api_key = api_key
-        self.model = model
-        self.max_tokens = max_tokens
-        self.callback = callback
+        self._client = OpenAI(api_key=api_key)
+        self._model = model
+        self._max_tokens = max_tokens
+        self._language = language
+        self._callback = callback
 
         self.messages: list[ChatCompletionMessageParam] = [
-            {"role": "system", "content": "You are an senior radiologist."}
+            {"role": "system", "content": INITIAL_SYSTEM_PROMPT[self._language]}
         ]
 
     def reset_context(self, full_reset=False):
-        if len(self.messages) < 3 or full_reset:
-            self.messages = [self.messages[0]]
-        else:
-            # Retain first question and last answer.
-            self.messages = [self.messages[0], self.messages[1], self.messages[-1]]
+        self.messages = [self.messages[0]]
 
-    def generate_report(self, freshly=False) -> str:
-        if freshly:
-            self.reset_context(full_reset=True)
-
+    def generate_report(self) -> str:
         if len(self.messages) == 1:
-            self.messages.append({"role": "user", "content": "Write an example radiology report."})
+            self.messages.append({"role": "user", "content": INITIAL_INSTRUCTION[self._language]})
         else:
-            self.messages.append(
-                {"role": "user", "content": "Write another example radiology report."}
-            )
+            self.messages.append({"role": "user", "content": FOLLOWUP_INSTRUCTION[self._language]})
 
-        token_count = num_tokens_from_messages(self.messages, self.model, silent=True)
-        if token_count > self.max_tokens:
-            self.reset_context()
+        token_count = num_tokens_from_messages(self.messages, self._model, silent=True)
+        if token_count > self._max_tokens:
+            # Retain system prompt, initial instruction, last answer and last instruction
+            assert len(self.messages) >= 4
+            self.messages = [
+                self.messages[0],
+                self.messages[1],
+                self.messages[-2],
+                self.messages[-1],
+            ]
 
         response: Any = None
         retries = 0
         while not response:
             try:
-                response = openai.chat.completions.create(
+                response = self._client.chat.completions.create(
                     messages=self.messages,
-                    model=self.model,
+                    model=self._model,
                     # model=self.model, messages=self.messages, api_key=self.api_key
                 )
             # For available errors see https://github.com/openai/openai-python#handling-errors
             except openai.APIStatusError as err:
                 retries += 1
                 if retries == 3:
-                    print("Error! Service unavailable even after 3 retries.")
+                    print(f"Error! Service unavailable even after 3 retries: {err}")
                     raise err
 
                 # maybe use rate limiter like https://github.com/tomasbasham/ratelimit
@@ -119,17 +141,9 @@ class ReportGenerator:
 
         answer = response.choices[0].message.content
 
-        if self.callback:
-            token_count = num_tokens_from_messages(self.messages, self.model, silent=True)
-            self.callback(answer, token_count)
+        if self._callback:
+            token_count = num_tokens_from_messages(self.messages, self._model, silent=True)
+            self._callback(answer, token_count)
 
         self.messages.append({"role": "assistant", "content": answer})
         return answer
-
-    def generate_reports(self, num: int, freshly=False) -> list[str]:
-        reports = []
-        for i in range(num):
-            report = self.generate_report(freshly=freshly)
-            reports.append(report)
-
-        return reports

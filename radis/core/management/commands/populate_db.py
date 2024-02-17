@@ -1,6 +1,7 @@
 import json
 from os import environ
 from pathlib import Path
+from typing import Literal
 
 from django.conf import settings
 from django.contrib.auth.models import Group, Permission
@@ -28,21 +29,28 @@ MODALITIES = ["CT", "MR", "PET", "CR", "US"]
 fake = Faker()
 
 
-def feed_report(body: str):
-    report = ReportFactory.create(body=body)
+def feed_report(body: str, language: Literal["en", "de"]):
+    report = ReportFactory.create(language=language, body=body)
     groups = fake.random_elements(elements=list(Group.objects.all()), unique=True)
     report.groups.set(groups)
     for handler in report_event_handlers:
         handler("created", report)
 
 
-def feed_reports():
-    samples_path = Path(settings.BASE_DIR / "samples" / "reports.json")
+def feed_reports(language: Literal["en", "de"]):
+    if language == "en":
+        sample_file = "reports_en.json"
+    elif language == "de":
+        sample_file = "reports_de.json"
+    else:
+        raise ValueError(f"Language {language} is not supported.")
+
+    samples_path = Path(settings.BASE_DIR / "samples" / sample_file)
     with open(samples_path, "r") as f:
         reports = json.load(f)
 
     for report in reports:
-        feed_report(report)
+        feed_report(report, language)
 
 
 def create_admin() -> User:
@@ -123,6 +131,11 @@ class Command(BaseCommand):
             action="store_true",
             help="Skip populating the database with example reports.",
         )
+        parser.add_argument(
+            "--report-language",
+            default="en",
+            help="Which report language to use (en or de).",
+        )
 
     def handle(self, *args, **options):
         if User.objects.count() > 0:
@@ -137,4 +150,4 @@ class Command(BaseCommand):
                 print("Reports already populated. Skipping.")
             else:
                 print("Populating database with example reports.")
-                feed_reports()
+                feed_reports(options["report_language"])
