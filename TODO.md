@@ -2,13 +2,7 @@
 
 ## High Priority
 
-- Allow to reindex the data somehow
-- Type site.py (also in ADIT)
-- Secure API view
-  -- Create group that can use API
-  -- Differentiate between users that can query data and modify data
 - Improve TokenFactory (+ ADIT)
-- Rename populate_db to populate_data
 - <https://docs.vespa.ai/en/operations/docker-containers.html#mounting-persistent-volumes>
 - Change maxHits and maxOffset for farer pagination
   -- <https://docs.vespa.ai/en/reference/query-api-reference.html#native-execution-parameters>
@@ -25,19 +19,33 @@
 
 ## Features
 
-- RAG search (maybe needs a GPU)
-- Categories app
-  -- LLMs answers to questions abouts reports to tag them with different categories like LAE, emphysema, ...
-- Subscriptions app
-  -- Users can subscribe to Patient IDs, modalities, keywords, question (evaluated by LLM), categories (see above)
-  -- Cave, make sure categories app are evaluated before subscriptions
-  -- Users get notified by Email when new matching reports arrive
-  -- Link to report in RADIS in Email, optionally full report text in Email
-  -- Maximum number of reports in Email (maybe 20)
-- Allow to export collections to ADIT
-- Re-Feed Vespa documents
+- Allow to re-feed Vespa documents
   -- Already WIP in branch vespa-re-feed
   -- Optionally allow to re-feed without full reset (only update documents, feed_iterable has an option for that)
+- RAG app
+  -- Let the user provide study date range (from, until), age, modality, keywords, question
+  -- Pre-filter with database search (semantic search?)
+  -- Add the search job to the queue
+  -- Let a worker process this queue
+  -- Give each filtered report to an LLM and let it answer the question
+  -- LLM can be provided with GPU support (e.g. vLLM) or CPU only (e.g. llama-cpp-python)
+  -- Add vLLM service with special "gpu" docker compose profile
+  -- Collect all matching reports
+  -- Notify user by Email when job is finished
+  -- Let user browse the results
+- Categories app
+  -- LLMs answers to questions abouts reports to tag them with different categories like LAE, emphysema, ...
+  -- Similar to RAG app (also maybe depends on it for accessing the LLM)
+  -- Uses a catalog of questions
+  -- When a new question is added to the catalog all existing and also upcoming reports will be evaluated
+  -- Users can filter by those categories in the normal search (make this plug-in able)
+- Subscriptions app
+  -- Users can subscribe to Patient IDs, modalities, keywords, questions (see RAG app), categories (see Categories app)
+  -- Cave, make sure categories app are evaluated before subscriptions
+  -- Users get notified by Email when new matching reports arrive in the future
+  -- Maybe link to report in RADIS in Email, optionally full report text in Email
+  -- Maybe set a maximum number of reports in Email
+- Allow to export collections to ADIT to transfer the corresponding studies
 
 ## Maybe
 
