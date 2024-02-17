@@ -1,9 +1,13 @@
+import logging
+
 from django.conf import settings
 
 from radis.search.models import SearchResult
 
 from ..vespa_app import vespa_app
 from .document_utils import document_from_vespa_response
+
+logger = logging.getLogger(__name__)
 
 
 def search_bm25(query: str, offset: int, page_size: int) -> SearchResult:
@@ -18,6 +22,8 @@ def search_bm25(query: str, offset: int, page_size: int) -> SearchResult:
 
     if settings.VESPA_QUERY_LANGUAGE != "auto":
         params["language"] = settings.VESPA_QUERY_LANGUAGE
+
+    logger.debug("Querying Vespa with params: %s", params)
 
     client = vespa_app.get_client()
     response = client.query(**params)
@@ -44,6 +50,8 @@ def search_hybrid(query: str, offset: int, page_size: int) -> SearchResult:
 
     if settings.VESPA_QUERY_LANGUAGE != "auto":
         params["language"] = settings.VESPA_QUERY_LANGUAGE
+
+    logger.debug("Querying Vespa with params: %s", params)
 
     client = vespa_app.get_client()
     response = client.query(**params)
