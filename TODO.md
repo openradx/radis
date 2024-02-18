@@ -27,12 +27,18 @@
   - Optionally allow to re-feed without full reset (only update documents, feed_iterable has an option for that)
 - RAG app
   - Let the user provide study date range (from, until), age, modality, keywords, question
-  - Pre-filter with database search (semantic search?)
-  - Add the search job to the queue
-  - Let a worker process this queue
+  - Add the search job to the queue (similar to transfer jobs in ADIT)
+  - Let a worker process the queue in its own service
+  - Pre-filter reports with a Vespa database search (semantic search?)
   - Give each filtered report to an LLM and let it answer the question
-  - LLM can be provided with GPU support (e.g. vLLM) or CPU only (e.g. llama-cpp-python)
-  - Add vLLM service with special "gpu" docker compose profile
+  - Constraint the output of the LLM, multiple possibilities for that:
+    - <https://github.com/outlines-dev/outlines>
+    - <https://github.com/guidance-ai/guidance>
+    - <https://github.com/ggerganov/llama.cpp/blob/master/grammars/README.md>
+    - <https://lmql.ai/>
+    - <https://github.com/stanfordnlp/dspy>
+  - LLM can be provided with GPU support or CPU only (both supported by llama.cpp)
+    - <https://docs.docker.com/compose/gpu-support/>
   - Collect all matching reports
   - Notify user by Email when job is finished
   - Let user browse the results
