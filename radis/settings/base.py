@@ -52,6 +52,7 @@ INSTALLED_APPS = [
     "django.contrib.humanize",
     "django.contrib.sites",
     "django.contrib.postgres",
+    "django_extensions",
     "dbbackup",
     "revproxy",
     "loginas",
