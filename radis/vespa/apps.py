@@ -26,7 +26,7 @@ def register_app():
         fetch_document,
         update_document,
     )
-    from .utils.search_methods import search_bm25, search_hybrid
+    from .utils.search_methods import search_bm25, search_hybrid, search_rag
 
     def handle_report(event_type: ReportEventType, report: Report):
         # Sync reports with Vespa
@@ -52,4 +52,12 @@ def register_app():
     def search_vespa_hybrid(search: Search) -> SearchResult:
         return search_hybrid(search.query, search.offset, search.page_size)
 
-    register_search_handler("Vespa Hybrid", search_vespa_hybrid, "vespa/_hybrid_info.html")
+    register_search_handler(
+        "Vespa Hybrid", search_vespa_hybrid, "vespa/_hybrid_info.html"
+    )
+
+    def search_vespa_rag(search: Search) -> SearchResult:
+        # TODO: Add a way to input a question for RAG. Alternative: Sematic search -> query=question
+        return search_rag(search.query, "The question", search.offset, search.page_size)
+
+    register_search_handler("Vespa RAG", search_vespa_rag, "vespa/_rag_info.html")
