@@ -1,0 +1,19 @@
+{% load crispy_field from crispy_forms_field %}
+{% load bootstrap_icon from core_extras %}
+<form method="get" x-data="SearchForm()">
+    <div class="input-group">
+        <span class="input-group-text">Search</span>
+        {% crispy_field query_field "class" "form-control" %}
+        <button type="button"
+                class="btn bg-transparent"
+                @click="clear()"
+                hx-post="{% url 'search_info' %}"
+                hx-target="#search-panel"
+                style="width: 40px;
+                       margin-left: -40px;
+                       padding: 0;
+                       z-index: 100">{% bootstrap_icon "x" 20 %}</button>
+        {% crispy_field algorithm_field "class" "form-select" %}
+        <button type="submit" class="btn btn-success">{% bootstrap_icon "search" 20 %}</button>
+    </div>
+</form>

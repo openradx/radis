@@ -1,11 +1,12 @@
 {% extends "search/search_layout.html" %}
 {% load static from static %}
+{% load crispy from crispy_forms_tags %}
 {% load bootstrap_icon from core_extras %}
 {% block heading %}
     <h4 class="mb-3">Search Reports</h4>
 {% endblock heading %}
 {% block content %}
-    {% include "search/_search_form.html" %}
+    {% crispy form %}
     <div id="search-panel">
         {% if not selected_algorithm %}
             <div class="alert alert-danger d-flex align-items-center mt-3"

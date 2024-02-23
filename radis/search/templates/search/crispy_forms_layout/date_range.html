@@ -1,0 +1,9 @@
+{% load crispy_field from crispy_forms_field %}
+<fieldset class="{% if wrapper_class %}{{ wrapper_class }}{% endif %}">
+    <legend style="font-size: inherit;">{{ legend }}</legend>
+    <div class="input-group {% if group_class %}{{ group_class }}{% endif %}">
+        {% crispy_field from_field "class" "form-control" %}
+        <span class="input-group-text">-</span>
+        {% crispy_field till_field "class" "form-control" %}
+    </div>
+</fieldset>

@@ -8,6 +8,7 @@ from django.views import View
 
 from radis.core.mixins import HtmxOnlyMixin
 from radis.core.types import AuthenticatedApiRequest
+from radis.search.forms import SearchForm
 
 from .serializers import SearchParamsSerializer
 from .site import Search, SearchHandler, search_handlers
@@ -16,6 +17,11 @@ from .site import Search, SearchHandler, search_handlers
 class SearchView(LoginRequiredMixin, View):
     def get(self, request: AuthenticatedApiRequest, *args, **kwargs):
         serializer = SearchParamsSerializer(data=request.GET)
+        form = SearchForm(request.GET)
+        if form.is_valid():
+            print(form.cleaned_data)
+        else:
+            print(form.errors)
 
         if not serializer.is_valid():
             raise BadRequest("Invalid GET parameters.")
@@ -29,7 +35,7 @@ class SearchView(LoginRequiredMixin, View):
         search_handler: SearchHandler | None = None
 
         available_algorithms = sorted(list(search_handlers.keys()))
-        context: dict[str, Any] = {"available_algorithms": available_algorithms}
+        context: dict[str, Any] = {"form": form, "available_algorithms": available_algorithms}
 
         if available_algorithms and algorithm:
             search_handler = search_handlers.get(algorithm)
@@ -54,6 +60,7 @@ class SearchView(LoginRequiredMixin, View):
                 context["paginator"] = paginator
                 context["page_obj"] = paginator.get_page(page_number)
 
+            context["form"] = form
             context["query"] = query
             context["offset"] = offset
             context["documents"] = result.documents

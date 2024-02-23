@@ -1,0 +1,14 @@
+{% load crispy_field from crispy_forms_field %}
+<div class="range-slider">
+    <legend style="font-size: inherit;">{{ legend }}</legend>
+    <div class="slider-control input-group mt-2">
+        {% crispy_field from_field "class" "from-slider" %}
+        {% crispy_field till_field "class" "till-slider" %}
+    </div>
+    <div class="d-flex justify-content-center mt-2">
+        <span>0</span>
+        <span>-</span>
+        <span>120</span>
+        <span>y</span>
+    </div>
+</div>

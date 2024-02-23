@@ -1,7 +1,7 @@
 function SearchForm() {
   return {
     clear() {
-      const queryInput = document.getElementById("query");
+      const queryInput = document.getElementById("id_query");
       // @ts-ignore
       queryInput.value = "";
       queryInput.focus();
