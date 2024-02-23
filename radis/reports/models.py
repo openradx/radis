@@ -10,6 +10,7 @@ from radis.core.validators import (
     no_backslash_char_validator,
     no_control_chars_validator,
     no_wildcard_chars_validator,
+    validate_metadata,
     validate_patient_sex,
 )
 
@@ -47,44 +48,17 @@ class Report(models.Model):
         max_length=1,
         validators=[validate_patient_sex],
     )
-    study_instance_uid = models.CharField(
-        max_length=64,
-        validators=[
-            no_backslash_char_validator,
-            no_control_chars_validator,
-            no_wildcard_chars_validator,
-        ],
-    )
-    accession_number = models.CharField(
-        blank=True,
-        max_length=64,
-        validators=[
-            no_backslash_char_validator,
-            no_control_chars_validator,
-            no_wildcard_chars_validator,
-        ],
-    )
     study_description = models.CharField(blank=True, max_length=64)
     study_datetime = models.DateTimeField()
-    series_instance_uid = models.CharField(
-        max_length=64,
-        validators=[
-            no_backslash_char_validator,
-            no_control_chars_validator,
-            no_wildcard_chars_validator,
-        ],
-    )
     modalities_in_study = ArrayField(models.CharField(max_length=16))
-    sop_instance_uid = models.CharField(
-        max_length=64,
-        validators=[
-            no_backslash_char_validator,
-            no_control_chars_validator,
-            no_wildcard_chars_validator,
-        ],
-    )
     links = ArrayField(models.CharField(max_length=200))
     body = models.TextField()
+    metadata = models.JSONField(
+        default=dict,
+        validators=[validate_metadata],
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
     if TYPE_CHECKING:
         collections = manager.RelatedManager["Collection"]()

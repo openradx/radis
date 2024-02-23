@@ -29,14 +29,18 @@ class ReportFactory(BaseDjangoModelFactory[Report]):
     patient_id = factory.Faker("numerify", text="##########")
     patient_birth_date = factory.Faker("date_of_birth", minimum_age=15)
     patient_sex = factory.Faker("random_element", elements=["F", "M", "U"])
-    study_instance_uid = factory.LazyFunction(generate_uid)
-    accession_number = factory.Faker("numerify", text="############")
     study_description = factory.Faker("text", max_nb_chars=64)
     study_datetime = factory.Faker("date_time_between", start_date="-10y", tzinfo=timezone.utc)
-    series_instance_uid = factory.LazyFunction(generate_uid)
     modalities_in_study = factory.LazyFunction(
         lambda: fake.random_elements(elements=("CT", "MR", "DX", "PT", "US"), unique=True)
     )
-    sop_instance_uid = factory.LazyFunction(generate_uid)
     links = factory.LazyFunction(lambda: [fake.url() for _ in range(fake.random_int(1, 3))])
     body = factory.Faker("paragraph")
+    metadata = factory.LazyFunction(
+        lambda: {
+            "study_instance_uid": generate_uid(),
+            "accession_number": fake.numerify(text="##########"),
+            "series_instance_uid": generate_uid(),
+            "sop_instance_uid": generate_uid(),
+        }
+    )
