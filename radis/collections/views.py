@@ -15,8 +15,8 @@ from django_htmx.http import HttpResponseClientRefresh, trigger_client_event
 from django_tables2 import SingleTableView
 
 from radis.core.mixins import PageSizeSelectMixin
+from radis.core.models import Report
 from radis.core.types import AuthenticatedHttpRequest
-from radis.reports.models import Report
 
 from .filters import CollectionFilter
 from .models import Collection

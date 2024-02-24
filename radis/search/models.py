@@ -2,8 +2,7 @@ import logging
 from datetime import date, datetime
 from typing import Literal, NamedTuple
 
-from radis.core.models import AppSettings
-from radis.reports.models import Report
+from radis.core.models import AppSettings, Report
 
 logger = logging.getLogger(__name__)
 

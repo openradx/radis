@@ -21,14 +21,13 @@ urlpatterns = [
     path("admin-the-great/", admin.site.urls),
     path("api-auth/", include("rest_framework.urls")),
     path("accounts/", include("radis.accounts.urls")),
-    path("", include("radis.core.urls")),
     path("token-authentication/", include("radis.token_authentication.urls")),
-    path("sandbox/", include("radis.sandbox.urls")),
-    path("reports/", include("radis.reports.urls")),
-    path("api/reports/", include("radis.reports.api.urls")),
+    path("", include("radis.core.urls")),
+    path("api/reports/", include("radis.core.api.urls")),
     path("search/", include("radis.search.urls")),
     path("collections/", include("radis.collections.urls")),
     path("notes/", include("radis.notes.urls")),
+    path("sandbox/", include("radis.sandbox.urls")),
 ]
 
 # Django loginas

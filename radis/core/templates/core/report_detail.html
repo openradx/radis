@@ -1,4 +1,4 @@
-{% extends "reports/reports_layout.html" %}
+{% extends "core/core_layout.html" %}
 {% load calc_age from core_extras %}
 {% block heading %}
     <h4 class="mb-3">Report Details</h4>
@@ -33,7 +33,7 @@
         </tbody>
     </table>
     <div class="mb-3 mx-1">
-        {% include "reports/_report_buttons_panel.html" with no_view_button=True no_preview_button=True %}
+        {% include "core/_report_buttons_panel.html" with no_view_button=True no_preview_button=True %}
     </div>
     <div class="card">
         <div class="card-body">

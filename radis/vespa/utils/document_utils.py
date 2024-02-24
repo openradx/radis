@@ -1,7 +1,7 @@
 from datetime import date, datetime, time
 from typing import Any
 
-from radis.reports.models import Report
+from radis.core.models import Report
 from radis.search.models import ReportDocument
 
 from ..vespa_app import REPORT_SCHEMA_NAME, vespa_app

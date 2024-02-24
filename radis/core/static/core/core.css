@@ -122,3 +122,14 @@ table.table thead th.orderable {
   padding-right: 2rem;
   white-space: nowrap;
 }
+
+/***
+ * Report detail
+ ***/
+.definition-table {
+  width: auto;
+}
+
+.definition-table th {
+  padding-right: 32px;
+}

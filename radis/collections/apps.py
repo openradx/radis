@@ -13,8 +13,7 @@ class CollectionsConfig(AppConfig):
 
 
 def register_app():
-    from radis.core.site import register_main_menu_item
-    from radis.reports.site import register_report_panel_button
+    from radis.core.site import register_main_menu_item, register_report_panel_button
 
     register_main_menu_item(
         url_name="collection_list",

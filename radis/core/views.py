@@ -15,11 +15,12 @@ from django.shortcuts import render
 from django.urls import re_path, reverse_lazy
 from django.views.generic import View
 from django.views.generic.base import TemplateView
+from django.views.generic.detail import DetailView
 from django.views.generic.edit import FormView
 from revproxy.views import ProxyView
 
 from .forms import BroadcastForm
-from .models import CoreSettings
+from .models import CoreSettings, Report
 from .tasks import broadcast_mail
 from .types import AuthenticatedHttpRequest, HtmxHttpRequest
 
@@ -135,3 +136,13 @@ class FlowerProxyView(AdminProxyView):
         # Flower needs a bit different setup then the other proxy views as flower
         # uses a prefix itself (see docker compose service)
         return re_path(rf"^(?P<path>{cls.url_prefix}.*)$", cls.as_view())
+
+
+class ReportDetailView(LoginRequiredMixin, DetailView):
+    model = Report
+    template_name = "core/report_detail.html"
+    context_object_name = "report"
+
+
+class ReportPreviewView(ReportDetailView):
+    template_name = "core/report_preview.html"

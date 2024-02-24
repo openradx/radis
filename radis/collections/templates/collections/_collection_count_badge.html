@@ -1,4 +1,4 @@
-{% load collections_count from reports_extras %}
+{% load collections_count from collections_extras %}
 <div hx-get="{% url 'collection_count_badge' report.id %}"
      hx-trigger="collectionsOfReportChanged_{{ report.id }} from:body"
      hx-swap="outerHTML"

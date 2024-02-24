@@ -9,11 +9,11 @@ from django_filters.views import FilterView
 from django_htmx.http import HttpResponseClientRefresh, trigger_client_event
 
 from radis.core.mixins import HtmxOnlyMixin, PageSizeSelectMixin
+from radis.core.models import Report
 from radis.core.types import AuthenticatedHttpRequest
 from radis.notes.filters import NoteFilter
 from radis.notes.forms import NoteEditForm
 from radis.notes.models import Note
-from radis.reports.models import Report
 
 
 class NoteListView(LoginRequiredMixin, PageSizeSelectMixin, FilterView):

@@ -10,9 +10,9 @@ from faker import Faker
 
 from radis.accounts.factories import AdminUserFactory, GroupFactory, UserFactory
 from radis.accounts.models import User
-from radis.reports.factories import ReportFactory
-from radis.reports.models import Report
-from radis.reports.site import report_event_handlers
+from radis.core.factories import ReportFactory
+from radis.core.models import Report
+from radis.core.site import report_event_handlers
 from radis.token_authentication.factories import TokenFactory
 from radis.token_authentication.models import FRACTION_LENGTH
 from radis.token_authentication.utils.crypto import hash_token

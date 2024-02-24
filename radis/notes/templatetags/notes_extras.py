@@ -3,7 +3,7 @@ from typing import Any, cast
 from django.template import Library
 
 from radis.accounts.models import User
-from radis.reports.models import Report
+from radis.core.models import Report
 
 from ..models import Note
 

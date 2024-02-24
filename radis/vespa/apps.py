@@ -11,8 +11,8 @@ class VespaConfig(AppConfig):
 
 
 def register_app():
-    from radis.reports.models import Report
-    from radis.reports.site import (
+    from radis.core.models import Report
+    from radis.core.site import (
         ReportEventType,
         register_document_fetcher,
         register_report_handler,
