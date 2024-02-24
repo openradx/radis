@@ -1,10 +1,7 @@
-from typing import TYPE_CHECKING
-
 from django.contrib.auth.models import Group
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
 
-from radis.accounts.models import User
 from radis.core.models import AppSettings
 from radis.core.validators import (
     no_backslash_char_validator,
@@ -13,11 +10,6 @@ from radis.core.validators import (
     validate_metadata,
     validate_patient_sex,
 )
-
-if TYPE_CHECKING:
-    from django.db.models import manager
-
-    from radis.collections.models import Collection
 
 
 class ReportsAppSettings(AppSettings):
@@ -60,14 +52,5 @@ class Report(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
-    if TYPE_CHECKING:
-        collections = manager.RelatedManager["Collection"]()
-
     def __str__(self) -> str:
         return f"Report {self.id} [{self.document_id}]"
-
-    def get_collections(self, owner: User) -> models.QuerySet["Collection"]:
-        return self.collections.filter(owner=owner)
-
-    def get_collections_count(self, owner: User) -> int:
-        return self.get_collections(owner).count()

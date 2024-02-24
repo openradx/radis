@@ -2,6 +2,11 @@
 
 ## High Priority
 
+- Show metadata in report details
+- Age slider
+  - <https://tailwindcomponents.com/component/multi-range-slider>
+  - <https://codepen.io/glitchworker/pen/XVdKqj>
+  - <https://medium.com/@predragdavidovic10/native-dual-range-slider-html-css-javascript-91e778134816>
 - Upgrade Github actions workflows (also ADIT)
 - Allow to set filters when using search
   - from:2024-01-01 until:2024-02-01 modality:ct description:"CT\*"
@@ -17,6 +22,7 @@
   - Reference: name (unique), match (unique)
 - Sidebar like in <https://cord19.vespa.ai/search?query=pain> with filters: Age, Gender, Modality, Study Description
 - Remove unneeded templatetags
+- Are pandas and openpyxl needed as deps?!
 
 ## Fix
 
@@ -42,6 +48,7 @@
   - Collect all matching reports
   - Notify user by Email when job is finished
   - Let user browse the results
+- Fetch favicon for links
 - Categories app
   - LLMs answers to questions abouts reports to tag them with different categories like LAE, emphysema, ...
   - Similar to RAG app (also maybe depends on it for accessing the LLM)
@@ -58,6 +65,12 @@
 
 ## Maybe
 
+- Rename reports model fields to something in the HL7 FHIR standard
+  - Interesting resources in this regard are:
+    - <https://hl7.org/fhir/patient.html>
+    - <https://hl7.org/fhir/observation.html>
+    - <https://hl7.org/fhir/diagnosticreport.html>
+    - <https://hl7.org/fhir/imagingstudy.html>
 - Adjust the summary dynamic snippets of the search results
   - <https://docs.vespa.ai/en/document-summaries.html>
   - Unfortunately, ApplicationConfiguration does not allow to put the configuration inside the content cluster (see link above)

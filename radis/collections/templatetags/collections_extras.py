@@ -1,10 +1,12 @@
 from typing import Any, cast
 
+from django.db.models import QuerySet
 from django.template import Library
 
 from radis.accounts.models import User
+from radis.reports.models import Report
 
-from ..models import Report
+from ..models import Collection
 
 register = Library()
 
@@ -12,4 +14,5 @@ register = Library()
 @register.simple_tag(takes_context=True)
 def collections_count(context: dict[str, Any], report: Report):
     user = cast(User, context["request"].user)
-    return report.get_collections_count(user)
+    collections = cast(QuerySet[Collection], getattr(report, "collections"))
+    return collections.filter(owner=user).count()
