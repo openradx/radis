@@ -112,7 +112,7 @@ show_missing = true
 [tool.ruff]
 exclude = ["migrations"]
 line-length = 100
-select = ["E", "F", "I", "DJ"]
+lint.select = ["E", "F", "I", "DJ"]
 
 [tool.djlint]
 profile = "django"
