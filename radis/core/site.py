@@ -17,6 +17,33 @@ def register_main_menu_item(url_name: str, label: str) -> None:
     main_menu_items.append(MainMenuItem(url_name, label))
 
 
+class TaskProcessor:
+    def is_suspended(self) -> bool:
+        """Called by the worker to check if the processor is suspended."""
+        raise NotImplementedError("Subclass must implement this method.")
+
+    def process(self, task: Any) -> None:
+        """Does the actual work of processing the task.
+
+        This method is called in it's own process.
+
+        Args:
+            task: The task to process
+        """
+        raise NotImplementedError("Subclass must implement this method.")
+
+
+task_processors: dict[str, type[TaskProcessor]] = {}
+
+
+def register_task_processor(name: str, processor: type[TaskProcessor]) -> None:
+    if len(name) > 100:
+        raise ValueError("Task processor name too long.")
+    if name in task_processors:
+        raise ValueError(f"Task processor with name {name} already registered.")
+    task_processors[name] = processor
+
+
 def base_context_processor(request: HttpRequest) -> dict[str, Any]:
     from .utils.auth_utils import is_logged_in_user
 
