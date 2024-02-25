@@ -1,0 +1,6 @@
+{% load crispy_forms_utils %}
+{% specialspaceless %}
+{% if include_media %}{{ form.media }}{% endif %}
+{{ form.form_html }}
+{% include "bootstrap5/inputs.html" %}
+{% endspecialspaceless %}

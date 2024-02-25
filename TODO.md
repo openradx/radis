@@ -2,6 +2,8 @@
 
 ## High Priority
 
+- QueuedTask
+- RagJob, RagTask
 - Show metadata in report details
 - Age slider
   - <https://tailwindcomponents.com/component/multi-range-slider>

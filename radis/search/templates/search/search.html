@@ -1,22 +1,33 @@
 {% extends "search/search_layout.html" %}
 {% load static from static %}
+{% load crispy from crispy_forms_tags %}
 {% load bootstrap_icon from core_extras %}
 {% block heading %}
     <h4 class="mb-3">Search Reports</h4>
 {% endblock heading %}
 {% block content %}
-    {% include "search/_search_form.html" %}
-    <div id="search-panel">
-        {% if not selected_algorithm %}
-            <div class="alert alert-danger d-flex align-items-center mt-3"
-                 role="alert">
-                {% bootstrap_icon "exclamation-triangle-fill" %}
-                <div class="ms-2">Setup of RADIS is incomplete. No search algorithms are registered.</div>
+    <form method="get" x-data="SearchForm()">
+        <div class="row">{% crispy form form.query_helper %}</div>
+        <div class="row">
+            <div class="col">
+                <div id="search-panel">
+                    {% if form.non_field_errors %}
+                        <div class="mt-3">{% include "bootstrap5/errors.html" %}</div>
+                    {% elif documents %}
+                        {% include "search/_search_results.html" %}
+                    {% elif info_template %}
+                        {% include "search/_search_info.html" %}
+                    {% endif %}
+                </div>
             </div>
-        {% elif query %}
-            {% include "search/_search_results.html" %}
-        {% else %}
-            {% include "search/_search_info.html" %}
-        {% endif %}
-    </div>
+            <div class="col col-auto">
+                <div class="card mt-3">
+                    <div class="card-body">
+                        <h5 class="card-title">Filters</h5>
+                        {% crispy form form.filters_helper %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </form>
 {% endblock content %}

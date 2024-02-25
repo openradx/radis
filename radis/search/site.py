@@ -1,30 +1,44 @@
-from typing import Callable, NamedTuple
+from dataclasses import dataclass, field
+from datetime import date
+from typing import Callable, Literal, NamedTuple
 
 from .models import SearchResult
+
+
+@dataclass
+class Filters:
+    study_date_from: date | None = None
+    study_date_till: date | None = None
+    study_description: str = ""
+    modalities: list[str] = field(default_factory=list)
+    patient_sex: Literal["M", "F", "U"] | None = None
+    patient_age_from: int | None = None
+    patient_age_till: int | None = None
 
 
 class Search(NamedTuple):
     query: str
     offset: int = 0
     page_size: int = 10
+    filters: Filters = Filters()
 
 
-Searcher = Callable[[Search], SearchResult]
+SearchHandler = Callable[[Search], SearchResult]
 
 
-class SearchHandler(NamedTuple):
+class SearchProvider(NamedTuple):
     name: str
-    searcher: Searcher
-    info_template_name: str
+    handler: SearchHandler
+    info_template: str
 
 
-search_handlers: dict[str, SearchHandler] = {}
+search_providers: dict[str, SearchProvider] = {}
 
 
-def register_search_handler(
-    name: str,  # TODO: may rename to algorithm
-    searcher: Searcher,
-    info_template_name: str,
+def register_search_provider(
+    name: str,
+    handler: SearchHandler,
+    info_template: str,
 ) -> None:
     """Register a search handler.
 
@@ -32,4 +46,4 @@ def register_search_handler(
     when the user submits the form and returns the results. The template name is
     the partial to be rendered as info below the search form.
     """
-    search_handlers[name] = SearchHandler(name, searcher, info_template_name)
+    search_providers[name] = SearchProvider(name, handler, info_template)

@@ -1,7 +1,7 @@
 function SearchForm() {
   return {
     clear() {
-      const queryInput = document.getElementById("query");
+      const queryInput = document.getElementById("id_query");
       // @ts-ignore
       queryInput.value = "";
       queryInput.focus();
@@ -13,10 +13,10 @@ function SearchForm() {
       const newUrl = `${window.location.pathname}?${params.toString()}`;
       history.pushState(null, "", newUrl);
     },
-    algorithmChanged(event) {
-      const selectedAlgorithm = event.target.value;
+    providerChanged(event) {
+      const selectedProvider = event.target.value;
       const params = new URLSearchParams(window.location.search);
-      params.set("algorithm", selectedAlgorithm);
+      params.set("provider", selectedProvider);
       params.delete("page");
       params.delete("per_page");
       const newUrl = `${window.location.pathname}?${params.toString()}`;
