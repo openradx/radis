@@ -46,6 +46,14 @@ services:
       - full
       - extra
 
+  worker_rag:
+    <<: *default-app
+    command: |
+      ./manage.py celery_worker -Q rag_queue --autoreload
+    profiles:
+      - full
+      - extra
+
   celery_beat:
     <<: *default-app
     command: |

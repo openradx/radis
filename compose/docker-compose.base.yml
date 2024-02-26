@@ -35,6 +35,10 @@ services:
     <<: *default-app
     hostname: worker_default.local
 
+  worker_rag:
+    <<: *default-app
+    hostname: worker_rag.local
+
   celery_beat:
     <<: *default-app
     hostname: celery_beat.local

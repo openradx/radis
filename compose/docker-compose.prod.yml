@@ -40,6 +40,12 @@ services:
     deploy:
       replicas: 1
 
+  worker_rag:
+    <<: *default-app
+    command: ./manage.py celery_worker -Q rag_queue
+    deploy:
+      replicas: 1
+
   celery_beat:
     <<: *default-app
     command: ./manage.py celery_beat
