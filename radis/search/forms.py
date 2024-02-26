@@ -12,6 +12,10 @@ from radis.search.layouts import QueryInput, RangeSlider
 
 from .site import search_providers
 
+MIN_AGE = 0
+MAX_AGE = 120
+AGE_STEP = 10
+
 
 def get_search_providers():
     return sorted([(provider.name, provider.name) for provider in search_providers.values()])
@@ -45,25 +49,29 @@ class SearchForm(forms.Form):
     )
     age_from = forms.IntegerField(
         required=False,
+        min_value=MIN_AGE,
+        max_value=MAX_AGE - AGE_STEP,
         widget=forms.NumberInput(
             attrs={
                 "type": "range",
-                "min": 0,
-                "max": 120,
-                "value": 0,
-                "step": 10,
+                "min": MIN_AGE,
+                "max": MAX_AGE - AGE_STEP,
+                "value": MIN_AGE,
+                "step": AGE_STEP,
             }
         ),
     )
     age_till = forms.IntegerField(
         required=False,
+        min_value=MIN_AGE + AGE_STEP,
+        max_value=MAX_AGE,
         widget=forms.NumberInput(
             attrs={
                 "type": "range",
-                "min": 0,
-                "max": 120,
-                "value": 120,
-                "step": 10,
+                "min": MIN_AGE + AGE_STEP,
+                "max": MAX_AGE,
+                "value": MAX_AGE,
+                "step": AGE_STEP,
             }
         ),
     )
@@ -136,10 +144,23 @@ class SearchForm(forms.Form):
             return self.fields["provider"].initial
         return self.cleaned_data["provider"]
 
+    def clean_age_from(self) -> int:
+        age_from = self.cleaned_data["age_from"]
+        if age_from % AGE_STEP != 0:
+            raise forms.ValidationError(f"Age from must be a multiple of {AGE_STEP}")
+        return age_from
+
+    def clean_age_till(self) -> int:
+        age_till = self.cleaned_data["age_till"]
+        if age_till % AGE_STEP != 0:
+            raise forms.ValidationError(f"Age till must be a multiple of {AGE_STEP}")
+        return age_till
+
     def clean(self) -> dict[str, Any]:
-        if not self.fields["provider"].choices:
-            raise forms.ValidationError(
-                "Setup of RADIS is incomplete. No search providers are registered."
-            )
+        self.age_from = self.cleaned_data["age_from"]
+        self.age_till = self.cleaned_data["age_till"]
+
+        if self.age_from >= self.age_till:
+            raise forms.ValidationError("Age from must be less than age till")
 
         return super().clean()
