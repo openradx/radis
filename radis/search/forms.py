@@ -5,15 +5,20 @@ from crispy_forms.layout import Button, Div, Field
 from django import forms
 from django.db.models import F, Func
 from django.urls import reverse
+from django.utils.functional import lazy
 
 from radis.reports.models import Report
 from radis.search.layouts import QueryInput, RangeSlider
 
 from .site import search_providers
 
-SEARCH_PROVIDER_CHOICES = sorted(
-    [(provider.name, provider.name) for provider in search_providers.values()]
-)
+
+def get_search_providers():
+    return sorted([(provider.name, provider.name) for provider in search_providers.values()])
+
+
+def get_initial_provider():
+    return get_search_providers()[0][0]
 
 
 class SearchForm(forms.Form):
@@ -21,7 +26,9 @@ class SearchForm(forms.Form):
     query = forms.CharField(required=False, label=False)
     provider = forms.ChoiceField(
         required=False,
-        choices=SEARCH_PROVIDER_CHOICES,
+        # TODO: in Django 5 choices and initial can be passed a function directly
+        choices=lazy(get_search_providers, tuple)(),
+        initial=lazy(get_initial_provider, str)(),
         label=False,
     )
     # Filter fields
@@ -63,9 +70,6 @@ class SearchForm(forms.Form):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-
-        if SEARCH_PROVIDER_CHOICES:
-            self.fields["provider"].initial = SEARCH_PROVIDER_CHOICES[0][0]
 
         # TODO: put an index to modalities_in_study
         # https://stackoverflow.com/a/4059785/166229
