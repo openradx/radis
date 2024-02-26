@@ -1,16 +1,16 @@
 {% load crispy_field from crispy_forms_field %}
-<div class="range-slider mb-3">
+<div x-data="RangeSlider($refs)" class="range-slider mb-3">
     <legend style="font-size: inherit;">{{ legend }}</legend>
     <div class="slider-control input-group mt-2">
         <label class="visually-hidden" for="{{ from_field.id_for_label }}">{{ from_field.label }}</label>
-        {% crispy_field from_field "class" "from-slider" %}
+        {% crispy_field from_field "class" "from-slider" "x-ref" "fromInput" "x-model.number" "from" "@input" "fromChange" %}
         <label class="visually-hidden" for="{{ till_field.id_for_label }}">{{ till_field.label }}</label>
-        {% crispy_field till_field "class" "till-slider" %}
+        {% crispy_field till_field "class" "till-slider" "x-ref" "tillInput" "x-model.number" "till" "@input" "tillChange" %}
     </div>
     <div class="d-flex justify-content-center mt-2">
-        <span>0</span>
+        <span class="fromIndicator" x-text="from">{{ from_field.value }}</span>
         <span>-</span>
-        <span>120</span>
+        <span class="tillIndicator" x-text="till">{{ till_field.value }}</span>
         <span>y</span>
     </div>
 </div>

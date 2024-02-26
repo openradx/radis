@@ -59,6 +59,14 @@ class QueryInput(TemplateNameMixin):
 
 
 class RangeSlider(TemplateNameMixin):
+    """A range slider with two knobs.
+
+    Inspired by:
+    https://medium.com/@predragdavidovic10/native-dual-range-slider-html-css-javascript-91e778134816
+    https://codepen.io/glitchworker/pen/XVdKqj
+    https://tailwindcomponents.com/component/multi-range-slider
+    """
+
     def __init__(
         self,
         legend: str,
