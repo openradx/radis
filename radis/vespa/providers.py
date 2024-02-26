@@ -3,20 +3,23 @@ import logging
 from django.conf import settings
 
 from radis.search.models import SearchResult
+from radis.search.site import Search
+from radis.vespa.utils.query_utils import build_yql
 
-from ..vespa_app import vespa_app
-from .document_utils import document_from_vespa_response
+from .utils.document_utils import document_from_vespa_response
+from .vespa_app import vespa_app
 
 logger = logging.getLogger(__name__)
 
 
-def search_bm25(query: str, offset: int, page_size: int) -> SearchResult:
+def search_bm25(search: Search) -> SearchResult:
+    yql = build_yql(search)
     params = {
-        "yql": "select * from sources * where userQuery()",
-        "query": query,
+        "yql": yql,
+        "query": search.query,
         "type": "web",
-        "hits": page_size,
-        "offset": offset,
+        "hits": search.page_size,
+        "offset": search.offset,
         "ranking": "bm25",
     }
 
@@ -36,16 +39,17 @@ def search_bm25(query: str, offset: int, page_size: int) -> SearchResult:
 
 
 # https://pyvespa.readthedocs.io/en/latest/getting-started-pyvespa.html#Hybrid-search-with-the-OR-query-operator
-def search_hybrid(query: str, offset: int, page_size: int) -> SearchResult:
+def search_hybrid(search: Search) -> SearchResult:
+    yql = build_yql(search)
+    yql += " or ({targetHits:1000}nearestNeighbor(embedding,q))"
     params = {
-        "yql": "select * from sources * where userQuery() or \
-            ({targetHits:1000}nearestNeighbor(embedding,q))",
-        "query": query,
+        "yql": yql,
+        "query": search.query,
         "type": "web",
-        "hits": page_size,
-        "offset": offset,
+        "hits": search.page_size,
+        "offset": search.offset,
         "ranking": "fusion",
-        "body": {"input.query(q)": f"embed({query})"},
+        "body": {"input.query(q)": f"embed({search.query})"},
     }
 
     if settings.VESPA_QUERY_LANGUAGE != "auto":
