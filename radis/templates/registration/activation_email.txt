@@ -20,5 +20,5 @@ Please view the landing page of RADIS (http://{{site.domain}}) and write me
 
 {% blocktrans %}
 Sincerely,
-Kai Schlamp
+OpenRadX Team
 {% endblocktrans %}
