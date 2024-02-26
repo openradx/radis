@@ -1,8 +1,7 @@
-{% load calc_age from core_extras %}
 <div class="d-flex justify-content-between">
     <div class="d-flex gap-4">
         <div class="d-flex flex-column">
-            <small>Age: {% calc_age report.patient_birth_date report.study_datetime %}</small>
+            <small>Age: {{ report.patient_age %}</small>
             <small>Sex: {{ report.patient_sex }}</small>
         </div>
         <div class="d-flex flex-column">

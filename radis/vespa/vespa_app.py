@@ -47,7 +47,7 @@ def _create_report_schema():
                     indexing=["summary"],
                 ),
                 Field(
-                    name="patient_birth_date",
+                    name="patient_age",
                     type="int",
                     indexing=["summary", "attribute"],
                 ),

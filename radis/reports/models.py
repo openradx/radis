@@ -3,6 +3,7 @@ from django.contrib.postgres.fields import ArrayField
 from django.db import models
 
 from radis.core.models import AppSettings
+from radis.core.utils.date_utils import calculate_age
 from radis.core.validators import (
     no_backslash_char_validator,
     no_control_chars_validator,
@@ -54,3 +55,8 @@ class Report(models.Model):
 
     def __str__(self) -> str:
         return f"Report {self.id} [{self.document_id}]"
+
+    @property
+    def patient_age(self) -> int:
+        """Patient age at study date"""
+        return calculate_age(self.patient_birth_date, self.study_datetime)

@@ -18,6 +18,7 @@ class ReportDocument(NamedTuple):
     document_id: str
     pacs_name: str
     patient_birth_date: date
+    patient_age: int
     patient_sex: Literal["F", "M", "U"]
     study_description: str
     study_datetime: datetime

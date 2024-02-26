@@ -1,5 +1,4 @@
 {% extends "reports/reports_layout.html" %}
-{% load calc_age from core_extras %}
 {% block heading %}
     <h4 class="mb-3">Report Details</h4>
 {% endblock heading %}
@@ -12,7 +11,7 @@
             </tr>
             <tr>
                 <th>Patient Age</th>
-                <td>{% calc_age report.patient_birth_date report.study_datetime %}</td>
+                <td>{{ report.patient_age }}</td>
             </tr>
             <tr>
                 <th>Patient Sex</th>
