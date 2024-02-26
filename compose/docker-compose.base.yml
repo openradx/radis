@@ -13,6 +13,9 @@ x-app: &default-app
     VESPA_HOST: "vespa.local"
     VESPA_CONFIG_PORT: "19071"
     VESPA_DATA_PORT: "8080"
+    RABBITMQ_URL: "amqp://rabbit"
+    RABBIT_MANAGEMENT_HOST: "rabbit"
+    RABBIT_MANAGEMENT_PORT: "15672"
     REDIS_URL: "redis://redis.local:6379/0"
     FLOWER_HOST: "flower.local"
     FLOWER_PORT: "5555"
@@ -27,6 +30,23 @@ services:
       # Cave, overwrites the above anchor
       - /mnt:/mnt
       - radis_data:/var/www/radis
+
+  worker_default:
+    <<: *default-app
+    hostname: worker_default.local
+
+  celery_beat:
+    <<: *default-app
+    hostname: celery_beat.local
+
+  flower:
+    <<: *default-app
+    hostname: flower.local
+    command: >
+      bash -c "
+        wait-for-it -s rabbit:5672 -t 60 &&
+        celery --broker=amqp://rabbit/ flower --url_prefix=flower
+      "
 
   postgres:
     image: postgres:16.2
@@ -49,22 +69,17 @@ services:
       - vespa_data:/opt/vespa/var
       - vespa_logs:/opt/vespa/logs
 
-  worker_default:
-    <<: *default-app
-    hostname: worker_default.local
-
-  celery_beat:
-    <<: *default-app
-    hostname: celery_beat.local
-
-  flower:
-    <<: *default-app
-    hostname: flower.local
-    command: >
-      bash -c "
-        wait-for-it -s redis:6379 -t 60 &&
-        celery --broker=redis://redis.local:6379/0 flower --url_prefix=flower
-      "
+  # RabbitMQ authentication can't be disabled. So when we try to log into
+  # the management console we have to use "guest" as username and password.
+  # The real authentication happens by ADIT itself, because the management
+  # console is behind a ProxyView.
+  rabbit:
+    image: rabbitmq:3.12.2-management
+    configs:
+      - source: rabbit_config
+        target: /etc/rabbitmq/rabbitmq.conf
+    volumes:
+      - rabbit_data:/var/lib/rabbitmq
 
   redis:
     image: redis:7.2
@@ -72,10 +87,15 @@ services:
     volumes:
       - redis_data:/data
 
+configs:
+  rabbit_config:
+    file: ./rabbitmq/rabbitmq.conf
+
 volumes:
   radis_data:
+  flower_data:
   postgres_data:
   vespa_data:
   vespa_logs:
+  rabbit_data:
   redis_data:
-  flower_data:

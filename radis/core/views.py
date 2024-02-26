@@ -135,3 +135,11 @@ class FlowerProxyView(AdminProxyView):
         # Flower needs a bit different setup then the other proxy views as flower
         # uses a prefix itself (see docker compose service)
         return re_path(rf"^(?P<path>{cls.url_prefix}.*)$", cls.as_view())
+
+
+class RabbitManagementProxyView(AdminProxyView):
+    upstream = (
+        f"http://{settings.RABBIT_MANAGEMENT_HOST}:" f"{settings.RABBIT_MANAGEMENT_PORT}"  # type: ignore
+    )
+    url_prefix = "rabbit"
+    rewrite = ((rf"^/{url_prefix}$", r"/"),)

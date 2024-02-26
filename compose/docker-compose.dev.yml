@@ -38,6 +38,28 @@ services:
       - full
       - web
 
+  worker_default:
+    <<: *default-app
+    command: |
+      ./manage.py celery_worker -Q default_queue --autoreload
+    profiles:
+      - full
+      - extra
+
+  celery_beat:
+    <<: *default-app
+    command: |
+      ./manage.py celery_beat --autoreload
+    profiles:
+      - full
+      - extra
+
+  flower:
+    <<: *default-app
+    profiles:
+      - full
+      - extra
+
   postgres:
     environment:
       POSTGRES_PASSWORD: "postgres"
@@ -57,24 +79,7 @@ services:
       - web
       - db
 
-  worker_default:
-    <<: *default-app
-    command: |
-      ./manage.py celery_worker -Q default_queue --autoreload
-    profiles:
-      - full
-      - extra
-
-  celery_beat:
-    <<: *default-app
-    command: |
-      ./manage.py celery_beat --autoreload
-    profiles:
-      - full
-      - extra
-
-  flower:
-    <<: *default-app
+  rabbit:
     profiles:
       - full
       - extra

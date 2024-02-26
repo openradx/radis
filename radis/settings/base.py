@@ -288,18 +288,39 @@ REGISTRATION_OPEN = True
 # Channels
 ASGI_APPLICATION = "radis.asgi.application"
 
-# Redis is used as Celery backend
-REDIS_URL = env.str("REDIS_URL", default="redis://localhost:6379/0")  # type: ignore
+# RabbitMQ is used as Celery message broker
+RABBITMQ_URL = env.str("RABBITMQ_URL", default="amqp://localhost")  # type: ignore
+
+# Rabbit Management console is integrated in ADIT by using an reverse
+# proxy (django-revproxy).This allows to use the authentication of ADIT.
+# But as RabbitMQ authentication can't be disabled we have to login
+# there with "guest" as username and password again.
+RABBIT_MANAGEMENT_HOST = env.str("RABBIT_MANAGEMENT_HOST", default="localhost")  # type: ignore
+RABBIT_MANAGEMENT_PORT = env.int("RABBIT_MANAGEMENT_PORT", default=15672)  # type: ignore
 
 # Celery
 # see https://github.com/celery/celery/issues/5026 for how to name configs
 if USE_TZ:
     CELERY_TIMEZONE = TIME_ZONE
-CELERY_BROKER_URL = REDIS_URL
+CELERY_BROKER_URL = RABBITMQ_URL
 CELERY_WORKER_HIJACK_ROOT_LOGGER = False
 CELERY_IGNORE_RESULT = True
 CELERY_TASK_DEFAULT_QUEUE = "default_queue"
 CELERY_BEAT_SCHEDULE = {}
+
+# Settings for priority queues, see also apply_async calls in the models.
+# Requires RabbitMQ as the message broker!
+CELERY_TASK_QUEUE_MAX_PRIORITY = 10
+CELERY_TASK_DEFAULT_PRIORITY = 5
+
+# Only non prefetched tasks can be sorted by their priority. So we prefetch
+# only one task at a time.
+CELERY_WORKER_PREFETCH_MULTIPLIER = 1
+
+# Only acknowledge the Celery task when it was finished by the worker.
+# If the worker crashed while executing the task it will be re-executed
+# when the worker is up again
+CELERY_TASK_ACKS_LATE = True
 
 # Flower is integrated in RADIS by using a reverse proxy (django-revproxy).
 # This allows to use the authentication of RADIS.

@@ -34,18 +34,6 @@ services:
     deploy:
       replicas: 1
 
-  postgres:
-    restart: always
-    env_file:
-      - ../.env.prod
-    deploy:
-      replicas: 1
-
-  vespa:
-    restart: always
-    deploy:
-      replicas: 1
-
   worker_default:
     <<: *default-app
     command: ./manage.py celery_worker -Q default_queue
@@ -60,6 +48,23 @@ services:
 
   flower:
     <<: *default-app
+    deploy:
+      replicas: 1
+
+  postgres:
+    restart: always
+    env_file:
+      - ../.env.prod
+    deploy:
+      replicas: 1
+
+  vespa:
+    restart: always
+    deploy:
+      replicas: 1
+
+  rabbit:
+    restart: always
     deploy:
       replicas: 1
 

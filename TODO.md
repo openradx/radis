@@ -25,6 +25,7 @@
 - Sidebar like in <https://cord19.vespa.ai/search?query=pain> with filters: Age, Gender, Modality, Study Description
 - Remove unneeded templatetags
 - Are pandas and openpyxl needed as deps?!
+- Remove Redis if not needed anymore
 
 ## Fix
 
