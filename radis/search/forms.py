@@ -50,28 +50,24 @@ class SearchForm(forms.Form):
     age_from = forms.IntegerField(
         required=False,
         min_value=MIN_AGE,
-        max_value=MAX_AGE - AGE_STEP,
+        max_value=MAX_AGE,
         widget=forms.NumberInput(
             attrs={
                 "type": "range",
-                "min": MIN_AGE,
-                "max": MAX_AGE - AGE_STEP,
-                "value": MIN_AGE,
                 "step": AGE_STEP,
+                "value": MIN_AGE,
             }
         ),
     )
     age_till = forms.IntegerField(
         required=False,
-        min_value=MIN_AGE + AGE_STEP,
+        min_value=MIN_AGE,
         max_value=MAX_AGE,
         widget=forms.NumberInput(
             attrs={
                 "type": "range",
-                "min": MIN_AGE + AGE_STEP,
-                "max": MAX_AGE,
-                "value": MAX_AGE,
                 "step": AGE_STEP,
+                "value": MAX_AGE,
             }
         ),
     )
