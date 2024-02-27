@@ -5,7 +5,7 @@ from django.http import HttpRequest
 from .models import Report
 
 ReportEventType = Literal["created", "updated", "deleted"]
-ReportEventHandler = Callable[[ReportEventType, Report], None]
+ReportEventHandler = Callable[[ReportEventType, str], None]
 
 report_event_handlers: list[ReportEventHandler] = []
 

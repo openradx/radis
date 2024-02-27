@@ -27,14 +27,17 @@ def register_app():
         update_document,
     )
 
-    def handle_report(event_type: ReportEventType, report: Report):
-        # Sync reports with Vespa
-        if event_type == "created":
-            create_document(report.document_id, report)
-        elif event_type == "updated":
-            update_document(report.document_id, report)
+    def handle_report(event_type: ReportEventType, document_id: str):
+        if event_type in ("created", "updated"):
+            report = Report.objects.get(document_id=document_id)
+            if event_type == "created":
+                create_document(document_id, report)
+            elif event_type == "updated":
+                update_document(document_id, report)
         elif event_type == "deleted":
-            delete_document(report.document_id)
+            delete_document(document_id)
+        else:
+            raise ValueError(f"Invalid report event type: {event_type}")
 
     register_report_handler(handle_report)
 

@@ -1,5 +1,6 @@
 from typing import Any
 
+from django.db import transaction
 from django.http import Http404
 from rest_framework import mixins, status, viewsets
 from rest_framework.exceptions import MethodNotAllowed
@@ -8,8 +9,10 @@ from rest_framework.request import Request, clone_request
 from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
 
+from radis.reports.tasks import report_created, report_deleted, report_updated
+
 from ..models import Report
-from ..site import document_fetchers, report_event_handlers
+from ..site import document_fetchers
 from .serializers import ReportSerializer
 
 
@@ -55,8 +58,7 @@ class ReportViewSet(
         super().perform_create(serializer)
         assert serializer.instance
         report: Report = serializer.instance
-        for handler in report_event_handlers:
-            handler("created", report)
+        transaction.on_commit(lambda: report_created.delay(report.document_id))
 
     def update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         # DRF itself does not support upsert (create the object to update if it does not exist).
@@ -89,8 +91,7 @@ class ReportViewSet(
         super().perform_update(serializer)
         assert serializer.instance
         report: Report = serializer.instance
-        for handler in report_event_handlers:
-            handler("updated", report)
+        transaction.on_commit(lambda: report_updated.delay(report.document_id))
 
     def partial_update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         assert request.method
@@ -98,5 +99,4 @@ class ReportViewSet(
 
     def perform_destroy(self, instance: Report) -> None:
         super().perform_destroy(instance)
-        for handler in report_event_handlers:
-            handler("deleted", instance)
+        transaction.on_commit(lambda: report_deleted.delay(instance.document_id))
