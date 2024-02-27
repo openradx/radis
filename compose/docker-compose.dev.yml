@@ -41,7 +41,7 @@ services:
   worker_default:
     <<: *default-app
     command: |
-      ./manage.py celery_worker -Q default_queue --autoreload
+      ./manage.py celery_worker -c 1 -Q default_queue --autoreload
     profiles:
       - full
       - extra
@@ -49,7 +49,7 @@ services:
   worker_llm:
     <<: *default-app
     command: |
-      ./manage.py celery_worker -Q llm_queue --autoreload
+      ./manage.py celery_worker -c 1 -Q llm_queue --autoreload
     profiles:
       - full
       - extra

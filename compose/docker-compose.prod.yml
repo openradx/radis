@@ -42,7 +42,7 @@ services:
 
   worker_llm:
     <<: *default-app
-    command: ./manage.py celery_worker -Q llm_queue
+    command: ./manage.py celery_worker -c 1 -Q llm_queue
     deploy:
       replicas: 1
 

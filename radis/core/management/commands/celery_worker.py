@@ -36,16 +36,21 @@ class Command(ServerCommand):
         parser.add_argument(
             "-c",
             "--concurrency",
-            default=1,
-            help="Number of child processes processing the queue.",
+            type=int,
+            default=0,
+            help="Number of child processes processing the queue (defaults to number of CPUs).",
         )
 
     def run_server(self, **options):
         queue = options["queue"]
         loglevel = options["loglevel"]
-        concurrency = options["concurrency"]
         hostname = f"worker_{queue}_{socket.gethostname()}"
-        cmd = f"celery -A radis worker -Q {queue} -l {loglevel} -c {concurrency} -n {hostname}"
+
+        cmd = f"celery -A radis worker -Q {queue} -l {loglevel} -n {hostname}"
+
+        concurrency = options["concurrency"]
+        if concurrency >= 1:
+            cmd += f" -c {concurrency}"
 
         self.worker_process = subprocess.Popen(shlex.split(cmd))
         self.worker_process.wait()
