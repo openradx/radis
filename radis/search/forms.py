@@ -146,21 +146,21 @@ class SearchForm(forms.Form):
 
     def clean_age_from(self) -> int:
         age_from = self.cleaned_data["age_from"]
-        if age_from % AGE_STEP != 0:
+        if age_from is not None and age_from % AGE_STEP != 0:
             raise forms.ValidationError(f"Age from must be a multiple of {AGE_STEP}")
         return age_from
 
     def clean_age_till(self) -> int:
         age_till = self.cleaned_data["age_till"]
-        if age_till % AGE_STEP != 0:
+        if age_till is not None and age_till % AGE_STEP != 0:
             raise forms.ValidationError(f"Age till must be a multiple of {AGE_STEP}")
         return age_till
 
     def clean(self) -> dict[str, Any]:
-        self.age_from = self.cleaned_data["age_from"]
-        self.age_till = self.cleaned_data["age_till"]
+        age_from = self.cleaned_data["age_from"]
+        age_till = self.cleaned_data["age_till"]
 
-        if self.age_from >= self.age_till:
+        if age_from is not None and age_till is not None and age_from >= age_till:
             raise forms.ValidationError("Age from must be less than age till")
 
         return super().clean()
