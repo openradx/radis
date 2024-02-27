@@ -34,7 +34,7 @@ def feed_report(body: str, language: Literal["en", "de"]):
     groups = fake.random_elements(elements=list(Group.objects.all()), unique=True)
     report.groups.set(groups)
     for handler in report_event_handlers:
-        handler("created", report)
+        handler("created", report.document_id)
 
 
 def feed_reports(language: Literal["en", "de"]):
