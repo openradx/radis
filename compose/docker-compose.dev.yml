@@ -46,10 +46,10 @@ services:
       - full
       - extra
 
-  worker_rag:
+  worker_llm:
     <<: *default-app
     command: |
-      ./manage.py celery_worker -Q rag_queue --autoreload
+      ./manage.py celery_worker -Q llm_queue --autoreload
     profiles:
       - full
       - extra

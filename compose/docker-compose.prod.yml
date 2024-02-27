@@ -40,9 +40,9 @@ services:
     deploy:
       replicas: 1
 
-  worker_rag:
+  worker_llm:
     <<: *default-app
-    command: ./manage.py celery_worker -Q rag_queue
+    command: ./manage.py celery_worker -Q llm_queue
     deploy:
       replicas: 1
 
