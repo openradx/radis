@@ -1,11 +1,11 @@
 {% load crispy_field from crispy_forms_field %}
 {% load bootstrap_icon from core_extras %}
-<div class="input-group">
+<div x-data="QueryInput()" class="input-group">
     <span class="input-group-text">Search</span>
     {% crispy_field query_field "class" "form-control" %}
     <button type="button"
             class="btn bg-transparent"
-            @click="clear()"
+            @click="clearQuery()"
             hx-post="{% url 'search_info' %}"
             hx-target="#search-panel"
             style="width: 40px;

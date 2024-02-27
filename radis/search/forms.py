@@ -133,7 +133,11 @@ class SearchForm(forms.Form):
             RangeSlider("Age range", "age_from", "age_till", group_class="input-group-sm"),
             Div(
                 Button(
-                    "reset_filters", "Reset filters", type="button", css_class="btn btn-secondary"
+                    "reset_filters",
+                    "Reset filters",
+                    type="button",
+                    css_class="btn btn-secondary",
+                    **{"@click": "resetFilters"},
                 ),
                 css_class="d-flex justify-content-center",
             ),

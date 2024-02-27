@@ -6,7 +6,7 @@
     <h4 class="mb-3">Search Reports</h4>
 {% endblock heading %}
 {% block content %}
-    <form method="get" x-data="SearchForm()">
+    <form method="get" x-data="SearchForm($el)" @submit="handleSubmit">
         <div class="row">{% crispy form form.query_helper %}</div>
         <div class="row">
             <div class="col">
@@ -21,7 +21,7 @@
                 </div>
             </div>
             <div class="col col-auto">
-                <div class="card mt-3">
+                <div id="filters" class="card mt-3">
                     <div class="card-body">
                         <h5 class="card-title">Filters</h5>
                         {% crispy form form.filters_helper %}
