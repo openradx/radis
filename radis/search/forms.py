@@ -3,14 +3,12 @@ from typing import Any
 from crispy_forms.helper import FormHelper, Layout
 from crispy_forms.layout import Button, Div, Field
 from django import forms
-from django.db.models import F, Func
 from django.urls import reverse
 from django.utils.functional import lazy
 
-from radis.reports.models import Report
-from radis.search.layouts import QueryInput, RangeSlider
-
+from .layouts import QueryInput, RangeSlider
 from .site import search_providers
+from .utils.search_utils import fetch_available_modalities
 
 MIN_AGE = 0
 MAX_AGE = 120
@@ -21,21 +19,17 @@ def get_search_providers():
     return sorted([(provider.name, provider.name) for provider in search_providers.values()])
 
 
-def get_initial_provider():
-    return get_search_providers()[0][0]
-
-
 class SearchForm(forms.Form):
     # Query fields
     query = forms.CharField(required=False, label=False)
     provider = forms.ChoiceField(
         required=False,
-        # TODO: in Django 5 choices and initial can be passed a function directly
+        # TODO: in Django 5 choices can be passed a function directly
         choices=lazy(get_search_providers, tuple)(),
-        initial=lazy(get_initial_provider, str)(),
         label=False,
     )
     # Filter fields
+    modalities = forms.MultipleChoiceField(required=False, choices=[])
     study_date_from = forms.DateField(
         required=False, widget=forms.DateInput(attrs={"type": "date"})
     )
@@ -43,7 +37,6 @@ class SearchForm(forms.Form):
         required=False, widget=forms.DateInput(attrs={"type": "date"})
     )
     study_description = forms.CharField(required=False)
-    modalities = forms.MultipleChoiceField(required=False, choices=[])
     patient_sex = forms.ChoiceField(
         required=False, choices=[("", "All"), ("M", "Male"), ("F", "Female")]
     )
@@ -75,14 +68,11 @@ class SearchForm(forms.Form):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-        # TODO: put an index to modalities_in_study
-        # https://stackoverflow.com/a/4059785/166229
-        modalities = (
-            Report.objects.annotate(modalities=Func(F("modalities_in_study"), function="unnest"))
-            .values_list("modalities", flat=True)
-            .distinct()
-        )
-        modalities = sorted(modalities)
+        search_provider_choices = self.fields["provider"].choices
+        if search_provider_choices:
+            self.fields["provider"].initial = search_provider_choices[0][0]
+
+        modalities = fetch_available_modalities()
         modality_choices = [(m, m) for m in modalities]
         self.fields["modalities"].choices = modality_choices
 
@@ -157,6 +147,11 @@ class SearchForm(forms.Form):
         return age_till
 
     def clean(self) -> dict[str, Any]:
+        if not self.fields["provider"].choices:
+            raise forms.ValidationError(
+                "Setup of RADIS is incomplete. No search providers are registered."
+            )
+
         age_from = self.cleaned_data["age_from"]
         age_till = self.cleaned_data["age_till"]
 
