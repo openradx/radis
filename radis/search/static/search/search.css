@@ -1,7 +1,7 @@
 .range-slider {
   display: flex;
   flex-direction: column;
-  width: 200px;
+  width: 100%;
 }
 
 .range-slider .slider-control {
