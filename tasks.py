@@ -12,6 +12,7 @@ from invoke.runners import Result
 from invoke.tasks import task
 
 Environments = Literal["dev", "prod"]
+Profile = Literal["full", "web"]
 
 stack_name_dev = "radis_dev"
 stack_name_prod = "radis_prod"
@@ -124,7 +125,7 @@ def compose_up(
     ctx: Context,
     env: Environments = "dev",
     no_build: bool = False,
-    profile: Literal["full", "web", "extra", "db"] = "full",
+    profile: Profile = "full",
 ):
     """Start RADIS containers in specified environment"""
     build_opt = "--no-build" if no_build else "--build"
@@ -136,7 +137,7 @@ def compose_up(
 def compose_down(
     ctx: Context,
     env: Environments = "dev",
-    profile: Literal["full", "web", "extra", "db"] = "full",
+    profile: Profile = "full",
     cleanup: bool = False,
 ):
     """Stop RADIS containers in specified environment"""

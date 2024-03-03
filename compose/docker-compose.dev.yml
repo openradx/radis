@@ -44,7 +44,6 @@ services:
       ./manage.py celery_worker -c 1 -Q default_queue --autoreload
     profiles:
       - full
-      - extra
 
   worker_llm:
     <<: *default-app
@@ -52,7 +51,6 @@ services:
       ./manage.py celery_worker -c 1 -Q llm_queue --autoreload
     profiles:
       - full
-      - extra
 
   celery_beat:
     <<: *default-app
@@ -60,13 +58,11 @@ services:
       ./manage.py celery_beat --autoreload
     profiles:
       - full
-      - extra
 
   flower:
     <<: *default-app
     profiles:
       - full
-      - extra
 
   postgres:
     environment:
@@ -74,7 +70,6 @@ services:
     profiles:
       - full
       - web
-      - db
 
   vespa:
     environment:
@@ -85,12 +80,10 @@ services:
     profiles:
       - full
       - web
-      - db
 
   rabbit:
     profiles:
       - full
-      - extra
 
   redis:
     profiles:
