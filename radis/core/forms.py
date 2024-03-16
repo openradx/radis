@@ -97,7 +97,7 @@ class FilterSetFormHelper(FormHelper):
                 hidden_fields.append(Hidden(key, self.params.get(key)))
 
 
-class CombinedForm:
+class CompositeForm:
     """Helper class that can be used with a FormWizzardView to combine multiple forms into one.
 
     If used with a wizard to edit already existing instances, one has to also overwrite
