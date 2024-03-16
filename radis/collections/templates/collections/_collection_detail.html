@@ -2,7 +2,7 @@
      hx-get="{% url 'collection_detail' collection.id %}"
      hx-trigger="collectedReportsChanged_{{ collection.id }} from:body">
     {% for report in reports %}
-        {% include "collections/_collected_report.html" %}
+        {% include "reports/_report_summary.html" %}
     {% empty %}
         No reports in this collection
     {% endfor %}
