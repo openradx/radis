@@ -1,6 +1,6 @@
 from typing import Any
 
-from rest_framework import serializers
+from rest_framework import serializers, validators
 from rest_framework.exceptions import ValidationError
 
 from ..models import Metadata, Modality, Report
@@ -17,6 +17,14 @@ class ModalitySerializer(serializers.ModelSerializer):
         model = Modality
         fields = ("code",)
 
+    def run_validation(self, data: dict[str, Any]) -> Any:
+        # We don't want to check if this modality already exists in the database
+        # as later use get_or_create.
+        for validator in self.fields["code"].validators:
+            if isinstance(validator, validators.UniqueValidator):
+                self.fields["code"].validators.remove(validator)
+        return super().run_validation(data)
+
 
 class ReportSerializer(serializers.ModelSerializer):
     metadata = MetadataSerializer(many=True)
@@ -27,17 +35,38 @@ class ReportSerializer(serializers.ModelSerializer):
         fields = "__all__"
 
     def create(self, validated_data: Any) -> Any:
+        groups = validated_data.pop("groups")
         metadata = validated_data.pop("metadata")
         modalities = validated_data.pop("modalities")
 
         report = Report.objects.create(**validated_data)
 
+        report.groups.set(groups)
+
         for metadata in metadata:
             Metadata.objects.create(report=report, **metadata)
 
         for modality in modalities:
-            fetched_modality = Modality.objects.get_or_create(**modality)
-            report.modalities.add(fetched_modality[0])
+            fetched_modality, _ = Modality.objects.get_or_create(**modality)
+            report.modalities.add(fetched_modality)
+
+        return report
+
+    def update(self, report: Report, validated_data: Any) -> Any:
+        groups = validated_data.pop("groups")
+        metadata = validated_data.pop("metadata")
+        modalities = validated_data.pop("modalities")
+
+        report.groups.set(groups)
+
+        report.metadata.all().delete()
+        for metadata in metadata:
+            Metadata.objects.create(report=report, **metadata)
+
+        report.modalities.clear()
+        for modality in modalities:
+            fetched_modality, _ = Modality.objects.get_or_create(**modality)
+            report.modalities.add(fetched_modality)
 
         return report
 

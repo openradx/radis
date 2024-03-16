@@ -61,8 +61,8 @@ class ReportViewSet(
         transaction.on_commit(lambda: report_created.delay(report.document_id))
 
     def update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        # DRF itself does not support upsert (create the object to update if it does not exist).
-        # This workaround is inspired by https://gist.github.com/tomchristie/a2ace4577eff2c603b1b
+        # DRF itself does not support upsert.
+        # Workaround adapted from https://gist.github.com/tomchristie/a2ace4577eff2c603b1b
         upsert = request.GET.get("upsert", "").lower() in ["true", "1", "yes"]
         if not upsert:
             return super().update(request, *args, **kwargs)
@@ -94,6 +94,7 @@ class ReportViewSet(
         transaction.on_commit(lambda: report_updated.delay(report.document_id))
 
     def partial_update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        # Disallow partial updates
         assert request.method
         raise MethodNotAllowed(request.method)
 
