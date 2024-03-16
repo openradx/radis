@@ -73,9 +73,6 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
-    ports:
-      - 8080:8080
-      - 19071:19071
     volumes:
       - vespa_data:/opt/vespa/var
       - vespa_logs:/opt/vespa/logs

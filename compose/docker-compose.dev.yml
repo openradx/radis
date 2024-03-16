@@ -66,7 +66,7 @@ services:
 
   llamacpp:
     ports:
-      - 8090:8080
+      - 9610:8080
     volumes:
       - ../models:/models
     command: >
@@ -89,6 +89,8 @@ services:
       # https://docs.vespa.ai/en/operations/node-setup.html#memory-settings
       VESPA_CONFIGSERVER_JVMARGS: "-Xms32M -Xmx128M"
       VESPA_CONFIGPROXY_JVMARGS: "-Xms32M -Xmx32M"
+    ports:
+      - 9620:8080
     profiles:
       - full
       - web
