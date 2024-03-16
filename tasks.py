@@ -150,10 +150,13 @@ def compose_up(
     env: Environments = "dev",
     no_build: bool = False,
     profile: Profile = "full",
+    service: str | None = None,
 ):
     """Start RADIS containers in specified environment"""
     build_opt = "--no-build" if no_build else "--build"
     cmd = f"{build_compose_cmd(env)} --profile {profile} up {build_opt} --detach"
+    if service:
+        cmd += f" {service}"
     run_cmd(ctx, cmd)
 
 
@@ -163,11 +166,14 @@ def compose_down(
     env: Environments = "dev",
     profile: Profile = "full",
     cleanup: bool = False,
+    service: str | None = None,
 ):
     """Stop RADIS containers in specified environment"""
     cmd = f"{build_compose_cmd(env)} --profile {profile} down"
     if cleanup:
         cmd += " --remove-orphans --volumes"
+    if service:
+        cmd += f" {service}"
     run_cmd(ctx, cmd)
 
 
