@@ -17,6 +17,7 @@ x-app: &default-app
     RABBIT_MANAGEMENT_HOST: "rabbit"
     RABBIT_MANAGEMENT_PORT: "15672"
     REDIS_URL: "redis://redis.local:6379/0"
+    LLAMACPP_URL: "http://llamacpp.local:8080"
     FLOWER_HOST: "flower.local"
     FLOWER_PORT: "5555"
 
@@ -51,6 +52,12 @@ services:
         wait-for-it -s rabbit:5672 -t 60 &&
         celery --broker=amqp://rabbit/ flower --url_prefix=flower
       "
+
+  llamacpp:
+    build:
+      context: llamacpp
+      dockerfile: llamacpp.Dockerfile
+    hostname: llamacpp.local
 
   postgres:
     image: postgres:16.2

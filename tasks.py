@@ -6,13 +6,20 @@ from pathlib import Path
 from shutil import copy
 from typing import Literal
 
+import requests
 from dotenv import set_key
 from invoke.context import Context
 from invoke.runners import Result
 from invoke.tasks import task
+from tqdm import tqdm
 
 Environments = Literal["dev", "prod"]
 Profile = Literal["full", "web"]
+AVAILABLE_MODELS = {
+    "llama-7b-q2": "https://huggingface.co/ikawrakow/various-2bit-sota-gguf/resolve/main/llama-v2-7b-2.42bpw.gguf",
+    "mistral-7b-q2": "https://huggingface.co/ikawrakow/various-2bit-sota-gguf/resolve/main/mistral-instruct-7b-2.43bpw.gguf",
+    "mistral-7b-q4": "https://huggingface.co/TheBloke/Mistral-7B-Instruct-v0.2-GGUF/resolve/main/mistral-7b-instruct-v0.2.Q4_K_M.gguf",
+}
 
 stack_name_dev = "radis_dev"
 stack_name_prod = "radis_prod"
@@ -22,6 +29,7 @@ postgres_prod_volume = f"{stack_name_prod}_postgres_data"
 
 project_dir = Path(__file__).resolve().parent
 compose_dir = project_dir / "compose"
+models_dir = project_dir / "models"
 
 compose_file_base = compose_dir / "docker-compose.base.yml"
 compose_file_dev = compose_dir / "docker-compose.dev.yml"
@@ -95,6 +103,22 @@ def confirm(question: str) -> bool:
             return valid[choice]
         else:
             sys.stdout.write("Please respond with 'yes' or 'no' " "(or 'y' or 'n').\n")
+
+
+def download_with_progress_bar(url: str, filepath: Path):
+    response = requests.get(url, stream=True)
+
+    total_size = int(response.headers.get("content-length", 0))
+    block_size = 1024
+
+    with tqdm(total=total_size, unit="B", unit_scale=True) as progress_bar:
+        with open(filepath, "wb") as file:
+            for data in response.iter_content(block_size):
+                progress_bar.update(len(data))
+                file.write(data)
+
+    if total_size != 0 and progress_bar.n != total_size:
+        raise RuntimeError("Could not download file")
 
 
 def run_cmd(ctx: Context, cmd: str, silent=False) -> Result:
@@ -450,3 +474,20 @@ def upgrade_postgresql(ctx: Context, env: Environments = "dev", version: str = "
         )
     else:
         print("Cancelled")
+
+
+@task
+def download_llm(ctx: Context, model: str):
+    url = AVAILABLE_MODELS.get(model)
+    if not url:
+        print(f"Unknown model: {model}")
+        print(f"Available models: {', '.join(AVAILABLE_MODELS.keys())}")
+        return
+
+    models_dir.mkdir(parents=True, exist_ok=True)
+    model_path = models_dir / "model.gguf"
+    if model_path.exists():
+        print(f"Model {model} already exists. Skipping download.")
+        return
+
+    download_with_progress_bar(url, model_path)

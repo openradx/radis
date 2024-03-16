@@ -57,6 +57,25 @@ services:
     deploy:
       replicas: 1
 
+  llamacpp:
+    restart: always
+    volumes:
+      - models_data:/models
+    environment:
+      MODEL_URL: https://huggingface.co/TheBloke/Mistral-7B-Instruct-v0.2-GGUF/resolve/main/mistral-7b-instruct-v0.2.Q4_K_M.gguf 
+    command: >
+      bash -c '
+        if [ ! -f /models/model.gguf ]; then
+          echo "Downloading model: $${MODEL_URL}"
+          wget -q -O /models/model.gguf $${MODEL_URL}
+        else
+          echo "Model file already exists. Skipping download."
+        fi
+        /server -m /models/model.gguf -c 512 --host 0.0.0.0 --port 8080
+      '
+    deploy:
+      replicas: 1
+
   postgres:
     restart: always
     env_file:
@@ -78,3 +97,6 @@ services:
     restart: always
     deploy:
       replicas: 1
+
+volumes:
+  models_data:
