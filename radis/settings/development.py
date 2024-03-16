@@ -44,7 +44,6 @@ CELERY_TASK_ALWAYS_EAGER = False
 CELERY_TASK_EAGER_PROPAGATES = False
 
 LOGGING["loggers"]["radis"]["level"] = "DEBUG"  # noqa: F405
-LOGGING["loggers"]["celery"]["level"] = "DEBUG"  # noqa: F405
 
 INTERNAL_IPS = env.list("DJANGO_INTERNAL_IPS", default=["127.0.0.1"])  # type: ignore
 

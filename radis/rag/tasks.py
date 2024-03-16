@@ -2,7 +2,6 @@ import logging
 from string import Template
 from typing import Iterator, override
 
-from celery.utils.log import get_task_logger
 from django.conf import settings
 from openai import OpenAI
 
@@ -14,8 +13,7 @@ from radis.search.site import Search, SearchFilters
 from .models import Answer, QuestionResult, RagJob, RagTask
 from .site import retrieval_providers
 
-logger1 = get_task_logger(__name__)
-logger2 = logging.getLogger(__name__)
+logger = logging.getLogger(__name__)
 
 GRAMMAR = """
     root ::= Answer
@@ -41,18 +39,23 @@ class ProcessRagTask(ProcessAnalysisTask):
 
         all_results: list[RagTask.Result] = []
 
+        system_prompt = settings.RAG_SYSTEM_PROMPT[language]
+        logger.debug("Using system prompt:\n%s", system_prompt)
+
+        grammar = Template(GRAMMAR).substitute(
+            {
+                "yes": settings.RAG_ANSWER_YES[language],
+                "no": settings.RAG_ANSWER_NO[language],
+            }
+        )
+        logger.debug("Using grammar:\n%s", grammar)
+
         for question in task.job.questions.all():
-            system_prompt = settings.RAG_SYSTEM_PROMPT[language]
             user_prompt = Template(settings.RAG_USER_PROMPT[language]).substitute(
                 {"report": report_body, "question": question.question}
             )
 
-            grammar = Template(GRAMMAR).substitute(
-                {
-                    "yes": settings.RAG_ANSWER_YES[language],
-                    "no": settings.RAG_ANSWER_NO[language],
-                }
-            )
+            logger.debug("Sending user prompt:\n%s", user_prompt)
 
             completion = self._client.chat.completions.create(
                 model="none",
@@ -64,6 +67,8 @@ class ProcessRagTask(ProcessAnalysisTask):
             )
 
             answer = completion.choices[0].message.content
+            logger.debug("Received answer by LLM: %s", answer)
+
             if answer == settings.RAG_ANSWER_YES[language]:
                 result = (
                     RagTask.Result.ACCEPTED
@@ -95,6 +100,13 @@ class ProcessRagTask(ProcessAnalysisTask):
                 task.overall_result = RagTask.Result.ACCEPTED
             else:
                 task.overall_result = RagTask.Result.REJECTED
+
+            logger.info(
+                "RAG task %s finished with overall result: %s",
+                task,
+                task.get_overall_result_display(),
+            )
+
             task.save()
 
 
@@ -136,6 +148,8 @@ class ProcessRagJob(ProcessAnalysisJob):
                 patient_age_till=job.age_till,
             ),
         )
+
+        logger.debug("Searching reports for task with search: %s", search)
 
         provider = job.provider
         search_provider = retrieval_providers[provider]

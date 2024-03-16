@@ -97,6 +97,7 @@ class RagTask(AnalysisTask):
     job = models.ForeignKey(RagJob, on_delete=models.CASCADE, related_name="tasks")
     report = models.ForeignKey(Report, on_delete=models.CASCADE, related_name="rag_tasks")
     overall_result = models.CharField(max_length=1, choices=Result.choices, blank=True)
+    get_overall_result_display: Callable[[], str]
 
     def get_absolute_url(self) -> str:
         return reverse("rag_task_detail", args=[self.id])
