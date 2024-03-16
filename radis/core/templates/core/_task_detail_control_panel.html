@@ -1,0 +1,29 @@
+{% load bootstrap_icon from core_extras %}
+<div class="d-flex gap-3">
+    {% block start %}
+    {% endblock start %}
+    {% if task.is_deletable %}
+        <form action="{% url task_delete_url task.pk %}"
+              method="post"
+              onSubmit="return confirm('Are you sure you want to delete this task?');">
+            {% csrf_token %}
+            <button type="submit" class="btn btn-danger">
+                {% bootstrap_icon "trash" %}
+                Delete Task
+            </button>
+        </form>
+    {% endif %}
+    {% if task.is_resettable %}
+        <form action="{% url task_reset_url task.pk %}"
+              method="post"
+              onSubmit="return confirm('Are you sure you want to reset this task?');">
+            {% csrf_token %}
+            <button type="submit" class="btn btn-warning">
+                {% bootstrap_icon "arrow-counterclockwise" %}
+                Reset Task
+            </button>
+        </form>
+    {% endif %}
+    {% block end %}
+    {% endblock end %}
+</div>

@@ -19,11 +19,6 @@ from radis.token_authentication.utils.crypto import hash_token
 
 USER_COUNT = 20
 GROUP_COUNT = 3
-PACS_ITEMS = [
-    {"pacs_aet": "gepacs", "pacs_name": "GE PACS"},
-    {"pacs_aet": "synapse", "pacs_name": "Synapse"},
-]
-MODALITIES = ["CT", "MR", "PET", "CR", "US"]
 
 
 fake = Faker()

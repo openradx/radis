@@ -7,6 +7,8 @@ from django.conf import settings
 from django.template import Library
 from django.template.defaultfilters import join
 
+from ..models import AnalysisJob, AnalysisTask
+
 logger = logging.getLogger(__name__)
 
 register = Library()
@@ -68,6 +70,35 @@ def message_symbol(tag: str) -> str:
         "error": "error",
     }
     return tag_map.get(tag, "bug")
+
+
+@register.filter
+def analysis_job_status_css_class(status: AnalysisJob.Status) -> str:
+    css_classes = {
+        AnalysisJob.Status.UNVERIFIED: "text-info",
+        AnalysisJob.Status.PREPARING: "text-info",
+        AnalysisJob.Status.PENDING: "text-secondary",
+        AnalysisJob.Status.IN_PROGRESS: "text-info",
+        AnalysisJob.Status.CANCELING: "text-muted",
+        AnalysisJob.Status.CANCELED: "text-muted",
+        AnalysisJob.Status.SUCCESS: "text-success",
+        AnalysisJob.Status.WARNING: "text-warning",
+        AnalysisJob.Status.FAILURE: "text-danger",
+    }
+    return css_classes[status]
+
+
+@register.filter
+def analysis_task_status_css_class(status: AnalysisTask.Status) -> str:
+    css_classes = {
+        AnalysisTask.Status.PENDING: "text-secondary",
+        AnalysisTask.Status.IN_PROGRESS: "text-info",
+        AnalysisTask.Status.CANCELED: "text-muted",
+        AnalysisTask.Status.SUCCESS: "text-success",
+        AnalysisTask.Status.WARNING: "text-warning",
+        AnalysisTask.Status.FAILURE: "text-danger",
+    }
+    return css_classes[status]
 
 
 # TODO: Resolve reference names from another source in the context

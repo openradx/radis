@@ -1,10 +1,12 @@
-from typing import Literal, NamedTuple, cast
+from typing import Any, Literal, NamedTuple, cast
 
 from crispy_forms.bootstrap import FieldWithButtons
 from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Div, Field, Hidden, Layout, Submit
 from django import forms
+from django.core.files.uploadedfile import UploadedFile
 from django.http.request import QueryDict
+from django.utils.functional import classproperty  # type: ignore
 
 
 class BroadcastForm(forms.Form):
@@ -93,3 +95,53 @@ class FilterSetFormHelper(FormHelper):
         for key in self.params:
             if key not in field_names:
                 hidden_fields.append(Hidden(key, self.params.get(key)))
+
+
+class CombinedForm:
+    """Helper class that can be used with a FormWizzardView to combine multiple forms into one.
+
+    If used with a wizard to edit already existing instances, one has to also overwrite
+    `get_form` of the wizard to set the model instances manually as those are only set
+    for `ModelForm` and `BaseModelFormSet`.
+    """
+
+    form_classes: dict[str, type[forms.Form] | type[forms.formsets.BaseFormSet]]
+
+    def __init__(self, *args, **kwargs):
+        self.form_instances: dict[str, forms.Form | forms.formsets.BaseFormSet] = {}
+        for key in self.form_classes.keys():
+            self.form_instances[key] = self.get_form_instance(key, *args, **kwargs)
+
+    def get_form_instance(
+        self, key: str, *args, **kwargs
+    ) -> forms.Form | forms.formsets.BaseFormSet:
+        return self.form_classes[key](*args, **kwargs)
+
+    @property
+    def data(self) -> dict[str, Any]:
+        data = {}
+        for form in self.form_instances.values():
+            data.update(form.data)
+        return data
+
+    @property
+    def files(self) -> dict[str, UploadedFile]:
+        files = {}
+        for form in self.form_instances.values():
+            files.update(form.files)
+        return files
+
+    @classproperty
+    def base_fields(self) -> dict[str, forms.Field]:
+        base_fields: dict[str, forms.Field] = {}
+        for form in self.form_classes.values():
+            form_class: type[forms.Form]
+            if issubclass(form, forms.formsets.BaseFormSet):
+                form_class = form.form  # type: ignore
+            else:
+                form_class = form
+            base_fields.update(form_class.base_fields)
+        return base_fields
+
+    def is_valid(self) -> bool:
+        return all(form.is_valid() for form in self.form_instances.values())
