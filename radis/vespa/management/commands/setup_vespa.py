@@ -6,7 +6,7 @@ from pathlib import Path
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 
-from ...vespa_app import VespaConfigurator, vespa_app
+from ...vespa_app import VespaAppModifier, vespa_app
 
 
 class Command(BaseCommand):
@@ -83,8 +83,8 @@ class Command(BaseCommand):
             print(f"Generating deployment files in {app_folder.absolute()}")
             vespa_app.get_app_package().to_files(app_folder)
 
-            configurator = VespaConfigurator(app_folder)
-            configurator.apply()
+            modifier = VespaAppModifier(app_folder)
+            modifier.apply()
 
             models_folder = app_folder / "files" / "models"
             models_folder.mkdir()

@@ -9,6 +9,7 @@ from vespa.package import (
     ApplicationPackage,
     Component,
     Document,
+    DocumentSummary,
     Field,
     FieldSet,
     GlobalPhaseRanking,
@@ -19,6 +20,12 @@ from vespa.package import (
 )
 
 REPORT_SCHEMA_NAME = "report"
+BM25_RANK_PROFILE = "bm25"
+SEMANTIC_RANK_PROFILE = "semantic"
+FUSION_RANK_PROFILE = "fusion"
+RETRIEVAL_SUMMARY = "retrieval-summary"
+SEARCH_QUERY_PROFILE = "SearchProfile"
+RETRIEVAL_QUERY_PROFILE = "RetrievalProfile"
 
 
 def _create_report_schema():
@@ -26,6 +33,11 @@ def _create_report_schema():
         REPORT_SCHEMA_NAME,
         document=Document(
             fields=[
+                Field(
+                    name="document_id",
+                    type="string",
+                    indexing=["summary"],
+                ),
                 Field(
                     name="language",
                     type="string",
@@ -72,7 +84,7 @@ def _create_report_schema():
                     indexing=["summary", "attribute"],
                 ),
                 Field(
-                    name="modalities_in_study",
+                    name="modalities",
                     type="array<string>",
                     indexing=["summary", "attribute"],
                 ),
@@ -101,24 +113,30 @@ def _create_report_schema():
             FieldSet(name="default", fields=["body"]),
         ],
         rank_profiles=[
-            RankProfile(name="bm25", first_phase="bm25(body)"),
+            RankProfile(name=BM25_RANK_PROFILE, first_phase="bm25(body)"),
             RankProfile(
-                name="semantic",
+                name=SEMANTIC_RANK_PROFILE,
                 # TODO: fix issue with type hint https://github.com/vespa-engine/pyvespa/issues/676
                 inputs=[("query(q)", "tensor<float>(x[384])")],  # type: ignore
                 first_phase="closeness(field, embedding)",
             ),
             RankProfile(
-                name="fusion",
-                inherits="bm25",
+                name=FUSION_RANK_PROFILE,
+                inherits=BM25_RANK_PROFILE,
                 # TODO: fix issue with type hint https://github.com/vespa-engine/pyvespa/issues/676
                 inputs=[("query(q)", "tensor<float>(x[384])")],  # type: ignore
                 first_phase="closeness(field, embedding)",
                 global_phase=GlobalPhaseRanking(
                     expression="reciprocal_rank_fusion(bm25(body), closeness(field, embedding))",
-                    rerank_count=1000,
+                    rerank_count=100,
                 ),
             ),
+        ],
+        document_summaries=[
+            DocumentSummary(
+                name=RETRIEVAL_SUMMARY,
+                summary_fields=[Summary("document_id", "string")],
+            )
         ],
     )
 
@@ -146,10 +164,25 @@ def _create_app_package(schemas: list[Schema]):
     )
 
 
-class VespaConfigurator:
+class VespaAppModifier:
     def __init__(self, app_folder: PathLike) -> None:
+        self.query_profiles_folder = Path(app_folder) / "search" / "query-profiles"
         self.services_file = Path(app_folder) / "services.xml"
         self.services_doc = ET.parse(self.services_file)
+
+    def _add_query_profile(self, name: str, max_hits: int, max_offset: int, timeout: int):
+        query_profile_el = ET.fromstring(
+            f"""
+            <query-profile id="{name}">
+                <field name="maxHits">{max_hits}</field>
+                <field name="maxOffset">{max_offset}</field>
+            </query-profile>
+            """
+        )
+        tree = ET.ElementTree(query_profile_el)
+        ET.indent(tree, space="\t", level=0)
+        with open(self.query_profiles_folder / f"{name}.xml", "wb") as f:
+            tree.write(f, encoding="UTF-8")
 
     # https://docs.vespa.ai/en/reference/schema-reference.html#bolding
     def _add_bolding_config(self):
@@ -164,7 +197,7 @@ class VespaConfigurator:
                     <separator>&lt;em&gt;...&lt;/em&gt;</separator>
                 </tag>
             </config>
-        """
+            """
         )
         search_el = self.services_doc.find("./container/search")
         assert search_el is not None
@@ -178,7 +211,7 @@ class VespaConfigurator:
             <config name="vespa.config.search.summary.juniperrc">
                 <length>500</length>
             </config>
-        """
+            """
         )
         content_el = self.services_doc.find("./content")
         assert content_el is not None
@@ -189,6 +222,9 @@ class VespaConfigurator:
         self.services_doc.write(self.services_file, encoding="UTF-8", xml_declaration=True)
 
     def apply(self):
+        # We overwrite the generated default query profile
+        self._add_query_profile(SEARCH_QUERY_PROFILE, 100, 900, 1)
+        self._add_query_profile(RETRIEVAL_QUERY_PROFILE, 1000, 9000, 10)
         self._add_bolding_config()
         self._add_dynamic_snippet_config()
         self._write()

@@ -1,17 +1,41 @@
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, datetime
 from typing import Callable, Literal, NamedTuple
 
-from .models import SearchResult
+from radis.reports.models import Report
+
+
+class ReportDocument(NamedTuple):
+    relevance: float | None
+    document_id: str
+    pacs_name: str
+    patient_birth_date: date
+    patient_age: int
+    patient_sex: Literal["F", "M", "U"]
+    study_description: str
+    study_datetime: datetime
+    modalities: list[str]
+    links: list[str]
+    body: str
+
+    @property
+    def full_report(self) -> Report:
+        return Report.objects.get(document_id=self.document_id)
+
+
+class SearchResult(NamedTuple):
+    total_count: int
+    coverage: float | None
+    documents: list[ReportDocument]
 
 
 @dataclass
-class Filters:
+class SearchFilters:
     study_date_from: date | None = None
     study_date_till: date | None = None
     study_description: str = ""
     modalities: list[str] = field(default_factory=list)
-    patient_sex: Literal["M", "F", "U"] | None = None
+    patient_sex: Literal["M", "F"] | None = None
     patient_age_from: int | None = None
     patient_age_till: int | None = None
 
@@ -19,8 +43,8 @@ class Filters:
 class Search(NamedTuple):
     query: str
     offset: int = 0
-    page_size: int = 10
-    filters: Filters = Filters()
+    size: int = 10
+    filters: SearchFilters = SearchFilters()
 
 
 SearchHandler = Callable[[Search], SearchResult]

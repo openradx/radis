@@ -6,9 +6,10 @@ from django import forms
 from django.urls import reverse
 from django.utils.functional import lazy
 
+from radis.reports.models import Modality
+
 from .layouts import QueryInput, RangeSlider
 from .site import search_providers
-from .utils.search_utils import fetch_available_modalities
 
 MIN_AGE = 0
 MAX_AGE = 120
@@ -16,7 +17,7 @@ AGE_STEP = 10
 
 
 def get_search_providers():
-    return sorted([(provider.name, provider.name) for provider in search_providers.values()])
+    return [(provider.name, provider.name) for provider in search_providers.values()]
 
 
 class SearchForm(forms.Form):
@@ -72,7 +73,7 @@ class SearchForm(forms.Form):
         if search_provider_choices:
             self.fields["provider"].initial = search_provider_choices[0][0]
 
-        modalities = fetch_available_modalities()
+        modalities = Modality.objects.filter(filterable=True).values_list("code", flat=True)
         modality_choices = [(m, m) for m in modalities]
         self.fields["modalities"].choices = modality_choices
 

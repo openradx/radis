@@ -11,7 +11,7 @@ from radis.core.mixins import HtmxOnlyMixin
 from radis.core.types import AuthenticatedApiRequest, AuthenticatedHttpRequest
 from radis.search.forms import SearchForm
 
-from .site import Filters, Search, search_providers
+from .site import Search, SearchFilters, search_providers
 
 
 class SearchView(LoginRequiredMixin, View):
@@ -44,8 +44,8 @@ class SearchView(LoginRequiredMixin, View):
             search = Search(
                 query=query,
                 offset=offset,
-                page_size=page_size,
-                filters=Filters(
+                size=page_size,
+                filters=SearchFilters(
                     study_date_from=study_date_from,
                     study_date_till=study_date_till,
                     study_description=study_description,
