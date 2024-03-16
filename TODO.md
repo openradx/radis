@@ -2,8 +2,9 @@
 
 ## High Priority
 
-- QueuedTask
-- RagJob, RagTask
+- task control panel
+- Limit RAG search result choice (stop when there x positive results)
+- Limit RAG search by maximum number of reports that gets processed
 - Show metadata in report details
 - Age slider
   - <https://tailwindcomponents.com/component/multi-range-slider>
@@ -68,6 +69,12 @@
 
 ## Maybe
 
+- Look into distanceThreshold when using semantic/hybrid search
+  -- In normal nearestNeighbor search every document is included as all documents are neighbors
+  -- That is why we currently only use semantic stuff as ranking algorithm
+  -- We could add a distanceThreshold to only allow really near neighbors
+  -- But the threshold is unclear (not sure if we should allow to the user to specify)
+  -- <https://docs.vespa.ai/en/nearest-neighbor-search-guide.html#strict-filters-and-distant-neighbors>
 - Rename reports model fields to something in the HL7 FHIR standard
   - Interesting resources in this regard are:
     - <https://hl7.org/fhir/patient.html>
@@ -92,9 +99,12 @@
 
 ## Transfer to RADIS
 
+- Replace me-3 in control_panel.html with gap-3 of surrounding div
 - Rename populate_dev_db to populate_db
 - .env files in project dir (instead of compose dir)
 - Correct help in populate_dev_db command
 - Delete reset_dev_db and add reset option to populate_dev_db
 - globals.d.ts
-- PageSizeSelectMixin improvements
+- rename all Alpine components to Uppercase
+- Turn off debug logging in Celery
+- Add metaclass=ABCMeta to abstract core/models and core/views (also core/tables and core/filters even in RADIS)

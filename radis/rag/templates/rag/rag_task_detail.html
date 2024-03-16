@@ -1,0 +1,88 @@
+{% extends "rag/rag_layout.html" %}
+{% load bootstrap_icon analysis_task_status_css_class from core_extras %}
+{% load result_badge_css_class task_control_panel from rag_extras %}
+{% block heading %}
+    <div class="d-flex justify-content-between align-items-start">
+        <h4 class="mb-3">RAG Task</h4>
+    </div>
+{% endblock heading %}
+{% block content %}
+    {% with task.job as job %}
+        <dl class="row">
+            <dt class="col-sm-3">Task ID</dt>
+            <dd class="col-sm-9">
+                {{ task.id }}
+            </dd>
+            <dt class="col-sm-3">Job ID</dt>
+            <dd class="col-sm-9">
+                <a href="{% url job_url_name job.id %}">
+                    {{ job.id }}
+                    {% bootstrap_icon "box-arrow-in-down-right" %}
+                </a>
+            </dd>
+            <dt class="col-sm-3">Status</dt>
+            <dd class="col-sm-9">
+                <span class="{{ task.status|analysis_task_status_css_class }}">{{ task.get_status_display }}</span>
+            </dd>
+            <dt class="col-sm-3">Retries</dt>
+            <dd class="col-sm-9">
+                {{ task.retries|default:"—" }}
+            </dd>
+            <dt class="col-sm-3">Message</dt>
+            <dd class="col-sm-9">
+                {{ task.message|default:"—" }}
+            </dd>
+            {% if user.is_staff %}
+                <dt class="col-sm-3">Created By</dt>
+                <dd class="col-sm-9">
+                    {{ job.owner }}
+                </dd>
+            {% endif %}
+            <dt class="col-sm-3">Created At</dt>
+            <dd class="col-sm-9">
+                {{ task.created_at }}
+            </dd>
+            <dt class="col-sm-3">Started At</dt>
+            <dd class="col-sm-9">
+                {{ task.started_at|default:"—" }}
+            </dd>
+            <dt class="col-sm-3">Finished At</dt>
+            <dd class="col-sm-9">
+                {{ task.ended_at|default:"—" }}
+            </dd>
+            {% if user.is_staff %}
+                <dt class="col-sm-3">Celery Task ID</dt>
+                <dd class="col-sm-9">
+                    {{ task.celery_task_id|default:"—" }}
+                </dd>
+                <dt class="col-sm-3">Log</dt>
+                <dd class="col-sm-9">
+                    <div>{{ task.log|default:"—" }}</div>
+                </dd>
+            {% endif %}
+            <dt class="col-sm-3">Overall Result</dt>
+            <dd class="col-sm-9">
+                {% if not task.overall_result %}
+                    —
+                {% else %}
+                    <span class="badge {{ task.overall_result|result_badge_css_class }}">{{ task.get_overall_result_display }}</span>
+                {% endif %}
+            </dd>
+        </dl>
+        <h5>Questions</h5>
+        <dl class="row">
+            {% for result in task.results.all %}
+                <dt class="col-sm-3">Question</dt>
+                <dd class="col-sm-9">
+                    {{ result.question.question }}
+                </dd>
+                <dt class="col-sm-3">Result</dt>
+                <dd class="col-sm-9">
+                    <span class="badge {{ result.result|result_badge_css_class }}">{{ result.get_result_display }}</span>
+                </dd>
+            {% endfor %}
+        </dl>
+    {% endwith %}
+    {% include "reports/_report_summary.html" with report=task.report %}
+    {% task_control_panel %}
+{% endblock content %}

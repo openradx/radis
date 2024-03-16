@@ -27,6 +27,7 @@ urlpatterns = [
     path("reports/", include("radis.reports.urls")),
     path("api/reports/", include("radis.reports.api.urls")),
     path("search/", include("radis.search.urls")),
+    path("rag/", include("radis.rag.urls")),
     path("collections/", include("radis.collections.urls")),
     path("notes/", include("radis.notes.urls")),
 ]

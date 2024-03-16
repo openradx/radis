@@ -1,0 +1,28 @@
+{% extends "rag/rag_layout.html" %}
+{% load crispy from crispy_forms_tags %}
+{% load bootstrap_icon from core_extras %}
+{% block heading %}
+    <div class="d-flex justify-content-between align-items-start">
+        <h4 class="mb-3 d-flex gap-3">
+            <span>New RAG Job</span>
+            <button type="button"
+                    class="btn btn-sm btn-info align-baseline"
+                    hx-get="{% url 'rag_help' %}"
+                    hx-target="#htmx-dialog">
+                Help
+                {% bootstrap_icon "question-circle" %}
+            </button>
+        </h4>
+        <a href="{% url 'rag_job_list' %}">
+            {% bootstrap_icon "list" %}
+            Previous Jobs
+        </a>
+    </div>
+{% endblock heading %}
+{% block content %}
+    <form action="" method="post">
+        {% csrf_token %}
+        {% crispy form %}
+        {{ wizard.management_form }}
+    </form>
+{% endblock content %}

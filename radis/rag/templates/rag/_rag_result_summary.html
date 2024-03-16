@@ -1,0 +1,15 @@
+{% load result_badge_css_class from rag_extras %}
+<div class="card mb-3">
+    <div class="card-body">
+        <div class="d-flex flex-column gap-1">
+            <div class="d-flex justify-content-between">
+                {% include "reports/_report_header.html" with report=task.report %}
+                <div>
+                    <span class="badge {{ task.overall_result|result_badge_css_class }}">{{ task.get_overall_result_display }}</span>
+                </div>
+            </div>
+            <div class="text-summary clamp-3">{{ task.report.body }}</div>
+            {% include "reports/_report_buttons_panel.html" with report=task.report %}
+        </div>
+    </div>
+</div>

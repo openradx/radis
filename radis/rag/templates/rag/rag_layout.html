@@ -1,0 +1,13 @@
+{% extends "core/core_layout.html" %}
+{% load static from static %}
+{% block css %}
+    <link rel="stylesheet"
+          type="text/css"
+          href="{% static 'search/search.css' %}" />
+    <link rel="stylesheet" type="text/css" href="{% static 'rag/rag.css' %}" />
+{% endblock css %}
+{% block script %}
+    {{ block.super }}
+    <script src="{% static 'search/search.js' %}"></script>
+    <script src="{% static 'rag/rag.js' %}"></script>
+{% endblock script %}

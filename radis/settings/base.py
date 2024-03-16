@@ -60,6 +60,7 @@ INSTALLED_APPS = [
     "crispy_bootstrap5",
     "django_htmx",
     "django_tables2",
+    "formtools",
     "rest_framework",
     "adrf",
     "radis.core.apps.CoreConfig",
@@ -67,6 +68,7 @@ INSTALLED_APPS = [
     "radis.token_authentication.apps.TokenAuthenticationConfig",
     "radis.reports.apps.ReportsConfig",
     "radis.search.apps.SearchConfig",
+    "radis.rag.apps.RagConfig",
     "radis.collections.apps.CollectionsConfig",
     "radis.notes.apps.NotesConfig",
     "radis.vespa.apps.VespaConfig",
@@ -350,3 +352,41 @@ TOKEN_AUTHENTICATION_SALT = env.str(
     "TOKEN_AUTHENTICATION_SALT",
     default="Rn4YNfgAar5dYbPu",  # type: ignore
 )
+
+LLAMACPP_URL = env.str("LLAMACPP_URL", default="http://localhost:8088")  # type: ignore
+
+# Specific task priorities
+RAG_DEFAULT_PRIORITY = 2
+RAG_URGENT_PRIORITY = 3
+
+# RAG settings
+START_RAG_JOB_UNVERIFIED = False
+RAG_SUPPORTED_LANGUAGES = ["de", "en"]
+RAG_SYSTEM_PROMPT = {
+    "de": "Du bist ein radiologischer Facharzt",
+    "en": "You are a radiologist",
+}
+RAG_ANSWER_YES = {
+    "de": "Ja",
+    "en": "Yes",
+}
+RAG_ANSWER_NO = {
+    "de": "Nein",
+    "en": "No",
+}
+RAG_USER_PROMPT = {
+    "de": f"""
+        Im folgenden erhälst Du einen radiologischen Befund und eine Frage zu diesem Befund.
+        Beantworte die Frage zu dem Befund mit {RAG_ANSWER_YES['de']} oder {RAG_ANSWER_NO['de']}.
+        Befund: $report
+        Frage: $question
+        Antwort: 
+    """,
+    "en": f"""
+        In the following you will find a radiological report and a question about this report.
+        Answer the question about the report with {RAG_ANSWER_YES['en']} or {RAG_ANSWER_NO['en']}.
+        Report: $report
+        Question: $question
+        Answer:
+    """,
+}
