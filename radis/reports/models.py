@@ -1,3 +1,5 @@
+from typing import TYPE_CHECKING
+
 from django.contrib.auth.models import Group
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
@@ -8,9 +10,11 @@ from radis.core.validators import (
     no_backslash_char_validator,
     no_control_chars_validator,
     no_wildcard_chars_validator,
-    validate_metadata,
     validate_patient_sex,
 )
+
+if TYPE_CHECKING:
+    from django.db.models.manager import RelatedManager
 
 
 class ReportsAppSettings(AppSettings):
@@ -18,7 +22,22 @@ class ReportsAppSettings(AppSettings):
         verbose_name_plural = "Reports app settings"
 
 
+class Modality(models.Model):
+    id: int
+    code = models.CharField(max_length=16, unique=True)
+    filterable = models.BooleanField(default=True)
+
+    class Meta:
+        verbose_name_plural = "Modalities"
+
+    def __str__(self) -> str:
+        return self.code
+
+
 class Report(models.Model):
+    if TYPE_CHECKING:
+        metadata = RelatedManager["Metadata"]()
+
     id: int
     document_id = models.CharField(max_length=128, unique=True)
     language = models.CharField(max_length=10)
@@ -43,13 +62,9 @@ class Report(models.Model):
     )
     study_description = models.CharField(blank=True, max_length=64)
     study_datetime = models.DateTimeField()
-    modalities_in_study = ArrayField(models.CharField(max_length=16))
+    modalities = models.ManyToManyField(Modality, related_name="reports")
     links = ArrayField(models.CharField(max_length=200))
     body = models.TextField()
-    metadata = models.JSONField(
-        default=dict,
-        validators=[validate_metadata],
-    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -57,6 +72,29 @@ class Report(models.Model):
         return f"Report {self.id} [{self.document_id}]"
 
     @property
+    def modality_codes(self) -> list[str]:
+        return [modality.code for modality in self.modalities.all()]
+
+    @property
     def patient_age(self) -> int:
         """Patient age at study date"""
         return calculate_age(self.patient_birth_date, self.study_datetime)
+
+
+class Metadata(models.Model):
+    id: int
+    report = models.ForeignKey(Report, on_delete=models.CASCADE, related_name="metadata")
+    key = models.CharField(max_length=64)
+    value = models.CharField(max_length=255)
+
+    class Meta:
+        verbose_name_plural = "Metadata"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["report", "key"],
+                name="unique_key_per_report",
+            )
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.key}: {self.value}"

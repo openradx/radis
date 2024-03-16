@@ -37,7 +37,7 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name='report',
             name='metadata',
-            field=models.JSONField(default=dict, validators=[radis.core.validators.validate_metadata]),
+            field=models.JSONField(default=dict, validators=[]),
         ),
         migrations.AddField(
             model_name='report',

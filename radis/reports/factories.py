@@ -3,19 +3,36 @@ from typing import Generic, TypeVar
 
 import factory
 from faker import Faker
-from pydicom.uid import generate_uid
 
-from .models import Report
+from .models import Metadata, Modality, Report
 
 T = TypeVar("T")
 
 fake = Faker()
+
+MODALITIES = ("CT", "MR", "DX", "PT", "US")
 
 
 class BaseDjangoModelFactory(Generic[T], factory.django.DjangoModelFactory):
     @classmethod
     def create(cls, *args, **kwargs) -> T:
         return super().create(*args, **kwargs)
+
+
+class ModalityFactory(BaseDjangoModelFactory[Modality]):
+    class Meta:
+        model = Modality
+        django_get_or_create = ("code",)
+
+    code = factory.Faker("random_element", elements=MODALITIES)
+
+
+class MetadataFactory(BaseDjangoModelFactory[Metadata]):
+    class Meta:
+        model = Metadata
+
+    key = factory.Faker("word")
+    value = factory.Faker("word")
 
 
 class ReportFactory(BaseDjangoModelFactory[Report]):
@@ -31,16 +48,29 @@ class ReportFactory(BaseDjangoModelFactory[Report]):
     patient_sex = factory.Faker("random_element", elements=["F", "M", "U"])
     study_description = factory.Faker("text", max_nb_chars=64)
     study_datetime = factory.Faker("date_time_between", start_date="-10y", tzinfo=timezone.utc)
-    modalities_in_study = factory.LazyFunction(
-        lambda: fake.random_elements(elements=("CT", "MR", "DX", "PT", "US"), unique=True)
-    )
     links = factory.LazyFunction(lambda: [fake.url() for _ in range(fake.random_int(1, 3))])
-    body = factory.Faker("paragraph")
-    metadata = factory.LazyFunction(
-        lambda: {
-            "study_instance_uid": generate_uid(),
-            "accession_number": fake.numerify(text="##########"),
-            "series_instance_uid": generate_uid(),
-            "sop_instance_uid": generate_uid(),
-        }
+    metadata = factory.RelatedFactoryList(
+        MetadataFactory,
+        factory_related_name="report",
+        size=lambda: fake.random_int(1, 5),  # type: ignore
     )
+    body = factory.Faker("paragraph")
+
+    @factory.post_generation
+    def modalities(self, create, extracted, **kwargs):
+        """
+        If called like: ReportFactory.create(modalities=["CT", "PT"]) it generates
+        a report with 2 modalities. If called without `modalities` argument, it
+        generates a random amount of modalities for the report.
+        """
+        if not create:
+            return
+
+        modalities = extracted
+        if modalities is None:
+            modalities = fake.random_elements(elements=MODALITIES, unique=True)
+
+        for modality in modalities:
+            # We can't call the create method of the factory as
+            # django_get_or_create would not be respected then
+            self.modalities.add(ModalityFactory(code=modality))  # type: ignore
