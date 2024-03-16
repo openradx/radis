@@ -6,7 +6,6 @@ tasks:
     init: |
       poetry install
       npm install
-    command: |
       poetry run invoke init-workspace
 
 ports:
