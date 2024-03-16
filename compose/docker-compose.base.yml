@@ -53,11 +53,11 @@ services:
         celery --broker=amqp://rabbit/ flower --url_prefix=flower
       "
 
-  llamacpp:
-    build:
-      context: llamacpp
-      dockerfile: llamacpp.Dockerfile
-    hostname: llamacpp.local
+  # llamacpp:
+  #   build:
+  #     context: llamacpp
+  #     dockerfile: llamacpp.Dockerfile
+  #   hostname: llamacpp.local
 
   postgres:
     image: postgres:16.2
