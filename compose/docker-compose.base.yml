@@ -67,6 +67,12 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
+  opensearch:
+    image: opensearchproject/opensearch:2
+    hostname: opensearch.local
+    volumes:
+      - opensearch_data:/usr/share/opensearch/data
+
   vespa:
     image: vespaengine/vespa:8
     hostname: vespa.local
@@ -105,6 +111,7 @@ volumes:
   radis_data:
   flower_data:
   postgres_data:
+  opensearch_data:
   vespa_data:
   vespa_logs:
   rabbit_data:

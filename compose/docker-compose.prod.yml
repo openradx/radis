@@ -80,6 +80,11 @@ services:
     deploy:
       replicas: 1
 
+  opensearch:
+    restart: always
+    deploy:
+      replicas: 1
+
   vespa:
     restart: always
     deploy:

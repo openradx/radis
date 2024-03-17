@@ -88,6 +88,15 @@ services:
       - full
       - web
 
+  opensearch:
+    environment:
+      - "OPENSEARCH_JAVA_OPTS=-Xms2048m -Xmx2048m"
+      - OPENSEARCH_INITIAL_ADMIN_PASSWORD=fsXi81j9lpu
+      - discovery.type=single-node # https://github.com/gitpod-io/gitpod/issues/8399
+    profiles:
+      - full
+      - web
+
   vespa:
     environment:
       # Reduce memory usage of Vespa during development (espcially on Cloud IDEs), see
