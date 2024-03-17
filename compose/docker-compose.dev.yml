@@ -65,6 +65,7 @@ services:
       - full
 
   llamacpp:
+    image: llamacpp-server:latest
     ports:
       - 9610:8080
     volumes:
