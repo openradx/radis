@@ -10,5 +10,5 @@ class ReportDetailView(LoginRequiredMixin, DetailView):
     context_object_name = "report"
 
 
-class ReportPreviewView(ReportDetailView):
-    template_name = "reports/report_preview.html"
+class ReportBodyView(ReportDetailView):
+    template_name = "reports/report_body.html"

@@ -35,7 +35,6 @@ class SearchForm(forms.ModelForm):
 
     def __init__(self, *args, **kwargs):
         self.user: User = kwargs.pop("user")
-        self.preview: bool = kwargs.pop("preview", False)
 
         super().__init__(*args, **kwargs)
 

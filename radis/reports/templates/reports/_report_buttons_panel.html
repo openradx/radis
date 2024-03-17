@@ -8,14 +8,6 @@
                 Details
             </a>
         {% endif %}
-        {% if not no_preview_button %}
-            <button hx-get="{% url 'report_preview' report.id %}"
-                    hx-target="#htmx-dialog"
-                    class="btn btn-secondary btn-sm">
-                {% bootstrap_icon "eye" %}
-                Preview
-            </button>
-        {% endif %}
         {# Additional buttons that can be registered by other apps #}
         {% for button in report_panel_buttons %}
             {% include button.template_name %}

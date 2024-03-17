@@ -8,7 +8,20 @@
                     <span class="badge {{ task.overall_result|result_badge_css_class }}">{{ task.get_overall_result_display }}</span>
                 </div>
             </div>
-            <div class="text-summary clamp-3">{{ task.report.body }}</div>
+            <div class="d-flex flex-column gap-1" x-data="{full: false}">
+                <div class="clamp-3" :class="{'clamp-3': !full, 'pre-line': full}">{{ task.report.body }}</div>
+                <div class="d-flex">
+                    <button type="button"
+                            class="btn btn-sm btn-link p-0 border-0"
+                            @click.prevent="full=true"
+                            x-show="!full">[Show full report]</button>
+                    <button type="button"
+                            class="btn btn-sm btn-link p-0 border-0"
+                            @click.prevent="full=false"
+                            x-cloak
+                            x-show="full">[Show summary]</button>
+                </div>
+            </div>
             {% include "reports/_report_buttons_panel.html" with report=task.report %}
         </div>
     </div>

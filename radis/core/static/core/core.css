@@ -7,6 +7,11 @@
   }
 }
 
+/* No wrap of long Bootstrap tooltips. */
+.tooltip-inner {
+  max-width: none;
+}
+
 /***
 * Misc
 ***/
@@ -14,11 +19,6 @@
 /* Place caption on tables on the top. */
 caption {
   caption-side: top;
-}
-
-/* No wrap of long Bootstrap tooltips. */
-.tooltip-inner {
-  max-width: none;
 }
 
 /* Shows that you get more info when hovering it. */
@@ -35,11 +35,11 @@ caption {
   text-align: center;
 }
 
-.text-summary {
+.search-summary {
   white-space: normal;
 }
 
-.text-summary strong {
+.search-summary strong {
   font-weight: bold;
   font-style: italic;
   text-decoration: underline;
@@ -63,7 +63,7 @@ caption {
 ***/
 
 [x-cloak] {
-  display: none;
+  display: none !important;
 }
 
 /***
