@@ -1,6 +1,6 @@
 {% load result_badge_css_class from rag_extras %}
 <div class="card mb-3">
-    <div class="card-body">
+    <div class="card-body" x-data="{full: false, questions: false}">
         <div class="d-flex flex-column gap-1">
             <div class="d-flex justify-content-between">
                 {% include "reports/_report_header.html" with report=task.report %}
@@ -8,9 +8,9 @@
                     <span class="badge {{ task.overall_result|result_badge_css_class }}">{{ task.get_overall_result_display }}</span>
                 </div>
             </div>
-            <div class="d-flex flex-column gap-1" x-data="{full: false}">
+            <div class="d-flex flex-column gap-1">
                 <div class="clamp-3" :class="{'clamp-3': !full, 'pre-line': full}">{{ task.report.body }}</div>
-                <div class="d-flex">
+                <div class="d-flex gap-2">
                     <button type="button"
                             class="btn btn-sm btn-link p-0 border-0"
                             @click.prevent="full=true"
@@ -20,7 +20,25 @@
                             @click.prevent="full=false"
                             x-cloak
                             x-show="full">[Show summary]</button>
+                    <button type="button"
+                            class="btn btn-sm btn-link p-0 border-0"
+                            @click.prevent="questions=true"
+                            x-show="!questions">[Show questions]</button>
+                    <button type="button"
+                            class="btn btn-sm btn-link p-0 border-0"
+                            @click.prevent="questions=false"
+                            x-show="questions">[Hide questions]</button>
                 </div>
+            </div>
+            <div x-cloak x-show="questions">
+                Questions:
+                {% for result in task.results.all %}
+                    <div>
+                        <span>{{ result.question.question }}</span>
+                        <span>{{ result.get_answer_display }}</span>
+                        <span>({{ result.get_result_display }})</span>
+                    </div>
+                {% endfor %}
             </div>
             {% include "reports/_report_buttons_panel.html" with report=task.report %}
         </div>
