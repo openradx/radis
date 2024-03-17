@@ -54,9 +54,7 @@ services:
       "
 
   llamacpp:
-    build:
-      context: llamacpp
-      dockerfile: llamacpp.Dockerfile
+    image: medihack/llama.cpp-server:latest
     hostname: llamacpp.local
 
   postgres:
