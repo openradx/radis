@@ -112,7 +112,7 @@ class RagJobWizardView(LoginRequiredMixin, PermissionRequiredMixin, SessionWizar
         search = Search(
             query=data["query"],
             offset=0,
-            size=0,
+            limit=0,
             filters=SearchFilters(
                 study_date_from=data["study_date_from"],
                 study_date_till=data["study_date_till"],

@@ -44,7 +44,7 @@ class SearchView(LoginRequiredMixin, View):
             search = Search(
                 query=query,
                 offset=offset,
-                size=page_size,
+                limit=page_size,
                 filters=SearchFilters(
                     study_date_from=study_date_from,
                     study_date_till=study_date_till,

@@ -137,7 +137,7 @@ class ProcessRagJob(ProcessAnalysisJob):
         search = Search(
             query=job.query,
             offset=0,
-            size=100,
+            limit=100,
             filters=SearchFilters(
                 study_date_from=job.study_date_from,
                 study_date_till=job.study_date_till,
