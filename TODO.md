@@ -2,6 +2,8 @@
 
 ## High Priority
 
+- Check if for RAG ranking should be turned off for performance improvements (and using some fixed sort order)
+- Some present provider.max_results to the user somehow, especially important if the query results (step 1) is larger
 - task control panel
 - Limit RAG search result choice (stop when there x positive results)
 - Limit RAG search by maximum number of reports that gets processed
@@ -60,10 +62,12 @@
   - When a new question is added to the catalog all existing and also upcoming reports will be evaluated
   - Users can filter by those categories in the normal search (make this plug-in able)
 - Subscriptions app
-  - Users can subscribe to Patient IDs, modalities, keywords, questions (see RAG app), categories (see Categories app)
+  - Users can subscribe to Patient IDs, questions (see RAG app), categories (see Categories app)
+  - Can also filter by modalities, study description, patient sex, patient age range
   - Cave, make sure categories app are evaluated before subscriptions
   - Users get notified by Email when new matching reports arrive in the future
   - Maybe link to report in RADIS in Email, optionally full report text in Email
+  - Maybe only allow a maximum number of hits
   - Maybe set a maximum number of reports in Email
 - Allow to export collections to ADIT to transfer the corresponding studies
 

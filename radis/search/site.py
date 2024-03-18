@@ -41,6 +41,19 @@ class SearchFilters:
 
 
 class Search(NamedTuple):
+    """
+    A class representing a search.
+
+    If both offset and limit are set to 0, then the search provider
+    should return the most accurate total count it can calculate.
+
+    Attributes:
+    - query (str): The query to search.
+    - offset (int): The offset of the search results.
+    - limit (int): The limit of the search results.
+    - filters (SearchFilters): The filters to apply to the search.
+    """
+
     query: str
     offset: int = 0
     limit: int = 10
@@ -51,23 +64,26 @@ SearchHandler = Callable[[Search], SearchResult]
 
 
 class SearchProvider(NamedTuple):
+    """
+    A class representing a search provider.
+
+    Attributes:
+    - name (str): The name of the search provider.
+    - handler (SearchHandler): The function that handles the search.
+    - max_results (int): The maximum number of results that can be returned.
+      Must be smaller than offset + limit when searching.
+    - info_template (str): The template to be rendered as info.
+    """
+
     name: str
     handler: SearchHandler
+    max_results: int
     info_template: str
 
 
 search_providers: dict[str, SearchProvider] = {}
 
 
-def register_search_provider(
-    name: str,
-    handler: SearchHandler,
-    info_template: str,
-) -> None:
-    """Register a search handler.
-
-    The name can be selected by the user in the search form. The searcher is called
-    when the user submits the form and returns the results. The template name is
-    the partial to be rendered as info below the search form.
-    """
-    search_providers[name] = SearchProvider(name, handler, info_template)
+def register_search_provider(search_provider: SearchProvider) -> None:
+    """Register a search provider."""
+    search_providers[search_provider.name] = search_provider

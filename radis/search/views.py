@@ -60,7 +60,10 @@ class SearchView(LoginRequiredMixin, View):
 
             if total_count is not None:
                 context["total_count"] = total_count
-                paginator = Paginator(range(total_count), page_size)
+                # We don't allow to paginate through all results, but the provider tells
+                # us how many results it can return
+                max_size = min(total_count, search_provider.max_results)
+                paginator = Paginator(range(max_size), page_size)
                 context["paginator"] = paginator
                 context["page_obj"] = paginator.get_page(page_number)
 

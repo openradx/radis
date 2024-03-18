@@ -27,6 +27,18 @@ RETRIEVAL_SUMMARY = "retrieval-summary"
 SEARCH_QUERY_PROFILE = "SearchProfile"
 RETRIEVAL_QUERY_PROFILE = "RetrievalProfile"
 
+# We set max hits to the same value as max offset as our search and retrieval
+# provider (as most other full text search databases) only allow to set
+# a maximum results (offset + limit). That way we make sure that the maximum
+# results can really be reached regardless of the actual number of offset and
+# limit.
+MAX_SEARCH_HITS = 1000
+MAX_SEARCH_OFFSET = 1000
+SEARCH_TIMEOUT = 1
+MAX_RETRIEVAL_HITS = 10000
+MAX_RETRIEVAL_OFFSET = 10000
+RETRIEVAL_TIMEOUT = 10
+
 
 def _create_report_schema():
     return Schema(
@@ -170,18 +182,37 @@ class VespaAppModifier:
         self.services_file = Path(app_folder) / "services.xml"
         self.services_doc = ET.parse(self.services_file)
 
-    def _add_query_profile(self, name: str, max_hits: int, max_offset: int, timeout: int):
+    def apply(self):
+        # We overwrite the generated default query profile
+        self._add_query_profile(
+            SEARCH_QUERY_PROFILE,
+            MAX_SEARCH_HITS,
+            MAX_SEARCH_OFFSET,
+            SEARCH_TIMEOUT,
+        )
+        self._add_query_profile(
+            RETRIEVAL_QUERY_PROFILE,
+            MAX_RETRIEVAL_HITS,
+            MAX_RETRIEVAL_OFFSET,
+            RETRIEVAL_TIMEOUT,
+        )
+        self._add_bolding_config()
+        self._add_dynamic_snippet_config()
+        self._write()
+
+    def _add_query_profile(self, profile_name: str, max_hits: int, max_offset: int, timeout: int):
         query_profile_el = ET.fromstring(
             f"""
-            <query-profile id="{name}">
+            <query-profile id="{profile_name}">
                 <field name="maxHits">{max_hits}</field>
                 <field name="maxOffset">{max_offset}</field>
+                <field name="timeout">{timeout}</field>
             </query-profile>
             """
         )
         tree = ET.ElementTree(query_profile_el)
         ET.indent(tree, space="\t", level=0)
-        with open(self.query_profiles_folder / f"{name}.xml", "wb") as f:
+        with open(self.query_profiles_folder / f"{profile_name}.xml", "wb") as f:
             tree.write(f, encoding="UTF-8")
 
     # https://docs.vespa.ai/en/reference/schema-reference.html#bolding
@@ -220,14 +251,6 @@ class VespaAppModifier:
     def _write(self):
         ET.indent(self.services_doc, "    ")
         self.services_doc.write(self.services_file, encoding="UTF-8", xml_declaration=True)
-
-    def apply(self):
-        # We overwrite the generated default query profile
-        self._add_query_profile(SEARCH_QUERY_PROFILE, 100, 900, 1)
-        self._add_query_profile(RETRIEVAL_QUERY_PROFILE, 1000, 9000, 10)
-        self._add_bolding_config()
-        self._add_dynamic_snippet_config()
-        self._write()
 
 
 class VespaApp:

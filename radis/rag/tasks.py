@@ -129,15 +129,13 @@ class ProcessRagJob(ProcessAnalysisJob):
         elif job.patient_sex == "F":
             patient_sex = "F"
 
-        # TODO: We have to handle the result size somehow. Maybe page through
-        # the results or alter the Vespa setting that infinite results are
-        # returned.
-        # Maybe also set a limit of maximum results that can be collected to
-        # be processed by a LLM.
+        provider = job.provider
+        retrieval_provider = retrieval_providers[provider]
+
         search = Search(
             query=job.query,
             offset=0,
-            limit=100,
+            limit=retrieval_provider.max_results,
             filters=SearchFilters(
                 study_date_from=job.study_date_from,
                 study_date_till=job.study_date_till,
@@ -151,9 +149,7 @@ class ProcessRagJob(ProcessAnalysisJob):
 
         logger.debug("Searching reports for task with search: %s", search)
 
-        provider = job.provider
-        search_provider = retrieval_providers[provider]
-        result = search_provider.handler(search)
+        result = retrieval_provider.handler(search)
 
         for document_id in result.document_ids:
             task = RagTask.objects.create(
