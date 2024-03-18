@@ -43,7 +43,7 @@ class SearchFilters:
 class Search(NamedTuple):
     query: str
     offset: int = 0
-    size: int = 10
+    limit: int = 10
     filters: SearchFilters = SearchFilters()
 
 
