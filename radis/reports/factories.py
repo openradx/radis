@@ -31,7 +31,7 @@ class MetadataFactory(BaseDjangoModelFactory[Metadata]):
     class Meta:
         model = Metadata
 
-    key = factory.Faker("word")
+    key = factory.Sequence(lambda n: f"{fake.word()}_{n}")
     value = factory.Faker("word")
 
 
