@@ -9,12 +9,10 @@ function SearchForm($el) {
       for (var i = 0; i < filterInputEls.length; i++) {
         const filterInputEl = filterInputEls[i];
         if (!filterInputEl.value) {
-          console.log(filterInputEl.id);
           filterInputEl.setAttribute("disabled", true);
         }
       }
       const ageFromEl = $el.querySelector("#id_age_from");
-      console.log(ageFromEl.value, ageFromEl.min);
       if (ageFromEl.value === ageFromEl.min) {
         ageFromEl.setAttribute("disabled", true);
       }
