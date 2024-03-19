@@ -12,7 +12,7 @@ from radis.accounts.factories import AdminUserFactory, GroupFactory, UserFactory
 from radis.accounts.models import User
 from radis.reports.factories import ReportFactory
 from radis.reports.models import Report
-from radis.reports.site import report_event_handlers
+from radis.reports.site import reports_created_handlers
 from radis.token_authentication.factories import TokenFactory
 from radis.token_authentication.models import FRACTION_LENGTH
 from radis.token_authentication.utils.crypto import hash_token
@@ -24,12 +24,11 @@ GROUP_COUNT = 3
 fake = Faker()
 
 
-def feed_report(body: str, language: Literal["en", "de"]):
+def create_report(body: str, language: Literal["en", "de"]):
     report = ReportFactory.create(language=language, body=body)
     groups = fake.random_elements(elements=list(Group.objects.all()), unique=True)
     report.groups.set(groups)
-    for handler in report_event_handlers:
-        handler("created", report.document_id)
+    return report
 
 
 def feed_reports(language: Literal["en", "de"]):
@@ -42,10 +41,14 @@ def feed_reports(language: Literal["en", "de"]):
 
     samples_path = Path(settings.BASE_DIR / "samples" / sample_file)
     with open(samples_path, "r") as f:
-        reports = json.load(f)
+        report_bodies = json.load(f)
 
-    for report in reports:
-        feed_report(report, language)
+    reports: list[Report] = []
+    for report_body in report_bodies:
+        reports.append(create_report(report_body, language))
+
+    for handler in reports_created_handlers:
+        handler([report.id for report in reports])
 
 
 def create_admin() -> User:

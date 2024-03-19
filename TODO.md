@@ -2,6 +2,10 @@
 
 ## High Priority
 
+- Use own worker for indexing
+- Thinks about a better delete strategy
+- Delete document_id from Vespa schema and extract it from the returned id
+  - <https://docs.vespa.ai/en/documents.html#document-ids>
 - Check if for RAG ranking should be turned off for performance improvements (and using some fixed sort order)
 - Some present provider.max_results to the user somehow, especially important if the query results (step 1) is larger
 - task control panel

@@ -1,10 +1,16 @@
+import logging
 from datetime import date, datetime, time
-from typing import Any
+from typing import Any, Iterable
+
+from django.db.models import QuerySet
+from vespa.io import VespaResponse
 
 from radis.reports.models import Report
 from radis.search.site import ReportDocument
 
 from ..vespa_app import REPORT_SCHEMA_NAME, vespa_app
+
+logger = logging.getLogger(__name__)
 
 
 def _dictify_report_for_vespa(report: Report) -> dict[str, Any]:
@@ -33,6 +39,12 @@ def _dictify_report_for_vespa(report: Report) -> dict[str, Any]:
     }
 
 
+def _generate_feedable_documents(reports: QuerySet[Report]) -> Iterable[dict]:
+    for report in reports:
+        fields = _dictify_report_for_vespa(report)
+        yield {"id": report.document_id, "fields": fields}
+
+
 def fetch_document(document_id: str) -> dict[str, Any]:
     response = vespa_app.get_client().get_data(REPORT_SCHEMA_NAME, document_id)
 
@@ -43,30 +55,54 @@ def fetch_document(document_id: str) -> dict[str, Any]:
     return response.get_json()
 
 
-def create_document(document_id: str, report: Report) -> None:
-    fields = _dictify_report_for_vespa(report)
-    response = vespa_app.get_client().feed_data_point(REPORT_SCHEMA_NAME, document_id, fields)
+def create_documents(report_ids: list[int]) -> None:
+    reports = Report.objects.filter(id__in=report_ids)
 
-    if response.get_status_code() != 200:
-        message = response.get_json()
-        raise Exception(f"Error while feeding document to Vespa: {message}")
+    def callback(response: VespaResponse, id: str):
+        if response.get_status_code() == 200:
+            logger.debug(f"Successfully fed document with id {id} to Vespa")
+        else:
+            message = response.get_json()
+            logger.error(f"Error while feeding document with id {id} to Vespa: {message}")
 
-
-def update_document(document_id: str, report: Report) -> None:
-    fields = _dictify_report_for_vespa(report)
-    response = vespa_app.get_client().update_data(REPORT_SCHEMA_NAME, document_id, fields)
-
-    if response.get_status_code() != 200:
-        message = response.get_json()
-        raise Exception(f"Error while updating document on Vespa: {message}")
+    vespa_app.get_client().feed_iterable(
+        _generate_feedable_documents(reports), REPORT_SCHEMA_NAME, callback=callback
+    )
 
 
-def delete_document(document_id: str) -> None:
-    response = vespa_app.get_client().delete_data(REPORT_SCHEMA_NAME, document_id)
+def update_documents(report_ids: list[int]) -> None:
+    reports = Report.objects.filter(id__in=report_ids)
 
-    if response.get_status_code() != 200:
-        message = response.get_json()
-        raise Exception(f"Error while deleting document on Vespa: {message}")
+    def callback(response: VespaResponse, id: str):
+        if response.get_status_code() == 200:
+            logger.debug(f"Successfully updated document with id {id} in Vespa")
+            pass
+        else:
+            message = response.get_json()
+            logger.error(f"Error while updating document with id {id} in Vespa: {message}")
+
+    vespa_app.get_client().feed_iterable(
+        _generate_feedable_documents(reports),
+        REPORT_SCHEMA_NAME,
+        operation_type="update",
+        callback=callback,
+    )
+
+
+def delete_documents(document_ids: list[str]) -> None:
+    def callback(response: VespaResponse, id: str):
+        if response.get_status_code() == 200:
+            logger.debug(f"Successfully deleted document with id {id} in Vespa")
+        else:
+            message = response.get_json()
+            logger.error(f"Error while deleting document with id {id} in Vespa: {message}")
+
+    vespa_app.get_client().feed_iterable(
+        [{"id": id} for id in document_ids],
+        REPORT_SCHEMA_NAME,
+        operation_type="delete",
+        callback=callback,
+    )
 
 
 def document_from_vespa_response(record: dict[str, Any]) -> ReportDocument:

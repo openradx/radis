@@ -1,23 +1,46 @@
-from typing import Any, Callable, Literal, NamedTuple
+from typing import Any, Callable, NamedTuple
 
 from django.http import HttpRequest
 
 from .models import Report
 
-ReportEventType = Literal["created", "updated", "deleted"]
-ReportEventHandler = Callable[[ReportEventType, str], None]
+ReportsCreatedHandler = Callable[[list[int]], None]
 
-report_event_handlers: list[ReportEventHandler] = []
+reports_created_handlers: list[ReportsCreatedHandler] = []
 
 
-def register_report_handler(handler: ReportEventHandler) -> None:
-    """Register a report event handler.
+def register_reports_created_handler(handler: ReportsCreatedHandler) -> None:
+    """Register a handler for when reports are created in the PostgreSQL database.
 
-    The report handler gets notified a report is created, updated, or deleted in
-    PostgreSQL database. It can be used to sync report documents in other
-    databases like Vespa.
+    The handler can be used to sync resp. index those reports in a search database like Vespa.
     """
-    report_event_handlers.append(handler)
+    reports_created_handlers.append(handler)
+
+
+ReportsUpdatedHandler = Callable[[list[int]], None]
+
+reports_updated_handlers: list[ReportsUpdatedHandler] = []
+
+
+def register_reports_updated_handler(handler: ReportsUpdatedHandler) -> None:
+    """Register a handler for when reports are updated in the PostgreSQL database.
+
+    The handler can be used to sync resp. re-index those reports in a search database like Vespa.
+    """
+    reports_updated_handlers.append(handler)
+
+
+ReportsDeletedHandler = Callable[[list[str]], None]
+
+reports_deleted_handlers: list[ReportsDeletedHandler] = []
+
+
+def register_reports_deleted_handler(handler: ReportsDeletedHandler) -> None:
+    """Register a handler for when reports are deleted in the PostgreSQL database.
+
+    The handler can be used to remove those reports from the index of search databases like Vespa.
+    """
+    reports_deleted_handlers.append(handler)
 
 
 FetchDocument = Callable[[Report], dict[str, Any] | None]

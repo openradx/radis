@@ -14,9 +14,10 @@ def register_app():
     from radis.rag.site import RetrievalProvider, register_retrieval_provider
     from radis.reports.models import Report
     from radis.reports.site import (
-        ReportEventType,
         register_document_fetcher,
-        register_report_handler,
+        register_reports_created_handler,
+        register_reports_deleted_handler,
+        register_reports_updated_handler,
     )
     from radis.search.site import SearchProvider, register_search_provider
     from radis.vespa.providers import retrieve_bm25
@@ -24,25 +25,17 @@ def register_app():
 
     from .providers import search_bm25, search_hybrid, search_semantic
     from .utils.document_utils import (
-        create_document,
-        delete_document,
+        create_documents,
+        delete_documents,
         fetch_document,
-        update_document,
+        update_documents,
     )
 
-    def handle_report(event_type: ReportEventType, document_id: str):
-        if event_type in ("created", "updated"):
-            report = Report.objects.get(document_id=document_id)
-            if event_type == "created":
-                create_document(document_id, report)
-            elif event_type == "updated":
-                update_document(document_id, report)
-        elif event_type == "deleted":
-            delete_document(document_id)
-        else:
-            raise ValueError(f"Invalid report event type: {event_type}")
+    register_reports_created_handler(lambda report_ids: create_documents(report_ids))
 
-    register_report_handler(handle_report)
+    register_reports_updated_handler(lambda report_ids: update_documents(report_ids))
+
+    register_reports_deleted_handler(lambda document_ids: delete_documents(document_ids))
 
     def fetch_vespa_document(report: Report) -> dict[str, Any]:
         return fetch_document(report.document_id)

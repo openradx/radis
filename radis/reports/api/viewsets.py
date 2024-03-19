@@ -9,7 +9,7 @@ from rest_framework.request import Request, clone_request
 from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
 
-from radis.reports.tasks import report_created, report_deleted, report_updated
+from radis.reports.tasks import reports_created, reports_deleted, reports_updated
 
 from ..models import Report
 from ..site import document_fetchers
@@ -32,6 +32,11 @@ class ReportViewSet(
     queryset = Report.objects.all()
     lookup_field = "document_id"
     permission_classes = [IsAdminUser]
+
+    def get_serializer(self, *args: Any, **kwargs: Any) -> BaseSerializer:
+        if isinstance(kwargs.get("data", {}), list):
+            kwargs["many"] = True
+        return super().get_serializer(*args, **kwargs)
 
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Retrieve a single Report.
@@ -57,8 +62,11 @@ class ReportViewSet(
     def perform_create(self, serializer: BaseSerializer) -> None:
         super().perform_create(serializer)
         assert serializer.instance
-        report: Report = serializer.instance
-        transaction.on_commit(lambda: report_created.delay(report.document_id))
+        reports: list[Report] | Report = serializer.instance
+        if not isinstance(reports, list):
+            reports = [reports]
+
+        transaction.on_commit(lambda: reports_created.delay([report.id for report in reports]))
 
     def update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         # DRF itself does not support upsert.
@@ -90,8 +98,11 @@ class ReportViewSet(
     def perform_update(self, serializer: BaseSerializer) -> None:
         super().perform_update(serializer)
         assert serializer.instance
-        report: Report = serializer.instance
-        transaction.on_commit(lambda: report_updated.delay(report.document_id))
+        reports: list[Report] | Report = serializer.instance
+        if not isinstance(reports, list):
+            reports = [reports]
+
+        transaction.on_commit(lambda: reports_updated.delay([report.id for report in reports]))
 
     def partial_update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         # Disallow partial updates
@@ -100,4 +111,4 @@ class ReportViewSet(
 
     def perform_destroy(self, instance: Report) -> None:
         super().perform_destroy(instance)
-        transaction.on_commit(lambda: report_deleted.delay(instance.document_id))
+        transaction.on_commit(lambda: reports_deleted.delay([instance.document_id]))
