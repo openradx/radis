@@ -6,16 +6,17 @@ from typing import Literal
 from django.conf import settings
 from django.contrib.auth.models import Group, Permission
 from django.core.management.base import BaseCommand, CommandParser
+from django.db import transaction
 from faker import Faker
 
 from radis.accounts.factories import AdminUserFactory, GroupFactory, UserFactory
 from radis.accounts.models import User
 from radis.reports.factories import ReportFactory
 from radis.reports.models import Report
-from radis.reports.site import reports_created_handlers
 from radis.token_authentication.factories import TokenFactory
 from radis.token_authentication.models import FRACTION_LENGTH
 from radis.token_authentication.utils.crypto import hash_token
+from radis.vespa.utils.document_utils import create_documents
 
 USER_COUNT = 20
 GROUP_COUNT = 3
@@ -47,8 +48,7 @@ def feed_reports(language: Literal["en", "de"]):
     for report_body in report_bodies:
         reports.append(create_report(report_body, language))
 
-    for handler in reports_created_handlers:
-        handler([report.id for report in reports])
+    transaction.on_commit(lambda: create_documents([report.id for report in reports]))
 
 
 def create_admin() -> User:

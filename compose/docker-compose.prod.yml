@@ -40,6 +40,12 @@ services:
     deploy:
       replicas: 1
 
+  worker_vespa:
+    <<: *default-app
+    command: ./manage.py celery_worker -c 1 -Q vespa_queue
+    deploy:
+      replicas: 1
+
   worker_llm:
     <<: *default-app
     command: ./manage.py celery_worker -c 1 -Q llm_queue

@@ -45,6 +45,13 @@ services:
     profiles:
       - full
 
+  worker_vespa:
+    <<: *default-app
+    command: |
+      ./manage.py celery_worker -c 1 -Q vespa_queue --autoreload
+    profiles:
+      - full
+
   worker_llm:
     <<: *default-app
     command: |

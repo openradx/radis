@@ -21,21 +21,27 @@ def register_app():
     )
     from radis.search.site import SearchProvider, register_search_provider
     from radis.vespa.providers import retrieve_bm25
+    from radis.vespa.tasks import process_deleted_reports, process_updated_reports
     from radis.vespa.vespa_app import MAX_RETRIEVAL_HITS, MAX_SEARCH_HITS
 
     from .providers import search_bm25, search_hybrid, search_semantic
-    from .utils.document_utils import (
-        create_documents,
-        delete_documents,
-        fetch_document,
-        update_documents,
-    )
+    from .tasks import process_created_reports
+    from .utils.document_utils import fetch_document
 
-    register_reports_created_handler(lambda report_ids: create_documents(report_ids))
+    def handle_created_reports(report_ids: list[int]) -> None:
+        process_created_reports.delay(report_ids)
 
-    register_reports_updated_handler(lambda report_ids: update_documents(report_ids))
+    register_reports_created_handler(handle_created_reports)
 
-    register_reports_deleted_handler(lambda document_ids: delete_documents(document_ids))
+    def handle_updated_reports(report_ids: list[int]) -> None:
+        process_updated_reports.delay(report_ids)
+
+    register_reports_updated_handler(handle_updated_reports)
+
+    def handle_deleted_reports(document_ids: list[str]) -> None:
+        process_deleted_reports.delay(document_ids)
+
+    register_reports_deleted_handler(handle_deleted_reports)
 
     def fetch_vespa_document(report: Report) -> dict[str, Any]:
         return fetch_document(report.document_id)

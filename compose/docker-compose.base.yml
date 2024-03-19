@@ -36,6 +36,10 @@ services:
     <<: *default-app
     hostname: worker_default.local
 
+  worker_vespa:
+    <<: *default-app
+    hostname: worker_vespa.local
+
   worker_llm:
     <<: *default-app
     hostname: worker_llm.local

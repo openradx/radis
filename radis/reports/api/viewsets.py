@@ -9,10 +9,13 @@ from rest_framework.request import Request, clone_request
 from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
 
-from radis.reports.tasks import reports_created, reports_deleted, reports_updated
-
 from ..models import Report
-from ..site import document_fetchers
+from ..site import (
+    document_fetchers,
+    reports_created_handlers,
+    reports_deleted_handlers,
+    reports_updated_handlers,
+)
 from .serializers import ReportSerializer
 
 
@@ -66,7 +69,11 @@ class ReportViewSet(
         if not isinstance(reports, list):
             reports = [reports]
 
-        transaction.on_commit(lambda: reports_created.delay([report.id for report in reports]))
+        transaction.on_commit(
+            lambda: [
+                handler([report.id for report in reports]) for handler in reports_created_handlers
+            ]
+        )
 
     def update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         # DRF itself does not support upsert.
@@ -102,7 +109,11 @@ class ReportViewSet(
         if not isinstance(reports, list):
             reports = [reports]
 
-        transaction.on_commit(lambda: reports_updated.delay([report.id for report in reports]))
+        transaction.on_commit(
+            lambda: [
+                handler([report.id for report in reports]) for handler in reports_updated_handlers
+            ]
+        )
 
     def partial_update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         # Disallow partial updates
@@ -111,4 +122,6 @@ class ReportViewSet(
 
     def perform_destroy(self, instance: Report) -> None:
         super().perform_destroy(instance)
-        transaction.on_commit(lambda: reports_deleted.delay([instance.document_id]))
+        transaction.on_commit(
+            lambda: [handler([instance.document_id]) for handler in reports_deleted_handlers]
+        )
