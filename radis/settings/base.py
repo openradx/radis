@@ -316,7 +316,8 @@ CELERY_TASK_QUEUE_MAX_PRIORITY = 10
 CELERY_TASK_DEFAULT_PRIORITY = 5
 
 # Only non prefetched tasks can be sorted by their priority. So we prefetch
-# only one task at a time.
+# only one task for each availalbe child process. The number of child processes
+# can be set with the -c parameter when starting the worker.
 CELERY_WORKER_PREFETCH_MULTIPLIER = 1
 
 # Only acknowledge the Celery task when it was finished by the worker.
