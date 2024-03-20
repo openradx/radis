@@ -69,7 +69,7 @@ services:
       - models_data:/models
     environment:
       MODEL_URL: https://huggingface.co/TheBloke/Mistral-7B-Instruct-v0.2-GGUF/resolve/main/mistral-7b-instruct-v0.2.Q4_K_M.gguf 
-    command: "-c 512 --host 0.0.0.0 --port 8080"
+    command: "-mu $${MODEL_URL} -m /models/model.gguf -cb -c 2048 --host 0.0.0.0 --port 8080"
     deploy:
       replicas: 1
 

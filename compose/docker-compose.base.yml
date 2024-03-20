@@ -58,7 +58,7 @@ services:
       "
 
   llamacpp:
-    image: medihack/llama.cpp-server:latest
+    image: ghcr.io/ggerganov/llama.cpp:server
     hostname: llamacpp.local
 
   postgres:
