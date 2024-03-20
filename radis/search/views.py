@@ -3,7 +3,7 @@ from typing import Any
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import ValidationError
 from django.core.paginator import Paginator
-from django.http import HttpRequest
+from django.http import Http404, HttpRequest
 from django.shortcuts import render
 from django.views import View
 
@@ -32,13 +32,18 @@ class SearchView(LoginRequiredMixin, View):
         age_from = form.cleaned_data["age_from"]
         age_till = form.cleaned_data["age_till"]
 
-        page_number = self.get_page_number(request)
-        page_size: int = self.get_page_size(request)
-        offset = (page_number - 1) * page_size
-        context["offset"] = offset
-
         search_provider = search_providers[provider]
         context["info_template"] = search_provider.info_template
+
+        page_number = self.get_page_number(request)
+        page_size: int = self.get_page_size(request)
+
+        if page_size * page_number > search_provider.max_results:
+            # https://github.com/django/django/blob/6f7c0a4d66f36c59ae9eafa168b455e462d81901/django/views/generic/list.py#L76
+            raise Http404(f"Invalid page {page_number}.")
+
+        offset = (page_number - 1) * page_size
+        context["offset"] = offset
 
         if query:
             search = Search(
@@ -75,8 +80,7 @@ class SearchView(LoginRequiredMixin, View):
     def get_page_number(self, request: HttpRequest) -> int:
         page = request.GET.get("page") or 1
         try:
-            page_number = int(page)
-            page_number = min(page_number, 1)
+            page_number = max(int(page), 1)
         except ValueError:
             page_number = 1
         return page_number
@@ -84,8 +88,7 @@ class SearchView(LoginRequiredMixin, View):
     def get_page_size(self, request: HttpRequest) -> int:
         page_size = request.GET.get("per_page") or 25
         try:
-            page_size = int(page_size)
-            page_size = min(page_size, 100)
+            page_size = min(int(page_size), 100)
         except ValueError:
             page_size = 10
         return page_size
