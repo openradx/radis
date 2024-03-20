@@ -105,6 +105,7 @@ def delete_documents(document_ids: list[str]) -> None:
 
 
 def _extract_document_id(documentid: str) -> str:
+    # https://docs.vespa.ai/en/documents.html#document-ids
     return documentid.split(":")[-1]
 
 
