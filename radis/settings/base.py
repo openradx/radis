@@ -20,10 +20,14 @@ env = environ.Env()
 # The base directory of the project (the root of the repository)
 BASE_DIR = Path(__file__).resolve(strict=True).parent.parent.parent
 
-# Read pyproject.toml file
-pyproject = toml.load(BASE_DIR / "pyproject.toml")
-
-RADIS_VERSION = pyproject["tool"]["poetry"]["version"]
+# Read pyproject.toml to fetch current version
+# We to do this conditionally as radis_client uses RADIS for testing as a package where
+# the file is not present.
+if (BASE_DIR / "pyproject.toml").exists():
+    pyproject = toml.load(BASE_DIR / "pyproject.toml")
+    RADIS_VERSION = pyproject["tool"]["poetry"]["version"]
+else:
+    RADIS_VERSION = "???"
 
 READ_DOT_ENV_FILE = env.bool("DJANGO_READ_DOT_ENV_FILE", default=False)  # type: ignore
 if READ_DOT_ENV_FILE:
