@@ -22,7 +22,7 @@ EMAIL_HOST_USER = env.str("DJANGO_EMAIL_HOST_USER", default="")  # type: ignore
 EMAIL_HOST_PASSWORD = env.str("DJANGO_EMAIL_HOST_PASSWORD", default="")  # type: ignore
 EMAIL_USE_TLS = env.bool("DJANGO_EMAIL_USE_TLS", default=False)  # type: ignore
 
-STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
+STORAGES["staticfiles"]["BACKEND"] = "whitenoise.storage.CompressedManifestStaticFilesStorage"  # noqa: F405
 
 CELERY_BEAT_SCHEDULE["backup-db"] = {  # noqa: F405
     "task": "radis.core.tasks.backup_db",
