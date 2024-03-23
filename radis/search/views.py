@@ -7,8 +7,8 @@ from django.http import Http404, HttpRequest
 from django.shortcuts import render
 from django.views import View
 
-from radis.core.mixins import HtmxOnlyMixin
-from radis.core.types import AuthenticatedApiRequest, AuthenticatedHttpRequest
+from adit_radis_shared.common.mixins import HtmxOnlyMixin
+from adit_radis_shared.common.types import AuthenticatedApiRequest, AuthenticatedHttpRequest
 from radis.search.forms import SearchForm
 
 from .site import Search, SearchFilters, search_providers

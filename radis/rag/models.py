@@ -7,7 +7,8 @@ from django.db import models
 from django.urls import reverse
 from django.utils.functional import lazy
 
-from radis.core.models import AnalysisJob, AnalysisTask, AppSettings
+from adit_radis_shared.common.models import AppSettings
+from radis.core.models import AnalysisJob, AnalysisTask
 from radis.reports.models import Report
 
 from .site import retrieval_providers

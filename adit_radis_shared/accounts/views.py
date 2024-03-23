@@ -5,8 +5,8 @@ from django.core.exceptions import SuspiciousOperation, ValidationError
 from django.views import View
 from django.views.generic import TemplateView
 
+from adit_radis_shared.common.types import AuthenticatedHttpRequest
 from radis.core.http import trigger_toast
-from radis.core.types import AuthenticatedHttpRequest
 
 
 class UserProfileView(LoginRequiredMixin, AccessMixin, TemplateView):

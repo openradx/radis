@@ -26,18 +26,6 @@ class CoreSettings(models.Model):
         return cls.objects.first()
 
 
-class AppSettings(models.Model):
-    id: int
-    locked = models.BooleanField(default=False)
-
-    class Meta:
-        abstract = True
-
-    @classmethod
-    def get(cls):
-        return cls.objects.first()
-
-
 class AnalysisJob(models.Model):
     class Status(models.TextChoices):
         UNVERIFIED = "UV", "Unverified"

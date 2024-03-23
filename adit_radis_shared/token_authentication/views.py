@@ -8,7 +8,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from radis.core.types import AuthenticatedHttpRequest
+from adit_radis_shared.common.types import AuthenticatedHttpRequest
 
 from .forms import GenerateTokenForm
 from .models import Token

@@ -25,9 +25,9 @@ BASE_DIR = Path(__file__).resolve(strict=True).parent.parent.parent
 # the file is not present.
 if (BASE_DIR / "pyproject.toml").exists():
     pyproject = toml.load(BASE_DIR / "pyproject.toml")
-    RADIS_VERSION = pyproject["tool"]["poetry"]["version"]
+    PROJECT_VERSION = pyproject["tool"]["poetry"]["version"]
 else:
-    RADIS_VERSION = "???"
+    PROJECT_VERSION = "???"
 
 READ_DOT_ENV_FILE = env.bool("DJANGO_READ_DOT_ENV_FILE", default=False)  # type: ignore
 if READ_DOT_ENV_FILE:
@@ -109,7 +109,7 @@ TEMPLATES = [
                 "django.template.context_processors.request",
                 "django.contrib.auth.context_processors.auth",
                 "django.contrib.messages.context_processors.messages",
-                "radis.core.site.base_context_processor",
+                "adit_radis_shared.common.site.base_context_processor",
                 "radis.reports.site.base_context_processor",
             ],
         },

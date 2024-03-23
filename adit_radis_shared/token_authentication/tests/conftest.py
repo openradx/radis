@@ -1,7 +1,7 @@
 import pytest
 
 from adit_radis_shared.accounts.factories import GroupFactory
-from radis.core.utils.auth_utils import add_permission
+from adit_radis_shared.common.utils.auth_utils import add_permission
 
 
 @pytest.fixture

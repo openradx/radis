@@ -22,16 +22,16 @@ from django.views.generic.edit import FormView
 from django_filters.filterset import FilterSet
 from django_filters.views import FilterView
 from django_tables2 import SingleTableMixin, Table
-from revproxy.views import ProxyView
 
+from adit_radis_shared.common.forms import BroadcastForm
+from adit_radis_shared.common.mixins import PageSizeSelectMixin, RelatedFilterMixin
+from adit_radis_shared.common.types import AuthenticatedHttpRequest
+from adit_radis_shared.common.views import AdminProxyView, BaseUpdatePreferencesView
 from radis.celery import app as celery_app
 from radis.core.utils.model_utils import reset_tasks
 
-from .forms import BroadcastForm
-from .mixins import PageSizeSelectMixin, RelatedFilterMixin
 from .models import AnalysisJob, AnalysisTask, CoreSettings
 from .tasks import broadcast_mail
-from .types import AuthenticatedHttpRequest, HtmxHttpRequest
 
 THEME = "theme"
 
@@ -39,13 +39,6 @@ THEME = "theme"
 @staff_member_required
 def admin_section(request: HttpRequest) -> HttpResponse:
     return render(request, "core/admin_section.html")
-
-
-class HtmxTemplateView(TemplateView):
-    def get(self, request: HtmxHttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
-        if not request.htmx:
-            raise SuspiciousOperation
-        return super().get(request, *args, **kwargs)
 
 
 class BroadcastView(LoginRequiredMixin, UserPassesTestMixin, FormView):
@@ -81,36 +74,6 @@ class HomeView(TemplateView):
         assert core_settings
         context["announcement"] = core_settings.announcement
         return context
-
-
-class BaseUpdatePreferencesView(LoginRequiredMixin, View):
-    """Allows the client to update the user preferences.
-
-    We use this to retain some form state between browser refreshes.
-    The implementations of this view is called by some AJAX requests when specific
-    form fields are changed.
-    """
-
-    allowed_keys: list[str]
-
-    def post(self, request: AuthenticatedHttpRequest) -> HttpResponse:
-        for key in request.POST.keys():
-            if key not in self.allowed_keys:
-                raise SuspiciousOperation(f'Invalid preference "{key}" to update.')
-
-        preferences = request.user.preferences
-
-        for key, value in request.POST.items():
-            if value == "true":
-                value = True
-            elif value == "false":
-                value = False
-
-            preferences[key] = value
-
-        request.user.save()
-
-        return HttpResponse()
 
 
 class UpdatePreferencesView(BaseUpdatePreferencesView):
@@ -444,24 +407,6 @@ class AnalysisTaskResetView(LoginRequiredMixin, SingleObjectMixin, View):
 
         messages.success(request, self.success_message % task.__dict__)
         return redirect(task)
-
-
-class AdminProxyView(LoginRequiredMixin, UserPassesTestMixin, ProxyView):
-    """A reverse proxy view to hide other services behind that only an admin can access.
-
-    By using a reverse proxy we can use the Django authentication
-    to check for an logged in admin user.
-    Code from https://stackoverflow.com/a/61997024/166229
-    """
-
-    request: AuthenticatedHttpRequest
-
-    def test_func(self):
-        return self.request.user.is_staff
-
-    @classmethod
-    def as_url(cls):
-        return re_path(rf"^{cls.url_prefix}/(?P<path>.*)$", cls.as_view())  # type: ignore
 
 
 class FlowerProxyView(AdminProxyView):

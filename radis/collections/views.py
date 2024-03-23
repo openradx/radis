@@ -14,8 +14,8 @@ from django.views.generic.detail import SingleObjectMixin
 from django_htmx.http import HttpResponseClientRefresh, trigger_client_event
 from django_tables2 import SingleTableView
 
-from radis.core.mixins import PageSizeSelectMixin
-from radis.core.types import AuthenticatedHttpRequest
+from adit_radis_shared.common.mixins import PageSizeSelectMixin
+from adit_radis_shared.common.types import AuthenticatedHttpRequest
 from radis.reports.models import Report
 
 from .filters import CollectionFilter

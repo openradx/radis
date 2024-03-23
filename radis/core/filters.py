@@ -1,7 +1,8 @@
 import django_filters
 from django.http import HttpRequest
 
-from .forms import FilterSetFormHelper
+from adit_radis_shared.common.forms import FilterSetFormHelper
+
 from .models import AnalysisJob, AnalysisTask
 
 

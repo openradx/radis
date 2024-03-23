@@ -1,6 +1,6 @@
 import django_filters
 
-from radis.core.forms import FilterSetFormHelper
+from adit_radis_shared.common.forms import FilterSetFormHelper
 
 from .models import Collection
 

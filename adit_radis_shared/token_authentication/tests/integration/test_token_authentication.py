@@ -2,7 +2,7 @@ import pytest
 import requests
 from playwright.sync_api import Page, expect
 
-from radis.core.utils.auth_utils import add_user_to_group
+from adit_radis_shared.common.utils.auth_utils import add_user_to_group
 
 
 @pytest.mark.integration

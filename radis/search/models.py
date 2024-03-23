@@ -1,6 +1,6 @@
 import logging
 
-from radis.core.models import AppSettings
+from adit_radis_shared.common.models import AppSettings
 
 logger = logging.getLogger(__name__)
 

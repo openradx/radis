@@ -20,7 +20,7 @@
         {% block meta %}
         {% endblock meta %}
         {# We put the theme JavaScript stuff on top to avoid flickering #}
-        <script src="{% static 'core/theme.js' %}"></script>
+        <script src="{% static 'common/theme.js' %}"></script>
         {# Favicon #}
         <link rel="icon"
               type="image/png"
@@ -30,6 +30,9 @@
         <link rel="stylesheet"
               type="text/css"
               href="{% static 'vendor/bootstrap.css' %}" />
+        <link rel="stylesheet"
+              type="text/css"
+              href="{% static 'common/common.css' %}" />
         <link rel="stylesheet" type="text/css" href="{% static 'core/core.css' %}" />
         {% block css %}
         {% endblock css %}
@@ -66,6 +69,7 @@
         <script src="{% static 'vendor/alpine-morph.js' %}"></script>
         {# Our Javascript stuff #}
         {{ public|json_script:"public" }}
+        <script src="{% static 'common/common.js' %}"></script>
         <script src="{% static 'core/core.js' %}"></script>
         {% block script %}
         {% endblock script %}

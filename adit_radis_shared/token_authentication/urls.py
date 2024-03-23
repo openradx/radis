@@ -1,6 +1,6 @@
 from django.urls import path
 
-from radis.core.views import HtmxTemplateView
+from adit_radis_shared.common.views import HtmxTemplateView
 
 from .views import DeleteTokenView, TestView, TokenDashboardView
 
