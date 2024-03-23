@@ -46,6 +46,7 @@ RADIS_SITE_NAME = env.str("RADIS_SITE_NAME", default="radis.org")  # type: ignor
 INSTALLED_APPS = [
     "daphne",
     "whitenoise.runserver_nostatic",
+    "adit_radis_shared.common.apps.CommonConfig",
     "registration",
     "django.contrib.admin",
     "django.contrib.auth",
@@ -100,7 +101,7 @@ ROOT_URLCONF = "radis.urls"
 TEMPLATES = [
     {
         "BACKEND": "django.template.backends.django.DjangoTemplates",
-        "DIRS": [BASE_DIR / "radis" / "templates"],
+        "DIRS": [],
         "APP_DIRS": True,
         "OPTIONS": {
             "context_processors": [
