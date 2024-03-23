@@ -6,7 +6,7 @@ from django.views import View
 from django.views.generic import TemplateView
 
 from adit_radis_shared.common.types import AuthenticatedHttpRequest
-from radis.core.http import trigger_toast
+from adit_radis_shared.common.utils.htmx_triggers import trigger_toast
 
 
 class UserProfileView(LoginRequiredMixin, AccessMixin, TemplateView):

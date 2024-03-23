@@ -115,7 +115,7 @@ class QuestionForm(forms.ModelForm):
 
 
 delete_button = """
-    {% load bootstrap_icon from core_extras %}
+    {% load bootstrap_icon from common_extras %}
     <button type="button"
             name="delete-question"
             value="delete-question"

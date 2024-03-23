@@ -1,15 +1,14 @@
 // Adapted from https://getbootstrap.com/docs/5.3/customize/color-modes/#javascript
+// We are using pure Javascript here (no Alpine.js component) as we load this script
+// before everything else to avoid any flickering.
 (() => {
   "use strict";
-
-  // Keep in sync with cores/views.py
-  const THEME = "theme";
 
   const getStoredTheme = () =>
     document.documentElement.getAttribute("data-theme-preference");
   const setStoredTheme = (theme) => {
     document.documentElement.setAttribute("data-theme-preference", theme);
-    updatePreferences(null, { [THEME]: theme });
+    updatePreferences(null, { [window.public.theme_preference_key]: theme });
   };
 
   const getPreferredTheme = () => {

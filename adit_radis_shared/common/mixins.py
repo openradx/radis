@@ -43,7 +43,7 @@ class LockedMixin:
                 raise SuspiciousOperation()
 
             return TemplateView.as_view(
-                template_name="core/section_locked.html",
+                template_name="common/section_locked.html",
                 extra_context={"section_name": self.section_name},
             )(request)
 

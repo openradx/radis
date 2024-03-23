@@ -4,6 +4,8 @@ from django.conf import settings
 from django.http import HttpRequest
 from django.middleware.csrf import get_token
 
+THEME_PREFERENCE_KEY = "theme"
+
 
 class MainMenuItem(NamedTuple):
     url_name: str
@@ -35,10 +37,10 @@ def base_context_processor(request: HttpRequest) -> dict[str, Any]:
         "main_menu_items": main_menu_items,
         "theme": theme,
         "theme_color": theme_color,
-        # Variables in public are also available on the client via JavaScript,
-        # see base_generic.html
+        # This data will be available on the client, see common_layout.html
         "public": {
             "debug": settings.DEBUG,
             "csrf_token": get_token(request),
+            "theme_preference_key": THEME_PREFERENCE_KEY,
         },
     }

@@ -83,7 +83,7 @@ class FilterSetFormHelper(FormHelper):
                         filter_field.button_label,
                         css_class="btn-secondary btn-sm",
                     ),
-                    template="core/_filter_set_field.html",
+                    template="common/_filter_set_field.html",
                 ),
             )
 

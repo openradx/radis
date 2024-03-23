@@ -91,9 +91,9 @@ MIDDLEWARE = [
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "django.contrib.sites.middleware.CurrentSiteMiddleware",
     "django_htmx.middleware.HtmxMiddleware",
-    "radis.core.middlewares.MaintenanceMiddleware",
-    "radis.core.middlewares.TimezoneMiddleware",
     "adit_radis_shared.accounts.middlewares.ActiveGroupMiddleware",
+    "adit_radis_shared.common.middlewares.TimezoneMiddleware",
+    "radis.core.middlewares.MaintenanceMiddleware",
 ]
 
 ROOT_URLCONF = "radis.urls"

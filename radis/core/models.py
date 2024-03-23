@@ -4,26 +4,16 @@ from django.conf import settings
 from django.db import models
 from django.utils import timezone
 
+from adit_radis_shared.common.models import ProjectSettings
 from radis.core.utils.model_utils import reset_tasks
 
 if TYPE_CHECKING:
     from django.db.models.manager import RelatedManager
 
 
-class CoreSettings(models.Model):
-    id: int
-    maintenance_mode = models.BooleanField(default=False)
-    announcement = models.TextField(blank=True)
-
+class CoreSettings(ProjectSettings):
     class Meta:
         verbose_name_plural = "Core settings"
-
-    def __str__(self):
-        return f"{self.__class__.__name__} [ID {self.id}]"
-
-    @classmethod
-    def get(cls):
-        return cls.objects.first()
 
 
 class AnalysisJob(models.Model):

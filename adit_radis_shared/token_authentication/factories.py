@@ -4,7 +4,7 @@ import factory
 from django.utils import timezone
 
 from adit_radis_shared.accounts.factories import UserFactory
-from radis.core.factories import BaseDjangoModelFactory
+from adit_radis_shared.common.factories import BaseDjangoModelFactory
 
 from .models import Token
 from .utils.crypto import hash_token

@@ -25,6 +25,7 @@ from django_tables2 import SingleTableMixin, Table
 
 from adit_radis_shared.common.forms import BroadcastForm
 from adit_radis_shared.common.mixins import PageSizeSelectMixin, RelatedFilterMixin
+from adit_radis_shared.common.site import THEME_PREFERENCE_KEY
 from adit_radis_shared.common.types import AuthenticatedHttpRequest
 from adit_radis_shared.common.views import AdminProxyView, BaseUpdatePreferencesView
 from radis.celery import app as celery_app
@@ -32,8 +33,6 @@ from radis.core.utils.model_utils import reset_tasks
 
 from .models import AnalysisJob, AnalysisTask, CoreSettings
 from .tasks import broadcast_mail
-
-THEME = "theme"
 
 
 @staff_member_required
@@ -77,7 +76,7 @@ class HomeView(TemplateView):
 
 
 class UpdatePreferencesView(BaseUpdatePreferencesView):
-    allowed_keys = [THEME]
+    allowed_keys = [THEME_PREFERENCE_KEY]
 
 
 class AnalysisJobListView(LoginRequiredMixin, SingleTableMixin, PageSizeSelectMixin, FilterView):

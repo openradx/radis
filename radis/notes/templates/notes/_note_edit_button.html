@@ -1,4 +1,4 @@
-{% load bootstrap_icon from core_extras %}
+{% load bootstrap_icon from common_extras %}
 <button hx-get="{% url 'note_edit' report.id %}?reload_on_note_delete={{ reload_on_note_delete|yesno }}"
         hx-target="#htmx-dialog"
         class="btn btn-secondary btn-sm position-relative">

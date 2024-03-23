@@ -1,18 +1,11 @@
-from typing import Generic, TypeVar, cast
+from typing import cast
 
 import factory
 from django.contrib.auth.models import Group
 
+from adit_radis_shared.common.factories import BaseDjangoModelFactory
+
 from .models import User
-
-T = TypeVar("T")
-
-
-# We can't use BaseDjangoModelFactory of radis.core.factories because of circular imports
-class BaseDjangoModelFactory(Generic[T], factory.django.DjangoModelFactory):
-    @classmethod
-    def create(cls, *args, **kwargs) -> T:
-        return super().create(*args, **kwargs)
 
 
 class UserFactory(BaseDjangoModelFactory[User]):

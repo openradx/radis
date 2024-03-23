@@ -94,19 +94,6 @@ ready(function () {
 });
 
 /**
- * Get the app config from the DOM that was added by the Django context processor:
- * adit_radis_shared.common.site.base_context_processor (public key)
- * @returns {object} config
- */
-function getConfig() {
-  const configNode = document.getElementById("public");
-  if (!configNode || !configNode.textContent) {
-    throw new Error("Missing app config.");
-  }
-  return JSON.parse(configNode.textContent);
-}
-
-/**
  * Update user preferences on the server (sends an AJAX request to the server).
  * @param {string} route
  * @param {object} data
@@ -125,17 +112,15 @@ function updatePreferences(route, data) {
     url = "/update-preferences/";
   }
 
-  const config = getConfig();
   const request = new Request(url, {
     method: "POST",
-    headers: { "X-CSRFToken": config.csrf_token },
+    headers: { "X-CSRFToken": window.public.csrf_token },
     mode: "same-origin", // Do not send CSRF token to another domain.
     body: formData,
   });
 
   fetch(request).then(function () {
-    const config = getConfig();
-    if (config.debug) {
+    if (window.public.debug) {
       console.log("Saved properties to session", data);
     }
   });
@@ -150,7 +135,8 @@ function updatePreferences(route, data) {
  */
 function showToast(level, title, text) {
   window.dispatchEvent(
-    new CustomEvent("core:add-toast", {
+    // listened by common/_toasts_panel.html
+    new CustomEvent("common:add-toast", {
       detail: {
         level: level,
         title: title,

@@ -1,7 +1,7 @@
-{# Toasts are added by the client (using Javascript, see core.js) #}
+{# Toasts are added by the client (using Javascript, see common.js) #}
 <div class="toasts-panel toast-container"
      x-data="toastsPanel($el)"
-     @core:add-toast.window="addToast($event.detail)">
+     @common:add-toast.window="addToast($event.detail)">
     <template x-for="toast in toasts">
         <div x-init="initToast($el)"
              :class="{[toast.level]: true}"

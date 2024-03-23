@@ -1,4 +1,5 @@
-{% load bootstrap_icon url_abbreviation from core_extras %}
+{% load bootstrap_icon from common_extras %}
+{% load url_abbreviation from core_extras %}
 <div class="d-flex gap-1">
     {% for link in report.links %}
         <a href="{{ link }}"
