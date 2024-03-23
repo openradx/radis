@@ -1,6 +1,6 @@
 import time
 
-from ..base.server_command import ServerCommand
+from adit_radis_shared.common.management.base.server_command import ServerCommand
 
 
 class Command(ServerCommand):

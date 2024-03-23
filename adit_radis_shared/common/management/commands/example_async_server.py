@@ -1,6 +1,6 @@
 import asyncio
 
-from ..base.server_command import AsyncServerCommand
+from adit_radis_shared.common.management.base.server_command import AsyncServerCommand
 
 
 class Command(AsyncServerCommand):
