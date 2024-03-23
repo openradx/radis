@@ -3,7 +3,7 @@ from datetime import timedelta
 import factory
 from django.utils import timezone
 
-from radis.accounts.factories import UserFactory
+from adit_radis_shared.accounts.factories import UserFactory
 from radis.core.factories import BaseDjangoModelFactory
 
 from .models import Token

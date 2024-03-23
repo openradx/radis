@@ -2,4 +2,4 @@ from django.apps import AppConfig
 
 
 class AccountsConfig(AppConfig):
-    name = "radis.accounts"
+    name = "adit_radis_shared.accounts"

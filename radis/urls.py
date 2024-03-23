@@ -20,9 +20,9 @@ from django.urls import include, path
 urlpatterns = [
     path("admin-the-great/", admin.site.urls),
     path("api-auth/", include("rest_framework.urls")),
-    path("accounts/", include("radis.accounts.urls")),
+    path("accounts/", include("adit_radis_shared.accounts.urls")),
     path("", include("radis.core.urls")),
-    path("token-authentication/", include("radis.token_authentication.urls")),
+    path("token-authentication/", include("adit_radis_shared.token_authentication.urls")),
     path("sandbox/", include("radis.sandbox.urls")),
     path("reports/", include("radis.reports.urls")),
     path("api/reports/", include("radis.reports.api.urls")),

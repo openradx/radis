@@ -4,7 +4,7 @@ from typing import cast
 from django.contrib.auth.models import UserManager
 from django.core.management.base import BaseCommand
 
-from radis.accounts.models import User
+from adit_radis_shared.accounts.models import User
 
 
 class Command(BaseCommand):

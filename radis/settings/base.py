@@ -68,8 +68,8 @@ INSTALLED_APPS = [
     "rest_framework",
     "adrf",
     "radis.core.apps.CoreConfig",
-    "radis.accounts.apps.AccountsConfig",
-    "radis.token_authentication.apps.TokenAuthenticationConfig",
+    "adit_radis_shared.accounts.apps.AccountsConfig",
+    "adit_radis_shared.token_authentication.apps.TokenAuthenticationConfig",
     "radis.reports.apps.ReportsConfig",
     "radis.search.apps.SearchConfig",
     "radis.rag.apps.RagConfig",
@@ -92,7 +92,7 @@ MIDDLEWARE = [
     "django_htmx.middleware.HtmxMiddleware",
     "radis.core.middlewares.MaintenanceMiddleware",
     "radis.core.middlewares.TimezoneMiddleware",
-    "radis.accounts.middlewares.ActiveGroupMiddleware",
+    "adit_radis_shared.accounts.middlewares.ActiveGroupMiddleware",
 ]
 
 ROOT_URLCONF = "radis.urls"
@@ -136,7 +136,7 @@ DATABASES = {"default": env.db(default="sqlite:///radis-sqlite.db")}  # type: ig
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # A custom authentication backend that supports a single currently active group.
-AUTHENTICATION_BACKENDS = ["radis.accounts.backends.ActiveGroupModelBackend"]
+AUTHENTICATION_BACKENDS = ["adit_radis_shared.accounts.backends.ActiveGroupModelBackend"]
 
 # Password validation
 # https://docs.djangoproject.com/en/3.0/ref/settings/#auth-password-validators
@@ -231,7 +231,7 @@ REST_FRAMEWORK = {
         "rest_framework.permissions.IsAuthenticated",
     ],
     "DEFAULT_AUTHENTICATION_CLASSES": [
-        "radis.token_authentication.auth.RestTokenAuthentication",
+        "adit_radis_shared.token_authentication.auth.RestTokenAuthentication",
     ],
 }
 
@@ -292,7 +292,7 @@ ADMINS = [
 ]
 
 # Settings for django-registration-redux
-REGISTRATION_FORM = "radis.accounts.forms.RegistrationForm"
+REGISTRATION_FORM = "adit_radis_shared.accounts.forms.RegistrationForm"
 ACCOUNT_ACTIVATION_DAYS = 14
 REGISTRATION_OPEN = True
 

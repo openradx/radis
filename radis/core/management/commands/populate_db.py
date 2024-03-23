@@ -9,13 +9,13 @@ from django.core.management.base import BaseCommand, CommandParser
 from django.db import transaction
 from faker import Faker
 
-from radis.accounts.factories import AdminUserFactory, GroupFactory, UserFactory
-from radis.accounts.models import User
+from adit_radis_shared.accounts.factories import AdminUserFactory, GroupFactory, UserFactory
+from adit_radis_shared.accounts.models import User
+from adit_radis_shared.token_authentication.factories import TokenFactory
+from adit_radis_shared.token_authentication.models import FRACTION_LENGTH
+from adit_radis_shared.token_authentication.utils.crypto import hash_token
 from radis.reports.factories import ReportFactory
 from radis.reports.models import Report
-from radis.token_authentication.factories import TokenFactory
-from radis.token_authentication.models import FRACTION_LENGTH
-from radis.token_authentication.utils.crypto import hash_token
 from radis.vespa.utils.document_utils import create_documents
 
 USER_COUNT = 20

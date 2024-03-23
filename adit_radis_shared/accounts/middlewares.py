@@ -2,7 +2,7 @@ from typing import cast
 
 from django.http import HttpRequest
 
-from radis.accounts.models import User
+from adit_radis_shared.accounts.models import User
 
 
 class ActiveGroupMiddleware:

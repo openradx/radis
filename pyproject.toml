@@ -89,7 +89,7 @@ reportUnnecessaryTypeIgnoreComment = true
 [tool.pytest.ini_options]
 DJANGO_SETTINGS_MODULE = "radis.settings.development"
 python_files = ["tests.py", "test_*.py", "*_tests.py"]
-testpaths = ["radis"]
+testpaths = ["radis", "adit_radis_shared"]
 log_cli = 0
 log_cli_level = "INFO"
 log_cli_format = "%(asctime)s [%(levelname)8s] %(message)s (%(filename)s:%(lineno)s)"

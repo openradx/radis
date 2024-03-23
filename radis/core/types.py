@@ -2,7 +2,7 @@ from django.http import HttpRequest
 from django_htmx.middleware import HtmxDetails
 from rest_framework.request import Request
 
-from radis.accounts.models import User
+from adit_radis_shared.accounts.models import User
 
 
 class HtmxHttpRequest(HttpRequest):
