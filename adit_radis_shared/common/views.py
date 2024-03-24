@@ -1,15 +1,19 @@
-from typing import Any
+from typing import Any, Callable
 
+from django.contrib import messages
 from django.contrib.auth.mixins import (
     LoginRequiredMixin,
     UserPassesTestMixin,
 )
 from django.core.exceptions import SuspiciousOperation
+from django.forms import Form
 from django.http import HttpResponse
 from django.urls import re_path
-from django.views.generic import View
+from django.views.generic import FormView, View
 from django.views.generic.base import TemplateView
 from revproxy.views import ProxyView
+
+from adit_radis_shared.common.forms import BroadcastForm
 
 from .types import AuthenticatedHttpRequest, HtmxHttpRequest
 
@@ -49,6 +53,33 @@ class BaseUpdatePreferencesView(LoginRequiredMixin, View):
         request.user.save()
 
         return HttpResponse()
+
+
+class BaseBroadcastView(LoginRequiredMixin, UserPassesTestMixin, FormView):
+    success_url: str | Callable[..., str]
+    template_name = "common/broadcast.html"
+    form_class = BroadcastForm
+    request: AuthenticatedHttpRequest
+
+    def test_func(self) -> bool:
+        return self.request.user.is_staff
+
+    def form_valid(self, form: Form) -> HttpResponse:
+        subject = form.cleaned_data["subject"]
+        message = form.cleaned_data["message"]
+
+        self.send_mails(subject, message)
+
+        messages.add_message(
+            self.request,
+            messages.SUCCESS,
+            "Successfully queued an Email for sending it to all users.",
+        )
+
+        return super().form_valid(form)
+
+    def send_mails(self, subject: str, message: str) -> None:
+        ...
 
 
 class AdminProxyView(LoginRequiredMixin, UserPassesTestMixin, ProxyView):

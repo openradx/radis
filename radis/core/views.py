@@ -11,23 +11,25 @@ from django.contrib.auth.mixins import (
 from django.core.exceptions import SuspiciousOperation
 from django.db import transaction
 from django.db.models import QuerySet
-from django.forms import Form, ModelForm
+from django.forms import ModelForm
 from django.http import HttpRequest, HttpResponse
 from django.shortcuts import redirect, render
 from django.urls import re_path, reverse_lazy
 from django.views.generic import CreateView, DeleteView, DetailView, View
 from django.views.generic.base import TemplateView
 from django.views.generic.detail import SingleObjectMixin
-from django.views.generic.edit import FormView
 from django_filters.filterset import FilterSet
 from django_filters.views import FilterView
 from django_tables2 import SingleTableMixin, Table
 
-from adit_radis_shared.common.forms import BroadcastForm
 from adit_radis_shared.common.mixins import PageSizeSelectMixin, RelatedFilterMixin
 from adit_radis_shared.common.site import THEME_PREFERENCE_KEY
 from adit_radis_shared.common.types import AuthenticatedHttpRequest
-from adit_radis_shared.common.views import AdminProxyView, BaseUpdatePreferencesView
+from adit_radis_shared.common.views import (
+    AdminProxyView,
+    BaseBroadcastView,
+    BaseUpdatePreferencesView,
+)
 from radis.celery import app as celery_app
 from radis.core.utils.model_utils import reset_tasks
 
@@ -40,28 +42,11 @@ def admin_section(request: HttpRequest) -> HttpResponse:
     return render(request, "core/admin_section.html")
 
 
-class BroadcastView(LoginRequiredMixin, UserPassesTestMixin, FormView):
-    template_name = "core/broadcast.html"
-    form_class = BroadcastForm
+class BroadcastView(BaseBroadcastView):
     success_url = reverse_lazy("broadcast")
-    request: AuthenticatedHttpRequest
 
-    def test_func(self) -> bool:
-        return self.request.user.is_staff
-
-    def form_valid(self, form: Form) -> HttpResponse:
-        subject = form.cleaned_data["subject"]
-        message = form.cleaned_data["message"]
-
+    def send_mails(self, subject: str, message: str) -> None:
         broadcast_mail.delay(subject, message)
-
-        messages.add_message(
-            self.request,
-            messages.SUCCESS,
-            "Mail queued for sending successfully",
-        )
-
-        return super().form_valid(form)
 
 
 class HomeView(TemplateView):
