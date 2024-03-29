@@ -5,6 +5,8 @@ import pytest
 from django.core.management import call_command
 from faker import Faker
 
+from adit_radis_shared.conftest import *  # noqa: F403
+
 fake = Faker()
 
 
