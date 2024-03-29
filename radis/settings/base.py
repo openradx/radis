@@ -104,8 +104,8 @@ MIDDLEWARE = [
     "django.contrib.sites.middleware.CurrentSiteMiddleware",
     "django_htmx.middleware.HtmxMiddleware",
     "adit_radis_shared.accounts.middlewares.ActiveGroupMiddleware",
+    "adit_radis_shared.common.middlewares.MaintenanceMiddleware",
     "adit_radis_shared.common.middlewares.TimezoneMiddleware",
-    "radis.core.middlewares.MaintenanceMiddleware",
 ]
 
 ROOT_URLCONF = "radis.urls"
