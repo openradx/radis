@@ -34,8 +34,6 @@ if READ_DOT_ENV_FILE:
     # OS environment variables take precedence over variables from .env
     env.read_env(str(BASE_DIR / ".env"))
 
-BASE_URL = env.str("BASE_URL", default="http://localhost")  # type: ignore
-
 # Used by the django.contrib.sites framework
 SITE_ID = 1
 
@@ -43,7 +41,7 @@ SITE_ID = 1
 # of the sites frameworks Site model and also some other site specific settings in
 # our custom SiteProfile model.
 # Once set those values will be used from the database!
-SITE_DOMAIN = env.str("SITE_DOMAIN", default="radis.test")  # type: ignore
+SITE_DOMAIN = env.str("SITE_DOMAIN", default="localhost")  # type: ignore
 SITE_NAME = "RADIS"
 SITE_META_KEYWORDS = "RADIS,Radiology,Reports,Medicine,Tool"
 SITE_META_DESCRIPTION = "RADIS is an application to archive, query and collect radiology reports"
