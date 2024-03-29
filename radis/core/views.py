@@ -16,7 +16,6 @@ from django.http import HttpRequest, HttpResponse
 from django.shortcuts import redirect, render
 from django.urls import re_path, reverse_lazy
 from django.views.generic import CreateView, DeleteView, DetailView, View
-from django.views.generic.base import TemplateView
 from django.views.generic.detail import SingleObjectMixin
 from django_filters.filterset import FilterSet
 from django_filters.views import FilterView
@@ -28,12 +27,13 @@ from adit_radis_shared.common.types import AuthenticatedHttpRequest
 from adit_radis_shared.common.views import (
     AdminProxyView,
     BaseBroadcastView,
+    BaseHomeView,
     BaseUpdatePreferencesView,
 )
 from radis.celery import app as celery_app
 from radis.core.utils.model_utils import reset_tasks
 
-from .models import AnalysisJob, AnalysisTask, CoreSettings
+from .models import AnalysisJob, AnalysisTask
 from .tasks import broadcast_mail
 
 
@@ -49,15 +49,8 @@ class BroadcastView(BaseBroadcastView):
         broadcast_mail.delay(subject, message)
 
 
-class HomeView(TemplateView):
+class HomeView(BaseHomeView):
     template_name = "core/home.html"
-
-    def get_context_data(self, **kwargs) -> dict[str, Any]:
-        context = super().get_context_data(**kwargs)
-        core_settings = CoreSettings.get()
-        assert core_settings
-        context["announcement"] = core_settings.announcement
-        return context
 
 
 class UpdatePreferencesView(BaseUpdatePreferencesView):
