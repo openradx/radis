@@ -21,7 +21,7 @@ env = environ.Env()
 BASE_DIR = Path(__file__).resolve(strict=True).parent.parent.parent
 
 # Read pyproject.toml to fetch current version. We do this conditionally as the
-# ADIT client library uses ADIT for integration tests installed as a package
+# RADIS client library uses RADIS for integration tests installed as a package
 # (where no pyproject.toml is available).
 if (BASE_DIR / "pyproject.toml").exists():
     pyproject = toml.load(BASE_DIR / "pyproject.toml")
@@ -315,9 +315,9 @@ ASGI_APPLICATION = "radis.asgi.application"
 # RabbitMQ is used as Celery message broker
 RABBITMQ_URL = env.str("RABBITMQ_URL", default="amqp://localhost")  # type: ignore
 
-# Rabbit Management console is integrated in ADIT by using an reverse
-# proxy (django-revproxy).This allows to use the authentication of ADIT.
-# But as RabbitMQ authentication can't be disabled we have to login
+# Rabbit Management console is integrated in RADIS by using a reverse
+# proxy (django-revproxy).This allows us to use the authentication of RADIS.
+# But as RabbitMQ authentication can't be disabled, so we have to login
 # there with "guest" as username and password again.
 RABBIT_MANAGEMENT_HOST = env.str("RABBIT_MANAGEMENT_HOST", default="localhost")  # type: ignore
 RABBIT_MANAGEMENT_PORT = env.int("RABBIT_MANAGEMENT_PORT", default=15672)  # type: ignore
