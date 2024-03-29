@@ -39,12 +39,21 @@ BASE_URL = env.str("BASE_URL", default="http://localhost")  # type: ignore
 # Used by the django.contrib.sites framework
 SITE_ID = 1
 
-# Used by our custom migration adit.core.migrations.0002_UPDATE_SITE_NAME
-# to set the domain and name of the sites frameworks site model with
-# the above SITE_ID as primary key.
-# Once set the domain and name from the database will be used!
+# Used by our custom data migrations in the common app to set the domain and name
+# of the sites frameworks Site model and also some other site specific settings in
+# our custom SiteProfile model.
+# Once set those values will be used from the database!
 SITE_DOMAIN = env.str("SITE_DOMAIN", default="radis.test")  # type: ignore
 SITE_NAME = env.str("SITE_NAME", default="RADIS")  # type: ignore
+SITE_META_KEYWORDS = env.str(
+    "SITE_META_KEYWORDS",
+    default="RADIS,Radiology,Reports,Medicine,Tool",  # type: ignore
+)
+SITE_META_DESCRIPTION = env.str(
+    "SITE_META_DESCRIPTION",
+    default="RADIS is an application to archive, query and collect radiology reports",  # type: ignore
+)
+SITE_PROJECT_URL = env.str("SITE_PROJECT_URL", default="https://github.com/openradx/radis")  # type: ignore
 
 INSTALLED_APPS = [
     "daphne",
