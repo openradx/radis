@@ -1,23 +1,8 @@
 {% extends "common/common_layout.html" %}
 {% load static from static %}
-{% block title %}
-    RADIS - Radiology Report Archive and Discovery System
-{% endblock title %}
-{% block meta %}
-    {{ block.super }}
-    <meta name="keywords" content="RADIS,Radiology,Reports,Medicine,Tool" />
-    <meta name="description"
-          content="RADIS is an application to archive, query and collection radiology reports" />
-{% endblock meta %}
 {% block css %}
     <link rel="stylesheet" type="text/css" href="{% static 'core/core.css' %}" />
 {% endblock css %}
-{% block header %}
-    {% include "common/_navbar.html" with site_name="RADIS" %}
-{% endblock header %}
-{% block footer %}
-    {% include "common/_footer.html" with site_name="RADIS" url="https://github.com/openradx/radis" %}
-{% endblock footer %}
 {% block script %}
     <script src="{% static 'core/core.js' %}"></script>
 {% endblock script %}
