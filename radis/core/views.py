@@ -14,7 +14,7 @@ from django.db.models import QuerySet
 from django.forms import ModelForm
 from django.http import HttpRequest, HttpResponse
 from django.shortcuts import redirect, render
-from django.urls import re_path, reverse_lazy
+from django.urls import reverse_lazy
 from django.views.generic import CreateView, DeleteView, DetailView, View
 from django.views.generic.detail import SingleObjectMixin
 from django_filters.filterset import FilterSet
@@ -384,18 +384,6 @@ class AnalysisTaskResetView(LoginRequiredMixin, SingleObjectMixin, View):
 
         messages.success(request, self.success_message % task.__dict__)
         return redirect(task)
-
-
-class FlowerProxyView(AdminProxyView):
-    upstream = f"http://{settings.FLOWER_HOST}:{settings.FLOWER_PORT}"  # type: ignore
-    url_prefix = "flower"
-    rewrite = ((rf"^/{url_prefix}$", rf"/{url_prefix}/"),)
-
-    @classmethod
-    def as_url(cls):
-        # Flower needs a bit different setup then the other proxy views as flower
-        # uses a prefix itself (see docker compose service)
-        return re_path(rf"^(?P<path>{cls.url_prefix}.*)$", cls.as_view())
 
 
 class RabbitManagementProxyView(AdminProxyView):
