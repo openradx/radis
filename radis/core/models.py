@@ -4,16 +4,10 @@ from django.conf import settings
 from django.db import models
 from django.utils import timezone
 
-from adit_radis_shared.common.models import ProjectSettings
 from radis.core.utils.model_utils import reset_tasks
 
 if TYPE_CHECKING:
     from django.db.models.manager import RelatedManager
-
-
-class CoreSettings(ProjectSettings):
-    class Meta:
-        verbose_name_plural = "Core settings"
 
 
 class AnalysisJob(models.Model):
