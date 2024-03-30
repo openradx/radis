@@ -10,8 +10,8 @@ from django.urls import reverse_lazy
 from django.views.generic import DetailView
 from formtools.wizard.views import SessionWizardView
 
-from radis.core.mixins import PageSizeSelectMixin, RelatedFilterMixin
-from radis.core.types import AuthenticatedHttpRequest
+from adit_radis_shared.common.mixins import PageSizeSelectMixin, RelatedFilterMixin
+from adit_radis_shared.common.types import AuthenticatedHttpRequest
 from radis.core.views import (
     AnalysisJobCancelView,
     AnalysisJobDeleteView,

@@ -8,8 +8,8 @@ from django.views.generic import DetailView, UpdateView, View
 from django_filters.views import FilterView
 from django_htmx.http import HttpResponseClientRefresh, trigger_client_event
 
-from radis.core.mixins import HtmxOnlyMixin, PageSizeSelectMixin
-from radis.core.types import AuthenticatedHttpRequest
+from adit_radis_shared.common.mixins import HtmxOnlyMixin, PageSizeSelectMixin
+from adit_radis_shared.common.types import AuthenticatedHttpRequest
 from radis.notes.filters import NoteFilter
 from radis.notes.forms import NoteEditForm
 from radis.notes.models import Note

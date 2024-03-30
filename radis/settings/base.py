@@ -20,32 +20,37 @@ env = environ.Env()
 # The base directory of the project (the root of the repository)
 BASE_DIR = Path(__file__).resolve(strict=True).parent.parent.parent
 
-# Read pyproject.toml to fetch current version
-# We to do this conditionally as radis_client uses RADIS for testing as a package where
-# the file is not present.
+# Read pyproject.toml to fetch current version. We do this conditionally as the
+# RADIS client library uses RADIS for integration tests installed as a package
+# (where no pyproject.toml is available).
 if (BASE_DIR / "pyproject.toml").exists():
     pyproject = toml.load(BASE_DIR / "pyproject.toml")
-    RADIS_VERSION = pyproject["tool"]["poetry"]["version"]
+    PROJECT_VERSION = pyproject["tool"]["poetry"]["version"]
 else:
-    RADIS_VERSION = "???"
+    PROJECT_VERSION = "???"
 
 READ_DOT_ENV_FILE = env.bool("DJANGO_READ_DOT_ENV_FILE", default=False)  # type: ignore
 if READ_DOT_ENV_FILE:
     # OS environment variables take precedence over variables from .env
     env.read_env(str(BASE_DIR / ".env"))
 
-BASE_URL = env.str("BASE_URL", default="http://localhost")  # type: ignore
-
+# Used by the django.contrib.sites framework
 SITE_ID = 1
 
-# Used by our custom migration radis.core.migrations.0002_UPDATE_SITE_NAME
-# to set the domain and name of the sites framework
-RADIS_SITE_DOMAIN = env.str("RADIS_SITE_DOMAIN", default="radis.org")  # type: ignore
-RADIS_SITE_NAME = env.str("RADIS_SITE_NAME", default="radis.org")  # type: ignore
+# Used by our custom data migrations in the common app to set the domain and name
+# of the sites frameworks Site model and also some other site specific settings in
+# our custom SiteProfile model.
+# Once set those values will be used from the database!
+SITE_DOMAIN = env.str("SITE_DOMAIN", default="localhost")  # type: ignore
+SITE_NAME = "RADIS"
+SITE_META_KEYWORDS = "RADIS,Radiology,Reports,Medicine,Tool"
+SITE_META_DESCRIPTION = "RADIS is an application to archive, query and collect radiology reports"
+SITE_PROJECT_URL = "https://github.com/openradx/radis"
 
 INSTALLED_APPS = [
     "daphne",
     "whitenoise.runserver_nostatic",
+    "adit_radis_shared.common.apps.CommonConfig",
     "registration",
     "django.contrib.admin",
     "django.contrib.auth",
@@ -68,8 +73,8 @@ INSTALLED_APPS = [
     "rest_framework",
     "adrf",
     "radis.core.apps.CoreConfig",
-    "radis.accounts.apps.AccountsConfig",
-    "radis.token_authentication.apps.TokenAuthenticationConfig",
+    "adit_radis_shared.accounts.apps.AccountsConfig",
+    "adit_radis_shared.token_authentication.apps.TokenAuthenticationConfig",
     "radis.reports.apps.ReportsConfig",
     "radis.search.apps.SearchConfig",
     "radis.rag.apps.RagConfig",
@@ -90,9 +95,9 @@ MIDDLEWARE = [
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "django.contrib.sites.middleware.CurrentSiteMiddleware",
     "django_htmx.middleware.HtmxMiddleware",
-    "radis.core.middlewares.MaintenanceMiddleware",
-    "radis.core.middlewares.TimezoneMiddleware",
-    "radis.accounts.middlewares.ActiveGroupMiddleware",
+    "adit_radis_shared.accounts.middlewares.ActiveGroupMiddleware",
+    "adit_radis_shared.common.middlewares.MaintenanceMiddleware",
+    "adit_radis_shared.common.middlewares.TimezoneMiddleware",
 ]
 
 ROOT_URLCONF = "radis.urls"
@@ -100,7 +105,7 @@ ROOT_URLCONF = "radis.urls"
 TEMPLATES = [
     {
         "BACKEND": "django.template.backends.django.DjangoTemplates",
-        "DIRS": [BASE_DIR / "radis" / "templates"],
+        "DIRS": [],
         "APP_DIRS": True,
         "OPTIONS": {
             "context_processors": [
@@ -108,7 +113,7 @@ TEMPLATES = [
                 "django.template.context_processors.request",
                 "django.contrib.auth.context_processors.auth",
                 "django.contrib.messages.context_processors.messages",
-                "radis.core.site.base_context_processor",
+                "adit_radis_shared.common.site.base_context_processor",
                 "radis.reports.site.base_context_processor",
             ],
         },
@@ -136,7 +141,7 @@ DATABASES = {"default": env.db(default="sqlite:///radis-sqlite.db")}  # type: ig
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # A custom authentication backend that supports a single currently active group.
-AUTHENTICATION_BACKENDS = ["radis.accounts.backends.ActiveGroupModelBackend"]
+AUTHENTICATION_BACKENDS = ["adit_radis_shared.accounts.backends.ActiveGroupModelBackend"]
 
 # Password validation
 # https://docs.djangoproject.com/en/3.0/ref/settings/#auth-password-validators
@@ -231,7 +236,7 @@ REST_FRAMEWORK = {
         "rest_framework.permissions.IsAuthenticated",
     ],
     "DEFAULT_AUTHENTICATION_CLASSES": [
-        "radis.token_authentication.auth.RestTokenAuthentication",
+        "adit_radis_shared.token_authentication.auth.RestTokenAuthentication",
     ],
 }
 
@@ -292,7 +297,7 @@ ADMINS = [
 ]
 
 # Settings for django-registration-redux
-REGISTRATION_FORM = "radis.accounts.forms.RegistrationForm"
+REGISTRATION_FORM = "adit_radis_shared.accounts.forms.RegistrationForm"
 ACCOUNT_ACTIVATION_DAYS = 14
 REGISTRATION_OPEN = True
 
@@ -302,9 +307,9 @@ ASGI_APPLICATION = "radis.asgi.application"
 # RabbitMQ is used as Celery message broker
 RABBITMQ_URL = env.str("RABBITMQ_URL", default="amqp://localhost")  # type: ignore
 
-# Rabbit Management console is integrated in ADIT by using an reverse
-# proxy (django-revproxy).This allows to use the authentication of ADIT.
-# But as RabbitMQ authentication can't be disabled we have to login
+# Rabbit Management console is integrated in RADIS by using a reverse
+# proxy (django-revproxy).This allows us to use the authentication of RADIS.
+# But as RabbitMQ authentication can't be disabled, so we have to login
 # there with "guest" as username and password again.
 RABBIT_MANAGEMENT_HOST = env.str("RABBIT_MANAGEMENT_HOST", default="localhost")  # type: ignore
 RABBIT_MANAGEMENT_PORT = env.int("RABBIT_MANAGEMENT_PORT", default=15672)  # type: ignore

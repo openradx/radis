@@ -4,7 +4,7 @@ from django.contrib.auth.models import Group
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
 
-from radis.core.models import AppSettings
+from adit_radis_shared.common.models import AppSettings
 from radis.core.utils.date_utils import calculate_age
 from radis.core.validators import (
     no_backslash_char_validator,

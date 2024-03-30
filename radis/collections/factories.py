@@ -3,7 +3,7 @@ from typing import Generic, TypeVar
 import factory
 from faker import Faker
 
-from radis.accounts.factories import UserFactory
+from adit_radis_shared.accounts.factories import UserFactory
 
 from .models import Collection
 

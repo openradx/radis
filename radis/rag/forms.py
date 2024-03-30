@@ -4,7 +4,7 @@ from crispy_forms.helper import FormHelper
 from crispy_forms.layout import HTML, Column, Div, Layout, Row, Submit
 from django import forms
 
-from radis.accounts.models import User
+from adit_radis_shared.accounts.models import User
 from radis.reports.models import Modality
 from radis.search.forms import AGE_STEP, MAX_AGE, MIN_AGE
 from radis.search.layouts import RangeSlider
@@ -115,7 +115,7 @@ class QuestionForm(forms.ModelForm):
 
 
 delete_button = """
-    {% load bootstrap_icon from core_extras %}
+    {% load bootstrap_icon from common_extras %}
     <button type="button"
             name="delete-question"
             value="delete-question"

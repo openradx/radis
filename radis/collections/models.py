@@ -2,7 +2,7 @@ from django.conf import settings
 from django.db import models
 from django.db.models.constraints import UniqueConstraint
 
-from radis.core.models import AppSettings
+from adit_radis_shared.common.models import AppSettings
 from radis.reports.models import Report
 
 

@@ -15,7 +15,7 @@ class RagConfig(AppConfig):
 
 
 def register_app():
-    from radis.core.site import register_main_menu_item
+    from adit_radis_shared.common.site import register_main_menu_item
 
     register_main_menu_item(
         url_name="rag_job_create",
