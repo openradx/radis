@@ -104,13 +104,13 @@ def delete_documents(document_ids: list[str]) -> None:
     )
 
 
-def _extract_document_id(documentid: str) -> str:
+def extract_document_id(documentid: str) -> str:
     # https://docs.vespa.ai/en/documents.html#document-ids
     return documentid.split(":")[-1]
 
 
 def document_from_vespa_response(record: dict[str, Any]) -> ReportDocument:
-    document_id = _extract_document_id(record["fields"]["documentid"])
+    document_id = extract_document_id(record["fields"]["documentid"])
     patient_birth_date = date.fromtimestamp(record["fields"]["patient_birth_date"])
     study_datetime = datetime.fromtimestamp(record["fields"]["study_datetime"])
 
