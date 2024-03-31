@@ -6,7 +6,7 @@ from django.http import HttpResponse
 from django.shortcuts import render
 from django.views.generic import DetailView, UpdateView, View
 from django_filters.views import FilterView
-from django_htmx.http import HttpResponseClientRefresh, trigger_client_event
+from django_htmx.http import trigger_client_event
 
 from adit_radis_shared.common.mixins import HtmxOnlyMixin, PageSizeSelectMixin
 from adit_radis_shared.common.types import AuthenticatedHttpRequest
@@ -45,12 +45,9 @@ class NoteEditView(LoginRequiredMixin, HtmxOnlyMixin, UpdateView):
     model = Note
     form_class = NoteEditForm
     template_name = "notes/_note_edit.html"
-    reload_on_note_delete: bool
     request: AuthenticatedHttpRequest
 
     def get_object(self, queryset: QuerySet[Note] | None = None) -> Note | None:
-        self.reload_on_note_delete = self.request.GET.get("reload_on_note_delete") == "yes"
-
         if queryset is None:
             queryset = self.get_queryset()
 
@@ -60,7 +57,6 @@ class NoteEditView(LoginRequiredMixin, HtmxOnlyMixin, UpdateView):
     def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
         context = super().get_context_data(**kwargs)
         context["report_id"] = self.kwargs["report_id"]
-        context["reload_on_note_delete"] = self.reload_on_note_delete
         return context
 
     def form_valid(self, form: NoteEditForm) -> HttpResponse:
@@ -73,8 +69,11 @@ class NoteEditView(LoginRequiredMixin, HtmxOnlyMixin, UpdateView):
         text: str = note.text
         if note.id is not None and len(text.strip()) == 0:
             note.delete()
-            if self.reload_on_note_delete:
-                return HttpResponseClientRefresh()
+            response = HttpResponse(status=204)
+            response = trigger_client_event(response, f"noteChanged_{report_id}")
+            response = trigger_client_event(response, "noteDeleted")
+            return response
+
         elif len(text.strip()) > 0:
             form.save()
 
