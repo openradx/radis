@@ -1,12 +1,9 @@
-{% load result_badge_css_class from rag_extras %}
 <div class="card mb-3">
     <div class="card-body" x-data="{full: false, questions: false}">
         <div class="d-flex flex-column gap-1">
             <div class="d-flex justify-content-between">
                 {% include "reports/_report_header.html" with report=task.report %}
-                <div>
-                    <span class="badge {{ task.overall_result|result_badge_css_class }}">{{ task.get_overall_result_display }}</span>
-                </div>
+                <div>{% include "rag/_overall_result_badge.html" %}</div>
             </div>
             <div class="d-flex flex-column gap-1">
                 <div class="clamp-3" :class="{'clamp-3': !full, 'pre-line': full}">{{ task.report.body }}</div>
@@ -34,9 +31,10 @@
                 Questions:
                 {% for result in task.results.all %}
                     <div>
-                        <span>{{ result.question.question }}</span>
-                        <span>{{ result.get_answer_display }}</span>
-                        <span>({{ result.get_result_display }})</span>
+                        <span class="me-2">{{ result.question.question }}</span>
+                        {% include "rag/_current_answer.html" %}
+                        {% include "rag/_change_answer_button.html" %}
+                        {% include "rag/_result_badge.html" %}
                     </div>
                 {% endfor %}
             </div>

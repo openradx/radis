@@ -111,8 +111,9 @@ class QuestionResult(models.Model):
     id: int
     task = models.ForeignKey(RagTask, on_delete=models.CASCADE, related_name="results")
     question = models.ForeignKey(Question, on_delete=models.CASCADE, related_name="results")
-    answer = models.CharField(max_length=1, choices=Answer.choices)
-    get_answer_display: Callable[[], str]
+    original_answer = models.CharField(max_length=1, choices=Answer.choices)
+    current_answer = models.CharField(max_length=1, choices=Answer.choices)
+    get_current_answer_display: Callable[[], str]
     result = models.CharField(max_length=1, choices=RagTask.Result.choices)
 
     def __str__(self) -> str:

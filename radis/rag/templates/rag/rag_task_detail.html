@@ -1,7 +1,7 @@
 {% extends "rag/rag_layout.html" %}
 {% load bootstrap_icon from common_extras %}
 {% load analysis_task_status_css_class from core_extras %}
-{% load result_badge_css_class task_control_panel from rag_extras %}
+{% load task_control_panel from rag_extras %}
 {% block heading %}
     <div class="d-flex justify-content-between align-items-start">
         <h4 class="mb-3">RAG Task</h4>
@@ -66,7 +66,7 @@
                 {% if not task.overall_result %}
                     —
                 {% else %}
-                    <span class="badge {{ task.overall_result|result_badge_css_class }}">{{ task.get_overall_result_display }}</span>
+                    {% include "rag/_overall_result_badge.html" %}
                 {% endif %}
             </dd>
         </dl>
@@ -77,9 +77,14 @@
                 <dd class="col-sm-9">
                     {{ result.question.question }}
                 </dd>
+                <dt class="col-sm-3">Answer</dt>
+                <dd class="col-sm-9">
+                    {% include "rag/_current_answer.html" %}
+                    {% include "rag/_change_answer_button.html" %}
+                </dd>
                 <dt class="col-sm-3">Result</dt>
                 <dd class="col-sm-9">
-                    <span class="badge {{ result.result|result_badge_css_class }}">{{ result.get_result_display }}</span>
+                    {% include "rag/_result_badge.html" %}
                 </dd>
             {% endfor %}
         </dl>

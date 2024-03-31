@@ -66,35 +66,33 @@ class ProcessRagTask(ProcessAnalysisTask):
                 extra_body={"grammar": grammar},
             )
 
-            answer = completion.choices[0].message.content
-            logger.debug("Received answer by LLM: %s", answer)
+            llm_answer = completion.choices[0].message.content
+            logger.debug("Received answer by LLM: %s", llm_answer)
 
-            if answer == settings.RAG_ANSWER_YES[language]:
-                result = (
-                    RagTask.Result.ACCEPTED
-                    if question.accepted_answer == Answer.YES
-                    else RagTask.Result.REJECTED
-                )
-                QuestionResult.objects.update_or_create(
-                    task=task,
-                    question=question,
-                    defaults={"answer": Answer.YES, "result": result},
-                )
-                all_results.append(result)
-            elif answer == settings.RAG_ANSWER_NO[language]:
-                result = (
-                    RagTask.Result.ACCEPTED
-                    if question.accepted_answer == Answer.NO
-                    else RagTask.Result.REJECTED
-                )
-                QuestionResult.objects.update_or_create(
-                    task=task,
-                    question=question,
-                    defaults={"answer": Answer.NO, "result": result},
-                )
-                all_results.append(result)
+            if llm_answer == settings.RAG_ANSWER_YES[language]:
+                answer = Answer.YES
+            elif llm_answer == settings.RAG_ANSWER_NO[language]:
+                answer = Answer.NO
             else:
-                raise ValueError(f"Unexpected answer: {answer}")
+                raise ValueError(f"Unexpected answer: {llm_answer}")
+
+            result = (
+                RagTask.Result.ACCEPTED
+                if question.accepted_answer == answer
+                else RagTask.Result.REJECTED
+            )
+
+            QuestionResult.objects.update_or_create(
+                task=task,
+                question=question,
+                defaults={
+                    "original_answer": answer,
+                    "current_answer": answer,
+                    "result": result,
+                },
+            )
+
+            all_results.append(result)
 
             if all([result == RagTask.Result.ACCEPTED for result in all_results]):
                 task.overall_result = RagTask.Result.ACCEPTED

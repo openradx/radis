@@ -5,12 +5,12 @@ from django.contrib.auth.mixins import LoginRequiredMixin, PermissionRequiredMix
 from django.core.exceptions import SuspiciousOperation
 from django.db import transaction
 from django.forms import BaseInlineFormSet, ModelForm
-from django.shortcuts import redirect
+from django.shortcuts import redirect, render
 from django.urls import reverse_lazy
-from django.views.generic import DetailView
+from django.views.generic import DetailView, View
 from formtools.wizard.views import SessionWizardView
 
-from adit_radis_shared.common.mixins import PageSizeSelectMixin, RelatedFilterMixin
+from adit_radis_shared.common.mixins import HtmxOnlyMixin, PageSizeSelectMixin, RelatedFilterMixin
 from adit_radis_shared.common.types import AuthenticatedHttpRequest
 from radis.core.views import (
     AnalysisJobCancelView,
@@ -36,7 +36,7 @@ from .forms import (
     QuestionFormSetHelper,
     SearchForm,
 )
-from .models import RagJob, RagTask
+from .models import Answer, QuestionResult, RagJob, RagTask
 from .site import retrieval_providers
 
 RAG_SEARCH_PROVIDER = "rag_search_provider"
@@ -202,3 +202,39 @@ class RagResultListView(
             overall_result__in=[RagTask.Result.ACCEPTED, RagTask.Result.REJECTED]
         )
         return tasks.select_related("report")
+
+
+class ChangeAnswerView(LoginRequiredMixin, HtmxOnlyMixin, View):
+    def post(self, request: AuthenticatedHttpRequest, result_id: int):
+        user = request.user
+
+        result = QuestionResult.objects.get(id=result_id)
+        question = result.question
+        task = result.task
+
+        if task.job.owner != user:
+            raise SuspiciousOperation("You are not the owner of this task")
+
+        with transaction.atomic():
+            result.current_answer = Answer.NO if result.current_answer == Answer.YES else Answer.YES
+            if result.current_answer == question.accepted_answer:
+                result.result = RagTask.Result.ACCEPTED
+            else:
+                result.result = RagTask.Result.REJECTED
+            result.save()
+
+            all_results = list(task.results.values_list("result", flat=True))
+            if all(result == RagTask.Result.ACCEPTED for result in all_results):
+                task.overall_result = RagTask.Result.ACCEPTED
+            else:
+                task.overall_result = RagTask.Result.REJECTED
+            task.save()
+
+        return render(
+            request,
+            "rag/_changed_result.html",
+            {
+                "task": task,
+                "result": result,
+            },
+        )

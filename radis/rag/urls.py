@@ -3,6 +3,7 @@ from django.urls import path
 from adit_radis_shared.common.views import HtmxTemplateView
 
 from .views import (
+    ChangeAnswerView,
     RagJobCancelView,
     RagJobDeleteView,
     RagJobDetailView,
@@ -98,5 +99,10 @@ urlpatterns = [
         "jobs/<int:pk>/results/",
         RagResultListView.as_view(),
         name="rag_result_list",
+    ),
+    path(
+        "change-answer/<int:result_id>/",
+        ChangeAnswerView.as_view(),
+        name="rag_change_answer",
     ),
 ]

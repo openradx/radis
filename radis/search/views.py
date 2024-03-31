@@ -8,7 +8,7 @@ from django.shortcuts import render
 from django.views import View
 
 from adit_radis_shared.common.mixins import HtmxOnlyMixin
-from adit_radis_shared.common.types import AuthenticatedApiRequest, AuthenticatedHttpRequest
+from adit_radis_shared.common.types import AuthenticatedHttpRequest
 from radis.search.forms import SearchForm
 
 from .site import Search, SearchFilters, search_providers
@@ -95,7 +95,7 @@ class SearchView(LoginRequiredMixin, View):
 
 
 class InfoView(LoginRequiredMixin, HtmxOnlyMixin, View):
-    def post(self, request: AuthenticatedApiRequest, *args, **kwargs):
+    def post(self, request: AuthenticatedHttpRequest, *args, **kwargs):
         provider_name = request.POST.get("provider", "")
         provider = search_providers.get(provider_name)
 
