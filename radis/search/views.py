@@ -33,6 +33,7 @@ class SearchView(LoginRequiredMixin, View):
         age_till = form.cleaned_data["age_till"]
 
         search_provider = search_providers[provider]
+        context["selected_provider"] = search_provider.name
         context["info_template"] = search_provider.info_template
 
         page_number = self.get_page_number(request)
