@@ -101,6 +101,7 @@ filterwarnings = [
     "ignore:.*Factory._after_postgeneration will stop saving the instance:DeprecationWarning",
     "ignore:'cgi' is deprecated:DeprecationWarning",
     'ignore:.*use of fork\(\) may lead to deadlocks.*:DeprecationWarning',
+    "ignore:.*set FASTDEV_STRICT_IF in settings.*:DeprecationWarning",
 ]
 timeout = 60
 
