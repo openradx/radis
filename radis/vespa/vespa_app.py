@@ -46,6 +46,11 @@ def _create_report_schema():
         document=Document(
             fields=[
                 Field(
+                    name="document_id",
+                    type="string",
+                    indexing=["summary"],
+                ),
+                Field(
                     name="language",
                     type="string",
                     indexing=["set_language", "attribute"],
@@ -142,7 +147,7 @@ def _create_report_schema():
         document_summaries=[
             DocumentSummary(
                 name=RETRIEVAL_SUMMARY,
-                summary_fields=[Summary("documentid", "string")],
+                summary_fields=[Summary("document_id", "string")],
             )
         ],
     )

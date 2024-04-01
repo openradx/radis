@@ -23,6 +23,7 @@ def _dictify_report_for_vespa(report: Report) -> dict[str, Any]:
     study_datetime = int(report.study_datetime.timestamp())
 
     return {
+        "document_id": report.document_id,
         "language": report.language.code,
         "groups": [group.id for group in report.groups.all()],
         "pacs_aet": report.pacs_aet,
@@ -104,19 +105,13 @@ def delete_documents(document_ids: list[str]) -> None:
     )
 
 
-def extract_document_id(documentid: str) -> str:
-    # https://docs.vespa.ai/en/documents.html#document-ids
-    return documentid.split(":")[-1]
-
-
 def document_from_vespa_response(record: dict[str, Any]) -> ReportDocument:
-    document_id = extract_document_id(record["fields"]["documentid"])
     patient_birth_date = date.fromtimestamp(record["fields"]["patient_birth_date"])
     study_datetime = datetime.fromtimestamp(record["fields"]["study_datetime"])
 
     return ReportDocument(
         relevance=record["relevance"],
-        document_id=document_id,
+        document_id=record["fields"]["document_id"],
         pacs_name=record["fields"]["pacs_name"],
         patient_birth_date=patient_birth_date,
         patient_age=record["fields"]["patient_age"],

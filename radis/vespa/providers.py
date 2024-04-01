@@ -7,7 +7,7 @@ from vespa.io import VespaQueryResponse
 from radis.rag.site import RetrievalResult
 from radis.search.site import Search, SearchResult
 
-from .utils.document_utils import document_from_vespa_response, extract_document_id
+from .utils.document_utils import document_from_vespa_response
 from .utils.query_utils import build_yql_filter
 from .vespa_app import (
     BM25_RANK_PROFILE,
@@ -133,5 +133,5 @@ def retrieve_bm25(search: Search) -> RetrievalResult:
     return RetrievalResult(
         total_count=response.json["root"]["fields"]["totalCount"],
         coverage=response.json["root"]["coverage"]["coverage"],
-        document_ids=[extract_document_id(hit["fields"]["documentid"]) for hit in response.hits],
+        document_ids=[hit["fields"]["document_id"] for hit in response.hits],
     )
