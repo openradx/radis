@@ -81,8 +81,8 @@ services:
       - full
 
   postgres:
-    env_file:
-      - ../.env.dev
+    environment:
+      POSTGRES_PASSWORD: "postgres"
     profiles:
       - full
       - web
