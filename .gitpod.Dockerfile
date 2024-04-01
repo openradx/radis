@@ -1,5 +1,16 @@
 FROM gitpod/workspace-python-3.12
 
+USER root
+
+# Install system dependencies
+# - bash-completion for shell completions of invoke
+# - gettext for Django translations
+RUN apt-get update && \
+  export DEBIAN_FRONTEND=noninteractive && \
+  apt-get install -y bash-completion gettext && \
+  apt-get clean && \
+  rm -rf /var/lib/apt/lists/*
+
 USER gitpod
 
 RUN git clone https://github.com/ingydotnet/git-subrepo $HOME/.git-subrepo && \

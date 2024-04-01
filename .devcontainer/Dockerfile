@@ -1,9 +1,13 @@
 FROM mcr.microsoft.com/devcontainers/python:3.12
 
-# Install dependency to make bash completion work with invoke
-RUN apt-get update && \
+USER root
+
+# Install system dependencies
+# - bash-completion for shell completions of invoke
+# - gettext for Django translations
+RUN sudo apt-get update && \
   export DEBIAN_FRONTEND=noninteractive && \
-  apt-get install -y bash-completion && \
+  apt-get install -y bash-completion gettext && \
   apt-get clean && \
   rm -rf /var/lib/apt/lists/*
 
