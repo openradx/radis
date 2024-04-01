@@ -6,7 +6,8 @@ from django import forms
 from django.urls import reverse
 from django.utils.functional import lazy
 
-from radis.reports.models import Modality
+from radis.core.constants import LANGUAGE_LABELS
+from radis.reports.models import Language, Modality
 
 from .layouts import QueryInput, RangeSlider
 from .site import search_providers
@@ -30,6 +31,7 @@ class SearchForm(forms.Form):
         label=False,
     )
     # Filter fields
+    language = forms.ChoiceField(required=False, choices=[])
     modalities = forms.MultipleChoiceField(required=False, choices=[])
     study_date_from = forms.DateField(
         required=False, widget=forms.DateInput(attrs={"type": "date"})
@@ -73,6 +75,10 @@ class SearchForm(forms.Form):
         if search_provider_choices:
             self.fields["provider"].initial = search_provider_choices[0][0]
 
+        languages = Language.objects.values_list("code", flat=True)
+        language_choices = [(language, LANGUAGE_LABELS[language]) for language in languages]
+        self.fields["language"].choices = language_choices
+
         modalities = Modality.objects.filter(filterable=True).values_list("code", flat=True)
         modality_choices = [(m, m) for m in modalities]
         self.fields["modalities"].choices = modality_choices
@@ -112,6 +118,7 @@ class SearchForm(forms.Form):
 
     def create_filters_layout(self) -> Layout:
         return Layout(
+            Field("language", css_class="form-select-sm"),
             Field("modalities", css_class="form-select-sm"),
             Field("study_date_from", css_class="form-control-sm"),
             Field("study_date_till", css_class="form-control-sm"),

@@ -31,10 +31,11 @@ class SearchResult(NamedTuple):
 
 @dataclass
 class SearchFilters:
+    language: str = "en"
+    modalities: list[str] = field(default_factory=list)
     study_date_from: date | None = None
     study_date_till: date | None = None
     study_description: str = ""
-    modalities: list[str] = field(default_factory=list)
     patient_sex: Literal["M", "F"] | None = None
     patient_age_from: int | None = None
     patient_age_till: int | None = None

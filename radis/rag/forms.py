@@ -5,7 +5,8 @@ from crispy_forms.layout import HTML, Column, Div, Layout, Row, Submit
 from django import forms
 
 from adit_radis_shared.accounts.models import User
-from radis.reports.models import Modality
+from radis.core.constants import LANGUAGE_LABELS
+from radis.reports.models import Language, Modality
 from radis.search.forms import AGE_STEP, MAX_AGE, MIN_AGE
 from radis.search.layouts import RangeSlider
 
@@ -19,6 +20,7 @@ class SearchForm(forms.ModelForm):
             "title",
             "provider",
             "query",
+            "language",
             "modalities",
             "study_date_from",
             "study_date_till",
@@ -39,6 +41,10 @@ class SearchForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
 
         self.fields["query"].widget = forms.Textarea(attrs={"rows": 2})
+        self.fields["language"] = forms.ChoiceField(required=False)
+        languages = Language.objects.values_list("code", flat=True)
+        language_choices = [(language, LANGUAGE_LABELS[language]) for language in languages]
+        self.fields["language"].choices = language_choices
         self.fields["modalities"] = forms.MultipleChoiceField(required=False)
         modalities = Modality.objects.filter(filterable=True).values_list("code", flat=True)
         modality_choices = [(m, m) for m in modalities]
@@ -85,6 +91,7 @@ class SearchForm(forms.ModelForm):
                     Submit("next", "Next Step (Questions)", css_class="btn-primary"),
                 ),
                 Column(
+                    "language",
                     "modalities",
                     "study_date_from",
                     "study_date_till",

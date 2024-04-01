@@ -352,12 +352,6 @@ VESPA_HOST = env.str("VESPA_HOST", default="localhost")  # type: ignore
 VESPA_CONFIG_PORT = env.int("VESPA_CONFIG_PORT", default=19071)  # type: ignore
 VESPA_DATA_PORT = env.int("VESPA_DATA_PORT", default=8080)  # type: ignore
 
-# The language of the VESPA Query. If set to "auto" (the default) it will let Vespa
-# try to autodetect it (not a good idea because of the mostly small query strings).
-# It should be set to the same language as the report were indexed (the language
-# field of the report model). Examples: en, de, es, fr, it
-VESPA_QUERY_LANGUAGE = env.str("VESPA_QUERY_LANGUAGE", default="auto")  # type: ignore
-
 # A timezone that is used for users of the web interface.
 USER_TIME_ZONE = env.str("USER_TIME_ZONE", default="Europe/Berlin")  # type: ignore
 

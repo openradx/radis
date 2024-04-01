@@ -1,7 +1,6 @@
 import logging
 from typing import Any
 
-from django.conf import settings
 from vespa.io import VespaQueryResponse
 
 from radis.rag.site import RetrievalResult
@@ -23,9 +22,6 @@ logger = logging.getLogger(__name__)
 
 
 def _execute_query(params: dict[str, Any]) -> VespaQueryResponse:
-    if settings.VESPA_QUERY_LANGUAGE != "auto":
-        params["language"] = settings.VESPA_QUERY_LANGUAGE
-
     logger.debug("Querying Vespa with params: %s", params)
 
     client = vespa_app.get_client()
@@ -46,6 +42,7 @@ def search_bm25(search: Search) -> SearchResult:
             "hits": search.limit,
             "offset": search.offset,
             "queryProfile": SEARCH_QUERY_PROFILE,
+            "language": search.filters.language,
             "ranking": BM25_RANK_PROFILE,
         }
     )
@@ -71,6 +68,7 @@ def search_semantic(search: Search) -> SearchResult:
             "hits": search.limit,
             "offset": search.offset,
             "queryProfile": SEARCH_QUERY_PROFILE,
+            "language": search.filters.language,
             "ranking": SEMANTIC_RANK_PROFILE,
             "body": {"input.query(q)": f"embed({search.query})"},
         }
@@ -98,6 +96,7 @@ def search_hybrid(search: Search) -> SearchResult:
             "hits": search.limit,
             "offset": search.offset,
             "queryProfile": SEARCH_QUERY_PROFILE,
+            "language": search.filters.language,
             "ranking": FUSION_RANK_PROFILE,
             "body": {"input.query(q)": f"embed({search.query})"},
         }
@@ -124,6 +123,7 @@ def retrieve_bm25(search: Search) -> RetrievalResult:
             "hits": search.limit,
             "offset": search.offset,
             "queryProfile": RETRIEVAL_QUERY_PROFILE,
+            "language": search.filters.language,
             "ranking": "unranked",
             "sorting": "-study_datetime",
             "summary": RETRIEVAL_SUMMARY,

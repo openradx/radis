@@ -135,10 +135,11 @@ class ProcessRagJob(ProcessAnalysisJob):
             offset=0,
             limit=retrieval_provider.max_results,
             filters=SearchFilters(
+                language=job.language,
+                modalities=job.modalities,
                 study_date_from=job.study_date_from,
                 study_date_till=job.study_date_till,
                 study_description=job.study_description,
-                modalities=job.modalities,
                 patient_sex=patient_sex,
                 patient_age_from=job.age_from,
                 patient_age_till=job.age_till,

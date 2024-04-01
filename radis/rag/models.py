@@ -47,10 +47,11 @@ class RagJob(AnalysisJob):
         max_length=100, choices=lazy(get_retrieval_providers, tuple)(), default=get_default_provider
     )
     query = models.CharField(max_length=200)
+    language = models.CharField(max_length=10, blank=True)
+    modalities = ArrayField(models.CharField(max_length=16))
     study_date_from = models.DateField(null=True, blank=True)
     study_date_till = models.DateField(null=True, blank=True)
     study_description = models.CharField(max_length=200, blank=True)
-    modalities = ArrayField(models.CharField(max_length=16))
     patient_sex = models.CharField(
         max_length=1, blank=True, choices=[("", "All"), ("M", "Male"), ("F", "Female")]
     )

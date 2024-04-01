@@ -114,10 +114,11 @@ class RagJobWizardView(LoginRequiredMixin, PermissionRequiredMixin, SessionWizar
             offset=0,
             limit=0,
             filters=SearchFilters(
+                language=data["language"],
+                modalities=data["modalities"],
                 study_date_from=data["study_date_from"],
                 study_date_till=data["study_date_till"],
                 study_description=data["study_description"],
-                modalities=data["modalities"],
                 patient_sex=data["patient_sex"],
                 patient_age_from=data["age_from"],
                 patient_age_till=data["age_till"],

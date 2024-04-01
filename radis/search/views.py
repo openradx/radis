@@ -24,10 +24,11 @@ class SearchView(LoginRequiredMixin, View):
 
         query = form.cleaned_data["query"]
         provider = form.cleaned_data["provider"]
+        language = form.cleaned_data["language"]
+        modalities = form.cleaned_data["modalities"]
         study_date_from = form.cleaned_data["study_date_from"]
         study_date_till = form.cleaned_data["study_date_till"]
         study_description = form.cleaned_data["study_description"]
-        modalities = form.cleaned_data["modalities"]
         patient_sex = form.cleaned_data["patient_sex"]
         age_from = form.cleaned_data["age_from"]
         age_till = form.cleaned_data["age_till"]
@@ -52,10 +53,11 @@ class SearchView(LoginRequiredMixin, View):
                 offset=offset,
                 limit=page_size,
                 filters=SearchFilters(
+                    language=language,
+                    modalities=modalities,
                     study_date_from=study_date_from,
                     study_date_till=study_date_till,
                     study_description=study_description,
-                    modalities=modalities,
                     patient_sex=patient_sex,
                     patient_age_from=age_from,
                     patient_age_till=age_till,
