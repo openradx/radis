@@ -22,6 +22,14 @@ class ReportsAppSettings(AppSettings):
         verbose_name_plural = "Reports app settings"
 
 
+class Language(models.Model):
+    id: int
+    code = models.CharField(max_length=10, unique=True)
+
+    def __str__(self) -> str:
+        return self.code
+
+
 class Modality(models.Model):
     id: int
     code = models.CharField(max_length=16, unique=True)
@@ -40,7 +48,7 @@ class Report(models.Model):
 
     id: int
     document_id = models.CharField(max_length=128, unique=True)
-    language = models.CharField(max_length=10)
+    language = models.ForeignKey(Language, on_delete=models.CASCADE, related_name="reports")
     groups = models.ManyToManyField(
         Group,
         related_name="reports",

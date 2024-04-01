@@ -1,8 +1,10 @@
 from django.contrib import admin
 
-from .models import Metadata, Modality, Report, ReportsAppSettings
+from .models import Language, Metadata, Modality, Report, ReportsAppSettings
 
 admin.site.register(ReportsAppSettings, admin.ModelAdmin)
+
+admin.site.register(Language, admin.ModelAdmin)
 
 admin.site.register(Modality, admin.ModelAdmin)
 

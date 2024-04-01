@@ -23,7 +23,7 @@ def _dictify_report_for_vespa(report: Report) -> dict[str, Any]:
     study_datetime = int(report.study_datetime.timestamp())
 
     return {
-        "language": report.language,
+        "language": report.language.code,
         "groups": [group.id for group in report.groups.all()],
         "pacs_aet": report.pacs_aet,
         "pacs_name": report.pacs_name,

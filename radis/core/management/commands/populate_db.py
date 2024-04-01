@@ -14,7 +14,7 @@ from adit_radis_shared.accounts.models import User
 from adit_radis_shared.token_authentication.factories import TokenFactory
 from adit_radis_shared.token_authentication.models import FRACTION_LENGTH
 from adit_radis_shared.token_authentication.utils.crypto import hash_token
-from radis.reports.factories import ReportFactory
+from radis.reports.factories import LanguageFactory, ReportFactory
 from radis.reports.models import Report
 from radis.vespa.utils.document_utils import create_documents
 
@@ -26,7 +26,7 @@ fake = Faker()
 
 
 def create_report(body: str, language: Literal["en", "de"]):
-    report = ReportFactory.create(language=language, body=body)
+    report = ReportFactory.create(language=LanguageFactory(code=language), body=body)
     groups = fake.random_elements(elements=list(Group.objects.all()), unique=True)
     report.groups.set(groups)
     return report

@@ -4,7 +4,7 @@ from typing import Generic, TypeVar
 import factory
 from faker import Faker
 
-from .models import Metadata, Modality, Report
+from .models import Language, Metadata, Modality, Report
 
 T = TypeVar("T")
 
@@ -17,6 +17,14 @@ class BaseDjangoModelFactory(Generic[T], factory.django.DjangoModelFactory):
     @classmethod
     def create(cls, *args, **kwargs) -> T:
         return super().create(*args, **kwargs)
+
+
+class LanguageFactory(BaseDjangoModelFactory[Language]):
+    class Meta:
+        model = Language
+        django_get_or_create = ("code",)
+
+    code = factory.Faker("language_code")
 
 
 class ModalityFactory(BaseDjangoModelFactory[Modality]):
@@ -40,7 +48,7 @@ class ReportFactory(BaseDjangoModelFactory[Report]):
         model = Report
 
     document_id = factory.Faker("uuid4")
-    language = "en"
+    language = factory.SubFactory(LanguageFactory)
     pacs_aet = factory.Faker("word")
     pacs_name = factory.Faker("word")
     patient_id = factory.Faker("numerify", text="##########")
