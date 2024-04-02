@@ -22,10 +22,14 @@ logger = logging.getLogger(__name__)
 
 
 def _execute_query(params: dict[str, Any]) -> VespaQueryResponse:
-    logger.debug("Querying Vespa with params: %s", params)
+    logger.debug("Querying Vespa with params:\n%s", params)
 
     client = vespa_app.get_client()
-    return client.query(**params)
+    response = client.query(**params)
+
+    logger.debug("Received Vespa response:\n%s", response.get_json())
+
+    return response
 
 
 def search_bm25(search: Search) -> SearchResult:
