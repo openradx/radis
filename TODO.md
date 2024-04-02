@@ -2,8 +2,11 @@
 
 ## High Priority
 
+- Page titles
+- Filter reports by active group of user
+- Signals (that must be turned off temporarily when using the api)
 - Fix pagination of search results
-- Thinks about a better delete strategy
+- Think about a better delete strategy
 - Check if for RAG ranking should be turned off for performance improvements (and using some fixed sort order)
 - Some present provider.max_results to the user somehow, especially important if the query results (step 1) is larger
 - task control panel

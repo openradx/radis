@@ -5,6 +5,7 @@ from rest_framework import serializers, validators
 from rest_framework.exceptions import ValidationError
 
 from ..models import Language, Metadata, Modality, Report
+from ..signals import report_signal_processor
 
 
 class MetadataSerializer(serializers.ModelSerializer):
@@ -48,22 +49,27 @@ class ReportSerializer(serializers.ModelSerializer):
         metadata = validated_data.pop("metadata")
         modalities = validated_data.pop("modalities")
 
-        with transaction.atomic():
-            language_instance, _ = Language.objects.get_or_create(**language)
+        try:
+            report_signal_processor.pause()
 
-            report = Report.objects.create(**validated_data, language=language_instance)
+            with transaction.atomic():
+                language_instance, _ = Language.objects.get_or_create(**language)
 
-            report.groups.set(groups)
+                report = Report.objects.create(**validated_data, language=language_instance)
 
-            for metadata in metadata:
-                Metadata.objects.create(report=report, **metadata)
+                report.groups.set(groups)
 
-            modality_instances: list[Modality] = []
-            for modality in modalities:
-                modality_instance, _ = Modality.objects.get_or_create(**modality)
-                modality_instances.append(modality_instance)
+                for metadata in metadata:
+                    Metadata.objects.create(report=report, **metadata)
 
-            report.modalities.set(modality_instances)
+                modality_instances: list[Modality] = []
+                for modality in modalities:
+                    modality_instance, _ = Modality.objects.get_or_create(**modality)
+                    modality_instances.append(modality_instance)
+
+                report.modalities.set(modality_instances)
+        finally:
+            report_signal_processor.resume()
 
         return report
 

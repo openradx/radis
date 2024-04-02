@@ -6,8 +6,12 @@ class ReportsConfig(AppConfig):
     name = "radis.reports"
 
     def ready(self):
+        from .signals import report_signal_processor
+
         # Put calls to db stuff in this signal handler
         post_migrate.connect(init_db, sender=self)
+
+        report_signal_processor.connect()
 
 
 def init_db(**kwargs):
