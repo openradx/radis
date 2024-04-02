@@ -4,8 +4,11 @@
     {{ block.super }}
     <script src="{% static 'sandbox/sandbox.js' %}"></script>
 {% endblock script %}
+{% block title %}
+    Toast Sandbox
+{% endblock title %}
 {% block heading %}
-    <h4 class="mb-3">Message Sandbox</h4>
+    <h4 class="mb-3">Toast Sandbox</h4>
 {% endblock heading %}
 {% block content %}
     <div x-data="toastSandbox()">
