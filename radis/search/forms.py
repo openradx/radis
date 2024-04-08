@@ -26,8 +26,7 @@ class SearchForm(forms.Form):
     query = forms.CharField(required=False, label=False)
     provider = forms.ChoiceField(
         required=False,
-        # TODO: in Django 5 choices can be passed a function directly
-        choices=lazy(get_search_providers, tuple)(),
+        choices=get_search_providers,
         label=False,
     )
     # Filter fields

@@ -42,7 +42,8 @@ class RagJob(AnalysisJob):
     "The title of the job that is shown in the job list"
 
     # Search and filter fields
-    # TODO: in Django 5 choices can be passed a function directly, too
+    # TODO: in Django 5 choices can be passed a function directly, but it seems django-stubs
+    # is not up-to-date here. It should be fixed in django-stubs.
     provider = models.CharField(
         max_length=100, choices=lazy(get_retrieval_providers, tuple)(), default=get_default_provider
     )
