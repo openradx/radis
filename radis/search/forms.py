@@ -4,7 +4,6 @@ from crispy_forms.helper import FormHelper, Layout
 from crispy_forms.layout import Button, Div, Field
 from django import forms
 from django.urls import reverse
-from django.utils.functional import lazy
 
 from radis.core.constants import LANGUAGE_LABELS
 from radis.reports.models import Language, Modality
