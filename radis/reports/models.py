@@ -27,7 +27,7 @@ class Language(models.Model):
     code = models.CharField(max_length=10, unique=True)
 
     def __str__(self) -> str:
-        return self.code
+        return f"Language {self.code}"
 
 
 class Modality(models.Model):
@@ -39,7 +39,7 @@ class Modality(models.Model):
         verbose_name_plural = "Modalities"
 
     def __str__(self) -> str:
-        return self.code
+        return f"Modality {self.code}"
 
 
 class Report(models.Model):
@@ -105,4 +105,4 @@ class Metadata(models.Model):
         ]
 
     def __str__(self) -> str:
-        return f"{self.key}: {self.value}"
+        return f"Metadata - {self.key}: {self.value}"
