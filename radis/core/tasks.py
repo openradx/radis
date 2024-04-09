@@ -86,10 +86,16 @@ class ProcessAnalysisTask(CeleryTask):
             # This must be passed through to the Celery worker.
 
             # TODO: How do we handle max retries?!
+
             if task.status != AnalysisTask.Status.PENDING:
                 task.status = AnalysisTask.Status.PENDING
+
+            logger.info("Task %s will be retried.", task)
+
             raise err
         except Exception as err:
+            logger.exception("Task %s failed.", task)
+
             task.status = AnalysisTask.Status.FAILURE
             task.message = str(err)
             if task.log:
