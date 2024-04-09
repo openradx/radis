@@ -32,10 +32,10 @@ class ProcessRagTask(ProcessAnalysisTask):
     @override
     def process_task(self, task: RagTask) -> None:
         report_body = task.report.body
-        language = task.report.language
+        language = task.report.language.code
 
         if language not in settings.RAG_SUPPORTED_LANGUAGES:
-            raise ValueError(f"Language {language} is not supported by RAG.")
+            raise ValueError(f"Language '{language}' is not supported by RAG.")
 
         all_results: list[RagTask.Result] = []
 
