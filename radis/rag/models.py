@@ -86,7 +86,7 @@ class Question(models.Model):
     get_accepted_answer_display: Callable[[], str]
 
     def __str__(self) -> str:
-        return f'Question: "{self.question}"'
+        return f'Question "{self.question}" [ID {self.id}]'
 
 
 class RagTask(AnalysisTask):
@@ -119,4 +119,4 @@ class QuestionResult(models.Model):
     result = models.CharField(max_length=1, choices=RagTask.Result.choices)
 
     def __str__(self) -> str:
-        return f'Result of "{self.question.question}"'
+        return f'Result of "{self.question}": {self.get_current_answer_display} [ID {self.id}]'
