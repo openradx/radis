@@ -2,9 +2,9 @@
 
 ## High Priority
 
+- Move statics vendors back to main projects
 - urls -> pacs_link
 - Page titles
-- Filter reports by active group of user
 - Think about a better delete strategy
 - Check if for RAG ranking should be turned off for performance improvements (and using some fixed sort order)
 - Some present provider.max_results to the user somehow, especially important if the query results (step 1) is larger
@@ -12,10 +12,6 @@
 - Limit RAG search result choice (stop when there x positive results)
 - Limit RAG search by maximum number of reports that gets processed
 - Show metadata in report details
-- Age slider
-  - <https://tailwindcomponents.com/component/multi-range-slider>
-  - <https://codepen.io/glitchworker/pen/XVdKqj>
-  - <https://medium.com/@predragdavidovic10/native-dual-range-slider-html-css-javascript-91e778134816>
 - Upgrade Github actions workflows (also ADIT)
 - Allow to set filters when using search
   - from:2024-01-01 until:2024-02-01 modality:ct description:"CT\*"

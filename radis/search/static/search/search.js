@@ -71,6 +71,15 @@ function QueryInput() {
   };
 }
 
+/**
+ * Inspired by the following resources:
+ * https://tailwindcomponents.com/component/multi-range-slider
+ * https://codepen.io/glitchworker/pen/XVdKqj
+ * https://medium.com/@predragdavidovic10/native-dual-range-slider-html-css-javascript-91e778134816
+ * https://codepen.io/alexerlandsson/pen/YzLeBVX
+ * https://www.smashingmagazine.com/2021/12/create-custom-range-input-consistent-browsers/
+ * https://developer.mozilla.org/en-US/docs/Web/HTML/Element/input/range
+ */
 function RangeSlider($refs) {
   return {
     init() {
