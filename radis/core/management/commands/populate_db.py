@@ -16,6 +16,7 @@ from adit_radis_shared.token_authentication.models import FRACTION_LENGTH
 from adit_radis_shared.token_authentication.utils.crypto import hash_token
 from radis.reports.factories import LanguageFactory, ReportFactory
 from radis.reports.models import Report
+from radis.reports.signals import report_signal_processor
 from radis.vespa.utils.document_utils import create_documents
 
 USER_COUNT = 20
@@ -25,14 +26,13 @@ GROUP_COUNT = 3
 fake = Faker()
 
 
-def create_report(body: str, language: Literal["en", "de"]):
+def create_report(body: str, language: Literal["en", "de"], group: Group):
     report = ReportFactory.create(language=LanguageFactory(code=language), body=body)
-    groups = fake.random_elements(elements=list(Group.objects.all()), unique=True)
-    report.groups.set(groups)
+    report.groups.set([group])
     return report
 
 
-def feed_reports(language: Literal["en", "de"]):
+def create_reports(language: Literal["en", "de"], group: Group):
     if language == "en":
         sample_file = "reports_en.json"
     elif language == "de":
@@ -44,11 +44,15 @@ def feed_reports(language: Literal["en", "de"]):
     with open(samples_path, "r") as f:
         report_bodies = json.load(f)
 
+    report_signal_processor.pause()
+
     reports: list[Report] = []
     for report_body in report_bodies:
-        reports.append(create_report(report_body, language))
+        reports.append(create_report(report_body, language, group))
 
     transaction.on_commit(lambda: create_documents([report.id for report in reports]))
+
+    report_signal_processor.resume()
 
 
 def create_admin() -> User:
@@ -110,10 +114,14 @@ def create_groups(users: list[User]) -> list[Group]:
         groups.append(group)
 
     for user in users:
-        group: Group = fake.random_element(elements=groups)
-        user.groups.add(group)
-        if not user.active_group:
-            user.change_active_group(group)
+        if user.is_staff:
+            user.groups.add(*groups)
+            user.change_active_group(groups[0])
+        else:
+            group: Group = fake.random_element(elements=groups)
+            user.groups.add(group)
+            if not user.active_group:
+                user.change_active_group(group)
 
     return groups
 
@@ -141,11 +149,11 @@ class Command(BaseCommand):
         else:
             print("Populating development database with test data.")
             users = create_users()
-            create_groups(users)
+            groups = create_groups(users)
 
         if not options["skip_reports"]:
             if Report.objects.first():
                 print("Reports already populated. Skipping.")
             else:
                 print("Populating database with example reports.")
-                feed_reports(options["report_language"])
+                create_reports(options["report_language"], groups[0])
