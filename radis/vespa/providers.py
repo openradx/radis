@@ -34,6 +34,7 @@ def _execute_query(params: dict[str, Any]) -> VespaQueryResponse:
 
 def search_bm25(search: Search) -> SearchResult:
     yql = "select * from sources * where userQuery()"
+    yql += f" and groups = {search.group}"
     filters = build_yql_filter(search.filters)
     if filters:
         yql += f" {filters}"
@@ -60,6 +61,7 @@ def search_bm25(search: Search) -> SearchResult:
 
 def search_semantic(search: Search) -> SearchResult:
     yql = "select * from sources * where userQuery()"
+    yql += f" and groups = {search.group}"
     filters = build_yql_filter(search.filters)
     if filters:
         yql += f" {filters}"
@@ -88,6 +90,7 @@ def search_semantic(search: Search) -> SearchResult:
 # https://pyvespa.readthedocs.io/en/latest/getting-started-pyvespa.html#Hybrid-search-with-the-OR-query-operator
 def search_hybrid(search: Search) -> SearchResult:
     yql = "select * from sources * where userQuery()"
+    yql += f" and groups = {search.group}"
     filters = build_yql_filter(search.filters)
     if filters:
         yql += f" {filters}"
@@ -115,6 +118,7 @@ def search_hybrid(search: Search) -> SearchResult:
 
 def retrieve_bm25(search: Search) -> RetrievalResult:
     yql = "select * from sources * where userQuery()"
+    yql += f" and groups = {search.group}"
     filters = build_yql_filter(search.filters)
     if filters:
         yql += f" {filters}"

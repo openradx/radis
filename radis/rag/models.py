@@ -2,6 +2,7 @@ from typing import TYPE_CHECKING, Callable
 
 from celery import current_app
 from django.conf import settings
+from django.contrib.auth.models import Group
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
 from django.urls import reverse
@@ -47,8 +48,9 @@ class RagJob(AnalysisJob):
     provider = models.CharField(
         max_length=100, choices=lazy(get_retrieval_providers, tuple)(), default=get_default_provider
     )
+    group = models.ForeignKey(Group, on_delete=models.CASCADE)
     query = models.CharField(max_length=200)
-    language = models.CharField(max_length=10, blank=True)
+    language = models.CharField(max_length=10, blank=True)  # TODO: foreign key
     modalities = ArrayField(models.CharField(max_length=16))
     study_date_from = models.DateField(null=True, blank=True)
     study_date_till = models.DateField(null=True, blank=True)

@@ -49,12 +49,14 @@ class Search(NamedTuple):
     should return the most accurate total count it can calculate.
 
     Attributes:
+    - group (int): The ID of the group to search.
     - query (str): The query to search.
     - offset (int): The offset of the search results.
     - limit (int): The limit of the search results.
     - filters (SearchFilters): The filters to apply to the search.
     """
 
+    group: int
     query: str
     offset: int = 0
     limit: int = 10

@@ -1,9 +1,12 @@
 {% load access_item bootstrap_icon from common_extras %}
+{% load can_view_report from reports_extras %}
 <div class="mt-2 d-flex justify-content-between">
     <div class="d-flex gap-2">
-        {% if not no_view_button %}
+        {% if not hide_view_button %}
+            {% can_view_report report as viewable %}
             <a href="{% url 'report_detail' report.id %}"
-               class="btn btn-secondary btn-sm">
+               class="btn btn-secondary btn-sm {% if not viewable %}disabled{% endif %}"
+               {% if not viewable %}aria-disabled="true"{% endif %}>
                 {% bootstrap_icon "box-arrow-in-down-right" %}
                 Details
             </a>

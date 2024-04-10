@@ -131,6 +131,7 @@ class ProcessRagJob(ProcessAnalysisJob):
         retrieval_provider = retrieval_providers[provider]
 
         search = Search(
+            group=job.group.pk,
             query=job.query,
             offset=0,
             limit=retrieval_provider.max_results,

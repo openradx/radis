@@ -1,7 +1,11 @@
 from typing import cast
 
 from django.conf import settings
-from django.contrib.auth.mixins import LoginRequiredMixin, PermissionRequiredMixin
+from django.contrib.auth.mixins import (
+    LoginRequiredMixin,
+    PermissionRequiredMixin,
+    UserPassesTestMixin,
+)
 from django.core.exceptions import SuspiciousOperation
 from django.db import transaction
 from django.forms import BaseInlineFormSet, ModelForm
@@ -55,13 +59,19 @@ class RagJobListView(RagLockedMixin, AnalysisJobListView):
     template_name = "rag/rag_job_list.html"
 
 
-class RagJobWizardView(LoginRequiredMixin, PermissionRequiredMixin, SessionWizardView):
+class RagJobWizardView(
+    LoginRequiredMixin, PermissionRequiredMixin, UserPassesTestMixin, SessionWizardView
+):
     SEARCH_STEP = "0"
     QUESTIONS_STEP = "1"
 
     form_list = [SearchForm, QuestionFormSet]
     permission_required = "rag.add_ragjob"
+    permission_denied_message = "You must be logged in and have an active group"
     request: AuthenticatedHttpRequest
+
+    def test_func(self) -> bool | None:
+        return self.request.user.active_group is not None
 
     def get_form_kwargs(self, step=None):
         kwargs = super().get_form_kwargs(step)
@@ -109,7 +119,11 @@ class RagJobWizardView(LoginRequiredMixin, PermissionRequiredMixin, SessionWizar
         return redirect(job)
 
     def _estimate_retrieval_count(self, data: dict) -> int:
+        active_group = self.request.user.active_group
+        assert active_group
+
         search = Search(
+            group=active_group.pk,
             query=data["query"],
             offset=0,
             limit=0,

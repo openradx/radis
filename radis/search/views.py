@@ -1,6 +1,6 @@
 from typing import Any
 
-from django.contrib.auth.mixins import LoginRequiredMixin
+from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
 from django.core.exceptions import ValidationError
 from django.core.paginator import Paginator
 from django.http import Http404, HttpRequest
@@ -14,7 +14,13 @@ from radis.search.forms import SearchForm
 from .site import Search, SearchFilters, search_providers
 
 
-class SearchView(LoginRequiredMixin, View):
+class SearchView(LoginRequiredMixin, UserPassesTestMixin, View):
+    permission_denied_message = "You must be logged in and have an active group"
+    request: AuthenticatedHttpRequest
+
+    def test_func(self) -> bool | None:
+        return self.request.user.active_group is not None
+
     def get(self, request: AuthenticatedHttpRequest, *args, **kwargs):
         form = SearchForm(request.GET)
         context: dict[str, Any] = {"form": form}
@@ -47,8 +53,12 @@ class SearchView(LoginRequiredMixin, View):
         offset = (page_number - 1) * page_size
         context["offset"] = offset
 
+        active_group = self.request.user.active_group
+        assert active_group
+
         if query:
             search = Search(
+                group=active_group.pk,
                 query=query,
                 offset=offset,
                 limit=page_size,
