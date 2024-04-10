@@ -3,14 +3,13 @@ from typing import TYPE_CHECKING, Callable
 from celery import current_app
 from django.conf import settings
 from django.contrib.auth.models import Group
-from django.contrib.postgres.fields import ArrayField
 from django.db import models
 from django.urls import reverse
 from django.utils.functional import lazy
 
 from adit_radis_shared.common.models import AppSettings
 from radis.core.models import AnalysisJob, AnalysisTask
-from radis.reports.models import Report
+from radis.reports.models import Language, Modality, Report
 
 from .site import retrieval_providers
 
@@ -50,8 +49,8 @@ class RagJob(AnalysisJob):
     )
     group = models.ForeignKey(Group, on_delete=models.CASCADE)
     query = models.CharField(max_length=200)
-    language = models.CharField(max_length=10, blank=True)  # TODO: foreign key
-    modalities = ArrayField(models.CharField(max_length=16))
+    language = models.ForeignKey(Language, on_delete=models.CASCADE)
+    modalities = models.ManyToManyField(Modality, blank=True)
     study_date_from = models.DateField(null=True, blank=True)
     study_date_till = models.DateField(null=True, blank=True)
     study_description = models.CharField(max_length=200, blank=True)

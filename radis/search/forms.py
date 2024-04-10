@@ -72,14 +72,14 @@ class SearchForm(forms.Form):
         search_provider_choices = self.fields["provider"].choices
         if search_provider_choices:
             self.fields["provider"].initial = search_provider_choices[0][0]
-
-        languages = Language.objects.values_list("code", flat=True)
-        language_choices = [(language, LANGUAGE_LABELS[language]) for language in languages]
-        self.fields["language"].choices = language_choices
-
-        modalities = Modality.objects.filter(filterable=True).values_list("code", flat=True)
-        modality_choices = [(m, m) for m in modalities]
-        self.fields["modalities"].choices = modality_choices
+        self.fields["language"].choices = [
+            (language.code, LANGUAGE_LABELS[language.code])
+            for language in Language.objects.order_by("code")
+        ]
+        self.fields["modalities"].choices = [
+            (modality.code, modality.code)
+            for modality in Modality.objects.filter(filterable=True).order_by("code")
+        ]
 
         self.query_helper = FormHelper()
         self.query_helper.template = "search/form_elements/form_part.html"  # type: ignore

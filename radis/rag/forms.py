@@ -41,14 +41,14 @@ class SearchForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
 
         self.fields["query"].widget = forms.Textarea(attrs={"rows": 2})
-        self.fields["language"] = forms.ChoiceField(required=False)
-        languages = Language.objects.values_list("code", flat=True)
-        language_choices = [(language, LANGUAGE_LABELS[language]) for language in languages]
-        self.fields["language"].choices = language_choices
-        self.fields["modalities"] = forms.MultipleChoiceField(required=False)
-        modalities = Modality.objects.filter(filterable=True).values_list("code", flat=True)
-        modality_choices = [(m, m) for m in modalities]
-        self.fields["modalities"].choices = modality_choices
+        self.fields["language"].choices = [
+            (language.pk, LANGUAGE_LABELS[language.code])
+            for language in Language.objects.order_by("code")
+        ]
+        self.fields["modalities"].choices = [
+            (modality.pk, modality.code)
+            for modality in Modality.objects.filter(filterable=True).order_by("code")
+        ]
         self.fields["study_date_from"].widget = forms.DateInput(attrs={"type": "date"})
         self.fields["study_date_till"].widget = forms.DateInput(attrs={"type": "date"})
         self.fields["age_from"] = forms.IntegerField(
@@ -99,6 +99,7 @@ class SearchForm(forms.ModelForm):
                     "patient_sex",
                     RangeSlider("Age range", "age_from", "age_till"),
                     css_class="col-3",
+                    id="filters",
                 ),
             )
         )

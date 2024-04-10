@@ -8,6 +8,7 @@ from django.contrib.auth.mixins import (
 )
 from django.core.exceptions import SuspiciousOperation
 from django.db import transaction
+from django.db.models import QuerySet
 from django.forms import BaseInlineFormSet, ModelForm
 from django.shortcuts import redirect, render
 from django.urls import reverse_lazy
@@ -33,6 +34,7 @@ from radis.core.views import (
 from radis.rag.filters import RagJobFilter, RagResultFilter, RagTaskFilter
 from radis.rag.mixins import RagLockedMixin
 from radis.rag.tables import RagJobTable, RagTaskTable
+from radis.reports.models import Language, Modality
 from radis.search.site import Search, SearchFilters
 
 from .forms import (
@@ -122,14 +124,17 @@ class RagJobWizardView(
         active_group = self.request.user.active_group
         assert active_group
 
+        language = cast(Language, data["language"])
+        modalities = cast(QuerySet[Modality], data["modalities"])
+
         search = Search(
             group=active_group.pk,
             query=data["query"],
             offset=0,
             limit=0,
             filters=SearchFilters(
-                language=data["language"],
-                modalities=data["modalities"],
+                language=language.code,
+                modalities=list(modalities.values_list("code", flat=True)),
                 study_date_from=data["study_date_from"],
                 study_date_till=data["study_date_till"],
                 study_description=data["study_description"],
