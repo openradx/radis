@@ -53,7 +53,7 @@ services:
     hostname: flower.local
     command: >
       bash -c "
-        wait-for-it -s rabbit:5672 -t 60 &&
+        wait-for-it -s rabbit:5672 -t 100 &&
         celery --broker=amqp://rabbit/ flower --url_prefix=flower
       "
 
