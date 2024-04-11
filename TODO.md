@@ -3,9 +3,6 @@
 ## High Priority
 
 - Move statics vendors back to main projects
-- urls -> pacs_link
-- Page titles
-- Think about a better delete strategy
 - Check if for RAG ranking should be turned off for performance improvements (and using some fixed sort order)
 - Some present provider.max_results to the user somehow, especially important if the query results (step 1) is larger
 - task control panel
@@ -54,7 +51,7 @@
   - Collect all matching reports
   - Notify user by Email when job is finished
   - Let user browse the results
-- Fetch favicon for links
+- Fetch favicon for pacs_link
 - Categories app
   - LLMs answers to questions abouts reports to tag them with different categories like LAE, emphysema, ...
   - Similar to RAG app (also maybe depends on it for accessing the LLM)

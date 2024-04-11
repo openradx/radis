@@ -16,5 +16,13 @@
             {% include button.template_name %}
         {% endfor %}
     </div>
-    {% include "reports/_links.html" %}
+    <div class="d-flex gap-1">
+        <a href="{{ report.pacs_link }}"
+           target="_blank"
+           rel="noopener noreferrer"
+           class="btn btn-secondary btn-sm">
+            {{ report.pacs_name }}
+            {% bootstrap_icon "link-45deg" %}
+        </a>
+    </div>
 </div>

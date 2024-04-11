@@ -1,7 +1,6 @@
 from typing import TYPE_CHECKING
 
 from django.contrib.auth.models import Group
-from django.contrib.postgres.fields import ArrayField
 from django.db import models
 
 from adit_radis_shared.common.models import AppSettings
@@ -55,6 +54,7 @@ class Report(models.Model):
     )
     pacs_aet = models.CharField(max_length=16)
     pacs_name = models.CharField(max_length=64)
+    pacs_link = models.CharField(max_length=200, blank=True)
     patient_id = models.CharField(
         max_length=64,
         validators=[
@@ -71,7 +71,6 @@ class Report(models.Model):
     study_description = models.CharField(blank=True, max_length=64)
     study_datetime = models.DateTimeField()
     modalities = models.ManyToManyField(Modality, related_name="reports")
-    links = ArrayField(models.CharField(max_length=200))
     body = models.TextField()
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

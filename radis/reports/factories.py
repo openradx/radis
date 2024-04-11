@@ -51,12 +51,12 @@ class ReportFactory(BaseDjangoModelFactory[Report]):
     language = factory.SubFactory(LanguageFactory)
     pacs_aet = factory.Faker("word")
     pacs_name = factory.Faker("word")
+    pacs_link = factory.Faker("url")
     patient_id = factory.Faker("numerify", text="##########")
     patient_birth_date = factory.Faker("date_of_birth", minimum_age=15)
     patient_sex = factory.Faker("random_element", elements=["M", "F", "O"])
     study_description = factory.Faker("text", max_nb_chars=64)
     study_datetime = factory.Faker("date_time_between", start_date="-10y", tzinfo=timezone.utc)
-    links = factory.LazyFunction(lambda: [fake.url() for _ in range(fake.random_int(1, 3))])
     metadata = factory.RelatedFactoryList(
         MetadataFactory,
         factory_related_name="report",

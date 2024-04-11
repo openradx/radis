@@ -71,6 +71,11 @@ def _create_report_schema():
                     indexing=["summary"],
                 ),
                 Field(
+                    name="pacs_link",
+                    type="string",
+                    indexing=["summary"],
+                ),
+                Field(
                     name="patient_birth_date",
                     type="int",
                     indexing=["summary", "attribute"],
@@ -99,11 +104,6 @@ def _create_report_schema():
                     name="modalities",
                     type="array<string>",
                     indexing=["summary", "attribute"],
-                ),
-                Field(
-                    name="links",
-                    type="array<string>",
-                    indexing=["summary"],
                 ),
                 Field(
                     name="body",
