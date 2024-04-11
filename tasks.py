@@ -1,6 +1,5 @@
 import os
 import sys
-from glob import glob
 from os import environ
 from pathlib import Path
 from shutil import copy
@@ -333,24 +332,26 @@ def copy_statics(ctx: Context):
     """Copy JS and CSS dependencies from node_modules to static vendor folder"""
     print("Copying statics...")
 
-    target = "radis/static/vendor/"
+    target_folder = "radis/static/vendor/"
 
-    for file in glob("node_modules/@popperjs/core/dist/umd/popper.js*"):
-        copy(file, f"{target}/")
-    for file in glob("node_modules/bootstrap/dist/css/bootstrap.css*"):
-        copy(file, f"{target}/")
-    for file in glob("node_modules/bootstrap/dist/js/bootstrap.bundle.js*"):
-        copy(file, f"{target}/")
-    copy("node_modules/bootstrap-icons/bootstrap-icons.svg", f"{target}/")
-    copy("node_modules/bootswatch/dist/flatly/bootstrap.css", f"{target}/")
-    copy("node_modules/alpinejs/dist/cdn.js", f"{target}/alpine.js")
-    copy("node_modules/@alpinejs/morph/dist/cdn.js", f"{target}/alpine-morph.js")
-    copy("node_modules/htmx.org/dist/htmx.js", f"{target}/")
-    copy("node_modules/htmx.org/dist/ext/ws.js", f"{target}/htmx-ws.js")
-    copy(
-        "node_modules/htmx.org/dist/ext/alpine-morph.js",
-        f"{target}/htmx-alpine-morph.js",
-    )
+    def link(file: str, filename: str | None = None):
+        try:
+            if not filename:
+                filename = os.path.basename(file)
+            target_path = os.path.join(target_folder, filename)
+            os.symlink(os.path.relpath(file, target_folder), target_path)
+        except FileExistsError:
+            print(f"File {target_folder}/{filename} already exists. Skipping.")
+
+    link("node_modules/bootstrap/dist/js/bootstrap.bundle.js")
+    link("node_modules/bootstrap/dist/js/bootstrap.bundle.js.map")
+    link("node_modules/bootswatch/dist/flatly/bootstrap.css")
+    link("node_modules/bootstrap-icons/bootstrap-icons.svg")
+    link("node_modules/alpinejs/dist/cdn.js", "alpine.js")
+    link("node_modules/@alpinejs/morph/dist/cdn.js", "alpine-morph.js")
+    link("node_modules/htmx.org/dist/htmx.js")
+    link("node_modules/htmx.org/dist/ext/ws.js", "htmx-ws.js")
+    link("node_modules/htmx.org/dist/ext/alpine-morph.js", "htmx-alpine-morph.js")
 
 
 @task
