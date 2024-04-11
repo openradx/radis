@@ -19,6 +19,14 @@ class LanguageSerializer(serializers.ModelSerializer):
         model = Language
         fields = ("code",)
 
+    def run_validation(self, data: dict[str, Any]) -> Any:
+        # We don't want to check if this modality already exists in the database
+        # as we later use get_or_create.
+        for validator in self.fields["code"].validators:
+            if isinstance(validator, validators.UniqueValidator):
+                self.fields["code"].validators.remove(validator)
+        return super().run_validation(data)
+
 
 class ModalitySerializer(serializers.ModelSerializer):
     class Meta:
@@ -27,7 +35,7 @@ class ModalitySerializer(serializers.ModelSerializer):
 
     def run_validation(self, data: dict[str, Any]) -> Any:
         # We don't want to check if this modality already exists in the database
-        # as later use get_or_create.
+        # as we later use get_or_create.
         for validator in self.fields["code"].validators:
             if isinstance(validator, validators.UniqueValidator):
                 self.fields["code"].validators.remove(validator)
