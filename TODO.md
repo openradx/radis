@@ -2,16 +2,12 @@
 
 ## High Priority
 
-- Move statics vendors back to main projects
 - Check if for RAG ranking should be turned off for performance improvements (and using some fixed sort order)
 - Some present provider.max_results to the user somehow, especially important if the query results (step 1) is larger
 - task control panel
 - Limit RAG search result choice (stop when there x positive results)
 - Limit RAG search by maximum number of reports that gets processed
-- Show metadata in report details
 - Upgrade Github actions workflows (also ADIT)
-- Allow to set filters when using search
-  - from:2024-01-01 until:2024-02-01 modality:ct description:"CT\*"
 - Improve TokenFactory (+ ADIT)
 - <https://docs.vespa.ai/en/operations/docker-containers.html#mounting-persistent-volumes>
 - Change maxHits and maxOffset for farer pagination

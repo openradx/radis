@@ -3,7 +3,7 @@
     <h4 class="mb-3">Report Details</h4>
 {% endblock heading %}
 {% block content %}
-    <table class="table table-sm table-borderless definition-table mb-2">
+    <table class="table table-sm table-borderless w-auto mb-2 definition-table">
         <tbody>
             <tr>
                 <th>Document ID</th>
@@ -31,6 +31,19 @@
             </tr>
         </tbody>
     </table>
+    {% if report.metadata.exists %}
+        <table class="table table-sm table-borderless w-auto mb-2 definition-table">
+            <caption>Metadata</caption>
+            <tbody>
+                {% for data in report.metadata.all %}
+                    <tr>
+                        <th class="pe-3">{{ data.key }}</th>
+                        <td>{{ data.value }}</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% endif %}
     <div class="mb-3 mx-1">{% include "reports/_report_buttons_panel.html" with hide_view_button=True %}</div>
     <div class="card">
         <div class="card-body">

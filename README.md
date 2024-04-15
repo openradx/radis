@@ -2,28 +2,30 @@
 
 ## About
 
-RADIS (Radiology Report Archive and Discovery System) is an application to archive, query and collect radiology reports.
+RADIS (Radiology Report Archive and Discovery System) is a web application to archive, query and collect radiology reports.
 
 ## Features
 
 - Store radiology reports in structured way and allow to retrieve them
 - Full text search using different algorithms (BM25, vector hybrid search)
+- Search and filter reports using Retrieval Augmented Generation (RAG)
 - Add user specific notes to reports
 - Add reports to creatable collections
 - Directly open the PACS viewer with the corresponding study
 
 ## Upcoming features
 
-- Search using Retrieval Augmented Generation (RAG)
 - Subscriptions to get informed by Email when newly added reports match some specific criteria
-- Export collected reports and allow the corresponding studies to be transferred by using [ADIT](https://github.com/openradx/adit)
 - Automatically categorize all reports by using an LLM
+- Export collected reports and allow the corresponding studies to be transferred by using [ADIT](https://github.com/openradx/adit)
 
 ## API Client
 
 [RADIS Client](https://github.com/openradx/radis-client) is a Python library to search for reports on RADIS in a programmatic way. It also allows admins to feed new reports to RADIS.
 
 ## Screenshots
+
+Upcoming ...
 
 ## Architectural overview
 
