@@ -38,6 +38,7 @@ from radis.reports.models import Language, Modality
 from radis.search.site import Search, SearchFilters
 
 from .forms import (
+    ParametersForm,
     QuestionFormSet,
     QuestionFormSetHelper,
     SearchForm,
@@ -65,9 +66,10 @@ class RagJobWizardView(
     LoginRequiredMixin, PermissionRequiredMixin, UserPassesTestMixin, SessionWizardView
 ):
     SEARCH_STEP = "0"
-    QUESTIONS_STEP = "1"
+    PARAMETERS_STEP = "1"
+    QUESTIONS_STEP = "2"
 
-    form_list = [SearchForm, QuestionFormSet]
+    form_list = [SearchForm, ParametersForm, QuestionFormSet]
     permission_required = "rag.add_ragjob"
     permission_denied_message = "You must be logged in and have an active group"
     request: AuthenticatedHttpRequest
@@ -79,13 +81,18 @@ class RagJobWizardView(
         kwargs = super().get_form_kwargs(step)
         if step == RagJobWizardView.SEARCH_STEP:
             kwargs["user"] = self.request.user
+        elif step == RagJobWizardView.PARAMETERS_STEP:
+            data = self.get_cleaned_data_for_step(RagJobWizardView.SEARCH_STEP)
+            assert data
+            retrieval_provider = retrieval_providers[data["provider"]]
+            kwargs["provider"] = retrieval_provider
         return kwargs
 
     def get_context_data(self, form, **kwargs):
         context = super().get_context_data(form, **kwargs)
         if self.steps.current == RagJobWizardView.QUESTIONS_STEP:
             context["helper"] = QuestionFormSetHelper()
-
+        elif self.steps.current == RagJobWizardView.PARAMETERS_STEP:
             data = self.get_cleaned_data_for_step(RagJobWizardView.SEARCH_STEP)
             assert data
             context["retrieval_count"] = self._estimate_retrieval_count(data)
@@ -96,6 +103,8 @@ class RagJobWizardView(
         step = self.steps.current
         if step == RagJobWizardView.SEARCH_STEP:
             return ["rag/rag_job_search_form.html"]
+        elif step == RagJobWizardView.PARAMETERS_STEP:
+            return ["rag/rag_job_parameters_form.html"]
         elif step == RagJobWizardView.QUESTIONS_STEP:
             return ["rag/rag_job_questions_form.html"]
         else:

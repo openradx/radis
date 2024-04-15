@@ -3,6 +3,7 @@ from typing import TYPE_CHECKING, Callable
 from celery import current_app
 from django.conf import settings
 from django.contrib.auth.models import Group
+from django.core.validators import MinValueValidator
 from django.db import models
 from django.urls import reverse
 from django.utils.functional import lazy
@@ -59,6 +60,10 @@ class RagJob(AnalysisJob):
     )
     age_from = models.IntegerField(null=True, blank=True)
     age_till = models.IntegerField(null=True, blank=True)
+
+    # Additional parameters
+    max_to_process = models.PositiveIntegerField(validators=[MinValueValidator(1)])
+    max_to_accept = models.PositiveIntegerField(validators=[MinValueValidator(1)])
 
     if TYPE_CHECKING:
         tasks = RelatedManager["RagTask"]()

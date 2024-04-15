@@ -8,7 +8,7 @@ function QuestionsForm(rootEl) {
   const template = rootEl.querySelector("template");
   const container = rootEl.querySelector("#questions-formset");
   /** @type {HTMLInputElement} */
-  const totalForms = rootEl.querySelector("#id_1-TOTAL_FORMS");
+  const totalForms = rootEl.querySelector("#id_2-TOTAL_FORMS");
 
   return {
     questionsCount: 1,

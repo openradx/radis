@@ -34,6 +34,9 @@ class ProcessRagTask(ProcessAnalysisTask):
         report_body = task.report.body
         language = task.report.language.code
 
+        # TODO: skip if max_to_accept is reached.abs
+        # Maybe we also need to have a SKIPPED status then.
+
         if language not in settings.RAG_SUPPORTED_LANGUAGES:
             raise ValueError(f"Language '{language}' is not supported by RAG.")
 
@@ -127,14 +130,16 @@ class ProcessRagJob(ProcessAnalysisJob):
         elif job.patient_sex == "F":
             patient_sex = "F"
 
+        max_to_process = job.max_to_process
         provider = job.provider
         retrieval_provider = retrieval_providers[provider]
+        limit = min(max_to_process, retrieval_provider.max_results)
 
         search = Search(
             group=job.group.pk,
             query=job.query,
             offset=0,
-            limit=retrieval_provider.max_results,
+            limit=limit,
             filters=SearchFilters(
                 language=job.language.code,
                 modalities=list(job.modalities.values_list("code", flat=True)),

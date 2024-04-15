@@ -6,6 +6,7 @@ from django import forms
 
 from adit_radis_shared.accounts.models import User
 from radis.core.constants import LANGUAGE_LABELS
+from radis.rag.site import RetrievalProvider
 from radis.reports.models import Language, Modality
 from radis.search.forms import AGE_STEP, MAX_AGE, MIN_AGE
 from radis.search.layouts import RangeSlider
@@ -88,7 +89,7 @@ class SearchForm(forms.ModelForm):
                     "provider",
                     "query",
                     "question",
-                    Submit("next", "Next Step (Questions)", css_class="btn-primary"),
+                    Submit("next", "Next Step (Parameters)", css_class="btn-primary"),
                 ),
                 Column(
                     "language",
@@ -111,6 +112,51 @@ class SearchForm(forms.ModelForm):
                 "Setup of RADIS is incomplete. No retrieval providers are registered."
             )
         return super().clean()
+
+
+class ParametersForm(forms.ModelForm):
+    class Meta:
+        model = RagJob
+        fields = [
+            "max_to_process",
+            "max_to_accept",
+        ]
+        labels = {
+            "max_to_process": "Maximum number of reports to process",
+            "max_to_accept": "Maximum number of reports to accept",
+        }
+
+    def __init__(self, *args, **kwargs):
+        self.provider: RetrievalProvider = kwargs.pop("provider")
+
+        super().__init__(*args, **kwargs)
+
+        self.fields["max_to_process"].initial = self.provider.max_results
+        self.fields["max_to_accept"].initial = self.provider.max_results
+
+        self.helper = FormHelper()
+        self.helper.form_tag = False
+
+    def clean_max_to_process(self) -> int:
+        max_to_process = self.cleaned_data["max_to_process"]
+        if max_to_process > self.provider.max_results:
+            raise forms.ValidationError(
+                f"With the selected provider max {self.provider.max_results} "
+                "results can be processed."
+            )
+        return max_to_process
+
+    def clean(self) -> None:
+        max_to_process = self.cleaned_data["max_to_process"]
+        max_to_accept = self.cleaned_data["max_to_accept"]
+        if max_to_accept > max_to_process:
+            self.add_error(
+                "max_to_accept",
+                (
+                    "Maximum number of reports to accept must be less than or equal "
+                    "to maximum number of reports to process."
+                ),
+            )
 
 
 class QuestionForm(forms.ModelForm):
