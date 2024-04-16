@@ -88,6 +88,7 @@ class RagJobWizardView(
 
             data = self.get_cleaned_data_for_step(RagJobWizardView.SEARCH_STEP)
             assert data
+            context["provider"] = retrieval_providers[data["provider"]]
             context["retrieval_count"] = self._estimate_retrieval_count(data)
 
         return context

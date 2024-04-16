@@ -51,9 +51,14 @@
         </div>
         <div class="col-4">
             <p>
-                Your search will hit approximately <strong>{{ retrieval_count }} report{{ retrieval_count|pluralize }}</strong>.
-                The more reports you analyze the longer it will take. If you like to refine your search you can go back to
-                the previous step and adjaust the query and/or filters.
+                {% if retrieval_count > provider.max_results %}
+                    Cave! Your search returns more results ({{ retrieval_count }}) than the RAG pipeline can process ({{ provider.max_results }}).
+                    It is recommended to adjust your query and/or filters in the previous step to retrieve a smaller result set.
+                {% else %}
+                    Your search will hit approximately <strong>{{ retrieval_count }} report{{ retrieval_count|pluralize }}</strong>.
+                    The more reports you analyze the longer it will take. If you like to refine your search you can go back to
+                    the previous step and adjust the query and/or filters.
+                {% endif %}
             </p>
             <p>
                 If the result count sounds reasonable then provide the questions that should be answered by a
