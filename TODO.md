@@ -5,10 +5,7 @@
 - Check if for RAG ranking should be turned off for performance improvements (and using some fixed sort order)
 - Some present provider.max_results to the user somehow, especially important if the query results (step 1) is larger
 - task control panel
-- Limit RAG search result choice (stop when there x positive results)
-- Limit RAG search by maximum number of reports that gets processed
 - Upgrade Github actions workflows (also ADIT)
-- Improve TokenFactory (+ ADIT)
 - <https://docs.vespa.ai/en/operations/docker-containers.html#mounting-persistent-volumes>
 - Change maxHits and maxOffset for farer pagination
   - <https://docs.vespa.ai/en/reference/query-api-reference.html#native-execution-parameters>
@@ -18,7 +15,6 @@
   - <https://github.com/django/django/pull/16634/files>
 - Allow to configure reference names using a database model
   - Reference: name (unique), match (unique)
-- Sidebar like in <https://cord19.vespa.ai/search?query=pain> with filters: Age, Gender, Modality, Study Description
 - Remove unneeded templatetags
 - Are pandas and openpyxl needed as deps?!
 - Remove Redis if not needed anymore
