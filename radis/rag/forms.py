@@ -1,10 +1,10 @@
 from typing import Any
 
+from adit_radis_shared.accounts.models import User
 from crispy_forms.helper import FormHelper
 from crispy_forms.layout import HTML, Column, Div, Layout, Row, Submit
 from django import forms
 
-from adit_radis_shared.accounts.models import User
 from radis.core.constants import LANGUAGE_LABELS
 from radis.reports.models import Language, Modality
 from radis.search.forms import AGE_STEP, MAX_AGE, MIN_AGE

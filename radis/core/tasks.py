@@ -1,6 +1,7 @@
 import logging
 import traceback
 
+from adit_radis_shared.accounts.models import User
 from celery import Task as CeleryTask
 from celery import shared_task
 from celery.exceptions import Retry
@@ -9,7 +10,6 @@ from django.core.mail import send_mail
 from django.core.management import call_command
 from django.utils import timezone
 
-from adit_radis_shared.accounts.models import User
 from radis.core.models import AnalysisJob, AnalysisTask
 
 logger = logging.getLogger(__name__)

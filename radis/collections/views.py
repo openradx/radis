@@ -1,5 +1,7 @@
 from typing import Any, Protocol, cast, runtime_checkable
 
+from adit_radis_shared.common.mixins import PageSizeSelectMixin
+from adit_radis_shared.common.types import AuthenticatedHttpRequest
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib.messages.views import SuccessMessageMixin
 from django.core.exceptions import SuspiciousOperation
@@ -14,8 +16,6 @@ from django.views.generic.detail import SingleObjectMixin
 from django_htmx.http import HttpResponseClientRefresh, trigger_client_event
 from django_tables2 import SingleTableView
 
-from adit_radis_shared.common.mixins import PageSizeSelectMixin
-from adit_radis_shared.common.types import AuthenticatedHttpRequest
 from radis.reports.models import Report
 
 from .filters import CollectionFilter

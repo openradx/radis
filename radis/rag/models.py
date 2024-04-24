@@ -1,5 +1,6 @@
 from typing import TYPE_CHECKING, Callable
 
+from adit_radis_shared.common.models import AppSettings
 from celery import current_app
 from django.conf import settings
 from django.contrib.auth.models import Group
@@ -7,7 +8,6 @@ from django.db import models
 from django.urls import reverse
 from django.utils.functional import lazy
 
-from adit_radis_shared.common.models import AppSettings
 from radis.core.models import AnalysisJob, AnalysisTask
 from radis.reports.models import Language, Modality, Report
 

@@ -1,8 +1,7 @@
 from typing import Any, cast
 
-from django.template import Library
-
 from adit_radis_shared.accounts.models import User
+from django.template import Library
 
 from ..models import Report
 

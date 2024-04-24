@@ -3,17 +3,17 @@ from os import environ
 from pathlib import Path
 from typing import Literal
 
+from adit_radis_shared.accounts.factories import AdminUserFactory, GroupFactory, UserFactory
+from adit_radis_shared.accounts.models import User
+from adit_radis_shared.token_authentication.factories import TokenFactory
+from adit_radis_shared.token_authentication.models import FRACTION_LENGTH
+from adit_radis_shared.token_authentication.utils.crypto import hash_token
 from django.conf import settings
 from django.contrib.auth.models import Group, Permission
 from django.core.management.base import BaseCommand, CommandParser
 from django.db import transaction
 from faker import Faker
 
-from adit_radis_shared.accounts.factories import AdminUserFactory, GroupFactory, UserFactory
-from adit_radis_shared.accounts.models import User
-from adit_radis_shared.token_authentication.factories import TokenFactory
-from adit_radis_shared.token_authentication.models import FRACTION_LENGTH
-from adit_radis_shared.token_authentication.utils.crypto import hash_token
 from radis.reports.factories import LanguageFactory, ReportFactory
 from radis.reports.models import Report
 from radis.reports.signals import report_signal_processor

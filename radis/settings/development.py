@@ -27,7 +27,6 @@ INSTALLED_APPS += [  # noqa: F405
     "debug_permissions",
     "django_fastdev",
     "django_browser_reload",
-    "radis.sandbox.apps.SandboxConfig",
 ]
 
 MIDDLEWARE += [  # noqa: F405

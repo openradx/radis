@@ -1,5 +1,14 @@
 from typing import Any, cast
 
+from adit_radis_shared.common.mixins import PageSizeSelectMixin, RelatedFilterMixin
+from adit_radis_shared.common.site import THEME_PREFERENCE_KEY
+from adit_radis_shared.common.types import AuthenticatedHttpRequest
+from adit_radis_shared.common.views import (
+    AdminProxyView,
+    BaseBroadcastView,
+    BaseHomeView,
+    BaseUpdatePreferencesView,
+)
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.admin.views.decorators import staff_member_required
@@ -21,15 +30,6 @@ from django_filters.filterset import FilterSet
 from django_filters.views import FilterView
 from django_tables2 import SingleTableMixin, Table
 
-from adit_radis_shared.common.mixins import PageSizeSelectMixin, RelatedFilterMixin
-from adit_radis_shared.common.site import THEME_PREFERENCE_KEY
-from adit_radis_shared.common.types import AuthenticatedHttpRequest
-from adit_radis_shared.common.views import (
-    AdminProxyView,
-    BaseBroadcastView,
-    BaseHomeView,
-    BaseUpdatePreferencesView,
-)
 from radis.celery import app as celery_app
 from radis.core.utils.model_utils import reset_tasks
 

@@ -58,11 +58,9 @@ class AnalysisJob(models.Model):
     def __str__(self) -> str:
         return f"{self.__class__.__name__} [ID {self.id}]"
 
-    def get_absolute_url(self) -> str:
-        ...
+    def get_absolute_url(self) -> str: ...
 
-    def delay(self) -> None:
-        ...
+    def delay(self) -> None: ...
 
     def reset_tasks(self, only_failed=False) -> None:
         if only_failed:
@@ -219,8 +217,7 @@ class AnalysisTask(models.Model):
     def __str__(self) -> str:
         return f"{self.__class__.__name__} [ID {self.id} (Job ID {self.job.id})]"
 
-    def delay(self) -> None:
-        ...
+    def delay(self) -> None: ...
 
     @property
     def is_deletable(self) -> bool:

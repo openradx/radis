@@ -1,9 +1,8 @@
 from typing import Generic, TypeVar
 
 import factory
-from faker import Faker
-
 from adit_radis_shared.accounts.factories import UserFactory
+from faker import Faker
 
 from .models import Collection
 

@@ -13,12 +13,15 @@ class CollectionsConfig(AppConfig):
 
 
 def register_app():
-    from adit_radis_shared.common.site import register_main_menu_item
+    from adit_radis_shared.common.site import MainMenuItem, register_main_menu_item
+
     from radis.reports.site import register_report_panel_button
 
     register_main_menu_item(
-        url_name="collection_list",
-        label="Collections",
+        MainMenuItem(
+            url_name="collection_list",
+            label="Collections",
+        )
     )
 
     register_report_panel_button(1, "collections/_collection_select_button.html")

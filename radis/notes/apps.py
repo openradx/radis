@@ -13,12 +13,15 @@ class NotesConfig(AppConfig):
 
 
 def register_app():
-    from adit_radis_shared.common.site import register_main_menu_item
+    from adit_radis_shared.common.site import MainMenuItem, register_main_menu_item
+
     from radis.reports.site import register_report_panel_button
 
     register_main_menu_item(
-        url_name="note_list",
-        label="Notes",
+        MainMenuItem(
+            url_name="note_list",
+            label="Notes",
+        )
     )
 
     register_report_panel_button(2, "notes/_note_edit_button.html")

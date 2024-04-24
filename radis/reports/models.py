@@ -1,9 +1,9 @@
 from typing import TYPE_CHECKING
 
+from adit_radis_shared.common.models import AppSettings
 from django.contrib.auth.models import Group
 from django.db import models
 
-from adit_radis_shared.common.models import AppSettings
 from radis.core.utils.date_utils import calculate_age
 from radis.core.validators import (
     no_backslash_char_validator,

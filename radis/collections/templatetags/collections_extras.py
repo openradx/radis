@@ -1,9 +1,9 @@
 from typing import Any, cast
 
+from adit_radis_shared.accounts.models import User
 from django.db.models import QuerySet
 from django.template import Library
 
-from adit_radis_shared.accounts.models import User
 from radis.reports.models import Report
 
 from ..models import Collection

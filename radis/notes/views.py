@@ -1,5 +1,7 @@
 from typing import Any
 
+from adit_radis_shared.common.mixins import HtmxOnlyMixin, PageSizeSelectMixin
+from adit_radis_shared.common.types import AuthenticatedHttpRequest
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db.models import QuerySet
 from django.http import HttpResponse
@@ -8,8 +10,6 @@ from django.views.generic import DetailView, UpdateView, View
 from django_filters.views import FilterView
 from django_htmx.http import trigger_client_event
 
-from adit_radis_shared.common.mixins import HtmxOnlyMixin, PageSizeSelectMixin
-from adit_radis_shared.common.types import AuthenticatedHttpRequest
 from radis.notes.filters import NoteFilter
 from radis.notes.forms import NoteEditForm
 from radis.notes.models import Note

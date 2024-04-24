@@ -1,5 +1,7 @@
 from typing import cast
 
+from adit_radis_shared.common.mixins import HtmxOnlyMixin, PageSizeSelectMixin, RelatedFilterMixin
+from adit_radis_shared.common.types import AuthenticatedHttpRequest
 from django.conf import settings
 from django.contrib.auth.mixins import (
     LoginRequiredMixin,
@@ -15,8 +17,6 @@ from django.urls import reverse_lazy
 from django.views.generic import DetailView, View
 from formtools.wizard.views import SessionWizardView
 
-from adit_radis_shared.common.mixins import HtmxOnlyMixin, PageSizeSelectMixin, RelatedFilterMixin
-from adit_radis_shared.common.types import AuthenticatedHttpRequest
 from radis.core.views import (
     AnalysisJobCancelView,
     AnalysisJobDeleteView,
