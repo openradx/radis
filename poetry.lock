@@ -2,13 +2,13 @@
 
 [[package]]
 name = "adit-radis-shared"
-version = "0.2.0"
+version = "0.2.1"
 description = "Shared Django apps between ADIT and RADIS"
 optional = false
 python-versions = "<4.0,>=3.11"
 files = [
-    {file = "adit_radis_shared-0.2.0-py3-none-any.whl", hash = "sha256:f39e7e5b2cdcaeaaaaad49fdb2878dca4f3d29c0f5477f9b2ccd76e9b67d0ad9"},
-    {file = "adit_radis_shared-0.2.0.tar.gz", hash = "sha256:d27bbbbbc90edd8ee309c8033ab5cd43eaec49ee84314f706021df7a2d78cc44"},
+    {file = "adit_radis_shared-0.2.1-py3-none-any.whl", hash = "sha256:0ed7c687c19c9116c6fdecc56fd684aa975e3bc1eb79010c119323780fcc695c"},
+    {file = "adit_radis_shared-0.2.1.tar.gz", hash = "sha256:b13fa8deeafd9afd94a70cdfe79dbb761beeee99bab028319585b0548208a935"},
 ]
 
 [package.dependencies]
@@ -2298,13 +2298,13 @@ files = [
 
 [[package]]
 name = "openai"
-version = "1.23.4"
+version = "1.23.6"
 description = "The official Python library for the openai API"
 optional = false
 python-versions = ">=3.7.1"
 files = [
-    {file = "openai-1.23.4-py3-none-any.whl", hash = "sha256:ecb72dcb415c8a1f1b6ef2fe32f8fc9a0942727b6365e8caedf916db5c19b180"},
-    {file = "openai-1.23.4.tar.gz", hash = "sha256:72c5a2ab2cda5727b6897f9d079aec16ceccf7dd2e0e0c84a21f7304d5484563"},
+    {file = "openai-1.23.6-py3-none-any.whl", hash = "sha256:f406c76ba279d16b9aca5a89cee0d968488e39f671f4dc6f0d690ac3c6f6fca1"},
+    {file = "openai-1.23.6.tar.gz", hash = "sha256:612de2d54cf580920a1156273f84aada6b3dca26d048f62eb5364a4314d7f449"},
 ]
 
 [package.dependencies]
