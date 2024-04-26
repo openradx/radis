@@ -19,7 +19,8 @@ from django.contrib import admin
 from django.urls import include, path
 
 urlpatterns = [
-    path("admin-the-great/", admin.site.urls),
+    path("django-admin/", include("loginas.urls")),
+    path("django-admin/", admin.site.urls),
     path("api-auth/", include("rest_framework.urls")),
     path("accounts/", include("adit_radis_shared.accounts.urls")),
     path("", include("radis.core.urls")),
@@ -31,9 +32,6 @@ urlpatterns = [
     path("collections/", include("radis.collections.urls")),
     path("notes/", include("radis.notes.urls")),
 ]
-
-# Django loginas
-urlpatterns += [path("admin/", include("loginas.urls"))]
 
 # Debug Toolbar in Debug mode only
 if settings.DEBUG:
