@@ -95,7 +95,6 @@
 - Prepare Django translations
 - Use fastdev in development
 - Replace me-3 in control_panel.html with gap-3 of surrounding div
-- Rename populate_dev_db to populate_db
 - .env files in project dir (instead of compose dir)
 - Correct help in populate_dev_db command
 - Delete reset_dev_db and add reset option to populate_dev_db
