@@ -2,7 +2,7 @@
   white-space: normal;
 }
 
-.search-summary strong {
+.search-summary em {
   font-weight: bold;
   font-style: italic;
   text-decoration: underline;

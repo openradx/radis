@@ -13,6 +13,8 @@ x-app: &default-app
     VESPA_HOST: "vespa.local"
     VESPA_CONFIG_PORT: "19071"
     VESPA_DATA_PORT: "8080"
+    OPENSEARCH_HOST: "opensearch-node1.local"
+    OPENSEARCH_PORT: "9200"
     RABBITMQ_URL: "amqp://rabbit"
     RABBIT_MANAGEMENT_HOST: "rabbit"
     RABBIT_MANAGEMENT_PORT: "15672"
@@ -67,11 +69,16 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
-  opensearch:
-    image: opensearchproject/opensearch:2
-    hostname: opensearch.local
+  # https://opensearch.org/docs/latest/install-and-configure/install-opensearch/docker/#sample-docker-composeyml
+  opensearch-node1:
+    image: opensearchproject/opensearch:latest
+    hostname: opensearch-node1.local
     volumes:
       - opensearch_data:/usr/share/opensearch/data
+
+  opensearch-dashboards:
+    image: opensearchproject/opensearch-dashboards:latest
+    hostname: opensearch-dashboards.local
 
   vespa:
     image: vespaengine/vespa:8

@@ -1,6 +1,14 @@
 <div class="d-flex flex-column">
     <div class="mb-3">
-        {% if total_count %}<small class="ms-2">Ranked {{ total_count }} report{{ total_count|pluralize }}.</small>{% endif %}
+        <small class="ms-2">
+            {% if total_relation == "at_least" %}
+                More than
+            {% elif total_relation == "approximately" %}
+                Approximately
+            {% endif %}
+            {{ total_count }} report{{ total_count|pluralize }}.
+            found
+        </small>
     </div>
     {% for document in documents %}
         {% include "search/_result_document.html" %}

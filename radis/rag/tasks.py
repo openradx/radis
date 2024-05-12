@@ -34,8 +34,8 @@ class ProcessRagTask(ProcessAnalysisTask):
         report_body = task.report.body
         language = task.report.language.code
 
-        if language not in settings.RAG_SUPPORTED_LANGUAGES:
-            raise ValueError(f"Language '{language}' is not supported by RAG.")
+        if language not in settings.SUPPORTED_LANGUAGES:
+            raise ValueError(f"Language '{language}' is not supported.")
 
         all_results: list[RagTask.Result] = []
 
@@ -131,11 +131,11 @@ class ProcessRagJob(ProcessAnalysisJob):
         retrieval_provider = retrieval_providers[provider]
 
         search = Search(
-            group=job.group.pk,
             query=job.query,
             offset=0,
             limit=retrieval_provider.max_results,
             filters=SearchFilters(
+                group=job.group.pk,
                 language=job.language.code,
                 modalities=list(job.modalities.values_list("code", flat=True)),
                 study_date_from=job.study_date_from,
@@ -149,9 +149,7 @@ class ProcessRagJob(ProcessAnalysisJob):
 
         logger.debug("Searching reports for task with search: %s", search)
 
-        result = retrieval_provider.handler(search)
-
-        for document_id in result.document_ids:
+        for document_id in retrieval_provider.retrieve(search):
             task = RagTask.objects.create(
                 job=job, report=Report.objects.get(document_id=document_id)
             )

@@ -222,10 +222,10 @@ class VespaAppModifier:
             <config name="container.qr-searchers">
                 <tag>
                     <bold>
-                        <open>&lt;strong&gt;</open>
-                        <close>&lt;/strong&gt;</close>
+                        <open>&lt;em&gt;</open>
+                        <close>&lt;/em&gt;</close>
                     </bold>
-                    <separator>&lt;em&gt;...&lt;/em&gt;</separator>
+                    <separator> &lt;strong&gt;...&lt;/strong&gt; </separator>
                 </tag>
             </config>
             """

@@ -81,6 +81,7 @@ INSTALLED_APPS = [
     "radis.collections.apps.CollectionsConfig",
     "radis.notes.apps.NotesConfig",
     "radis.vespa.apps.VespaConfig",
+    "radis.opensearch.apps.OpenSearchConfig",
     "channels",
 ]
 
@@ -362,6 +363,18 @@ TOKEN_AUTHENTICATION_SALT = env.str(
     default="Rn4YNfgAar5dYbPu",  # type: ignore
 )
 
+# Language specific setup. Currently only German and English are supported.
+SUPPORTED_LANGUAGES = ["de", "en"]
+
+# OpenSearch
+OPENSEARCH_HOST = env.str("OPENSEARCH_HOST", default="localhost")  # type: ignore
+OPENSEARCH_PORT = env.int("OPENSEARCH_PORT", default=9200)  # type: ignore
+OPENSEARCH_PASSWORD = env.str("OPENSEARCH_INITIAL_ADMIN_PASSWORD", default="admin")  # type: ignore
+OPENSEARCH_INDICES = [
+    {"language": "de", "analyzer": "german"},
+    {"language": "en", "analyzer": "english"},
+]
+
 LLAMACPP_URL = env.str("LLAMACPP_URL", default="http://localhost:8088")  # type: ignore
 
 # Specific task priorities
@@ -370,7 +383,6 @@ RAG_URGENT_PRIORITY = 3
 
 # RAG settings
 START_RAG_JOB_UNVERIFIED = False
-RAG_SUPPORTED_LANGUAGES = ["de", "en"]
 RAG_SYSTEM_PROMPT = {
     "de": "Du bist ein radiologischer Facharzt",
     "en": "You are a radiologist",

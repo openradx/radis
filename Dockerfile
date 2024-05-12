@@ -44,7 +44,7 @@ RUN  mkdir /tmp/vespa-cli \
     && cp -r /tmp/vespa-cli/share/* /usr/local/share/ \
     && rm -rf /tmp/vespa-cli.tar.gz /tmp/vespa-cli
 
-# Download embedding model, which gets deployed by setup_vespa.py
+# Download embedding model, which gets deployed by Django vespa management command (see vespa.py)
 ADD "https://github.com/vespa-engine/sample-apps/raw/master/simple-semantic-search/model/e5-small-v2-int8.onnx" /opt/models/model.onnx
 ADD "https://raw.githubusercontent.com/vespa-engine/sample-apps/master/simple-semantic-search/model/tokenizer.json" /opt/models/tokenizer.json
 

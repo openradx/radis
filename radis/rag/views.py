@@ -129,11 +129,11 @@ class RagJobWizardView(
         modalities = cast(QuerySet[Modality], data["modalities"])
 
         search = Search(
-            group=active_group.pk,
             query=data["query"],
             offset=0,
             limit=0,
             filters=SearchFilters(
+                group=active_group.pk,
                 language=language.code,
                 modalities=list(modalities.values_list("code", flat=True)),
                 study_date_from=data["study_date_from"],
@@ -146,9 +146,7 @@ class RagJobWizardView(
         )
 
         retrieval_provider = retrieval_providers[data["provider"]]
-        result = retrieval_provider.handler(search)
-
-        return result.total_count
+        return retrieval_provider.count(search)
 
 
 class RagJobDetailView(AnalysisJobDetailView):
