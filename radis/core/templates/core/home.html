@@ -25,6 +25,19 @@
         collect radiology reports. For searching relevant reports it uses state of the art search
         algorithms like vector search and hypbrid search.
     </p>
+    <p>RADIS supports the following features:</p>
+    <ul>
+        <li>Store radiology reports in structured way and allow to retrieve them</li>
+        <li>Full text search using different search algorithms (BM25, semantic or hybrid search)</li>
+        <li>
+            Search and filter reports using as Large Language Model (LLM) using a Retrieval Augmented Generation (RAG) pipeline
+        </li>
+        <li>Categorize reports using a Large Language Model (LLM) - TBD</li>
+        <li>Get notified by Email when new reports that match a filter are available - TBD</li>
+        <li>Allow users to collect reports and add notes to them</li>
+        <li>Export a batch file to transfer the studies associated with the collected reports</li>
+        <li>Directly open the PACS viewer to view the study associated with the report</li>
+    </ul>
     {% if not user.is_authenticated %}
         <p>
             <a class="btn btn-info" href="{% url 'auth_login' %}" role="button">Log in</a>
