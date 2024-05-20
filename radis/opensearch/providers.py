@@ -1,5 +1,5 @@
 import logging
-from typing import Iterable
+from typing import Any, Iterable
 
 from radis.opensearch.client import get_client
 from radis.opensearch.utils.document_utils import document_from_opensearch_response
@@ -8,7 +8,7 @@ from radis.search.site import Search, SearchFilters, SearchResult
 logger = logging.getLogger(__name__)
 
 
-def build_query_filter(filters: SearchFilters) -> list[dict]:
+def _build_filter_dict(filters: SearchFilters) -> list[dict]:
     qf = []
 
     f = {"term": {"groups": filters.group}}
@@ -45,21 +45,25 @@ def build_query_filter(filters: SearchFilters) -> list[dict]:
     return qf
 
 
+def _build_query_dict(search: Search) -> dict:
+    return {
+        "bool": {
+            "filter": _build_filter_dict(search.filters),
+            "must": {
+                "simple_query_string": {
+                    "query": search.query,
+                },
+            },
+        }
+    }
+
+
 def search(search: Search) -> SearchResult:
     language = search.filters.language
     index_name = f"reports_{language}"
 
     body = {
-        "query": {
-            "bool": {
-                "filter": build_query_filter(search.filters),
-                "must": {
-                    "simple_query_string": {
-                        "query": search.query,
-                    },
-                },
-            }
-        },
+        "query": _build_query_dict(search),
         "highlight": {
             "fields": {
                 "body": {},
@@ -103,43 +107,25 @@ def search(search: Search) -> SearchResult:
     )
 
 
-def _build_retrieval_query(search: Search) -> dict:
-    query = {
-        "query": {
-            "bool": {
-                "filter": build_query_filter(search.filters),
-                "must": {
-                    "simple_query_string": {
-                        "query": search.query,
-                    },
-                },
-            }
-        },
-        "_source": False,
-    }
-
-    return query
-
-
 def count(search: Search) -> int:
-    query = _build_retrieval_query(search)
-    query["track_total_hits"] = True
-    query["size"] = 0
-
     client = get_client()
     response = client.count(
         index=f"reports_{search.filters.language}",
-        body=query,
+        body={
+            "query": _build_query_dict(search),
+        },
     )
 
-    return response["hits"]["total"]["value"]
+    return response["count"]
 
 
 def retrieve(search: Search) -> Iterable[str]:
     language = search.filters.language
     index_name = f"reports_{language}"
 
-    query = _build_retrieval_query(search)
+    query: dict[str, Any] = {}
+    query["query"] = _build_query_dict(search)
+    query["_source"] = False
     query["size"] = 1000
     query["sort"] = [
         {"study_datetime": "asc"},
