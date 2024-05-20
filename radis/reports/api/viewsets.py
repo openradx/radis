@@ -1,3 +1,4 @@
+import logging
 from typing import Any
 
 from django.db import transaction
@@ -17,6 +18,8 @@ from ..site import (
     reports_updated_handlers,
 )
 from .serializers import ReportSerializer
+
+logger = logging.getLogger(__name__)
 
 
 class ReportViewSet(
@@ -69,11 +72,13 @@ class ReportViewSet(
         if not isinstance(reports, list):
             reports = [reports]
 
-        transaction.on_commit(
-            lambda: [
-                handler([report.id for report in reports]) for handler in reports_created_handlers
-            ]
-        )
+        def on_commit():
+            for handler in reports_created_handlers:
+                report_ids = [report.id for report in reports]
+                logger.debug(f"{handler.name} - handle newly created reports: {report_ids}")
+                handler.handle(report_ids)
+
+        transaction.on_commit(on_commit)
 
     def update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         # DRF itself does not support upsert.
@@ -109,11 +114,13 @@ class ReportViewSet(
         if not isinstance(reports, list):
             reports = [reports]
 
-        transaction.on_commit(
-            lambda: [
-                handler([report.id for report in reports]) for handler in reports_updated_handlers
-            ]
-        )
+        def on_commit():
+            for handler in reports_updated_handlers:
+                report_ids = [report.id for report in reports]
+                logger.debug(f"{handler.name} - handle updated reports: {report_ids}")
+                handler.handle(report_ids)
+
+        transaction.on_commit(on_commit)
 
     def partial_update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         # Disallow partial updates
@@ -122,6 +129,10 @@ class ReportViewSet(
 
     def perform_destroy(self, instance: Report) -> None:
         super().perform_destroy(instance)
-        transaction.on_commit(
-            lambda: [handler([instance.document_id]) for handler in reports_deleted_handlers]
-        )
+
+        def on_commit():
+            for handler in reports_deleted_handlers:
+                logger.debug(f"{handler.name} - handle deleted report: {instance.document_id}")
+                handler.handle([instance.document_id])
+
+        transaction.on_commit(on_commit)

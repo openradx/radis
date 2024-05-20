@@ -4,7 +4,11 @@ from django.http import HttpRequest
 
 from .models import Report
 
-ReportsCreatedHandler = Callable[[list[int]], None]
+
+class ReportsCreatedHandler(NamedTuple):
+    name: str
+    handle: Callable[[list[int]], None]
+
 
 reports_created_handlers: list[ReportsCreatedHandler] = []
 
@@ -17,7 +21,10 @@ def register_reports_created_handler(handler: ReportsCreatedHandler) -> None:
     reports_created_handlers.append(handler)
 
 
-ReportsUpdatedHandler = Callable[[list[int]], None]
+class ReportsUpdatedHandler(NamedTuple):
+    name: str
+    handle: Callable[[list[int]], None]
+
 
 reports_updated_handlers: list[ReportsUpdatedHandler] = []
 
@@ -30,7 +37,10 @@ def register_reports_updated_handler(handler: ReportsUpdatedHandler) -> None:
     reports_updated_handlers.append(handler)
 
 
-ReportsDeletedHandler = Callable[[list[str]], None]
+class ReportsDeletedHandler(NamedTuple):
+    name: str
+    handle: Callable[[list[str]], None]
+
 
 reports_deleted_handlers: list[ReportsDeletedHandler] = []
 
