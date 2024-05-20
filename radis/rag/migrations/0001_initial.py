@@ -47,7 +47,7 @@ class Migration(migrations.Migration):
                 ('started_at', models.DateTimeField(blank=True, null=True)),
                 ('ended_at', models.DateTimeField(blank=True, null=True)),
                 ('title', models.CharField(max_length=100)),
-                ('provider', models.CharField(choices=[('Keyword Search', 'Keyword Search')], default=radis.rag.models.get_default_provider, max_length=100)),
+                ('provider', models.CharField(choices=[('Keyword Search', 'Keyword Search')], max_length=100)),
                 ('query', models.CharField(max_length=200)),
                 ('study_date_from', models.DateField(blank=True, null=True)),
                 ('study_date_till', models.DateField(blank=True, null=True)),

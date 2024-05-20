@@ -1,5 +1,3 @@
-from typing import Any
-
 from adit_radis_shared.accounts.models import User
 from crispy_forms.helper import FormHelper
 from crispy_forms.layout import HTML, Column, Div, Layout, Row, Submit
@@ -11,6 +9,7 @@ from radis.search.forms import AGE_STEP, MAX_AGE, MIN_AGE
 from radis.search.layouts import RangeSlider
 
 from .models import Question, RagJob
+from .site import retrieval_providers
 
 
 class SearchForm(forms.ModelForm):
@@ -40,6 +39,10 @@ class SearchForm(forms.ModelForm):
 
         super().__init__(*args, **kwargs)
 
+        provider_choices = sorted(
+            [(provider.name, provider.name) for provider in retrieval_providers.values()]
+        )
+        self.fields["provider"].widget = forms.Select(choices=provider_choices)
         self.fields["query"].widget = forms.Textarea(attrs={"rows": 2})
         self.fields["language"].choices = [
             (language.pk, LANGUAGE_LABELS[language.code])
@@ -105,12 +108,13 @@ class SearchForm(forms.ModelForm):
         )
         return layout
 
-    def clean(self) -> dict[str, Any]:
-        if not self.fields["provider"].choices:
+    def clean_provider(self) -> str:
+        provider = self.cleaned_data["provider"]
+        if not provider:
             raise forms.ValidationError(
                 "Setup of RADIS is incomplete. No retrieval providers are registered."
             )
-        return super().clean()
+        return provider
 
 
 class QuestionForm(forms.ModelForm):
