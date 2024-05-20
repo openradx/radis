@@ -275,3 +275,28 @@ class QueryParser:
 
         node = self._parse_string(query_after)
         return node, fixes
+
+    @staticmethod
+    def unparse(node: Node) -> str:
+        if isinstance(node, str):
+            return node
+        elif isinstance(node, UnaryNode):
+            return f"{node.operator} {QueryParser.unparse(node.operand)}"
+        elif isinstance(node, BinaryNode):
+            if node.implicit:
+                return f"{QueryParser.unparse(node.left)} {QueryParser.unparse(node.right)}"
+            return (
+                f"{QueryParser.unparse(node.left)} {node.operator} "
+                + f"{QueryParser.unparse(node.right)}"
+            )
+        elif isinstance(node, ParensNode):
+            return f"({QueryParser.unparse(node.expression)})"
+        elif isinstance(node, TermNode):
+            if node.term_type == "WORD":
+                return node.value
+            elif node.term_type == "PHRASE":
+                return f'"{node.value.replace('"', '\\"')}"'
+            else:
+                raise ValueError(f"Unknown term type: {node.term_type}")
+        else:
+            raise ValueError(f"Unknown node type: {type(node)}")

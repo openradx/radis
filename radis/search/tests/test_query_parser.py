@@ -1,33 +1,6 @@
 # def stringify
 
-from radis.search.utils.query_parser import (
-    BinaryNode,
-    Node,
-    ParensNode,
-    QueryParser,
-    TermNode,
-    UnaryNode,
-)
-
-
-def unparse(node: Node):
-    if isinstance(node, str):
-        return node
-    elif isinstance(node, UnaryNode):
-        return f"{node.operator} {unparse(node.operand)}"
-    elif isinstance(node, BinaryNode):
-        if node.implicit:
-            return f"{unparse(node.left)} {unparse(node.right)}"
-        return f"{unparse(node.left)} {node.operator} {unparse(node.right)}"
-    elif isinstance(node, ParensNode):
-        return f"({unparse(node.expression)})"
-    elif isinstance(node, TermNode):
-        if node.term_type == "WORD":
-            return node.value
-        elif node.term_type == "PHRASE":
-            return f'"{node.value.replace('"', '\\"')}"'
-    else:
-        raise ValueError(f"Unknown node type: {type(node)}")
+from radis.search.utils.query_parser import QueryParser
 
 
 def is_valid_query(query: str, final_query: str | None = None) -> bool:
@@ -36,7 +9,7 @@ def is_valid_query(query: str, final_query: str | None = None) -> bool:
     node, fixes = QueryParser().parse(query)
     assert len(fixes) == 0
     assert node is not None
-    assert unparse(node) == final_query
+    assert QueryParser.unparse(node) == final_query
     return True
 
 
@@ -44,7 +17,7 @@ def is_fixed_query(query: str, fixed_query: str, num_of_fixes: int) -> bool:
     node, fixes = QueryParser().parse(query)
     assert len(fixes) == num_of_fixes
     assert node is not None
-    assert unparse(node) == fixed_query
+    assert QueryParser.unparse(node) == fixed_query
     return True
 
 
