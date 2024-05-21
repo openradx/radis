@@ -7,6 +7,7 @@ from radis.core.constants import LANGUAGE_LABELS
 from radis.reports.models import Language, Modality
 from radis.search.forms import AGE_STEP, MAX_AGE, MIN_AGE
 from radis.search.layouts import RangeSlider
+from radis.search.utils.query_parser import QueryParser
 
 from .models import Question, RagJob
 from .site import retrieval_providers
@@ -43,7 +44,6 @@ class SearchForm(forms.ModelForm):
             [(provider.name, provider.name) for provider in retrieval_providers.values()]
         )
         self.fields["provider"].widget = forms.Select(choices=provider_choices)
-        self.fields["query"].widget = forms.Textarea(attrs={"rows": 2})
         self.fields["language"].choices = [
             (language.pk, LANGUAGE_LABELS[language.code])
             for language in Language.objects.order_by("code")
@@ -115,6 +115,13 @@ class SearchForm(forms.ModelForm):
                 "Setup of RADIS is incomplete. No retrieval providers are registered."
             )
         return provider
+
+    def clean_query(self) -> str:
+        query = self.cleaned_data["query"]
+        query_node, _ = QueryParser().parse(query)
+        if query_node is None:
+            raise forms.ValidationError("Invalid empty query")
+        return query
 
 
 class QuestionForm(forms.ModelForm):

@@ -4,6 +4,7 @@ from typing import Any, Iterable
 from radis.opensearch.client import get_client
 from radis.opensearch.utils.document_utils import document_from_opensearch_response
 from radis.search.site import Search, SearchFilters, SearchResult
+from radis.search.utils.query_parser import BinaryNode, ParensNode, QueryNode, TermNode, UnaryNode
 
 logger = logging.getLogger(__name__)
 
@@ -45,13 +46,36 @@ def _build_filter_dict(filters: SearchFilters) -> list[dict]:
     return qf
 
 
+def _build_query_string(node: QueryNode) -> str:
+    if isinstance(node, TermNode):
+        if node.term_type == "WORD":
+            return node.value
+        elif node.term_type == "PHRASE":
+            return f'"{node.value.replace('"', '\\"')}"'
+        else:
+            raise ValueError(f"Unknown term type: {node.term_type}")
+    elif isinstance(node, ParensNode):
+        return f"({_build_query_string(node.expression)})"
+    elif isinstance(node, UnaryNode):
+        return f"{node.operator} {_build_query_string(node.operand)}"
+    elif isinstance(node, BinaryNode):
+        if node.implicit:
+            return f"{_build_query_string(node.left)} {_build_query_string(node.right)}"
+        return (
+            f"{_build_query_string(node.left)} {node.operator} "
+            + f"{_build_query_string(node.right)}"
+        )
+    else:
+        raise ValueError(f"Unknown node type: {type(node)}")
+
+
 def _build_query_dict(search: Search) -> dict:
     return {
         "bool": {
             "filter": _build_filter_dict(search.filters),
             "must": {
                 "simple_query_string": {
-                    "query": search.query,
+                    "query": _build_query_string(search.query),
                 },
             },
         }

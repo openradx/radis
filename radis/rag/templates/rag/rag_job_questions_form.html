@@ -50,6 +50,13 @@
             </form>
         </div>
         <div class="col-4">
+            {% if fixed_query %}
+                <div class="alert alert-warning" role="alert">
+                    Fixed invalid query, instead using:
+                    <br />
+                    <span class="font-monospace">{{ fixed_query }}</span>
+                </div>
+            {% endif %}
             <p>
                 {% if provider.max_results and retrieval_count > provider.max_results %}
                     Cave! Your search returns more results ({{ retrieval_count }}) than the RAG pipeline can process ({{ provider.max_results }}).

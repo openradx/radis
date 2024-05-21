@@ -10,6 +10,11 @@
             found
         </small>
     </div>
+    {% if fixed_query %}
+        <div class="alert alert-warning" role="alert">
+            Fixed invalid query: <span class="font-monospace">{{ fixed_query }}</span>
+        </div>
+    {% endif %}
     {% for document in documents %}
         {% include "search/_result_document.html" %}
     {% empty %}

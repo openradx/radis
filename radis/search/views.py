@@ -10,6 +10,7 @@ from django.shortcuts import render
 from django.views import View
 
 from radis.search.forms import SearchForm
+from radis.search.utils.query_parser import QueryParser
 
 from .site import Search, SearchFilters, search_providers
 
@@ -58,9 +59,14 @@ class SearchView(LoginRequiredMixin, UserPassesTestMixin, View):
         # TODO: when no active group is selected show user a error
         assert active_group
 
-        if query:
+        query_node, fixes = QueryParser().parse(query)
+
+        if query_node is not None:
+            if len(fixes) > 0:
+                context["fixed_query"] = QueryParser.unparse(query_node)
+
             search = Search(
-                query=query,
+                query=query_node,
                 filters=SearchFilters(
                     group=active_group.pk,
                     language=language,

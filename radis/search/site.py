@@ -3,6 +3,7 @@ from datetime import date, datetime
 from typing import Callable, Literal, NamedTuple
 
 from radis.reports.models import Report
+from radis.search.utils.query_parser import QueryNode
 
 
 class ReportDocument(NamedTuple):
@@ -72,7 +73,7 @@ class Search(NamedTuple):
     - limit (int | None): The size limit of the search results.
     """
 
-    query: str
+    query: QueryNode
     filters: SearchFilters
     offset: int = 0
     limit: int | None = 10

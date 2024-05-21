@@ -9,6 +9,7 @@ from radis.celery import app as celery_app
 from radis.core.tasks import ProcessAnalysisJob, ProcessAnalysisTask
 from radis.reports.models import Report
 from radis.search.site import Search, SearchFilters
+from radis.search.utils.query_parser import QueryParser
 
 from .models import Answer, QuestionResult, RagJob, RagTask
 from .site import retrieval_providers
@@ -130,8 +131,16 @@ class ProcessRagJob(ProcessAnalysisJob):
         provider = job.provider
         retrieval_provider = retrieval_providers[provider]
 
+        query_node, fixes = QueryParser().parse(job.query)
+
+        if query_node is None:
+            raise ValueError(f"Not a valid query (evaluated as empty): {job.query}")
+
+        if len(fixes) > 0:
+            logger.info(f"The following fixes were applied to the query:\n{"\n - ".join(fixes)}")
+
         search = Search(
-            query=job.query,
+            query=query_node,
             offset=0,
             limit=retrieval_provider.max_results,
             filters=SearchFilters(

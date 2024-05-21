@@ -5,6 +5,7 @@ from typing import Any, Iterator
 from vespa.io import VespaQueryResponse
 
 from radis.search.site import Search, SearchFilters, SearchResult
+from radis.search.utils.query_parser import BinaryNode, ParensNode, QueryNode, TermNode, UnaryNode
 
 from .utils.document_utils import document_from_vespa_response
 from .vespa_app import (
@@ -44,6 +45,30 @@ def _build_yql_filter(filters: SearchFilters) -> str:
     return q
 
 
+def _build_query_string(node: QueryNode) -> str:
+    if isinstance(node, TermNode):
+        if node.term_type == "WORD":
+            return node.value
+        elif node.term_type == "PHRASE":
+            return f'"{node.value.replace('"', '\\"')}"'
+        else:
+            raise ValueError(f"Unknown term type: {node.term_type}")
+    elif isinstance(node, ParensNode):
+        return f"({_build_query_string(node.expression)})"
+    elif isinstance(node, UnaryNode):
+        assert node.operator == "NOT"
+        return f"-{_build_query_string(node.operand)}"
+    elif isinstance(node, BinaryNode):
+        if node.operator == "AND":
+            return f"{_build_query_string(node.left)} {_build_query_string(node.right)}"
+        elif node.operator == "OR":
+            return f"({_build_query_string(node.left)} OR {_build_query_string(node.right)})"
+        else:
+            raise ValueError(f"Unknown operator: {node.operator}")
+    else:
+        raise ValueError(f"Unknown node type: {type(node)}")
+
+
 def _execute_query(params: dict[str, Any]) -> VespaQueryResponse:
     logger.debug("Querying Vespa with params:\n%s", params)
 
@@ -63,10 +88,12 @@ def search_bm25(search: Search) -> SearchResult:
     yql = "select * from sources * where userQuery()"
     yql += _build_yql_filter(search.filters)
 
+    query = _build_query_string(search.query)
+
     response = _execute_query(
         {
             "yql": yql,
-            "query": search.query,
+            "query": query,
             "type": "web",
             "hits": search.limit,
             "offset": search.offset,
@@ -87,17 +114,19 @@ def search_semantic(search: Search) -> SearchResult:
     yql = "select * from sources * where userQuery()"
     yql += _build_yql_filter(search.filters)
 
+    query = _build_query_string(search.query)
+
     response = _execute_query(
         {
             "yql": yql,
-            "query": search.query,
+            "query": query,
             "type": "web",
             "hits": search.limit,
             "offset": search.offset,
             "queryProfile": SEARCH_QUERY_PROFILE,
             "language": search.filters.language,
             "ranking": SEMANTIC_RANK_PROFILE,
-            "body": {"input.query(q)": f"embed({search.query})"},
+            "body": {"input.query(q)": f"embed({query})"},
         }
     )
 
@@ -113,17 +142,19 @@ def search_hybrid(search: Search) -> SearchResult:
     yql = "select * from sources * where userQuery()"
     yql += _build_yql_filter(search.filters)
 
+    query = _build_query_string(search.query)
+
     response = _execute_query(
         {
             "yql": yql,
-            "query": search.query,
+            "query": query,
             "type": "web",
             "hits": search.limit,
             "offset": search.offset,
             "queryProfile": SEARCH_QUERY_PROFILE,
             "language": search.filters.language,
             "ranking": FUSION_RANK_PROFILE,
-            "body": {"input.query(q)": f"embed({search.query})"},
+            "body": {"input.query(q)": f"embed({query})"},
         }
     )
 
@@ -138,10 +169,12 @@ def count_bm25(search: Search) -> int:
     yql = "select * from sources * where userQuery()"
     yql += _build_yql_filter(search.filters)
 
+    query = _build_query_string(search.query)
+
     response = _execute_query(
         {
             "yql": yql,
-            "query": search.query,
+            "query": query,
             "type": "web",
             "hits": 0,
             "offset": 0,
@@ -160,10 +193,12 @@ def retrieve_bm25(search: Search) -> Iterator[str]:
     yql = "select * from sources * where userQuery()"
     yql += _build_yql_filter(search.filters)
 
+    query = _build_query_string(search.query)
+
     response = _execute_query(
         {
             "yql": yql,
-            "query": search.query,
+            "query": query,
             "type": "web",
             "hits": search.limit,
             "offset": search.offset,

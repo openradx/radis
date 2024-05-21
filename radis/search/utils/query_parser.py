@@ -14,7 +14,7 @@ class TermNode:
 
 
 class ParensNode:
-    def __init__(self, expression: "Node"):
+    def __init__(self, expression: "QueryNode"):
         self.expression = expression
 
     def __repr__(self):
@@ -22,7 +22,7 @@ class ParensNode:
 
 
 class UnaryNode:
-    def __init__(self, operator: Literal["NOT"], operand: "Node"):
+    def __init__(self, operator: Literal["NOT"], operand: "QueryNode"):
         self.operator = operator
         self.operand = operand
 
@@ -34,8 +34,8 @@ class BinaryNode:
     def __init__(
         self,
         operator: Literal["AND", "OR"],
-        left: "Node",
-        right: "Node",
+        left: "QueryNode",
+        right: "QueryNode",
         implicit: bool = False,
     ):
         self.operator = operator
@@ -51,7 +51,7 @@ class BinaryNode:
         return f"BinaryNode({self.operator}, {self.left}, {self.right})"
 
 
-Node = TermNode | UnaryNode | BinaryNode | str
+QueryNode = TermNode | ParensNode | UnaryNode | BinaryNode
 
 
 class QueryParser:
@@ -171,7 +171,7 @@ class QueryParser:
     def _reduce_spaces(self, input_string: str) -> str:
         return self._modify_unquoted_segments(input_string, lambda s: re.sub(r"\s+", " ", s))
 
-    def _parse_string(self, input_string: str) -> Node:
+    def _parse_string(self, input_string: str) -> QueryNode:
         not_ = pp.Keyword("NOT")
         and_ = pp.Keyword("AND")
         or_ = pp.Keyword("OR")
@@ -215,9 +215,9 @@ class QueryParser:
             lambda t: BinaryNode("OR", t[0], t[2])  # type: ignore
         ) | and_expression
 
-        return cast(Node, or_expression.parse_string(input_string, parse_all=True)[0])
+        return cast(QueryNode, or_expression.parse_string(input_string, parse_all=True)[0])
 
-    def parse(self, query: str) -> tuple[Node | None, list[str]]:
+    def parse(self, query: str) -> tuple[QueryNode | None, list[str]]:
         fixes: list[str] = []
 
         query_before = query
@@ -277,9 +277,16 @@ class QueryParser:
         return node, fixes
 
     @staticmethod
-    def unparse(node: Node) -> str:
-        if isinstance(node, str):
-            return node
+    def unparse(node: QueryNode) -> str:
+        if isinstance(node, TermNode):
+            if node.term_type == "WORD":
+                return node.value
+            elif node.term_type == "PHRASE":
+                return f'"{node.value.replace('"', '\\"')}"'
+            else:
+                raise ValueError(f"Unknown term type: {node.term_type}")
+        elif isinstance(node, ParensNode):
+            return f"({QueryParser.unparse(node.expression)})"
         elif isinstance(node, UnaryNode):
             return f"{node.operator} {QueryParser.unparse(node.operand)}"
         elif isinstance(node, BinaryNode):
@@ -289,14 +296,5 @@ class QueryParser:
                 f"{QueryParser.unparse(node.left)} {node.operator} "
                 + f"{QueryParser.unparse(node.right)}"
             )
-        elif isinstance(node, ParensNode):
-            return f"({QueryParser.unparse(node.expression)})"
-        elif isinstance(node, TermNode):
-            if node.term_type == "WORD":
-                return node.value
-            elif node.term_type == "PHRASE":
-                return f'"{node.value.replace('"', '\\"')}"'
-            else:
-                raise ValueError(f"Unknown term type: {node.term_type}")
         else:
             raise ValueError(f"Unknown node type: {type(node)}")
