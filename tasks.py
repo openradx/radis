@@ -161,6 +161,20 @@ def compose_down(
         cmd += " --remove-orphans --volumes"
     if service:
         cmd += f" {service}"
+
+    if env == "prod":
+        cancelled_msg = "Compose down cancelled!"
+
+        response = input("Are you sure to stop the production containers? (yes to proceed) ")
+        if response != "yes":
+            print(cancelled_msg)
+            return
+
+        response = input("Are you sure to delete all production volumes? (yes to proceed) ")
+        if response != "yes":
+            print(cancelled_msg)
+            return
+
     ctx.run(cmd, pty=True)
 
 
