@@ -121,7 +121,7 @@ def test_fixed_queries():
     assert is_fixed_query('foo bar"', "foo bar", 1)
     assert is_fixed_query('"foo bar" baz"', '"foo bar" baz', 1)
 
-    # Fix unvalid characters
+    # Fix invalid characters
     assert is_fixed_query("foo$bar", "foobar", 1)
     assert is_fixed_query("foo bar~ baz", "foo bar baz", 1)
     assert is_fixed_query('foo bar \\" baz', "foo bar baz", 1)
