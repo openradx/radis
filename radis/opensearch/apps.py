@@ -1,13 +1,15 @@
 from typing import Any
 
 from django.apps import AppConfig
+from django.conf import settings
 
 
 class OpenSearchConfig(AppConfig):
     name = "radis.opensearch"
 
     def ready(self):
-        register_app()
+        if settings.OPENSEARCH_ENABLED:
+            register_app()
 
 
 def register_app():

@@ -1,13 +1,15 @@
 from typing import Any
 
 from django.apps import AppConfig
+from django.conf import settings
 
 
 class VespaConfig(AppConfig):
     name = "radis.vespa"
 
     def ready(self):
-        register_app()
+        if settings.VESPA_ENABLED:
+            register_app()
 
 
 def register_app():

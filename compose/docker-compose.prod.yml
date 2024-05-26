@@ -26,8 +26,8 @@ services:
         ./manage.py generate_cert &&
         wait-for-it -s opensearch-node1.local:9200 -t 60 &&
         ./manage.py setup_opensearch &&
-        wait-for-it -s vespa.local:19071 -t 60 &&
-        ./manage.py vespa --generate --deploy &&
+        # wait-for-it -s vespa.local:19071 -t 60 &&
+        # ./manage.py vespa --generate --deploy &&
         echo 'Starting web server ...'
         daphne -b 0.0.0.0 -p 80 -e ssl:443:privateKey=/var/www/radis/ssl/key.pem:certKey=/var/www/radis/ssl/cert.pem radis.asgi:application
       "
@@ -44,7 +44,7 @@ services:
     <<: *default-app
     command: ./manage.py celery_worker -c 1 -Q vespa_queue
     deploy:
-      replicas: 1
+      replicas: 0
 
   worker_llm:
     <<: *default-app
@@ -63,15 +63,25 @@ services:
     deploy:
       replicas: 1
 
-  llamacpp:
+  llamacpp-gpu:
     restart: always
+    image: ghcr.io/ggerganov/llama.cpp:server-cuda
+    environment:
+      MODEL_URL: https://huggingface.co/TheBloke/Mistral-7B-Instruct-v0.2-GGUF/resolve/main/mistral-7b-instruct-v0.2.Q4_K_M.gguf
+    hostname: llamacpp.local
+    ports:
+      - 9610:8080
     volumes:
       - models_data:/models
-    environment:
-      MODEL_URL: https://huggingface.co/TheBloke/Mistral-7B-Instruct-v0.2-GGUF/resolve/main/mistral-7b-instruct-v0.2.Q4_K_M.gguf 
     command: "-mu $${MODEL_URL} -m /models/model.gguf -cb -c 2048 --host 0.0.0.0 --port 8080"
     deploy:
       replicas: 1
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
 
   postgres:
     restart: always
@@ -82,15 +92,107 @@ services:
 
   opensearch-node1:
     restart: always
+    image: opensearchproject/opensearch:2
+    hostname: opensearch-node1.local
+    environment:
+      - cluster.name=opensearch-cluster
+      - node.name=opensearch-node1
+      - discovery.seed_hosts=opensearch-node1,opensearch-node2,opensearch-node3
+      - cluster.initial_cluster_manager_nodes=opensearch-node1,opensearch-node2,opensearch-node3
+      - bootstrap.memory_lock=true
+      - "OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m"
     env_file:
       - ../.env.prod
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+    volumes:
+      - opensearch-data1:/usr/share/opensearch/data
+    ports:
+      - 9200:9200 # REST API
+      - 9600:9600 # Performance Analyzer
+    deploy:
+      replicas: 1
+
+  opensearch-node2:
+    restart: always
+    image: opensearchproject/opensearch:2
+    hostname: opensearch-node2.local
+    environment:
+      - cluster.name=opensearch-cluster
+      - node.name=opensearch-node2
+      - discovery.seed_hosts=opensearch-node1,opensearch-node2,opensearch-node3
+      - cluster.initial_cluster_manager_nodes=opensearch-node1,opensearch-node2,opensearch-node3
+      - bootstrap.memory_lock=true
+      - "OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m"
+    env_file:
+      - ../.env.prod
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+    volumes:
+      - opensearch-data2:/usr/share/opensearch/data
+    deploy:
+      replicas: 1
+
+  opensearch-node3:
+    restart: always
+    image: opensearchproject/opensearch:2
+    hostname: opensearch-node3.local
+    environment:
+      - cluster.name=opensearch-cluster
+      - node.name=opensearch-node3
+      - discovery.seed_hosts=opensearch-node1,opensearch-node2,opensearch-node3
+      - cluster.initial_cluster_manager_nodes=opensearch-node1,opensearch-node2,opensearch-node3
+      - bootstrap.memory_lock=true
+      - "OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m"
+    env_file:
+      - ../.env.prod
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+    volumes:
+      - opensearch-data2:/usr/share/opensearch/data
+    deploy:
+      replicas: 1
+
+  opensearch-dashboards:
+    image: opensearchproject/opensearch-dashboards:2
+    ports:
+      - 5601:5601
+    environment:
+      OPENSEARCH_HOSTS: '["https://opensearch-node1:9200","https://opensearch-node2:9200","https://opensearch-node3:9200"]'
     deploy:
       replicas: 1
 
   vespa:
     restart: always
+    image: vespaengine/vespa:8
+    hostname: vespa.local
+    healthcheck:
+      test: curl http://localhost:19071/state/v1/health
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    volumes:
+      - vespa_data:/opt/vespa/var
+      - vespa_logs:/opt/vespa/logs
+    ports:
+      - 9620:8080
     deploy:
-      replicas: 1
+      replicas: 0
 
   rabbit:
     restart: always
@@ -104,3 +206,8 @@ services:
 
 volumes:
   models_data:
+  opensearch-data1:
+  opensearch-data2:
+  opensearch-data3:
+  vespa_data:
+  vespa_logs:

@@ -152,6 +152,10 @@ class RagJobWizardView(
                 assert query_node
                 job.query = QueryParser.unparse(query_node)
 
+            group = user.active_group
+            assert group
+
+            job.group = group
             job.owner = user
             job.save()
 

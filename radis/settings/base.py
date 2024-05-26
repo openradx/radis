@@ -348,11 +348,6 @@ FLOWER_PORT = env.int("FLOWER_PORT", default=5555)  # type: ignore
 # Used by django-filter
 FILTERS_EMPTY_CHOICE_LABEL = "Show All"
 
-# Vespa
-VESPA_HOST = env.str("VESPA_HOST", default="localhost")  # type: ignore
-VESPA_CONFIG_PORT = env.int("VESPA_CONFIG_PORT", default=19071)  # type: ignore
-VESPA_DATA_PORT = env.int("VESPA_DATA_PORT", default=8080)  # type: ignore
-
 # A timezone that is used for users of the web interface.
 USER_TIME_ZONE = env.str("USER_TIME_ZONE", default="Europe/Berlin")  # type: ignore
 
@@ -366,7 +361,11 @@ TOKEN_AUTHENTICATION_SALT = env.str(
 # Language specific setup. Currently only German and English are supported.
 SUPPORTED_LANGUAGES = ["de", "en"]
 
+# llama.cpp
+LLAMACPP_URL = env.str("LLAMACPP_URL", default="http://localhost:8088")  # type: ignore
+
 # OpenSearch
+OPENSEARCH_ENABLED = env.bool("OPENSEARCH_ENABLED", default=True)  # type: ignore
 OPENSEARCH_HOST = env.str("OPENSEARCH_HOST", default="localhost")  # type: ignore
 OPENSEARCH_PORT = env.int("OPENSEARCH_PORT", default=9200)  # type: ignore
 OPENSEARCH_PASSWORD = env.str("OPENSEARCH_INITIAL_ADMIN_PASSWORD", default="admin")  # type: ignore
@@ -375,13 +374,16 @@ OPENSEARCH_INDICES = [
     {"language": "en", "analyzer": "english"},
 ]
 
-LLAMACPP_URL = env.str("LLAMACPP_URL", default="http://localhost:8088")  # type: ignore
+# Vespa
+VESPA_ENABLED = env.bool("VESPA_ENABLED", default=False)  # type: ignore
+VESPA_HOST = env.str("VESPA_HOST", default="localhost")  # type: ignore
+VESPA_CONFIG_PORT = env.int("VESPA_CONFIG_PORT", default=19071)  # type: ignore
+VESPA_DATA_PORT = env.int("VESPA_DATA_PORT", default=8080)  # type: ignore
 
-# Specific task priorities
+# RAG
 RAG_DEFAULT_PRIORITY = 2
 RAG_URGENT_PRIORITY = 3
 
-# RAG settings
 START_RAG_JOB_UNVERIFIED = False
 RAG_SYSTEM_PROMPT = {
     "de": "Du bist ein radiologischer Facharzt",
