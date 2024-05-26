@@ -2,6 +2,7 @@
 
 ## High Priority
 
+- Rename patient_birth_date to patient_birthdate (sounds better, but DICOM uses Patient Birth Date)
 - Check if for RAG ranking should be turned off for performance improvements (and using some fixed sort order)
 - Some present provider.max_results to the user somehow, especially important if the query results (step 1) is larger
 - task control panel

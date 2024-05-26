@@ -11,7 +11,7 @@ from django.contrib.auth.mixins import (
 from django.core.exceptions import SuspiciousOperation
 from django.db import transaction
 from django.db.models import QuerySet
-from django.forms import BaseInlineFormSet, ModelForm
+from django.forms import BaseInlineFormSet
 from django.shortcuts import redirect, render
 from django.urls import reverse_lazy
 from django.views.generic import DetailView, View
@@ -36,6 +36,7 @@ from radis.rag.mixins import RagLockedMixin
 from radis.rag.tables import RagJobTable, RagTaskTable
 from radis.reports.models import Language, Modality
 from radis.search.site import Search, SearchFilters
+from radis.search.utils.query_parser import QueryParser
 
 from .forms import (
     QuestionFormSet,
@@ -83,13 +84,47 @@ class RagJobWizardView(
 
     def get_context_data(self, form, **kwargs):
         context = super().get_context_data(form, **kwargs)
+
         if self.steps.current == RagJobWizardView.QUESTIONS_STEP:
             context["helper"] = QuestionFormSetHelper()
 
             data = self.get_cleaned_data_for_step(RagJobWizardView.SEARCH_STEP)
             assert data
             context["provider"] = retrieval_providers[data["provider"]]
-            context["retrieval_count"] = self._estimate_retrieval_count(data)
+
+            active_group = self.request.user.active_group
+            assert active_group
+
+            language = cast(Language, data["language"])
+            modalities = cast(QuerySet[Modality], data["modalities"])
+
+            query_node, fixes = QueryParser().parse(data["query"])
+
+            # It was already validated by the form in the first step that the query is not empty
+            assert query_node
+
+            if len(fixes) > 0:
+                context["fixed_query"] = QueryParser.unparse(query_node)
+
+            search = Search(
+                query=query_node,
+                offset=0,
+                limit=0,
+                filters=SearchFilters(
+                    group=active_group.pk,
+                    language=language.code,
+                    modalities=list(modalities.values_list("code", flat=True)),
+                    study_date_from=data["study_date_from"],
+                    study_date_till=data["study_date_till"],
+                    study_description=data["study_description"],
+                    patient_sex=data["patient_sex"],
+                    patient_age_from=data["age_from"],
+                    patient_age_till=data["age_till"],
+                ),
+            )
+
+            retrieval_provider = retrieval_providers[data["provider"]]
+            context["retrieval_count"] = retrieval_provider.count(search)
 
         return context
 
@@ -102,11 +137,25 @@ class RagJobWizardView(
         else:
             raise SuspiciousOperation(f"Invalid wizard step: {step}")
 
-    def done(self, form_objs: list[ModelForm | BaseInlineFormSet], **kwargs):
+    def done(self, form_objs: tuple[SearchForm, BaseInlineFormSet], **kwargs):
         user = self.request.user
 
         with transaction.atomic():
             job: RagJob = form_objs[0].save(commit=False)
+
+            # We save the fixed query to the model. The user was already warned
+            # about this in the questions step.
+            query = job.query
+            query_node, fixes = QueryParser().parse(query)
+            if len(fixes) > 0:
+                # The query was already validated that it is not empty by the form
+                assert query_node
+                job.query = QueryParser.unparse(query_node)
+
+            group = user.active_group
+            assert group
+
+            job.group = group
             job.owner = user
             job.save()
 
@@ -120,35 +169,6 @@ class RagJobWizardView(
                 transaction.on_commit(lambda: job.delay())
 
         return redirect(job)
-
-    def _estimate_retrieval_count(self, data: dict) -> int:
-        active_group = self.request.user.active_group
-        assert active_group
-
-        language = cast(Language, data["language"])
-        modalities = cast(QuerySet[Modality], data["modalities"])
-
-        search = Search(
-            group=active_group.pk,
-            query=data["query"],
-            offset=0,
-            limit=0,
-            filters=SearchFilters(
-                language=language.code,
-                modalities=list(modalities.values_list("code", flat=True)),
-                study_date_from=data["study_date_from"],
-                study_date_till=data["study_date_till"],
-                study_description=data["study_description"],
-                patient_sex=data["patient_sex"],
-                patient_age_from=data["age_from"],
-                patient_age_till=data["age_till"],
-            ),
-        )
-
-        retrieval_provider = retrieval_providers[data["provider"]]
-        result = retrieval_provider.handler(search)
-
-        return result.total_count
 
 
 class RagJobDetailView(AnalysisJobDetailView):

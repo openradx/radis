@@ -3,6 +3,7 @@ from datetime import date, datetime
 from typing import Callable, Literal, NamedTuple
 
 from radis.reports.models import Report
+from radis.search.utils.query_parser import QueryNode
 
 
 class ReportDocument(NamedTuple):
@@ -16,7 +17,7 @@ class ReportDocument(NamedTuple):
     study_description: str
     study_datetime: datetime
     modalities: list[str]
-    body: str
+    summary: str
 
     @property
     def full_report(self) -> Report:
@@ -25,13 +26,30 @@ class ReportDocument(NamedTuple):
 
 class SearchResult(NamedTuple):
     total_count: int
-    coverage: float | None
+    total_relation: Literal["exact", "at_least", "approximately"]
     documents: list[ReportDocument]
 
 
 @dataclass
 class SearchFilters:
-    language: str = "en"
+    """Search filters
+
+    Attributes:
+        - group (int): Filter reports that belong to the given group (normally the active group
+          of the user)
+        - language (str): Filter reports that have the given language
+        - modalities (list[str]): Filter reports that have at least one of the given modalities
+        - study_date_from (date | None): Filter only reports from this date
+        - study_date_till (date | None): Filter only reports until this date
+        - study_description (str): Filter only reports that have the given description
+          (partial match)
+        - patient_sex (Literal["M", "F"] | None): Filter only reports that have the given sex
+        - patient_age_from (int | None): Filter only reports where the patient is at least this age
+        - patient_age_till (int | None): Filter only reports where the patient is at most this age
+    """
+
+    group: int
+    language: str
     modalities: list[str] = field(default_factory=list)
     study_date_from: date | None = None
     study_date_till: date | None = None
@@ -49,21 +67,16 @@ class Search(NamedTuple):
     should return the most accurate total count it can calculate.
 
     Attributes:
-    - group (int): The ID of the group to search.
     - query (str): The query to search.
-    - offset (int): The offset of the search results.
-    - limit (int): The limit of the search results.
     - filters (SearchFilters): The filters to apply to the search.
+    - offset (int): The offset of the search results.
+    - limit (int | None): The size limit of the search results.
     """
 
-    group: int
-    query: str
+    query: QueryNode
+    filters: SearchFilters
     offset: int = 0
-    limit: int = 10
-    filters: SearchFilters = SearchFilters()
-
-
-SearchHandler = Callable[[Search], SearchResult]
+    limit: int | None = 10
 
 
 class SearchProvider(NamedTuple):
@@ -72,14 +85,14 @@ class SearchProvider(NamedTuple):
 
     Attributes:
     - name (str): The name of the search provider.
-    - handler (SearchHandler): The function that handles the search.
-    - max_results (int): The maximum number of results that can be returned.
+    - search (Callable[[Search], SearchResult]): The function that handles the search.
+    - max_results (int): The maximum number of results that can be fetched by a search.
       Must be smaller than offset + limit when searching.
     - info_template (str): The template to be rendered as info.
     """
 
     name: str
-    handler: SearchHandler
+    search: Callable[[Search], SearchResult]
     max_results: int
     info_template: str
 

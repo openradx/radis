@@ -47,6 +47,8 @@ LOGGING["loggers"]["radis"]["level"] = "DEBUG"  # noqa: F405
 
 INTERNAL_IPS = env.list("DJANGO_INTERNAL_IPS", default=["127.0.0.1"])  # type: ignore
 
+OPENSEARCH_SECURITY_DISABLED = True
+
 if env.bool("USE_DOCKER", default=False):  # type: ignore
     import socket
 

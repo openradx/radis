@@ -10,6 +10,7 @@ from django.shortcuts import render
 from django.views import View
 
 from radis.search.forms import SearchForm
+from radis.search.utils.query_parser import QueryParser
 
 from .site import Search, SearchFilters, search_providers
 
@@ -54,15 +55,20 @@ class SearchView(LoginRequiredMixin, UserPassesTestMixin, View):
         context["offset"] = offset
 
         active_group = self.request.user.active_group
+
+        # TODO: when no active group is selected show user a error
         assert active_group
 
-        if query:
+        query_node, fixes = QueryParser().parse(query)
+
+        if query_node is not None:
+            if len(fixes) > 0:
+                context["fixed_query"] = QueryParser.unparse(query_node)
+
             search = Search(
-                group=active_group.pk,
-                query=query,
-                offset=offset,
-                limit=page_size,
+                query=query_node,
                 filters=SearchFilters(
+                    group=active_group.pk,
                     language=language,
                     modalities=modalities,
                     study_date_from=study_date_from,
@@ -72,12 +78,16 @@ class SearchView(LoginRequiredMixin, UserPassesTestMixin, View):
                     patient_age_from=age_from,
                     patient_age_till=age_till,
                 ),
+                offset=offset,
+                limit=page_size,
             )
-            result = search_provider.handler(search)
+            result = search_provider.search(search)
             total_count = result.total_count
 
             if total_count is not None:
                 context["total_count"] = total_count
+                context["total_relation"] = result.total_relation
+
                 # We don't allow to paginate through all results, but the provider tells
                 # us how many results it can return
                 max_size = min(total_count, search_provider.max_results)

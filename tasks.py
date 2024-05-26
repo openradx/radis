@@ -12,7 +12,6 @@ from invoke.tasks import task
 from tqdm import tqdm
 
 Environments = Literal["dev", "prod"]
-Profile = Literal["full", "web"]
 AVAILABLE_MODELS = {
     "llama-7b-q2": "https://huggingface.co/ikawrakow/various-2bit-sota-gguf/resolve/main/llama-v2-7b-2.42bpw.gguf",
     "mistral-7b-q2": "https://huggingface.co/ikawrakow/various-2bit-sota-gguf/resolve/main/mistral-instruct-7b-2.43bpw.gguf",
@@ -136,14 +135,32 @@ def compose_up(
     ctx: Context,
     env: Environments = "dev",
     no_build: bool = False,
-    profile: Profile = "full",
-    service: str | None = None,
+    gpu: bool = False,
+    opensearch: bool = True,
+    vespa: bool = False,
 ):
     """Start RADIS containers in specified environment"""
+    profiles: list[str] = []
+
+    if gpu:
+        profiles.append("gpu")
+    else:
+        profiles.append("cpu")
+
+    cmd = ""
+    if opensearch:
+        cmd += "OPENSEARCH_ENABLED=true "
+        profiles.append("opensearch")
+    if vespa:
+        cmd += "VESPA_ENABLED=true "
+        profiles.append("vespa")
+
+    cmd += build_compose_cmd(env)
+    cmd += "".join(f" --profile {profile}" for profile in profiles)
+
     build_opt = "--no-build" if no_build else "--build"
-    cmd = f"{build_compose_cmd(env)} --profile {profile} up {build_opt} --detach"
-    if service:
-        cmd += f" {service}"
+    cmd += f" up {build_opt} --detach"
+
     ctx.run(cmd, pty=True)
 
 
@@ -151,16 +168,34 @@ def compose_up(
 def compose_down(
     ctx: Context,
     env: Environments = "dev",
-    profile: Profile = "full",
     cleanup: bool = False,
-    service: str | None = None,
 ):
     """Stop RADIS containers in specified environment"""
-    cmd = f"{build_compose_cmd(env)} --profile {profile} down"
+
+    cmd = ""
+    cmd += build_compose_cmd(env)
+
+    profiles = ["cpu", "gpu", "opensearch", "vespa"]
+    cmd += "".join(f" --profile {profile}" for profile in profiles)
+
+    cmd += " down"
+
     if cleanup:
         cmd += " --remove-orphans --volumes"
-    if service:
-        cmd += f" {service}"
+
+    if env == "prod":
+        cancelled_msg = "Compose down cancelled!"
+
+        response = input("Are you sure to stop the production containers? (yes to proceed) ")
+        if response != "yes":
+            print(cancelled_msg)
+            return
+
+        response = input("Are you sure to delete all production volumes? (yes to proceed) ")
+        if response != "yes":
+            print(cancelled_msg)
+            return
+
     ctx.run(cmd, pty=True)
 
 

@@ -1,15 +1,16 @@
-version: "3.8"
-
 x-app: &default-app
   volumes:
     - /mnt:/mnt
   depends_on:
     - postgres
-    - vespa
   environment:
     USE_DOCKER: 1
     DJANGO_STATIC_ROOT: "/var/www/radis/static/"
     DATABASE_URL: "psql://postgres:postgres@postgres.local:5432/postgres"
+    OPENSEARCH_ENABLED: "${OPENSEARCH_ENABLED-true}"
+    OPENSEARCH_HOST: "opensearch-node1.local"
+    OPENSEARCH_PORT: "9200"
+    VESPA_ENABLED: "${VESPA_ENABLED-false}"
     VESPA_HOST: "vespa.local"
     VESPA_CONFIG_PORT: "19071"
     VESPA_DATA_PORT: "8080"
@@ -57,27 +58,11 @@ services:
         celery --broker=amqp://rabbit/ flower --url_prefix=flower
       "
 
-  llamacpp:
-    image: ghcr.io/ggerganov/llama.cpp:server
-    hostname: llamacpp.local
-
   postgres:
     image: postgres:16.2
     hostname: postgres.local
     volumes:
       - postgres_data:/var/lib/postgresql/data
-
-  vespa:
-    image: vespaengine/vespa:8
-    hostname: vespa.local
-    healthcheck:
-      test: curl http://localhost:19071/state/v1/health
-      timeout: 10s
-      retries: 3
-      start_period: 40s
-    volumes:
-      - vespa_data:/opt/vespa/var
-      - vespa_logs:/opt/vespa/logs
 
   # RabbitMQ authentication can't be disabled. So when we try to log into
   # the management console we have to use "guest" as username and password.
@@ -105,7 +90,5 @@ volumes:
   radis_data:
   flower_data:
   postgres_data:
-  vespa_data:
-  vespa_logs:
   rabbit_data:
   redis_data:

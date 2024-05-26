@@ -120,5 +120,5 @@ def document_from_vespa_response(record: dict[str, Any]) -> ReportDocument:
         study_description=record["fields"]["study_description"],
         study_datetime=study_datetime,
         modalities=record["fields"].get("modalities", []),
-        body=record["fields"]["body"],
+        summary=record["fields"]["body"],
     )

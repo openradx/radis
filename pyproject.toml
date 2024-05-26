@@ -6,7 +6,7 @@ authors = ["medihack <kai.schlamp@gmail.com>"]
 license = "GPL-3.0-or-later"
 
 [tool.poetry.dependencies]
-adit-radis-shared = { git = "https://github.com/openradx/adit-radis-shared.git" }
+adit-radis-shared = { git = "https://github.com/openradx/adit-radis-shared.git", tag = "v0.2.6" }
 adrf = "^0.1.4"
 aiofiles = "^23.1.0"
 asyncinotify = "^4.0.1"
@@ -33,8 +33,10 @@ flower = "^2.0.0"
 humanize = "^4.0.0"
 Markdown = "^3.3.7"
 openpyxl = "^3.1.2"
+opensearch-py = "^2.5.0"
 pandas = "^2.0.1"
 psycopg = { extras = ["binary"], version = "^3.1.13" }
+pyparsing = "^3.1.2"
 python = ">=3.11,<4.0"
 pyvespa = "^0.40.0"
 redis = "^5.0.3"
@@ -87,6 +89,7 @@ tqdm = "^4.66.2"
 ignore = ["**/migrations", "**/*.ipynb"]
 typeCheckingMode = "basic"
 reportUnnecessaryTypeIgnoreComment = true
+reportWildcardImportFromLibrary = false
 
 [tool.pytest.ini_options]
 DJANGO_SETTINGS_MODULE = "radis.settings.development"

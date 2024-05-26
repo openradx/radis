@@ -1,15 +1,6 @@
-from typing import Callable, NamedTuple
+from typing import Callable, Iterable, NamedTuple
 
 from radis.search.site import Search
-
-
-class RetrievalResult(NamedTuple):
-    total_count: int
-    coverage: float | None
-    document_ids: list[str]
-
-
-RetrievalHandler = Callable[[Search], RetrievalResult]
 
 
 class RetrievalProvider(NamedTuple):
@@ -18,15 +9,18 @@ class RetrievalProvider(NamedTuple):
 
     Attributes:
     - name (str): The name of the retrieval provider.
-    - handler (SearchHandler): The function that handles the retrieval.
-    - max_results (int): The maximum number of results that can be returned.
-      Must be smaller than offset + limit when searching.
+    - count (Callable[[RagSearch], int]): A function that counts the number of results for a search.
+    - retrieve (Callable[[RagSearch], Iterable[str]]): A function that retrieves the document IDs
+      for a search.
+    - max_results (int | None): The maximum number of results that can be retrieved by this
+      provider, or None if there is no limit.
     - info_template (str): The template to be rendered as info.
     """
 
     name: str
-    handler: RetrievalHandler
-    max_results: int
+    count: Callable[[Search], int]
+    retrieve: Callable[[Search], Iterable[str]]
+    max_results: int | None
     info_template: str
 
 

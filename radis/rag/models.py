@@ -6,25 +6,12 @@ from django.conf import settings
 from django.contrib.auth.models import Group
 from django.db import models
 from django.urls import reverse
-from django.utils.functional import lazy
 
 from radis.core.models import AnalysisJob, AnalysisTask
 from radis.reports.models import Language, Modality, Report
 
-from .site import retrieval_providers
-
 if TYPE_CHECKING:
     from django.db.models.manager import RelatedManager
-
-
-def get_retrieval_providers():
-    return sorted([(provider.name, provider.name) for provider in retrieval_providers.values()])
-
-
-def get_default_provider():
-    providers = get_retrieval_providers()
-    if providers:
-        return providers[0][0]
 
 
 # TODO: Rename to RagSettings (as in ADIT)
@@ -41,12 +28,7 @@ class RagJob(AnalysisJob):
     title = models.CharField(max_length=100)
     "The title of the job that is shown in the job list"
 
-    # Search and filter fields
-    # TODO: in Django 5 choices can be passed a function directly, but it seems django-stubs
-    # is not up-to-date here. It should be fixed in django-stubs.
-    provider = models.CharField(
-        max_length=100, choices=lazy(get_retrieval_providers, tuple)(), default=get_default_provider
-    )
+    provider = models.CharField(max_length=100)
     group = models.ForeignKey(Group, on_delete=models.CASCADE)
     query = models.CharField(max_length=200)
     language = models.ForeignKey(Language, on_delete=models.CASCADE)
