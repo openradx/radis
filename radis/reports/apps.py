@@ -21,6 +21,5 @@ def init_db(**kwargs):
 def create_app_settings():
     from .models import ReportsAppSettings
 
-    settings = ReportsAppSettings.get()
-    if not settings:
+    if not ReportsAppSettings.objects.exists():
         ReportsAppSettings.objects.create()

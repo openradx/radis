@@ -32,6 +32,5 @@ def init_db(**kwargs):
 def create_app_settings():
     from .models import RagAppSettings
 
-    settings = RagAppSettings.get()
-    if not settings:
+    if not RagAppSettings.objects.exists():
         RagAppSettings.objects.create()

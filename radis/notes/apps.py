@@ -34,6 +34,5 @@ def init_db(**kwargs):
 def create_app_settings():
     from .models import NotesAppSettings
 
-    settings = NotesAppSettings.get()
-    if not settings:
+    if not NotesAppSettings.objects.exists():
         NotesAppSettings.objects.create()

@@ -34,6 +34,5 @@ def init_db(**kwargs):
 def create_app_settings():
     from .models import CollectionsAppSettings
 
-    settings = CollectionsAppSettings.get()
-    if not settings:
+    if not CollectionsAppSettings.objects.exists():
         CollectionsAppSettings.objects.create()

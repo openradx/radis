@@ -30,6 +30,5 @@ def init_db(**kwargs):
 def create_app_settings():
     from .models import SearchAppSettings
 
-    settings = SearchAppSettings.get()
-    if not settings:
+    if not SearchAppSettings.objects.exists():
         SearchAppSettings.objects.create()
