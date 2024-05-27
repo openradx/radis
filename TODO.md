@@ -63,6 +63,7 @@
 
 ## Maybe
 
+- Consider Manticore or Quickwit as FTS
 - Look into distanceThreshold when using semantic/hybrid search
   -- In normal nearestNeighbor search every document is included as all documents are neighbors
   -- That is why we currently only use semantic stuff as ranking algorithm
