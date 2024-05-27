@@ -74,8 +74,10 @@ def _build_query_dict(search: Search) -> dict:
         "bool": {
             "filter": _build_filter_dict(search.filters),
             "must": {
-                "simple_query_string": {
+                "query_string": {
                     "query": _build_query_string(search.query),
+                    "default_field": "body",
+                    "default_operator": "AND",
                 },
             },
         }
