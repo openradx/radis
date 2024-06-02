@@ -13,12 +13,12 @@ from tqdm import tqdm
 
 Environments = Literal["dev", "prod"]
 AVAILABLE_MODELS = {
-    # MaziyarPanahi/Mistral-7B-Instruct-v0.3-GGUF 1.62 GB
-    "mistral-7b-q1": "https://huggingface.co/MaziyarPanahi/Mistral-7B-Instruct-v0.3-GGUF/resolve/main/Mistral-7B-Instruct-v0.3.IQ1_S.gguf",
+    # TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF 0.48 GB
+    "tinyllama-1b-q2": "https://huggingface.co/TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF/resolve/main/tinyllama-1.1b-chat-v1.0.Q2_K.gguf",
+    # MaziyarPanahi/Mistral-7B-Instruct-v0.3-GGUF 4.37 GB
+    "mistral-7b-q4": "https://huggingface.co/MaziyarPanahi/Mistral-7B-Instruct-v0.3-GGUF/resolve/main/Mistral-7B-Instruct-v0.3.Q4_K_M.gguf",
     # MaziyarPanahi/Mistral-7B-Instruct-v0.3-GGUF 5.14 GB
     "mistral-7b-q5": "https://huggingface.co/MaziyarPanahi/Mistral-7B-Instruct-v0.3-GGUF/resolve/main/Mistral-7B-Instruct-v0.3.Q5_K_M.gguf",
-    # MaziyarPanahi/Mistral-7B-Instruct-v0.3-GGUF 14.5 GB
-    "mistral-7b-fp16": "https://huggingface.co/MaziyarPanahi/Mistral-7B-Instruct-v0.3-GGUF/resolve/main/Mistral-7B-Instruct-v0.3.fp16.gguf",
     # TheBloke/Mixtral-8x7B-Instruct-v0.1-GGUF 32.2 GB
     "mixtral-8x7b-q5": "https://huggingface.co/TheBloke/Mixtral-8x7B-Instruct-v0.1-GGUF/resolve/main/mixtral-8x7b-instruct-v0.1.Q5_K_M.gguf",
     # QuantFactory/Meta-Llama-3-8B-Instruct-GGUF 5.73 GB
@@ -27,8 +27,10 @@ AVAILABLE_MODELS = {
     "llama3-q8": "https://huggingface.co/QuantFactory/Meta-Llama-3-8B-Instruct-GGUF/resolve/main/Meta-Llama-3-8B-Instruct.Q8_0.gguf",
     # lightblue/suzume-llama-3-8B-multilingual-gguf 4.92 GB
     "llama3-ml-q4": "https://huggingface.co/lightblue/suzume-llama-3-8B-multilingual-gguf/resolve/main/ggml-model-Q4_K_M.gguf",
-    # lightblue/suzume-llama-3-8B-multilingual-gguf 16.1 GB
-    "llama3-ml-fp16": "https://huggingface.co/lightblue/suzume-llama-3-8B-multilingual-gguf/resolve/main/ggml-model-f16.gguf",
+    # lightblue/suzume-llama-3-8B-multilingual-gguf 5.14 GB
+    "llama3-ml-q5": "https://huggingface.co/MaziyarPanahi/Mistral-7B-Instruct-v0.3-GGUF/resolve/main/Mistral-7B-Instruct-v0.3.Q5_K_M.gguf",
+    # lightblue/suzume-llama-3-8B-multilingual-gguf 8.54 GB
+    "llama3-ml-q8": "https://huggingface.co/lightblue/suzume-llama-3-8B-multilingual-gguf/resolve/main/ggml-model-Q8_0.gguf",
 }
 
 stack_name_dev = "radis_dev"

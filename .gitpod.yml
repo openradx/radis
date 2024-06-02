@@ -6,7 +6,7 @@ tasks:
     init: |
       poetry install
       poetry run invoke init-workspace
-      poetry run invoke download-llm -m mistral-7b-q1
+      poetry run invoke download-llm -m tinyllama-1b-q2
 
 ports:
   - port: 8000
