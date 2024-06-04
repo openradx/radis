@@ -1,13 +1,13 @@
-from typing import Any, cast
+from typing import Any
 
-from adit_radis_shared.common.mixins import HtmxOnlyMixin
+from adit_radis_shared.common.decorators import login_required_async, user_passes_test_async
 from adit_radis_shared.common.types import AuthenticatedHttpRequest
+from asgiref.sync import sync_to_async
 from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
 from django.db.models import QuerySet
 from django.http import HttpResponse
-from django.shortcuts import render
-from django.views.generic import View
-from django.views.generic.detail import DetailView, SingleObjectMixin
+from django.shortcuts import aget_object_or_404, render  # type: ignore
+from django.views.generic.detail import DetailView
 
 from radis.core.utils.chat_client import ChatClient
 from radis.reports.forms import PromptForm
@@ -41,49 +41,40 @@ class ReportBodyView(ReportDetailView):
     template_name = "reports/report_body.html"
 
 
-# TODO: Make this an async view
-class ReportChatView(
-    LoginRequiredMixin, HtmxOnlyMixin, SingleObjectMixin, UserPassesTestMixin, View
-):
-    model = Report
-    request: AuthenticatedHttpRequest
+@login_required_async
+@user_passes_test_async(lambda user: user.active_group is not None)
+async def report_chat_view(request: AuthenticatedHttpRequest, pk: int) -> HttpResponse:
+    report = await aget_object_or_404(
+        Report.objects.filter(groups=request.user.active_group), pk=pk
+    )
 
-    def test_func(self) -> bool | None:
-        return self.request.user.active_group is not None
+    language = await sync_to_async(lambda: report.language)()
+    form = PromptForm(request.POST)
 
-    def get_queryset(self) -> QuerySet[Report]:
-        active_group = self.request.user.active_group
-        assert active_group
-        return super().get_queryset().filter(groups=active_group)
+    context: dict[str, Any] = {
+        "messages": [],
+        "report": report,
+        "prompt_form": form,
+    }
 
-    def post(self, request: AuthenticatedHttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
-        report = cast(Report, self.get_object())
-        form = PromptForm(request.POST)
+    if form.is_valid():
+        chat_client = ChatClient()
+        if request.POST.get("yes_no_answer"):
+            answer = chat_client.ask_yes_no_question(
+                report.body, language.code, form.cleaned_data["prompt"]
+            )
+            answer = "Yes" if answer == "yes" else "No"
+        elif request.POST.get("full_answer"):
+            answer = chat_client.ask_question(
+                report.body, language.code, form.cleaned_data["prompt"]
+            )
+        else:
+            raise ValueError("Invalid form")
 
-        context: dict[str, Any] = {
-            "messages": [],
-            "report": report,
-            "prompt_form": form,
-        }
+        context["messages"] = [
+            {"role": "User", "content": form.cleaned_data["prompt"]},
+            {"role": "Assistant", "content": answer},
+        ]
+        context["prompt_form"] = PromptForm()
 
-        if form.is_valid():
-            chat_client = ChatClient()
-            if request.POST.get("yes_no_answer"):
-                answer = chat_client.ask_yes_no_question(
-                    report.body, report.language.code, form.cleaned_data["prompt"]
-                )
-                answer = "Yes" if answer == "yes" else "No"
-            elif request.POST.get("full_answer"):
-                answer = chat_client.ask_question(
-                    report.body, report.language.code, form.cleaned_data["prompt"]
-                )
-            else:
-                raise ValueError("Invalid form")
-
-            context["messages"] = [
-                {"role": "User", "content": form.cleaned_data["prompt"]},
-                {"role": "Assistant", "content": answer},
-            ]
-            context["prompt_form"] = PromptForm()
-
-        return render(request, "reports/_report_chat.html", context)
+    return render(request, "reports/_report_chat.html", context)
