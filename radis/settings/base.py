@@ -374,36 +374,38 @@ VESPA_HOST = env.str("VESPA_HOST", default="localhost")  # type: ignore
 VESPA_CONFIG_PORT = env.int("VESPA_CONFIG_PORT", default=19071)  # type: ignore
 VESPA_DATA_PORT = env.int("VESPA_DATA_PORT", default=8080)  # type: ignore
 
-# RAG
-RAG_DEFAULT_PRIORITY = 2
-RAG_URGENT_PRIORITY = 3
-
-START_RAG_JOB_UNVERIFIED = False
-RAG_SYSTEM_PROMPT = {
+# Chat settings
+CHAT_SYSTEM_PROMPT = {
     "de": "Du bist ein radiologischer Facharzt",
     "en": "You are a radiologist",
 }
-RAG_ANSWER_YES = {
+CHAT_ANSWER_YES = {
     "de": "Ja",
     "en": "Yes",
 }
-RAG_ANSWER_NO = {
+CHAT_ANSWER_NO = {
     "de": "Nein",
     "en": "No",
 }
-RAG_USER_PROMPT = {
+CHAT_USER_PROMPT = {
     "de": f"""
         Im folgenden erhälst Du einen radiologischen Befund und eine Frage zu diesem Befund.
-        Beantworte die Frage zu dem Befund mit {RAG_ANSWER_YES['de']} oder {RAG_ANSWER_NO['de']}.
+        Beantworte die Frage zu dem Befund mit {CHAT_ANSWER_YES['de']} oder {CHAT_ANSWER_NO['de']}.
         Befund: $report
         Frage: $question
         Antwort: 
     """,
     "en": f"""
         In the following you will find a radiological report and a question about this report.
-        Answer the question about the report with {RAG_ANSWER_YES['en']} or {RAG_ANSWER_NO['en']}.
+        Answer the question about the report with {CHAT_ANSWER_YES['en']} or {CHAT_ANSWER_NO['en']}.
         Report: $report
         Question: $question
         Answer:
     """,
 }
+
+# RAG
+RAG_DEFAULT_PRIORITY = 2
+RAG_URGENT_PRIORITY = 3
+
+START_RAG_JOB_UNVERIFIED = False

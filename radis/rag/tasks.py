@@ -1,5 +1,4 @@
 import logging
-from string import Template
 from typing import Iterator, override
 
 from django.conf import settings
@@ -7,6 +6,7 @@ from openai import OpenAI
 
 from radis.celery import app as celery_app
 from radis.core.tasks import ProcessAnalysisJob, ProcessAnalysisTask
+from radis.core.utils.chat_client import ChatClient
 from radis.reports.models import Report
 from radis.search.site import Search, SearchFilters
 from radis.search.utils.query_parser import QueryParser
@@ -15,11 +15,6 @@ from .models import Answer, QuestionResult, RagJob, RagTask
 from .site import retrieval_providers
 
 logger = logging.getLogger(__name__)
-
-GRAMMAR = """
-    root ::= Answer
-    Answer ::= "$yes" | "$no"
-"""
 
 
 class ProcessRagTask(ProcessAnalysisTask):
@@ -40,39 +35,14 @@ class ProcessRagTask(ProcessAnalysisTask):
 
         all_results: list[RagTask.Result] = []
 
-        system_prompt = settings.RAG_SYSTEM_PROMPT[language]
-        logger.debug("Using system prompt:\n%s", system_prompt)
-
-        grammar = Template(GRAMMAR).substitute(
-            {
-                "yes": settings.RAG_ANSWER_YES[language],
-                "no": settings.RAG_ANSWER_NO[language],
-            }
-        )
-        logger.debug("Using grammar:\n%s", grammar)
+        chat_client = ChatClient()
 
         for question in task.job.questions.all():
-            user_prompt = Template(settings.RAG_USER_PROMPT[language]).substitute(
-                {"report": report_body, "question": question.question}
-            )
+            llm_answer = chat_client.ask_yes_no_question(report_body, language, question.question)
 
-            logger.debug("Sending user prompt:\n%s", user_prompt)
-
-            completion = self._client.chat.completions.create(
-                model="none",
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ],
-                extra_body={"grammar": grammar},
-            )
-
-            llm_answer = completion.choices[0].message.content
-            logger.debug("Received answer by LLM: %s", llm_answer)
-
-            if llm_answer == settings.RAG_ANSWER_YES[language]:
+            if llm_answer == "yes":
                 answer = Answer.YES
-            elif llm_answer == settings.RAG_ANSWER_NO[language]:
+            elif llm_answer == "no":
                 answer = Answer.NO
             else:
                 raise ValueError(f"Unexpected answer: {llm_answer}")

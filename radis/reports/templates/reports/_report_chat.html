@@ -1,0 +1,37 @@
+{% load crispy from crispy_forms_tags %}
+<div id="report_chat" class="mt-3 mx-2">
+    <div id="messages-container">
+        {% if messages %}
+            <table class="table table-borderless">
+                <tbody>
+                    {% for message in messages %}
+                        <tr>
+                            <th scope="row">{{ message.role }}</th>
+                            <td class="w-100">{{ message.content }}</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        {% endif %}
+    </div>
+    <div id="loader" class="my-indicator htmx-indicator">
+        <div class="mb-3 d-flex justify-content-center gap-1">
+            <div class="spinner-grow spinner-grow-sm" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+            <div class="spinner-grow spinner-grow-sm" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+            <div class="spinner-grow spinner-grow-sm" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+        </div>
+    </div>
+    <form hx-post="{% url 'report_chat' report.id %}"
+          hx-on:submit="htmx.addClass(htmx.find('#messages-container'), 'd-none')"
+          hx-target="#report_chat"
+          hx-indicator="#loader"
+          hx-disabled-elt="input">
+        {% crispy prompt_form %}
+    </form>
+</div>

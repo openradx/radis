@@ -1,3 +1,22 @@
+/*
+ * HTMX overrides
+ */
+.my-indicator {
+  display: none;
+}
+.htmx-request .my-indicator {
+  display: inline;
+  opacity: 1;
+}
+.htmx-request.my-indicator {
+  display: inline;
+  opacity: 1;
+}
+
+/*
+ * Misc
+ */
+
 .search-summary {
   white-space: normal;
 }
