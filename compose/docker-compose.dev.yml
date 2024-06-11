@@ -9,7 +9,22 @@ x-app: &default-app
     DJANGO_SETTINGS_MODULE: "radis.settings.development"
   pull_policy: never # only works with Docker Compose and not Docker Swarm
 
+x-llamacpp: &llamacpp
+  env_file:
+    - ../.env.dev
+  hostname: llamacpp.local
+  volumes:
+    - models_data:/models
+  ports:
+    - 9610:8080
+  entrypoint: "/bin/bash -c '/server -mu $${LLM_MODEL_URL} -c 512 --host 0.0.0.0 --port 8080'"
+
 services:
+  init:
+    <<: *default-app
+    profiles:
+      - never
+
   web:
     <<: *default-app
     build:
@@ -65,23 +80,13 @@ services:
     <<: *default-app
 
   llamacpp-cpu:
+    <<: *llamacpp
     image: ghcr.io/ggerganov/llama.cpp:server
-    hostname: llamacpp.local
-    ports:
-      - 9610:8080
-    volumes:
-      - ../models:/models
-    command: "-m /models/model.gguf -c 512 --host 0.0.0.0 --port 8080"
     profiles: ["cpu"]
 
   llamacpp-gpu:
+    <<: *llamacpp
     image: ghcr.io/ggerganov/llama.cpp:server-cuda
-    hostname: llamacpp.local
-    ports:
-      - 9610:8080
-    volumes:
-      - ../models:/models
-    command: "-m /models/model.gguf -c 512 --host 0.0.0.0 --port 8080"
     deploy:
       resources:
         reservations:
@@ -142,6 +147,7 @@ services:
 volumes:
   vscode-server:
   vscode-server-insiders:
+  models_data:
   opensearch_data1:
   vespa_data:
   vespa_logs:
