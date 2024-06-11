@@ -179,7 +179,7 @@ services:
         soft: 65536
         hard: 65536
     volumes:
-      - opensearch-data2:/usr/share/opensearch/data
+      - opensearch-data3:/usr/share/opensearch/data
     deploy:
       <<: *deploy
 
