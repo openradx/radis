@@ -23,15 +23,21 @@ x-app: &default-app
     FLOWER_PORT: "5555"
 
 services:
+  init:
+    <<: *default-app
+    hostname: init.local
+    volumes:
+      - radis_data:/var/www/radis
+      - /mnt:/mnt
+
   web:
     <<: *default-app
     hostname: web.local
     build:
       context: ..
     volumes:
-      # Cave, overwrites the above anchor
-      - /mnt:/mnt
       - radis_data:/var/www/radis
+      - /mnt:/mnt
 
   worker_default:
     <<: *default-app
