@@ -97,6 +97,7 @@ services:
       # <<: *deploy
       resources:
         reservations:
+          # https://gist.github.com/medihack/6a6d24dc6376939e1919f32409c2119f
           generic_resources:
             - discrete_resource_spec:
                 kind: "gpu"
