@@ -17,7 +17,7 @@ x-llamacpp: &llamacpp
     - 9610:8080
   volumes:
     - models_data:/models
-  entrypoint: "/bin/bash -c '/server -mu $${LLM_MODEL_URL} -c 512 --host 0.0.0.0 --port 8080'"
+  entrypoint: "/bin/bash -c '/llama-server -mu $${LLM_MODEL_URL} -c 512 --host 0.0.0.0 --port 8080'"
 
 services:
   init:
@@ -79,12 +79,12 @@ services:
   flower:
     <<: *default-app
 
-  llamacpp-cpu:
+  llamacpp_cpu:
     <<: *llamacpp
     image: ghcr.io/ggerganov/llama.cpp:server
     profiles: ["cpu"]
 
-  llamacpp-gpu:
+  llamacpp_gpu:
     <<: *llamacpp
     image: ghcr.io/ggerganov/llama.cpp:server-cuda
     deploy:
@@ -101,7 +101,7 @@ services:
       POSTGRES_PASSWORD: "postgres"
 
   # https://opensearch.org/docs/latest/install-and-configure/install-opensearch/docker/#sample-docker-composeyml
-  opensearch-node1:
+  opensearch_node1:
     image: opensearchproject/opensearch:latest
     hostname: opensearch-node1.local
     volumes:
@@ -115,7 +115,7 @@ services:
       - 9600:9600 # Performance Analyzer
     profiles: ["opensearch"]
 
-  opensearch-dashboards:
+  opensearch_dashboards:
     image: opensearchproject/opensearch-dashboards:latest
     hostname: opensearch-dashboards.local
     ports:

@@ -360,7 +360,6 @@ LLAMACPP_URL = env.str("LLAMACPP_URL", default="http://localhost:8088")  # type:
 
 # OpenSearch
 OPENSEARCH_ENABLED = env.bool("OPENSEARCH_ENABLED", default=True)  # type: ignore
-OPENSEARCH_SECURITY_DISABLED = False
 OPENSEARCH_HOST = env.str("OPENSEARCH_HOST", default="localhost")  # type: ignore
 OPENSEARCH_PORT = env.int("OPENSEARCH_PORT", default=9200)  # type: ignore
 OPENSEARCH_PASSWORD = env.str("OPENSEARCH_INITIAL_ADMIN_PASSWORD", default="admin")  # type: ignore
