@@ -94,7 +94,7 @@ reportWildcardImportFromLibrary = false
 [tool.pytest.ini_options]
 DJANGO_SETTINGS_MODULE = "radis.settings.development"
 python_files = ["tests.py", "test_*.py", "*_tests.py"]
-testpaths = ["radis", "adit_radis_shared"]
+testpaths = ["radis"]
 log_cli = 0
 log_cli_level = "INFO"
 log_cli_format = "%(asctime)s [%(levelname)8s] %(message)s (%(filename)s:%(lineno)s)"
@@ -111,7 +111,7 @@ timeout = 60
 
 [tool.coverage.run]
 branch = true
-source = ["radis", "adit_radis_shared"]
+source = ["radis"]
 
 [tool.coverage.report]
 skip_empty = true
