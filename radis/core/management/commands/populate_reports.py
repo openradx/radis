@@ -47,7 +47,7 @@ def create_reports(language: Literal["en", "de"], group: Group):
     def create_documents() -> None:
         if settings.OPENSEARCH_ENABLED:
             start = time.time()
-            create_opensearch_documents([report.id for report in reports])
+            create_opensearch_documents(reports)
             print(f"Fed {len(reports)} reports to OpenSearch in {time.time() - start:.2f} seconds.")
 
         if settings.VESPA_ENABLED:
