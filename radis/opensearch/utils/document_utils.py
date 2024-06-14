@@ -23,36 +23,31 @@ def _dictify_report_for_opensearch(report: Report) -> dict[str, Any]:
     }
 
 
-def create_documents(report_ids: list[int]) -> None:
+def create_documents(reports: list[Report]) -> None:
     client = get_client()
-    reports = Report.objects.filter(id__in=report_ids)
-
     for report in reports:
         index_name = f"reports_{report.language.code}"
         body = _dictify_report_for_opensearch(report)
         client.create(index=index_name, id=report.document_id, body=body)
 
 
-def update_documents(report_ids: list[int]) -> None:
+def update_documents(reports: list[Report]) -> None:
     client = get_client()
-    reports = Report.objects.filter(id__in=report_ids)
-
     for report in reports:
         index_name = f"reports_{report.language.code}"
         body = _dictify_report_for_opensearch(report)
         client.update(index=index_name, id=report.document_id, body={"doc": body})
 
 
-def delete_documents(document_ids: list[str]) -> None:
+def delete_documents(reports: list[Report]) -> None:
     client = get_client()
+    for report in reports:
+        client.delete(index=f"reports_{report.language.code}", id=report.document_id)
 
-    for document_id in document_ids:
-        client.delete(index="reports", id=document_id)
 
-
-def fetch_document(document_id: str) -> dict[str, Any]:
+def fetch_document(report: Report) -> dict[str, Any]:
     client = get_client()
-    return client.get(index="reports", id=document_id)
+    return client.get(index=f"reports_{report.language.code}", id=report.document_id)
 
 
 def document_from_opensearch_response(record: dict[str, Any]) -> ReportDocument:

@@ -41,12 +41,12 @@ class ReportSignalProcessor:
         if created:
             logger.debug("Received a signal that a report has been created: %s", instance)
             transaction.on_commit(
-                lambda: [handler.handle([instance.id]) for handler in reports_created_handlers]
+                lambda: [handler.handle([instance]) for handler in reports_created_handlers]
             )
         else:
             logger.debug("Received a signal that a report has been updated: %s", instance)
             transaction.on_commit(
-                lambda: [handler.handle([instance.id]) for handler in reports_updated_handlers]
+                lambda: [handler.handle([instance]) for handler in reports_updated_handlers]
             )
 
     def _handle_delete(self, sender: type[Report], instance: Report, **kwargs):
@@ -55,7 +55,7 @@ class ReportSignalProcessor:
 
         logger.debug("Received a signal that a report has been deleted: %s", instance)
         transaction.on_commit(
-            lambda: [handler.handle([instance.document_id]) for handler in reports_deleted_handlers]
+            lambda: [handler.handle([instance]) for handler in reports_deleted_handlers]
         )
 
 

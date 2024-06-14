@@ -34,8 +34,8 @@ def register_app():
         update_documents,
     )
 
-    def handle_created_reports(report_ids: list[int]) -> None:
-        create_documents(report_ids)
+    def handle_created_reports(reports: list[Report]) -> None:
+        create_documents(reports)
 
     register_reports_created_handler(
         ReportsCreatedHandler(
@@ -44,8 +44,8 @@ def register_app():
         )
     )
 
-    def handle_updated_reports(report_ids: list[int]) -> None:
-        update_documents(report_ids)
+    def handle_updated_reports(reports: list[Report]) -> None:
+        update_documents(reports)
 
     register_reports_updated_handler(
         ReportsUpdatedHandler(
@@ -54,8 +54,8 @@ def register_app():
         )
     )
 
-    def handle_deleted_reports(document_ids: list[str]) -> None:
-        delete_documents(document_ids)
+    def handle_deleted_reports(reports: list[Report]) -> None:
+        delete_documents(reports)
 
     register_reports_deleted_handler(
         ReportsDeletedHandler(
@@ -65,7 +65,7 @@ def register_app():
     )
 
     def fetch_opensearch_document(report: Report) -> dict[str, Any]:
-        return fetch_document(report.document_id)
+        return fetch_document(report)
 
     register_document_fetcher("opensearch", fetch_opensearch_document)
 

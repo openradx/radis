@@ -31,8 +31,8 @@ def register_app():
     from .utils.document_utils import fetch_document
     from .vespa_app import MAX_RETRIEVAL_HITS, MAX_SEARCH_HITS
 
-    def handle_created_reports(report_ids: list[int]) -> None:
-        process_created_reports.delay(report_ids)
+    def handle_created_reports(reports: list[Report]) -> None:
+        process_created_reports.delay([report.id for report in reports])
 
     register_reports_created_handler(
         ReportsCreatedHandler(
@@ -41,8 +41,8 @@ def register_app():
         )
     )
 
-    def handle_updated_reports(report_ids: list[int]) -> None:
-        process_updated_reports.delay(report_ids)
+    def handle_updated_reports(reports: list[Report]) -> None:
+        process_updated_reports.delay([report.id for report in reports])
 
     register_reports_updated_handler(
         ReportsUpdatedHandler(
@@ -51,8 +51,8 @@ def register_app():
         )
     )
 
-    def handle_deleted_reports(document_ids: list[str]) -> None:
-        process_deleted_reports.delay(document_ids)
+    def handle_deleted_reports(reports: list[Report]) -> None:
+        process_deleted_reports.delay([report.document_id for report in reports])
 
     register_reports_deleted_handler(
         ReportsDeletedHandler(

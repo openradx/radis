@@ -7,7 +7,7 @@ from .models import Report
 
 class ReportsCreatedHandler(NamedTuple):
     name: str
-    handle: Callable[[list[int]], None]
+    handle: Callable[[list[Report]], None]
 
 
 reports_created_handlers: list[ReportsCreatedHandler] = []
@@ -23,7 +23,7 @@ def register_reports_created_handler(handler: ReportsCreatedHandler) -> None:
 
 class ReportsUpdatedHandler(NamedTuple):
     name: str
-    handle: Callable[[list[int]], None]
+    handle: Callable[[list[Report]], None]
 
 
 reports_updated_handlers: list[ReportsUpdatedHandler] = []
@@ -39,7 +39,7 @@ def register_reports_updated_handler(handler: ReportsUpdatedHandler) -> None:
 
 class ReportsDeletedHandler(NamedTuple):
     name: str
-    handle: Callable[[list[str]], None]
+    handle: Callable[[list[Report]], None]
 
 
 reports_deleted_handlers: list[ReportsDeletedHandler] = []
