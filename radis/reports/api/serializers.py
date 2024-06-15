@@ -136,3 +136,10 @@ class ReportSerializer(serializers.ModelSerializer):
             ret["modalities"] = [item["code"] for item in ret["modalities"]]
 
         return ret
+
+    def validate(self, attrs: Any) -> Any:
+        if hasattr(self, "initial_data"):
+            unknown_keys = set(self.initial_data.keys()) - set(self.fields.keys())
+            if unknown_keys:
+                raise ValidationError("Got unknown fields: {}".format(unknown_keys))
+        return super().validate(attrs)
