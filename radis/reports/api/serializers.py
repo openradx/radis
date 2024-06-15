@@ -88,6 +88,8 @@ class ReportSerializer(serializers.ModelSerializer):
             for attr, value in validated_data.items():
                 setattr(report, attr, value)
 
+            report.save()
+
             report.groups.set(groups)
 
             report.metadata.all().delete()
