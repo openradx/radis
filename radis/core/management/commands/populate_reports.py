@@ -12,7 +12,6 @@ from faker import Faker
 from radis.opensearch.utils.document_utils import create_documents as create_opensearch_documents
 from radis.reports.factories import LanguageFactory, ReportFactory
 from radis.reports.models import Report
-from radis.reports.signals import report_signal_processor
 from radis.vespa.utils.document_utils import create_documents as create_vespa_documents
 
 fake = Faker()
@@ -36,8 +35,6 @@ def create_reports(language: Literal["en", "de"], group: Group):
     with open(samples_path, "r") as f:
         report_bodies = json.load(f)
 
-    report_signal_processor.pause()
-
     start = time.time()
     reports: list[Report] = []
     for report_body in report_bodies:
@@ -56,8 +53,6 @@ def create_reports(language: Literal["en", "de"], group: Group):
             print(f"Fed {len(reports)} reports to Vespa in {time.time() - start:.2f} seconds.")
 
     transaction.on_commit(create_documents)
-
-    report_signal_processor.resume()
 
 
 class Command(BaseCommand):

@@ -11,7 +11,6 @@ from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
 
 from ..models import Report
-from ..signals import report_signal_processor
 from ..site import (
     document_fetchers,
     reports_created_handlers,
@@ -66,13 +65,6 @@ class ReportViewSet(
 
         return Response(data)
 
-    def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        try:
-            report_signal_processor.pause()
-            return super().create(request, *args, **kwargs)
-        finally:
-            report_signal_processor.resume()
-
     def perform_create(self, serializer: BaseSerializer) -> None:
         super().perform_create(serializer)
         assert serializer.instance
@@ -82,34 +74,29 @@ class ReportViewSet(
 
         def on_commit():
             for handler in reports_created_handlers:
-                report_ids = [report.id for report in reports]
-                logger.debug(f"{handler.name} - handle newly created reports: {report_ids}")
+                document_ids = [report.document_id for report in reports]
+                logger.debug(f"{handler.name} - handle newly created reports: {document_ids}")
                 handler.handle(reports)
 
         transaction.on_commit(on_commit)
 
     def update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        try:
-            report_signal_processor.pause()
+        # DRF itself does not support upsert.
+        # Workaround adapted from https://gist.github.com/tomchristie/a2ace4577eff2c603b1b
+        upsert = request.GET.get("upsert", "").lower() in ["true", "1", "yes"]
+        if not upsert:
+            return super().update(request, *args, **kwargs)
+        else:
+            instance = self.get_object_or_none()
+            serializer = self.get_serializer(instance, data=request.data)
+            serializer.is_valid(raise_exception=True)
 
-            # DRF itself does not support upsert.
-            # Workaround adapted from https://gist.github.com/tomchristie/a2ace4577eff2c603b1b
-            upsert = request.GET.get("upsert", "").lower() in ["true", "1", "yes"]
-            if not upsert:
-                return super().update(request, *args, **kwargs)
-            else:
-                instance = self.get_object_or_none()
-                serializer = self.get_serializer(instance, data=request.data)
-                serializer.is_valid(raise_exception=True)
+            if instance is None:
+                self.perform_create(serializer)
+                return Response(serializer.data, status=status.HTTP_201_CREATED)
 
-                if instance is None:
-                    self.perform_create(serializer)
-                    return Response(serializer.data, status=status.HTTP_201_CREATED)
-
-                self.perform_update(serializer)
-                return Response(serializer.data)
-        finally:
-            report_signal_processor.resume()
+            self.perform_update(serializer)
+            return Response(serializer.data)
 
     def get_object_or_none(self) -> Report | None:
         try:
@@ -129,8 +116,8 @@ class ReportViewSet(
 
         def on_commit():
             for handler in reports_updated_handlers:
-                report_ids = [report.id for report in reports]
-                logger.debug(f"{handler.name} - handle updated reports: {report_ids}")
+                document_ids = [report.document_id for report in reports]
+                logger.debug(f"{handler.name} - handle updated reports: {document_ids}")
                 handler.handle(reports)
 
         transaction.on_commit(on_commit)
@@ -139,13 +126,6 @@ class ReportViewSet(
         # Disallow partial updates
         assert request.method
         raise MethodNotAllowed(request.method)
-
-    def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        try:
-            report_signal_processor.pause()
-            return super().destroy(request, *args, **kwargs)
-        finally:
-            report_signal_processor.resume()
 
     def perform_destroy(self, instance: Report) -> None:
         super().perform_destroy(instance)
