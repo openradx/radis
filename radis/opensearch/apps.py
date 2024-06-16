@@ -74,7 +74,6 @@ def register_app():
             name="OpenSearch BM25",
             search=search,
             max_results=1000,
-            info_template="",  # TODO:
         )
     )
 
@@ -84,6 +83,5 @@ def register_app():
             count=count,
             retrieve=retrieve,
             max_results=None,
-            info_template="",  # TODO:
         )
     )

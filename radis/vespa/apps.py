@@ -71,7 +71,6 @@ def register_app():
             name="Vespa Hybrid Ranking",
             search=search_hybrid,
             max_results=MAX_SEARCH_HITS,
-            info_template="vespa/_hybrid_info.html",
         )
     )
 
@@ -80,7 +79,6 @@ def register_app():
             name="Vespa BM25 Ranking",
             search=search_bm25,
             max_results=MAX_SEARCH_HITS,
-            info_template="vespa/_bm25_info.html",
         )
     )
 
@@ -89,7 +87,6 @@ def register_app():
             name="Vespa Semantic Ranking",
             search=search_semantic,
             max_results=MAX_SEARCH_HITS,
-            info_template="vespa/_bm25_info.html",
         )
     )
 
@@ -99,6 +96,5 @@ def register_app():
             count=count_bm25,
             retrieve=retrieve_bm25,
             max_results=MAX_RETRIEVAL_HITS,
-            info_template="vespa/_bm25_info.html",
         )
     )

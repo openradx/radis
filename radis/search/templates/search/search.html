@@ -13,15 +13,13 @@
         <div class="row">{% crispy form form.query_helper %}</div>
         <div class="row">
             <div class="col">
-                <div id="search-panel">
-                    {% if form.non_field_errors %}
-                        <div class="mt-3">{% include "bootstrap5/errors.html" %}</div>
-                    {% elif documents != None %}
-                        {% include "search/_search_results.html" %}
-                    {% elif info_template %}
-                        {% include "search/_search_info.html" %}
-                    {% endif %}
-                </div>
+                {% if form.non_field_errors %}
+                    <div class="mt-3">{% include "bootstrap5/errors.html" %}</div>
+                {% elif documents != None %}
+                    {% include "search/_search_results.html" %}
+                {% else %}
+                    {% include "search/_search_info.html" %}
+                {% endif %}
             </div>
             <div class="col col-auto">
                 <div id="filters" class="card mt-3">

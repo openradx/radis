@@ -1,9 +1,7 @@
 from typing import Any
 
-from adit_radis_shared.common.mixins import HtmxOnlyMixin
 from adit_radis_shared.common.types import AuthenticatedHttpRequest
 from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
-from django.core.exceptions import ValidationError
 from django.core.paginator import Paginator
 from django.http import Http404, HttpRequest
 from django.shortcuts import render
@@ -42,7 +40,6 @@ class SearchView(LoginRequiredMixin, UserPassesTestMixin, View):
 
         search_provider = search_providers[provider]
         context["selected_provider"] = search_provider.name
-        context["info_template"] = search_provider.info_template
 
         page_number = self.get_page_number(request)
         page_size: int = self.get_page_size(request)
@@ -115,21 +112,3 @@ class SearchView(LoginRequiredMixin, UserPassesTestMixin, View):
         except ValueError:
             page_size = 10
         return page_size
-
-
-class InfoView(LoginRequiredMixin, HtmxOnlyMixin, View):
-    def post(self, request: AuthenticatedHttpRequest, *args, **kwargs):
-        provider_name = request.POST.get("provider", "")
-        provider = search_providers.get(provider_name)
-
-        if not provider:
-            raise ValidationError(f"Invalid search provider: {provider_name}")
-
-        return render(
-            request,
-            "search/_search_info.html",
-            {
-                "selected_provider": provider_name,
-                "info_template": provider.info_template,
-            },
-        )

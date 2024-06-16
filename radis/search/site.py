@@ -88,13 +88,11 @@ class SearchProvider(NamedTuple):
     - search (Callable[[Search], SearchResult]): The function that handles the search.
     - max_results (int): The maximum number of results that can be fetched by a search.
       Must be smaller than offset + limit when searching.
-    - info_template (str): The template to be rendered as info.
     """
 
     name: str
     search: Callable[[Search], SearchResult]
     max_results: int
-    info_template: str
 
 
 search_providers: dict[str, SearchProvider] = {}
