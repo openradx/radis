@@ -5,33 +5,11 @@ from os import environ
 from pathlib import Path
 from typing import Literal
 
-import requests
 from dotenv import set_key
 from invoke.context import Context
 from invoke.tasks import task
-from tqdm import tqdm
 
 Environments = Literal["dev", "prod"]
-AVAILABLE_MODELS = {
-    # TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF 0.48 GB
-    "tinyllama-1b-q2": "https://huggingface.co/TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF/resolve/main/tinyllama-1.1b-chat-v1.0.Q2_K.gguf",
-    # MaziyarPanahi/Mistral-7B-Instruct-v0.3-GGUF 4.37 GB
-    "mistral-7b-q4": "https://huggingface.co/MaziyarPanahi/Mistral-7B-Instruct-v0.3-GGUF/resolve/main/Mistral-7B-Instruct-v0.3.Q4_K_M.gguf",
-    # MaziyarPanahi/Mistral-7B-Instruct-v0.3-GGUF 5.14 GB
-    "mistral-7b-q5": "https://huggingface.co/MaziyarPanahi/Mistral-7B-Instruct-v0.3-GGUF/resolve/main/Mistral-7B-Instruct-v0.3.Q5_K_M.gguf",
-    # TheBloke/Mixtral-8x7B-Instruct-v0.1-GGUF 32.2 GB
-    "mixtral-8x7b-q5": "https://huggingface.co/TheBloke/Mixtral-8x7B-Instruct-v0.1-GGUF/resolve/main/mixtral-8x7b-instruct-v0.1.Q5_K_M.gguf",
-    # QuantFactory/Meta-Llama-3-8B-Instruct-GGUF 5.73 GB
-    "llama3-q5": "https://huggingface.co/QuantFactory/Meta-Llama-3-8B-Instruct-GGUF/blob/main/Meta-Llama-3-8B-Instruct.Q5_K_M.gguf",
-    # QuantFactory/Meta-Llama-3-8B-Instruct-GGUF 8.54 GB
-    "llama3-q8": "https://huggingface.co/QuantFactory/Meta-Llama-3-8B-Instruct-GGUF/resolve/main/Meta-Llama-3-8B-Instruct.Q8_0.gguf",
-    # lightblue/suzume-llama-3-8B-multilingual-gguf 4.92 GB
-    "llama3-ml-q4": "https://huggingface.co/lightblue/suzume-llama-3-8B-multilingual-gguf/resolve/main/ggml-model-Q4_K_M.gguf",
-    # lightblue/suzume-llama-3-8B-multilingual-gguf 5.14 GB
-    "llama3-ml-q5": "https://huggingface.co/MaziyarPanahi/Mistral-7B-Instruct-v0.3-GGUF/resolve/main/Mistral-7B-Instruct-v0.3.Q5_K_M.gguf",
-    # lightblue/suzume-llama-3-8B-multilingual-gguf 8.54 GB
-    "llama3-ml-q8": "https://huggingface.co/lightblue/suzume-llama-3-8B-multilingual-gguf/resolve/main/ggml-model-Q8_0.gguf",
-}
 
 stack_name_dev = "radis_dev"
 stack_name_prod = "radis_prod"
@@ -115,22 +93,6 @@ def confirm(question: str) -> bool:
             return valid[choice]
         else:
             sys.stdout.write("Please respond with 'yes' or 'no' " "(or 'y' or 'n').\n")
-
-
-def download_with_progress_bar(url: str, filepath: Path):
-    response = requests.get(url, stream=True)
-
-    total_size = int(response.headers.get("content-length", 0))
-    block_size = 1024
-
-    with tqdm(total=total_size, unit="B", unit_scale=True) as progress_bar:
-        with open(filepath, "wb") as file:
-            for data in response.iter_content(block_size):
-                progress_bar.update(len(data))
-                file.write(data)
-
-    if total_size != 0 and progress_bar.n != total_size:
-        raise RuntimeError("Could not download file")
 
 
 ###
@@ -499,20 +461,3 @@ def upgrade_postgresql(ctx: Context, env: Environments = "dev", version: str = "
         )
     else:
         print("Cancelled")
-
-
-@task
-def download_llm(ctx: Context, model: str):
-    url = AVAILABLE_MODELS.get(model)
-    if not url:
-        print(f"Unknown model: {model}")
-        print(f"Available models: {', '.join(AVAILABLE_MODELS.keys())}")
-        return
-
-    models_dir.mkdir(parents=True, exist_ok=True)
-    model_path = models_dir / "model.gguf"
-    if model_path.exists():
-        print(f"Model {model} already exists. Skipping download.")
-        return
-
-    download_with_progress_bar(url, model_path)

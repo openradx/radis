@@ -10,6 +10,8 @@ x-app: &default-app
   pull_policy: never # only works with Docker Compose and not Docker Swarm
 
 x-llamacpp: &llamacpp
+  environment:
+    LLAMA_CACHE: "/models"
   env_file:
     - ../.env.dev
   hostname: llamacpp.local
@@ -17,7 +19,6 @@ x-llamacpp: &llamacpp
     - 9610:8080
   volumes:
     - models_data:/models
-  entrypoint: "/bin/bash -c '/llama-server -mu $${LLM_MODEL_URL} -c 512 --host 0.0.0.0 --port 8080'"
 
 services:
   init:
@@ -82,11 +83,13 @@ services:
   llamacpp_cpu:
     <<: *llamacpp
     image: ghcr.io/ggerganov/llama.cpp:server
+    entrypoint: "/bin/bash -c '/llama-server -mu $${LLM_MODEL_URL} -c 512 --host 0.0.0.0 --port 8080'"
     profiles: ["cpu"]
 
   llamacpp_gpu:
     <<: *llamacpp
     image: ghcr.io/ggerganov/llama.cpp:server-cuda
+    entrypoint: "/bin/bash -c '/llama-server -mu $${LLM_MODEL_URL} -ngl 50 -c 4096 --host 0.0.0.0 --port 8080'"
     deploy:
       resources:
         reservations:
