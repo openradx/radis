@@ -1,0 +1,41 @@
+{% extends "rag/rag_layout.html" %}
+{% load bootstrap_icon from common_extras %}
+{% block title %}
+    RAG Report Instance
+{% endblock title %}
+{% block heading %}
+    <div class="d-flex justify-content-between align-items-start">
+        <h4 class="mb-3">RAG Report Instance</h4>
+    </div>
+{% endblock heading %}
+{% block content %}
+    <dl class="row">
+        <dt class="col-sm-3">Report Instance ID</dt>
+        <dd class="col-sm-9">
+            {{ report_instance.id }}
+        </dd>
+        <dt class="col-sm-3">Task ID</dt>
+        <dd class="col-sm-9">
+            <a href="{% url task_url_name report_instance.task.id %}">
+                {{ report_instance.task.id }}
+                {% bootstrap_icon "box-arrow-in-down-right" %}
+            </a>
+        </dd>
+        <dt class="col-sm-3">Job ID</dt>
+        <dd class="col-sm-9">
+            <a href="{% url job_url_name report_instance.task.job.id %}">
+                {{ report_instance.task.job.id }}
+                {% bootstrap_icon "box-arrow-in-down-right" %}
+            </a>
+        </dd>
+        <dt class="col-sm-3">Overall Result</dt>
+        <dd class="col-sm-9">
+            {% if report_instance.overall_result %}
+                {% include "rag/_overall_result_badge.html" %}
+            {% else %}
+                —
+            {% endif %}
+        </dd>
+    </dl>
+    {% include "rag/_rag_result_summary.html" %}
+{% endblock content %}

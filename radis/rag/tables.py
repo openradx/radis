@@ -1,9 +1,10 @@
+import django_tables2 as tables
 from django.utils.html import format_html
 
-from radis.core.tables import AnalysisJobTable, AnalysisTaskTable
+from radis.core.tables import AnalysisJobTable, AnalysisTaskTable, RecordIdColumn
 from radis.rag.templatetags.rag_extras import result_badge_css_class
 
-from .models import RagJob, RagTask
+from .models import RagJob, RagReportInstance, RagTask
 
 
 class RagJobTable(AnalysisJobTable):
@@ -15,10 +16,21 @@ class RagTaskTable(AnalysisTaskTable):
     class Meta(AnalysisTaskTable.Meta):
         model = RagTask
         empty_text = "No RAG tasks to show"
-        fields = ("id", "status", "message", "ended_at", "overall_result")
+        fields = ("id", "status", "message", "ended_at")
 
-    def render_overall_result(self, value: str, record: RagTask):
-        if not record.overall_result:
-            return "—"
+
+class RagReportInstanceTable(tables.Table):
+    id = RecordIdColumn(verbose_name="Task ID")
+    overall_result = tables.Column(verbose_name="Overall Result")
+
+    class Meta:
+        model = RagReportInstance
+        empty_text = "No RAG report instances to show"
+        fields = ("id", "overall_result")
+        attrs = {"class": "table table-bordered table-hover"}
+
+    def render_overall_result(self, value: str, record: RagReportInstance):
         css_class = result_badge_css_class(record.overall_result)
-        return format_html(f'<span class="badge {css_class}">{value}</span>')
+        return format_html(
+            f'<span class="badge {css_class}">{record.get_overall_result_display()}</span>'
+        )

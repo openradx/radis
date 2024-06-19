@@ -1,4 +1,4 @@
-from typing import cast
+from typing import Any, cast
 
 from adit_radis_shared.common.mixins import HtmxOnlyMixin, PageSizeSelectMixin, RelatedFilterMixin
 from adit_radis_shared.common.types import AuthenticatedHttpRequest
@@ -15,6 +15,7 @@ from django.forms import BaseInlineFormSet
 from django.shortcuts import redirect, render
 from django.urls import reverse_lazy
 from django.views.generic import DetailView, View
+from django_tables2 import SingleTableMixin
 from formtools.wizard.views import SessionWizardView
 
 from radis.core.views import (
@@ -33,17 +34,13 @@ from radis.core.views import (
 )
 from radis.rag.filters import RagJobFilter, RagResultFilter, RagTaskFilter
 from radis.rag.mixins import RagLockedMixin
-from radis.rag.tables import RagJobTable, RagTaskTable
+from radis.rag.tables import RagJobTable, RagReportInstanceTable, RagTaskTable
 from radis.reports.models import Language, Modality
 from radis.search.site import Search, SearchFilters
 from radis.search.utils.query_parser import QueryParser
 
-from .forms import (
-    QuestionFormSet,
-    QuestionFormSetHelper,
-    SearchForm,
-)
-from .models import Answer, QuestionResult, RagJob, RagTask
+from .forms import QuestionFormSet, QuestionFormSetHelper, SearchForm
+from .models import Answer, QuestionResult, RagJob, RagReportInstance, RagTask
 from .site import retrieval_providers
 
 RAG_SEARCH_PROVIDER = "rag_search_provider"
@@ -204,10 +201,20 @@ class RagJobRestartView(RagLockedMixin, AnalysisJobRestartView):
     model = RagJob
 
 
-class RagTaskDetailView(RagLockedMixin, AnalysisTaskDetailView):
+class RagTaskDetailView(RagLockedMixin, AnalysisTaskDetailView, SingleTableMixin):
     model = RagTask
+    table_class = RagReportInstanceTable
+    filterset_class = RagResultFilter
     job_url_name = "rag_job_detail"
     template_name = "rag/rag_task_detail.html"
+
+    def get_context_data(self, **kwargs) -> dict[str, Any]:
+        context = super().get_context_data(**kwargs)
+        task = cast(RagTask, self.get_object())
+        self.object_list = task.report_instances.all()
+        table = self.get_table()
+        context[self.get_context_table_name(table)] = table
+        return context
 
 
 class RagTaskDeleteView(RagLockedMixin, AnalysisTaskDeleteView):
@@ -239,10 +246,18 @@ class RagResultListView(
 
     def get_filter_queryset(self):
         job = cast(RagJob, self.get_object())
-        tasks = job.tasks.filter(
-            overall_result__in=[RagTask.Result.ACCEPTED, RagTask.Result.REJECTED]
-        )
-        return tasks.select_related("report")
+        tasks = job.tasks.all()
+        query_set = RagReportInstance.objects.none()
+        for task in tasks:
+            query_set = query_set | (
+                task.report_instances.filter(
+                    overall_result__in=[
+                        RagReportInstance.Result.ACCEPTED,
+                        RagReportInstance.Result.REJECTED,
+                    ]
+                )
+            )
+        return query_set.select_related("report")
 
 
 class ChangeAnswerView(LoginRequiredMixin, HtmxOnlyMixin, View):
@@ -251,31 +266,51 @@ class ChangeAnswerView(LoginRequiredMixin, HtmxOnlyMixin, View):
 
         result = QuestionResult.objects.get(id=result_id)
         question = result.question
-        task = result.task
+        report_instance = result.report_instance
 
-        if task.job.owner != user:
+        if report_instance.task.job.owner != user:
             raise SuspiciousOperation("You are not the owner of this task")
 
         with transaction.atomic():
             result.current_answer = Answer.NO if result.current_answer == Answer.YES else Answer.YES
             if result.current_answer == question.accepted_answer:
-                result.result = RagTask.Result.ACCEPTED
+                result.result = RagReportInstance.Result.ACCEPTED
             else:
-                result.result = RagTask.Result.REJECTED
+                result.result = RagReportInstance.Result.REJECTED
             result.save()
 
-            all_results = list(task.results.values_list("result", flat=True))
-            if all(result == RagTask.Result.ACCEPTED for result in all_results):
-                task.overall_result = RagTask.Result.ACCEPTED
+            all_results = list(report_instance.results.values_list("result", flat=True))
+            if all(result == RagReportInstance.Result.ACCEPTED for result in all_results):
+                report_instance.overall_result = RagReportInstance.Result.ACCEPTED
             else:
-                task.overall_result = RagTask.Result.REJECTED
-            task.save()
+                report_instance.overall_result = RagReportInstance.Result.REJECTED
+            report_instance.save()
 
         return render(
             request,
             "rag/_changed_result.html",
             {
-                "task": task,
+                "report_instance": report_instance,
                 "result": result,
             },
         )
+
+
+class RagReportInstanceDetailView(LoginRequiredMixin, DetailView):
+    model: type[RagReportInstance]
+    task_url_name: str = "rag_task_detail"
+    job_url_name: str = "rag_job_detail"
+    context_object_name = "report_instance"
+    template_name: str = "rag/rag_report_instance_detail.html"
+    request: AuthenticatedHttpRequest
+
+    def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
+        context = super().get_context_data(**kwargs)
+        context["task_url_name"] = self.task_url_name
+        context["job_url_name"] = self.job_url_name
+        return context
+
+    def get_queryset(self):
+        if self.request.user.is_staff:
+            return RagReportInstance.objects.all()
+        return RagReportInstance.objects.filter(task__job__owner=self.request.user)

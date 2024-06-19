@@ -1,4 +1,4 @@
 {% load result_badge_css_class from rag_extras %}
-<span id="overall_result_{{ task.id }}"
-      class="badge {{ task.overall_result|result_badge_css_class }}"
-      hx-swap-oob="true">{{ task.get_overall_result_display }}</span>
+<span id="overall_result_{{ report_instance.id }}"
+      class="badge {{ report_instance.overall_result|result_badge_css_class }}"
+      hx-swap-oob="true">{{ report_instance.get_overall_result_display }}</span>
