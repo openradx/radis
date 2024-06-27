@@ -1,4 +1,8 @@
 {% load result_badge_css_class from rag_extras %}
-<span id="overall_result_{{ report_instance.id }}"
-      class="badge {{ report_instance.overall_result|result_badge_css_class }}"
-      hx-swap-oob="true">{{ report_instance.get_overall_result_display }}</span>
+{% if report_instance.overall_result %}
+    <span id="overall_result_{{ report_instance.id }}"
+          class="badge {{ report_instance.overall_result|result_badge_css_class }}"
+          hx-swap-oob="true">{{ report_instance.get_overall_result_display }}</span>
+{% else %}
+    <span id="overall_result_{{ report_instance.id }}">—</span>
+{% endif %}

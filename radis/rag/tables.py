@@ -30,7 +30,7 @@ class RagReportInstanceTable(tables.Table):
         attrs = {"class": "table table-bordered table-hover"}
 
     def render_overall_result(self, value: str, record: RagReportInstance):
+        if not record.overall_result:
+            return "–"
         css_class = result_badge_css_class(record.overall_result)
-        return format_html(
-            f'<span class="badge {css_class}">{record.get_overall_result_display()}</span>'
-        )
+        return format_html(f'<span class="badge {css_class}">{value}</span>')

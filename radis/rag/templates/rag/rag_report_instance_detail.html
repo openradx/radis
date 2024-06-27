@@ -30,14 +30,8 @@
         </dd>
         <dt class="col-sm-3">Overall Result</dt>
         <dd class="col-sm-9">
-            {% if report_instance.overall_result %}
-                {% include "rag/_overall_result_badge.html" %}
-            {% else %}
-                —
-            {% endif %}
+            {% include "rag/_overall_result_badge.html" %}
         </dd>
     </dl>
-    {% if report_instance.overall_result %}
-        {% include "rag/_rag_result_summary.html" %}
-    {% endif %}
+    {% include "rag/_rag_result_summary.html" %}
 {% endblock content %}
