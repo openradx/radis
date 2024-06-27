@@ -14,7 +14,8 @@ from radis.reports.models import Report
 from radis.search.site import Search, SearchFilters
 from radis.search.utils.query_parser import QueryParser
 
-from .models import Answer, Question, QuestionResult, RagJob, RagReportInstance, RagTask
+from .models import (Answer, Question, QuestionResult, RagJob,
+                     RagReportInstance, RagTask)
 from .site import retrieval_providers
 
 logger = logging.getLogger(__name__)
@@ -180,6 +181,4 @@ class ProcessRagJob(ProcessAnalysisJob):
 
 process_rag_job = ProcessRagJob()
 
-celery_app.register_task(process_rag_job)
-celery_app.register_task(process_rag_job)
 celery_app.register_task(process_rag_job)
