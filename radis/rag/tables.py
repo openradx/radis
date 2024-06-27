@@ -20,7 +20,7 @@ class RagTaskTable(AnalysisTaskTable):
 
 
 class RagReportInstanceTable(tables.Table):
-    id = RecordIdColumn(verbose_name="Task ID")
+    id = RecordIdColumn(verbose_name="Rag Report Instance ID")
     overall_result = tables.Column(verbose_name="Overall Result")
 
     class Meta:

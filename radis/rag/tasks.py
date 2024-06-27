@@ -4,7 +4,6 @@ from asyncio import Semaphore
 from itertools import batched
 from typing import Iterator, List, override
 
-from asgiref.sync import sync_to_async
 from django.conf import settings
 from openai import OpenAI
 
@@ -31,44 +30,37 @@ class ProcessRagTask(ProcessAnalysisTask):
 
     @override
     def process_task(self, task: RagTask) -> None:
-        client = AsyncChatClient()
+        asyncio.run(self.process_rag_task(task))
 
+    async def process_rag_task(self, task: RagTask) -> None:
+        client = AsyncChatClient()
         sem = Semaphore(settings.RAG_LLM_CONCURRENCY_LIMIT)
 
-        asyncio.run(self.process_rag_task(client, sem, task))
-
-    async def process_rag_task(
-        self, client: AsyncChatClient, sem: Semaphore, task: RagTask
-    ) -> None:
-        report_instances: List[RagReportInstance] = await sync_to_async(
-            lambda: list(task.report_instances.all())
-        )()
-
-        logger.debug("Processing %d report instances", len(report_instances))
-
         await asyncio.gather(
-            *[self.process_report_instance(instance, client, sem) for instance in report_instances]
+            *[
+                self.process_report_instance(report_instance, client, sem)
+                async for report_instance in task.report_instances.prefetch_related(
+                    "report", "report__language"
+                )
+            ]
         )
 
     async def process_report_instance(
         self, report_instance: RagReportInstance, client: AsyncChatClient, sem: Semaphore
     ) -> None:
-        report = await sync_to_async(lambda: report_instance.report)()
-        language = await sync_to_async(lambda: report.language)()
+        report = report_instance.report
+        language = report.language
 
         if language.code not in settings.SUPPORTED_LANGUAGES:
             raise ValueError(f"Language '{language}' is not supported.")
 
-        questions: List[Question] = await sync_to_async(
-            lambda: list(report_instance.task.job.questions.all())
-        )()
         async with sem:
             results = await asyncio.gather(
                 *[
                     self.process_yes_or_no_question(
                         report_instance, report.body, language.code, question, client
                     )
-                    for question in questions
+                    async for question in report_instance.task.job.questions.all()
                 ]
             )
 
@@ -78,7 +70,7 @@ class ProcessRagTask(ProcessAnalysisTask):
             overall_result = RagReportInstance.Result.REJECTED
 
         report_instance.overall_result = overall_result
-        await sync_to_async(report_instance.save)()
+        await report_instance.asave()
 
         logger.info(
             "Overall RAG result for for report %s: %s",
@@ -109,7 +101,7 @@ class ProcessRagTask(ProcessAnalysisTask):
             else RagReportInstance.Result.REJECTED
         )
 
-        await sync_to_async(QuestionResult.objects.update_or_create)(
+        await QuestionResult.objects.aupdate_or_create(
             report_instance=report_instance,
             question=question,
             defaults={

@@ -246,18 +246,14 @@ class RagResultListView(
 
     def get_filter_queryset(self):
         job = cast(RagJob, self.get_object())
-        tasks = job.tasks.all()
-        query_set = RagReportInstance.objects.none()
-        for task in tasks:
-            query_set = query_set | (
-                task.report_instances.filter(
-                    overall_result__in=[
-                        RagReportInstance.Result.ACCEPTED,
-                        RagReportInstance.Result.REJECTED,
-                    ]
-                )
-            )
-        return query_set.select_related("report")
+        report_instances = RagReportInstance.objects.filter(
+            task__job=job,
+            overall_result__in=[
+                RagReportInstance.Result.ACCEPTED,
+                RagReportInstance.Result.REJECTED,
+            ],
+        )
+        return report_instances.select_related("report")
 
 
 class ChangeAnswerView(LoginRequiredMixin, HtmxOnlyMixin, View):

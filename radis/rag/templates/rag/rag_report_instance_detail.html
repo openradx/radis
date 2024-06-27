@@ -37,5 +37,7 @@
             {% endif %}
         </dd>
     </dl>
-    {% include "rag/_rag_result_summary.html" %}
+    {% if report_instance.overall_result %}
+        {% include "rag/_rag_result_summary.html" %}
+    {% endif %}
 {% endblock content %}
