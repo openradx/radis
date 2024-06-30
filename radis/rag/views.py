@@ -1,4 +1,4 @@
-from typing import Any, cast
+from typing import Any, Type, cast
 
 from adit_radis_shared.common.mixins import HtmxOnlyMixin, PageSizeSelectMixin, RelatedFilterMixin
 from adit_radis_shared.common.types import AuthenticatedHttpRequest
@@ -237,14 +237,17 @@ class RagResultListView(
     context_object_name = "job"
     template_name = "rag/rag_result_list.html"
     request: AuthenticatedHttpRequest
+    paginate_by = 10
+    page_sizes = [10, 25, 50]
 
-    def get_queryset(self):
+    def get_queryset(self) -> QuerySet[RagJob]:
         assert self.model
+        model = cast(Type[RagJob], self.model)
         if self.request.user.is_staff:
-            return self.model.objects.all()
-        return self.model.objects.filter(owner=self.request.user)
+            return model.objects.all()
+        return model.objects.filter(owner=self.request.user)
 
-    def get_filter_queryset(self):
+    def get_filter_queryset(self) -> QuerySet[RagReportInstance]:
         job = cast(RagJob, self.get_object())
         report_instances = RagReportInstance.objects.filter(
             task__job=job,
@@ -306,7 +309,7 @@ class RagReportInstanceDetailView(LoginRequiredMixin, DetailView):
         context["job_url_name"] = self.job_url_name
         return context
 
-    def get_queryset(self):
+    def get_queryset(self) -> QuerySet[RagReportInstance]:
         if self.request.user.is_staff:
             return RagReportInstance.objects.all()
         return RagReportInstance.objects.filter(task__job__owner=self.request.user)
