@@ -408,14 +408,14 @@ CHAT_USER_PROMPT = {
 RAG_DEFAULT_PRIORITY = 2
 RAG_URGENT_PRIORITY = 3
 
-# The number of RAG report instances that are processed within one task. There are multiple questions
-# associated with each report instance via the RagJob.
+# The number of RAG report instances that are processed within one task. There are multiple
+# questions associated with each report instance via the RagJob.
 RAG_TASK_BATCH_SIZE = 4
 # The number of parallel requests the LLM can handle. This limit is enforced within each task. When
-# having multiple workers, the total number of parallel requests is RAG_LLM_CONCURRENCY_LIMIT * number
-# of workers. Either the number of HTTP Threads and number of parallel computing slots of the llama.cpp
-# should be set to match this number or the continuous batching capability of the LLM or a combination
-# of both should be used.
+# having multiple workers, the total number of parallel requests is
+# RAG_LLM_CONCURRENCY_LIMIT * number of workers. Either the number of HTTP Threads and number of
+# parallel computing slots of the llama.cpp should be set to match this number or the continuous
+# batching capability of the LLM or a combination of both should be used.
 RAG_LLM_CONCURRENCY_LIMIT = 4
 
 START_RAG_JOB_UNVERIFIED = False

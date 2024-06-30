@@ -2,7 +2,7 @@ import asyncio
 import logging
 from asyncio import Semaphore
 from itertools import batched
-from typing import Iterator, List, override
+from typing import Iterator, override
 
 from django.conf import settings
 from openai import OpenAI
@@ -14,8 +14,7 @@ from radis.reports.models import Report
 from radis.search.site import Search, SearchFilters
 from radis.search.utils.query_parser import QueryParser
 
-from .models import (Answer, Question, QuestionResult, RagJob,
-                     RagReportInstance, RagTask)
+from .models import Answer, Question, QuestionResult, RagJob, RagReportInstance, RagTask
 from .site import retrieval_providers
 
 logger = logging.getLogger(__name__)
