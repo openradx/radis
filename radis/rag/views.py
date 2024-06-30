@@ -237,8 +237,6 @@ class RagResultListView(
     context_object_name = "job"
     template_name = "rag/rag_result_list.html"
     request: AuthenticatedHttpRequest
-    paginate_by = 10
-    page_sizes = [10, 25, 50]
 
     def get_queryset(self) -> QuerySet[RagJob]:
         assert self.model
