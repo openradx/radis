@@ -18,6 +18,8 @@ from django.views.generic import DetailView, View
 from django_tables2 import SingleTableMixin
 from formtools.wizard.views import SessionWizardView
 
+# TODO: Change to adit_radis_shared.common.mixins.RelatedPaginationMixin
+from radis.core.mixins import RelatedPaginationMixin
 from radis.core.views import (
     AnalysisJobCancelView,
     AnalysisJobDeleteView,
@@ -228,6 +230,7 @@ class RagTaskResetView(RagLockedMixin, AnalysisTaskResetView):
 class RagResultListView(
     RagLockedMixin,
     LoginRequiredMixin,
+    RelatedPaginationMixin,
     RelatedFilterMixin,
     PageSizeSelectMixin,
     DetailView,
@@ -237,6 +240,7 @@ class RagResultListView(
     context_object_name = "job"
     template_name = "rag/rag_result_list.html"
     request: AuthenticatedHttpRequest
+    object_list: QuerySet[RagReportInstance]
 
     def get_queryset(self) -> QuerySet[RagJob]:
         assert self.model
@@ -245,7 +249,7 @@ class RagResultListView(
             return model.objects.all()
         return model.objects.filter(owner=self.request.user)
 
-    def get_filter_queryset(self) -> QuerySet[RagReportInstance]:
+    def get_related_queryset(self) -> QuerySet[RagReportInstance]:
         job = cast(RagJob, self.get_object())
         report_instances = RagReportInstance.objects.filter(
             task__job=job,
@@ -253,8 +257,11 @@ class RagResultListView(
                 RagReportInstance.Result.ACCEPTED,
                 RagReportInstance.Result.REJECTED,
             ],
-        )
-        return report_instances.select_related("report")
+        ).select_related("report")
+        return report_instances
+
+    def get_filter_queryset(self) -> QuerySet[RagReportInstance]:
+        return self.get_related_queryset()
 
 
 class ChangeAnswerView(LoginRequiredMixin, HtmxOnlyMixin, View):
