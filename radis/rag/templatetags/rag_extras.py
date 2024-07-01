@@ -2,7 +2,7 @@ from typing import Any
 
 from django.template import Library
 
-from radis.rag.models import RagTask
+from radis.rag.models import RagReportInstance
 
 register = Library()
 
@@ -32,9 +32,9 @@ def task_control_panel(context: dict[str, Any]) -> dict[str, Any]:
 
 
 @register.filter
-def result_badge_css_class(result: RagTask.Result) -> str:
+def result_badge_css_class(result: RagReportInstance.Result) -> str:
     css_classes = {
-        RagTask.Result.ACCEPTED: "text-bg-success",
-        RagTask.Result.REJECTED: "text-bg-danger",
+        RagReportInstance.Result.ACCEPTED: "text-bg-success",
+        RagReportInstance.Result.REJECTED: "text-bg-danger",
     }
     return css_classes[result]

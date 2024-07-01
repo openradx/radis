@@ -1,5 +1,6 @@
 {% extends "rag/rag_layout.html" %}
 {% load bootstrap_icon from common_extras %}
+{% load render_table from django_tables2 %}
 {% load analysis_task_status_css_class from core_extras %}
 {% load task_control_panel from rag_extras %}
 {% block title %}
@@ -64,34 +65,8 @@
                     <div>{{ task.log|default:"—" }}</div>
                 </dd>
             {% endif %}
-            <dt class="col-sm-3">Overall Result</dt>
-            <dd class="col-sm-9">
-                {% if not task.overall_result %}
-                    —
-                {% else %}
-                    {% include "rag/_overall_result_badge.html" %}
-                {% endif %}
-            </dd>
-        </dl>
-        <h5>Questions</h5>
-        <dl class="row">
-            {% for result in task.results.all %}
-                <dt class="col-sm-3">Question</dt>
-                <dd class="col-sm-9">
-                    {{ result.question.question }}
-                </dd>
-                <dt class="col-sm-3">Answer</dt>
-                <dd class="col-sm-9">
-                    {% include "rag/_current_answer.html" %}
-                    {% include "rag/_change_answer_button.html" %}
-                </dd>
-                <dt class="col-sm-3">Result</dt>
-                <dd class="col-sm-9">
-                    {% include "rag/_result_badge.html" %}
-                </dd>
-            {% endfor %}
         </dl>
     {% endwith %}
-    {% include "reports/_report_summary.html" with report=task.report %}
+    {% render_table table %}
     {% task_control_panel %}
 {% endblock content %}

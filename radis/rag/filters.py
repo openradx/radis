@@ -4,7 +4,7 @@ from django.http import HttpRequest
 
 from radis.core.filters import AnalysisJobFilter, AnalysisTaskFilter
 
-from .models import RagJob, RagTask
+from .models import RagJob, RagReportInstance, RagTask
 
 
 class RagJobFilter(AnalysisJobFilter):
@@ -21,7 +21,7 @@ class RagResultFilter(django_filters.FilterSet):
     request: HttpRequest
 
     class Meta:
-        model = RagTask
+        model = RagReportInstance
         fields = ("overall_result",)
 
     def __init__(self, *args, **kwargs):

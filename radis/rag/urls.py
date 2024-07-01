@@ -12,6 +12,7 @@ from .views import (
     RagJobRetryView,
     RagJobVerifyView,
     RagJobWizardView,
+    RagReportInstanceDetailView,
     RagResultListView,
     RagTaskDeleteView,
     RagTaskDetailView,
@@ -103,5 +104,10 @@ urlpatterns = [
         "change-answer/<int:result_id>/",
         ChangeAnswerView.as_view(),
         name="rag_change_answer",
+    ),
+    path(
+        "tasks/<int:task_id>/report-instances/<int:pk>/",
+        RagReportInstanceDetailView.as_view(),
+        name="rag_report_instance_detail",
     ),
 ]
