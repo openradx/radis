@@ -2,8 +2,8 @@ import logging
 from string import Template
 from typing import Literal
 
+import openai
 from django.conf import settings
-from openai import AsyncOpenAI, OpenAI
 
 logger = logging.getLogger(__name__)
 
@@ -15,7 +15,7 @@ YES_NO_GRAMMAR = """
 
 class ChatClient:
     def __init__(self):
-        self._client = OpenAI(base_url=f"{settings.LLAMACPP_URL}/v1", api_key="none")
+        self._client = openai.OpenAI(base_url=f"{settings.LLAMACPP_URL}/v1", api_key="none")
 
     def ask_question(
         self, report_body: str, language: str, question: str, grammar: str | None = None
@@ -67,7 +67,7 @@ class ChatClient:
 
 class AsyncChatClient:
     def __init__(self):
-        self._client = AsyncOpenAI(base_url=f"{settings.LLAMACPP_URL}/v1", api_key="none")
+        self._client = openai.AsyncOpenAI(base_url=f"{settings.LLAMACPP_URL}/v1", api_key="none")
 
     async def ask_question(
         self, report_body: str, language: str, question: str, grammar: str | None = None
