@@ -4,6 +4,8 @@ from asyncio import Semaphore
 from itertools import batched
 from typing import Iterator, override
 
+from channels.db import database_sync_to_async
+from django import db
 from django.conf import settings
 from openai import OpenAI
 
@@ -44,6 +46,7 @@ class ProcessRagTask(ProcessAnalysisTask):
                 )
             ]
         )
+        await database_sync_to_async(db.close_old_connections)()
 
     async def process_report_instance(
         self, report_instance: RagReportInstance, client: AsyncChatClient, sem: Semaphore
