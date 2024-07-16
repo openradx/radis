@@ -7,7 +7,6 @@ from typing import Iterator, override
 from channels.db import database_sync_to_async
 from django import db
 from django.conf import settings
-from openai import OpenAI
 
 from radis.celery import app as celery_app
 from radis.core.tasks import ProcessAnalysisJob, ProcessAnalysisTask
@@ -16,8 +15,7 @@ from radis.reports.models import Report
 from radis.search.site import Search, SearchFilters
 from radis.search.utils.query_parser import QueryParser
 
-from .models import (Answer, Question, QuestionResult, RagJob,
-                     RagReportInstance, RagTask)
+from .models import Answer, Question, QuestionResult, RagJob, RagReportInstance, RagTask
 from .site import retrieval_providers
 
 logger = logging.getLogger(__name__)

@@ -1,7 +1,6 @@
 from typing import Any
 
-from adit_radis_shared.common.decorators import (login_required_async,
-                                                 user_passes_test_async)
+from adit_radis_shared.common.decorators import login_required_async, user_passes_test_async
 from adit_radis_shared.common.types import AuthenticatedHttpRequest
 from asgiref.sync import sync_to_async
 from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin

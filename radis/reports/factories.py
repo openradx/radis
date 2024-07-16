@@ -1,3 +1,4 @@
+import random
 from datetime import timezone
 from typing import Generic, TypeVar
 
@@ -32,7 +33,10 @@ class ModalityFactory(BaseDjangoModelFactory[Modality]):
         model = Modality
         django_get_or_create = ("code",)
 
-    code = factory.Faker("random_element", elements=MODALITIES)
+    @factory.LazyAttribute
+    def code(self):
+        num_modalities = random.randint(1, 3)
+        return random.choices(MODALITIES, k=num_modalities)
 
 
 class MetadataFactory(BaseDjangoModelFactory[Metadata]):

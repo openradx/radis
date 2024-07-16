@@ -1,7 +1,9 @@
-from typing import Generic, TypeVar
+from typing import Generic, TypeVar, cast
 
 import factory
 from faker import Faker
+
+from radis.reports.factories import ModalityFactory
 
 from .models import Answer, Question, RagJob, RagReportInstance, RagTask
 
@@ -29,13 +31,26 @@ class RagJobFactory(BaseDjangoModelFactory):
     group = factory.SubFactory("adit_radis_shared.accounts.factories.GroupFactory")
     query = factory.Faker("word")
     language = factory.SubFactory("radis.reports.factories.LanguageFactory")
-    # TODO: handle modalities
     study_date_from = factory.Faker("date")
     study_date_till = factory.Faker("date")
     study_description = factory.Faker("sentence", nb_words=5)
     patient_sex = factory.Faker("random_element", elements=PatientSexes)
     age_from = factory.Faker("random_int", min=0, max=100)
     age_till = factory.Faker("random_int", min=0, max=100)
+
+    @factory.post_generation
+    def modalities(self, create, extracted, **kwargs):
+        if not create:
+            return
+
+        self = cast(RagJob, self)
+
+        if extracted:
+            for modality in extracted:
+                self.modalities.add(modality)
+        else:
+            modality = ModalityFactory()
+            self.modalities.add(modality)
 
 
 class QuestionFactory(BaseDjangoModelFactory[Question]):
