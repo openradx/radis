@@ -410,12 +410,12 @@ RAG_URGENT_PRIORITY = 3
 
 # The number of RAG report instances that are processed within one task. There are multiple
 # questions associated with each report instance via the RagJob.
-RAG_TASK_BATCH_SIZE = 1
+RAG_TASK_BATCH_SIZE = 64
 # The number of parallel requests the LLM can handle. This limit is enforced within each task. When
 # having multiple workers, the total number of parallel requests is
 # RAG_LLM_CONCURRENCY_LIMIT * number of workers. Either the number of HTTP Threads and number of
 # parallel computing slots of the llama.cpp should be set to match this number or the continuous
 # batching capability of the LLM or a combination of both should be used.
-RAG_LLM_CONCURRENCY_LIMIT = 1
+RAG_LLM_CONCURRENCY_LIMIT = 6
 
 START_RAG_JOB_UNVERIFIED = False
