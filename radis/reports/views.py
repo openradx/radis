@@ -1,6 +1,7 @@
 from typing import Any
 
-from adit_radis_shared.common.decorators import login_required_async, user_passes_test_async
+from adit_radis_shared.common.decorators import (login_required_async,
+                                                 user_passes_test_async)
 from adit_radis_shared.common.types import AuthenticatedHttpRequest
 from asgiref.sync import sync_to_async
 from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
@@ -9,7 +10,7 @@ from django.http import HttpResponse
 from django.shortcuts import aget_object_or_404, render  # type: ignore
 from django.views.generic.detail import DetailView
 
-from radis.core.utils.chat_client import ChatClient
+from radis.core.utils.chat_client import AsyncChatClient
 from radis.reports.forms import PromptForm
 
 from .models import Report
@@ -58,14 +59,14 @@ async def report_chat_view(request: AuthenticatedHttpRequest, pk: int) -> HttpRe
     }
 
     if form.is_valid():
-        chat_client = ChatClient()
+        chat_client = AsyncChatClient()
         if request.POST.get("yes_no_answer"):
-            answer = chat_client.ask_yes_no_question(
+            answer = await chat_client.ask_yes_no_question(
                 report.body, language.code, form.cleaned_data["prompt"]
             )
             answer = "Yes" if answer == "yes" else "No"
         elif request.POST.get("full_answer"):
-            answer = chat_client.ask_question(
+            answer = await chat_client.ask_question(
                 report.body, language.code, form.cleaned_data["prompt"]
             )
         else:
