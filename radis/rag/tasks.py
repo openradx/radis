@@ -16,7 +16,8 @@ from radis.reports.models import Report
 from radis.search.site import Search, SearchFilters
 from radis.search.utils.query_parser import QueryParser
 
-from .models import Answer, Question, QuestionResult, RagJob, RagReportInstance, RagTask
+from .models import (Answer, Question, QuestionResult, RagJob,
+                     RagReportInstance, RagTask)
 from .site import retrieval_providers
 
 logger = logging.getLogger(__name__)
@@ -27,8 +28,6 @@ class ProcessRagTask(ProcessAnalysisTask):
 
     def __init__(self) -> None:
         super().__init__()
-
-        self._client = OpenAI(base_url=f"{settings.LLAMACPP_URL}/v1", api_key="none")
 
     @override
     def process_task(self, task: RagTask) -> None:
