@@ -70,6 +70,7 @@ def _build_query_string(node: QueryNode) -> str:
 
 
 def _build_query_dict(search: Search) -> dict:
+    logger.debug("Building query dict for search:\n%s", search)
     return {
         "bool": {
             "filter": _build_filter_dict(search.filters),

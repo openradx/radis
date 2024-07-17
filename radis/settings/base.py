@@ -77,6 +77,7 @@ INSTALLED_APPS = [
     "radis.notes.apps.NotesConfig",
     "radis.vespa.apps.VespaConfig",
     "radis.opensearch.apps.OpenSearchConfig",
+    "radis.pgsearch.apps.PGSearchConfig",
     "channels",
 ]
 
@@ -129,7 +130,7 @@ STORAGES = {
 # env.db() loads the DB setup from the DATABASE_URL environment variable using
 # Django-environ.
 # The sqlite database is still used for pytest tests.
-DATABASES = {"default": env.db(default="sqlite:///radis-sqlite.db")}  # type: ignore
+DATABASES = {"default": env.db(default="psql://postgres:postgres@postgres.local:5432/postgres")}  # type: ignore
 
 # Django 3.2 switched to BigAutoField for primary keys. It must be set explicitly
 # and requires a migration.
@@ -367,6 +368,9 @@ OPENSEARCH_INDICES = [
     {"language": "de", "analyzer": "german"},
     {"language": "en", "analyzer": "english"},
 ]
+
+# PgSearch
+PGSEARCH_ENABLED = env.bool("PGSEARCH_ENABLED", default=True)  # type: ignore
 
 # Vespa
 VESPA_ENABLED = env.bool("VESPA_ENABLED", default=False)  # type: ignore

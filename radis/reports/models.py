@@ -2,8 +2,11 @@ from typing import TYPE_CHECKING
 
 from adit_radis_shared.common.models import AppSettings
 from django.contrib.auth.models import Group
+from django.contrib.postgres.indexes import GinIndex
+from django.contrib.postgres.search import SearchVector, SearchVectorField
 from django.db import models
 
+from radis.core.constants import LANGUAGE_LABELS
 from radis.core.utils.date_utils import calculate_age
 from radis.core.validators import (
     no_backslash_char_validator,
@@ -75,8 +78,20 @@ class Report(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    search_vector = SearchVectorField(null=True, blank=True)
+
+    class Meta:
+        indexes = [
+            GinIndex(fields=["search_vector"]),
+        ]
+
     def __str__(self) -> str:
         return f"Report {self.id} [{self.document_id}]"
+
+    def save(self, *args, **kwargs):
+        super().save(*args, **kwargs)  # Save the instance first to get the primary key
+        self.update_search_vector()
+        super().save(update_fields=["search_vector"])  # Update the search vector field
 
     @property
     def modality_codes(self) -> list[str]:
@@ -86,6 +101,11 @@ class Report(models.Model):
     def patient_age(self) -> int:
         """Patient age at study date"""
         return calculate_age(self.patient_birth_date, self.study_datetime)
+
+    def update_search_vector(self):
+        self.search_vector = SearchVector(
+            "body", config=LANGUAGE_LABELS[self.language.code].lower()
+        )
 
 
 class Metadata(models.Model):
