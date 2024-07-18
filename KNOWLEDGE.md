@@ -17,6 +17,13 @@
 - Medium quality, good performance, medium resources
 - <https://huggingface.co/TheBloke/Mixtral-8x7B-Instruct-v0.1-GGUF/resolve/main/mixtral-8x7b-instruct-v0.1.Q5_K_M.gguf>
 
+### Llama-3-SauerkrautLM-70b-Instruct
+
+- Good quality, medium performance, high resources
+- <https://huggingface.co/redponike/Llama-3-SauerkrautLM-70b-Instruct-GGUF>
+
 ### Still to test
 
+- <https://huggingface.co/LoneStriker/OpenBioLLM-Llama3-8B-GGUF>
+- <https://huggingface.co/LoneStriker/OpenBioLLM-Llama3-70B-GGUF>
 - <https://huggingface.co/lightblue/suzume-llama-3-8B-multilingual-gguf/resolve/main/ggml-model-Q8_0.gguf>

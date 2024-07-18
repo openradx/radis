@@ -94,7 +94,7 @@ services:
       - 9610:8080
     volumes:
       - models_data:/models
-    entrypoint: "/bin/bash -c '/llama-server -mu $${LLM_MODEL_URL} -ngl 50 -cb -c 4096 --host 0.0.0.0 --port 8080'"
+    entrypoint: "/bin/bash -c '/llama-server -mu $${LLM_MODEL_URL} -ngl 99 -cb -c 4096 --host 0.0.0.0 --port 8080'"
     deploy:
       # <<: *deploy
       resources:
