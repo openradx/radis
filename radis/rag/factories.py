@@ -5,7 +5,7 @@ from faker import Faker
 
 from radis.reports.factories import ModalityFactory
 
-from .models import Answer, Question, RagJob, RagReportInstance, RagTask
+from .models import Answer, Question, RagInstance, RagJob, RagTask
 
 T = TypeVar("T")
 
@@ -69,9 +69,23 @@ class RagTaskFactory(BaseDjangoModelFactory[RagTask]):
     job = factory.SubFactory("radis.rag.factories.RagJobFactory")
 
 
-class RagReportInstanceFactory(BaseDjangoModelFactory[RagReportInstance]):
+class RagInstanceFactory(BaseDjangoModelFactory[RagInstance]):
     class Meta:
-        model = RagReportInstance
+        model = RagInstance
 
     task = factory.SubFactory("radis.rag.factories.RagTaskFactory")
-    report = factory.SubFactory("radis.reports.factories.ReportFactory")
+
+    @factory.post_generation
+    def reports(self, create, extracted, **kwargs):
+        if not create:
+            return
+
+        self = cast(RagInstance, self)
+
+        if extracted:
+            for report in extracted:
+                self.reports.add(report)
+        else:
+            from radis.reports.factories import ReportFactory
+
+            self.reports.add(*[ReportFactory() for _ in range(3)])

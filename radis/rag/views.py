@@ -36,13 +36,13 @@ from radis.core.views import (
 )
 from radis.rag.filters import RagJobFilter, RagResultFilter, RagTaskFilter
 from radis.rag.mixins import RagLockedMixin
-from radis.rag.tables import RagJobTable, RagReportInstanceTable, RagTaskTable
+from radis.rag.tables import RagInstanceTable, RagJobTable, RagTaskTable
 from radis.reports.models import Language, Modality
 from radis.search.site import Search, SearchFilters
 from radis.search.utils.query_parser import QueryParser
 
 from .forms import QuestionFormSet, QuestionFormSetHelper, SearchForm
-from .models import Answer, QuestionResult, RagJob, RagReportInstance, RagTask
+from .models import Answer, QuestionResult, RagInstance, RagJob, RagTask
 from .site import retrieval_providers
 
 RAG_SEARCH_PROVIDER = "rag_search_provider"
@@ -205,7 +205,7 @@ class RagJobRestartView(RagLockedMixin, AnalysisJobRestartView):
 
 class RagTaskDetailView(RagLockedMixin, AnalysisTaskDetailView, SingleTableMixin):
     model = RagTask
-    table_class = RagReportInstanceTable
+    table_class = RagInstanceTable
     filterset_class = RagResultFilter
     job_url_name = "rag_job_detail"
     template_name = "rag/rag_task_detail.html"
@@ -213,7 +213,7 @@ class RagTaskDetailView(RagLockedMixin, AnalysisTaskDetailView, SingleTableMixin
     def get_context_data(self, **kwargs) -> dict[str, Any]:
         context = super().get_context_data(**kwargs)
         task = cast(RagTask, self.get_object())
-        self.object_list = task.report_instances.all()
+        self.object_list = task.rag_instances.all()
         table = self.get_table()
         context[self.get_context_table_name(table)] = table
         return context
@@ -240,7 +240,7 @@ class RagResultListView(
     context_object_name = "job"
     template_name = "rag/rag_result_list.html"
     request: AuthenticatedHttpRequest
-    object_list: QuerySet[RagReportInstance]
+    object_list: QuerySet[RagInstance]
 
     def get_queryset(self) -> QuerySet[RagJob]:
         assert self.model
@@ -249,18 +249,18 @@ class RagResultListView(
             return model.objects.all()
         return model.objects.filter(owner=self.request.user)
 
-    def get_related_queryset(self) -> QuerySet[RagReportInstance]:
+    def get_related_queryset(self) -> QuerySet[RagInstance]:
         job = cast(RagJob, self.get_object())
-        report_instances = RagReportInstance.objects.filter(
+        rag_instances = RagInstance.objects.filter(
             task__job=job,
             overall_result__in=[
-                RagReportInstance.Result.ACCEPTED,
-                RagReportInstance.Result.REJECTED,
+                RagInstance.Result.ACCEPTED,
+                RagInstance.Result.REJECTED,
             ],
-        ).select_related("report")
-        return report_instances
+        ).prefetch_related("reports")
+        return rag_instances
 
-    def get_filter_queryset(self) -> QuerySet[RagReportInstance]:
+    def get_filter_queryset(self) -> QuerySet[RagInstance]:
         return self.get_related_queryset()
 
 
@@ -270,42 +270,42 @@ class ChangeAnswerView(LoginRequiredMixin, HtmxOnlyMixin, View):
 
         result = QuestionResult.objects.get(id=result_id)
         question = result.question
-        report_instance = result.report_instance
+        rag_instance = result.rag_instance
 
-        if report_instance.task.job.owner != user:
+        if rag_instance.task.job.owner != user:
             raise SuspiciousOperation("You are not the owner of this task")
 
         with transaction.atomic():
             result.current_answer = Answer.NO if result.current_answer == Answer.YES else Answer.YES
             if result.current_answer == question.accepted_answer:
-                result.result = RagReportInstance.Result.ACCEPTED
+                result.result = RagInstance.Result.ACCEPTED
             else:
-                result.result = RagReportInstance.Result.REJECTED
+                result.result = RagInstance.Result.REJECTED
             result.save()
 
-            all_results = list(report_instance.results.values_list("result", flat=True))
-            if all(result == RagReportInstance.Result.ACCEPTED for result in all_results):
-                report_instance.overall_result = RagReportInstance.Result.ACCEPTED
+            all_results = list(rag_instance.results.values_list("result", flat=True))
+            if all(result == RagInstance.Result.ACCEPTED for result in all_results):
+                rag_instance.overall_result = RagInstance.Result.ACCEPTED
             else:
-                report_instance.overall_result = RagReportInstance.Result.REJECTED
-            report_instance.save()
+                rag_instance.overall_result = RagInstance.Result.REJECTED
+            rag_instance.save()
 
         return render(
             request,
             "rag/_changed_result.html",
             {
-                "report_instance": report_instance,
+                "rag_instance": rag_instance,
                 "result": result,
             },
         )
 
 
-class RagReportInstanceDetailView(LoginRequiredMixin, DetailView):
-    model: type[RagReportInstance]
+class RagInstanceDetailView(LoginRequiredMixin, DetailView):
+    model: type[RagInstance]
     task_url_name: str = "rag_task_detail"
     job_url_name: str = "rag_job_detail"
-    context_object_name = "report_instance"
-    template_name: str = "rag/rag_report_instance_detail.html"
+    context_object_name = "rag_instance"
+    template_name: str = "rag/rag_instance_detail.html"
     request: AuthenticatedHttpRequest
 
     def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
@@ -314,7 +314,7 @@ class RagReportInstanceDetailView(LoginRequiredMixin, DetailView):
         context["job_url_name"] = self.job_url_name
         return context
 
-    def get_queryset(self) -> QuerySet[RagReportInstance]:
+    def get_queryset(self) -> QuerySet[RagInstance]:
         if self.request.user.is_staff:
-            return RagReportInstance.objects.all()
-        return RagReportInstance.objects.filter(task__job__owner=self.request.user)
+            return RagInstance.objects.all()
+        return RagInstance.objects.filter(task__job__owner=self.request.user)

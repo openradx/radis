@@ -12,19 +12,19 @@
     <dl class="row">
         <dt class="col-sm-3">Report Instance ID</dt>
         <dd class="col-sm-9">
-            {{ report_instance.id }}
+            {{ rag_instance.id }}
         </dd>
         <dt class="col-sm-3">Task ID</dt>
         <dd class="col-sm-9">
-            <a href="{% url task_url_name report_instance.task.id %}">
-                {{ report_instance.task.id }}
+            <a href="{% url task_url_name rag_instance.task.id %}">
+                {{ rag_instance.task.id }}
                 {% bootstrap_icon "box-arrow-in-down-right" %}
             </a>
         </dd>
         <dt class="col-sm-3">Job ID</dt>
         <dd class="col-sm-9">
-            <a href="{% url job_url_name report_instance.task.job.id %}">
-                {{ report_instance.task.job.id }}
+            <a href="{% url job_url_name rag_instance.task.job.id %}">
+                {{ rag_instance.task.job.id }}
                 {% bootstrap_icon "box-arrow-in-down-right" %}
             </a>
         </dd>

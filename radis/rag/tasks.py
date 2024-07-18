@@ -7,6 +7,7 @@ from typing import Iterator, override
 from channels.db import database_sync_to_async
 from django import db
 from django.conf import settings
+from django.db.models.query import QuerySet
 
 from radis.celery import app as celery_app
 from radis.core.tasks import ProcessAnalysisJob, ProcessAnalysisTask
@@ -15,7 +16,7 @@ from radis.reports.models import Report
 from radis.search.site import Search, SearchFilters
 from radis.search.utils.query_parser import QueryParser
 
-from .models import Answer, Question, QuestionResult, RagJob, RagReportInstance, RagTask
+from .models import Answer, Question, QuestionResult, RagInstance, RagJob, RagTask
 from .site import retrieval_providers
 
 logger = logging.getLogger(__name__)
@@ -37,18 +38,16 @@ class ProcessRagTask(ProcessAnalysisTask):
 
         await asyncio.gather(
             *[
-                self.process_report_instance(report_instance, client, sem)
-                async for report_instance in task.report_instances.prefetch_related(
-                    "report", "report__language"
-                )
+                self.process_rag_instance(rag_instance, client, sem)
+                async for rag_instance in task.rag_instances.prefetch_related("reports")
             ]
         )
         await database_sync_to_async(db.close_old_connections)()
 
-    async def process_report_instance(
-        self, report_instance: RagReportInstance, client: AsyncChatClient, sem: Semaphore
+    async def process_rag_instance(
+        self, rag_instance: RagInstance, client: AsyncChatClient, sem: Semaphore
     ) -> None:
-        report = report_instance.report
+        report = await self.combine_reports(rag_instance.reports.prefetch_related("language"))
         language = report.language
 
         if language.code not in settings.SUPPORTED_LANGUAGES:
@@ -58,34 +57,34 @@ class ProcessRagTask(ProcessAnalysisTask):
             results = await asyncio.gather(
                 *[
                     self.process_yes_or_no_question(
-                        report_instance, report.body, language.code, question, client
+                        rag_instance, report.body, language.code, question, client
                     )
-                    async for question in report_instance.task.job.questions.all()
+                    async for question in rag_instance.task.job.questions.all()
                 ]
             )
 
-        if all([result == RagReportInstance.Result.ACCEPTED for result in results]):
-            overall_result = RagReportInstance.Result.ACCEPTED
+        if all([result == RagInstance.Result.ACCEPTED for result in results]):
+            overall_result = RagInstance.Result.ACCEPTED
         else:
-            overall_result = RagReportInstance.Result.REJECTED
+            overall_result = RagInstance.Result.REJECTED
 
-        report_instance.overall_result = overall_result
-        await report_instance.asave()
+        rag_instance.overall_result = overall_result
+        await rag_instance.asave()
 
         logger.info(
             "Overall RAG result for for report %s: %s",
-            report_instance,
-            report_instance.get_overall_result_display(),
+            rag_instance,
+            rag_instance.get_overall_result_display(),
         )
 
     async def process_yes_or_no_question(
         self,
-        report_instance: RagReportInstance,
+        rag_instance: RagInstance,
         body: str,
         language: str,
         question: Question,
         client: AsyncChatClient,
-    ) -> RagReportInstance.Result:
+    ) -> RagInstance.Result:
         llm_answer = await client.ask_yes_no_question(body, language, question.question)
 
         if llm_answer == "yes":
@@ -96,13 +95,13 @@ class ProcessRagTask(ProcessAnalysisTask):
             raise ValueError(f"Unexpected answer: {llm_answer}")
 
         result = (
-            RagReportInstance.Result.ACCEPTED
+            RagInstance.Result.ACCEPTED
             if question.accepted_answer == answer
-            else RagReportInstance.Result.REJECTED
+            else RagInstance.Result.REJECTED
         )
 
         await QuestionResult.objects.aupdate_or_create(
-            report_instance=report_instance,
+            rag_instance=rag_instance,
             question=question,
             defaults={
                 "original_answer": answer,
@@ -114,6 +113,17 @@ class ProcessRagTask(ProcessAnalysisTask):
         logger.debug("RAG result for question %s: %s", question, answer)
 
         return result
+
+    async def combine_reports(self, reports: QuerySet[Report]) -> Report:
+        count = await reports.acount()
+        if count > 1:
+            raise ValueError("Multiple reports is not yet supported")
+
+        report = await reports.afirst()
+        if report is None:
+            raise ValueError("No reports to combine")
+
+        return report
 
 
 process_rag_task = ProcessRagTask()
@@ -171,10 +181,9 @@ class ProcessRagJob(ProcessAnalysisJob):
             logger.debug("Creating RAG task for document IDs: %s", document_ids)
             task = RagTask.objects.create(job=job)
             for document_id in document_ids:
-                RagReportInstance.objects.create(
-                    report=Report.objects.get(document_id=document_id),
-                    task=task,
-                )
+                rag_instance = RagInstance.objects.create(task=task)
+                rag_instance.reports.add(Report.objects.get(document_id=document_id))
+
             yield task
 
 

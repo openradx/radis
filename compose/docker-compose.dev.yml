@@ -89,7 +89,7 @@ services:
   llamacpp_gpu:
     <<: *llamacpp
     image: ghcr.io/ggerganov/llama.cpp:server-cuda
-    entrypoint: "/bin/bash -c '/llama-server -mu $${LLM_MODEL_URL} -ngl 50 -c 4096 --host 0.0.0.0 --port 8080 --threads 8 --threads-http 8 --parallel 8 --cont-batching'"
+    entrypoint: "/bin/bash -c '/llama-server -mu $${LLM_MODEL_URL} -ngl 99 -c 4096 --host 0.0.0.0 --port 8080 --threads 8 --threads-http 8 --parallel 8 --cont-batching'"
     deploy:
       resources:
         reservations:

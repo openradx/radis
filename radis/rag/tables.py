@@ -4,7 +4,7 @@ from django.utils.html import format_html
 from radis.core.tables import AnalysisJobTable, AnalysisTaskTable, RecordIdColumn
 from radis.rag.templatetags.rag_extras import result_badge_css_class
 
-from .models import RagJob, RagReportInstance, RagTask
+from .models import RagInstance, RagJob, RagTask
 
 
 class RagJobTable(AnalysisJobTable):
@@ -19,17 +19,17 @@ class RagTaskTable(AnalysisTaskTable):
         fields = ("id", "status", "message", "ended_at")
 
 
-class RagReportInstanceTable(tables.Table):
-    id = RecordIdColumn(verbose_name="Rag Report Instance ID")
+class RagInstanceTable(tables.Table):
+    id = RecordIdColumn(verbose_name="Rag Instance ID")
     overall_result = tables.Column(verbose_name="Overall Result")
 
     class Meta:
-        model = RagReportInstance
+        model = RagInstance
         empty_text = "No RAG report instances to show"
         fields = ("id", "overall_result")
         attrs = {"class": "table table-bordered table-hover"}
 
-    def render_overall_result(self, value: str, record: RagReportInstance):
+    def render_overall_result(self, value: str, record: RagInstance):
         if not record.overall_result:
             return "–"
         css_class = result_badge_css_class(record.overall_result)

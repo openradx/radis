@@ -74,7 +74,7 @@ class Question(models.Model):
 
 class RagTask(AnalysisTask):
     if TYPE_CHECKING:
-        report_instances = RelatedManager["RagReportInstance"]()
+        rag_instances = RelatedManager["RagInstance"]()
 
     job = models.ForeignKey(RagJob, on_delete=models.CASCADE, related_name="tasks")
 
@@ -85,7 +85,7 @@ class RagTask(AnalysisTask):
         current_app.send_task("radis.rag.tasks.ProcessRagTask", args=[self.id])
 
 
-class RagReportInstance(models.Model):
+class RagInstance(models.Model):
     class Result(models.TextChoices):
         ACCEPTED = "A", "Accepted"
         REJECTED = "R", "Rejected"
@@ -94,28 +94,26 @@ class RagReportInstance(models.Model):
         results = RelatedManager["QuestionResult"]()
 
     id: int
-    report = models.ForeignKey(Report, on_delete=models.CASCADE, related_name="rag_tasks")
+    reports = models.ManyToManyField(Report)
     overall_result = models.CharField(max_length=1, choices=Result.choices, blank=True)
     get_overall_result_display: Callable[[], str]
-    task = models.ForeignKey(RagTask, on_delete=models.CASCADE, related_name="report_instances")
+    task = models.ForeignKey(RagTask, on_delete=models.CASCADE, related_name="rag_instances")
 
     def __str__(self) -> str:
-        return f"RagReportInstance {self.id}"
+        return f"RagInstance {self.id}"
 
     def get_absolute_url(self) -> str:
-        return reverse("rag_report_instance_detail", args=[self.task.id, self.id])
+        return reverse("rag_instance_detail", args=[self.task.id, self.id])
 
 
 class QuestionResult(models.Model):
     id: int
-    report_instance = models.ForeignKey(
-        RagReportInstance, on_delete=models.CASCADE, related_name="results"
-    )
+    rag_instance = models.ForeignKey(RagInstance, on_delete=models.CASCADE, related_name="results")
     question = models.ForeignKey(Question, on_delete=models.CASCADE, related_name="results")
     original_answer = models.CharField(max_length=1, choices=Answer.choices)
     current_answer = models.CharField(max_length=1, choices=Answer.choices)
     get_current_answer_display: Callable[[], str]
-    result = models.CharField(max_length=1, choices=RagReportInstance.Result.choices)
+    result = models.CharField(max_length=1, choices=RagInstance.Result.choices)
 
     def __str__(self) -> str:
         return f'Result of "{self.question}": {self.get_current_answer_display} [ID {self.id}]'
