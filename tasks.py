@@ -113,8 +113,6 @@ def compose_up(
     env: Environments = "dev",
     no_build: bool = False,
     gpu: bool = False,
-    opensearch: bool = True,
-    vespa: bool = False,
 ):
     """Start RADIS containers in specified environment"""
     profiles: list[str] = []
@@ -124,15 +122,7 @@ def compose_up(
     else:
         profiles.append("cpu")
 
-    cmd = ""
-    if opensearch:
-        cmd += "OPENSEARCH_ENABLED=true "
-        profiles.append("opensearch")
-    if vespa:
-        cmd += "VESPA_ENABLED=true "
-        profiles.append("vespa")
-
-    cmd += build_compose_cmd(env)
+    cmd = build_compose_cmd(env)
     cmd += "".join(f" --profile {profile}" for profile in profiles)
 
     build_opt = "--no-build" if no_build else "--build"
@@ -152,7 +142,7 @@ def compose_down(
     cmd = ""
     cmd += build_compose_cmd(env)
 
-    profiles = ["cpu", "gpu", "opensearch", "vespa"]
+    profiles = ["cpu", "gpu"]
     cmd += "".join(f" --profile {profile}" for profile in profiles)
 
     cmd += " down"

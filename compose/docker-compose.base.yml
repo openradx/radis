@@ -7,13 +7,6 @@ x-app: &default-app
     USE_DOCKER: 1
     DJANGO_STATIC_ROOT: "/var/www/radis/static/"
     DATABASE_URL: "psql://postgres:postgres@postgres.local:5432/postgres"
-    OPENSEARCH_ENABLED: "${OPENSEARCH_ENABLED-true}"
-    OPENSEARCH_HOST: "opensearch-node1.local"
-    OPENSEARCH_PORT: "9200"
-    VESPA_ENABLED: "${VESPA_ENABLED-false}"
-    VESPA_HOST: "vespa.local"
-    VESPA_CONFIG_PORT: "19071"
-    VESPA_DATA_PORT: "8080"
     RABBITMQ_URL: "amqp://rabbit"
     RABBIT_MANAGEMENT_HOST: "rabbit"
     RABBIT_MANAGEMENT_PORT: "15672"
@@ -43,10 +36,6 @@ services:
     <<: *default-app
     hostname: worker_default.local
 
-  worker_vespa:
-    <<: *default-app
-    hostname: worker_vespa.local
-
   worker_llm:
     <<: *default-app
     hostname: worker_llm.local
@@ -65,7 +54,7 @@ services:
       "
 
   postgres:
-    image: postgres:16.2
+    image: postgres:16
     hostname: postgres.local
     volumes:
       - postgres_data:/var/lib/postgresql/data

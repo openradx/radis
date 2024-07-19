@@ -47,7 +47,7 @@ class ReportViewSet(
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Retrieve a single Report.
 
-        It also fetches the associated document from the Vespa database.
+        It also fetches the associated documents from all external databases.
         """
         full = request.GET.get("full", "").lower() in ["true", "1", "yes"]
 
