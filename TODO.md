@@ -18,6 +18,15 @@
 
 ## Fix
 
+- Update list of stop words
+  - Postgresql has stuff like "kein", "keine" in its stop words list
+  - Customize the list of stop words
+  - The original stop word list can be found in the container at /usr/share/postgresql/16/tsearch_data
+  - There are multiple ways to solve that:
+    - Completely disable stop words: <https://stackoverflow.com/a/2227235/166229>
+    - Create complete new dictionaries
+    - Mount manipulated stop word files (<https://github.com/postgres/postgres/tree/master/src/backend/snowball/stopwords>)
+
 ## Features
 
 - RAG app
