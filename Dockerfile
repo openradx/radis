@@ -36,18 +36,6 @@ RUN apt-get update \
     # deps for db management commands
     postgresql-client
 
-# Install Vespa CLI
-ADD https://github.com/vespa-engine/vespa/releases/download/v8.302.40/vespa-cli_8.302.40_linux_amd64.tar.gz /tmp/vespa-cli.tar.gz
-RUN  mkdir /tmp/vespa-cli \
-    && tar -xzf /tmp/vespa-cli.tar.gz -C /tmp/vespa-cli --strip-components 1 \
-    && cp -r /tmp/vespa-cli/bin/* /usr/local/bin/ \
-    && cp -r /tmp/vespa-cli/share/* /usr/local/share/ \
-    && rm -rf /tmp/vespa-cli.tar.gz /tmp/vespa-cli
-
-# Download embedding model, which gets deployed by Django vespa management command (see vespa.py)
-ADD "https://github.com/vespa-engine/sample-apps/raw/master/simple-semantic-search/model/e5-small-v2-int8.onnx" /opt/models/model.onnx
-ADD "https://raw.githubusercontent.com/vespa-engine/sample-apps/master/simple-semantic-search/model/tokenizer.json" /opt/models/tokenizer.json
-
 
 # `builder-base` stage is used to build deps + create our virtual environment
 FROM python-base as builder-base

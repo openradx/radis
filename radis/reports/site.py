@@ -16,7 +16,7 @@ reports_created_handlers: list[ReportsCreatedHandler] = []
 def register_reports_created_handler(handler: ReportsCreatedHandler) -> None:
     """Register a handler for when reports are created in the PostgreSQL database.
 
-    The handler can be used to sync resp. index those reports in a search database like Vespa.
+    The handler can be used to index those reports in an external search database.
     """
     reports_created_handlers.append(handler)
 
@@ -32,7 +32,7 @@ reports_updated_handlers: list[ReportsUpdatedHandler] = []
 def register_reports_updated_handler(handler: ReportsUpdatedHandler) -> None:
     """Register a handler for when reports are updated in the PostgreSQL database.
 
-    The handler can be used to sync resp. re-index those reports in a search database like Vespa.
+    The handler can be used to re-index those reports in an external search database.
     """
     reports_updated_handlers.append(handler)
 
@@ -48,7 +48,7 @@ reports_deleted_handlers: list[ReportsDeletedHandler] = []
 def register_reports_deleted_handler(handler: ReportsDeletedHandler) -> None:
     """Register a handler for when reports are deleted in the PostgreSQL database.
 
-    The handler can be used to remove those reports from the index of search databases like Vespa.
+    The handler can be used to remove those reports from the index of an external search database.
     """
     reports_deleted_handlers.append(handler)
 
@@ -69,7 +69,7 @@ def register_document_fetcher(source: str, fetch: FetchDocument) -> None:
 
     A document fetcher is a function that takes a report from the PostgreSQL
     database and returns a document in the form of a dictionary from another
-    database (like Vespa).
+    database.
     """
     document_fetchers[source] = DocumentFetcher(source, fetch)
 

@@ -43,14 +43,6 @@ services:
         wait-for-it -s postgres.local:5432 -t 60 && 
         ./manage.py migrate &&
         ./manage.py collectstatic --no-input &&
-        if [[ $$OPENSEARCH_ENABLED == true ]]; then
-          wait-for-it -s opensearch-node1.local:9200 -t 60 &&
-          ./manage.py opensearch --mappings dev
-        fi
-        if [[ $$VESPA_ENABLED == true ]]; then
-          wait-for-it -s vespa.local:19071 -t 60 &&
-          ./manage.py vespa --generate --deploy
-        fi
         ./manage.py populate_users_and_groups --users 20 --groups 3 &&
         ./manage.py populate_reports --report-language de &&
         ./manage.py runserver 0.0.0.0:8000
@@ -60,12 +52,6 @@ services:
     <<: *default-app
     command: |
       ./manage.py celery_worker -c 1 -Q default_queue --autoreload
-
-  worker_vespa:
-    <<: *default-app
-    command: |
-      ./manage.py celery_worker -c 1 -Q vespa_queue --autoreload
-    profiles: ["vespa"]
 
   worker_llm:
     <<: *default-app
@@ -103,55 +89,7 @@ services:
     environment:
       POSTGRES_PASSWORD: "postgres"
 
-  # https://opensearch.org/docs/latest/install-and-configure/install-opensearch/docker/#sample-docker-composeyml
-  opensearch_node1:
-    image: opensearchproject/opensearch:latest
-    hostname: opensearch-node1.local
-    volumes:
-      - opensearch_data1:/usr/share/opensearch/data
-    environment:
-      discovery.type: single-node # https://github.com/gitpod-io/gitpod/issues/8399
-      OPENSEARCH_JAVA_OPTS: "-Xms512m -Xmx512m"
-      DISABLE_SECURITY_PLUGIN: "true"
-    ports:
-      - 9200:9200 # REST API
-      - 9600:9600 # Performance Analyzer
-    profiles: ["opensearch"]
-
-  opensearch_dashboards:
-    image: opensearchproject/opensearch-dashboards:latest
-    hostname: opensearch-dashboards.local
-    ports:
-      - 5601:5601
-    environment:
-      DISABLE_SECURITY_DASHBOARDS_PLUGIN: "true"
-      OPENSEARCH_HOSTS: '["http://opensearch-node1.local:9200"]'
-    profiles: ["opensearch"]
-
-  vespa:
-    image: vespaengine/vespa:8
-    hostname: vespa.local
-    healthcheck:
-      test: curl http://localhost:19071/state/v1/health
-      timeout: 10s
-      retries: 3
-      start_period: 40s
-    volumes:
-      - vespa_data:/opt/vespa/var
-      - vespa_logs:/opt/vespa/logs
-    environment:
-      # Reduce memory usage of Vespa during development (espcially on Cloud IDEs), see
-      # https://docs.vespa.ai/en/operations/node-setup.html#memory-settings
-      VESPA_CONFIGSERVER_JVMARGS: "-Xms32M -Xmx128M"
-      VESPA_CONFIGPROXY_JVMARGS: "-Xms32M -Xmx32M"
-    ports:
-      - 9620:8080
-    profiles: ["vespa"]
-
 volumes:
   vscode-server:
   vscode-server-insiders:
   models_data:
-  opensearch_data1:
-  vespa_data:
-  vespa_logs:

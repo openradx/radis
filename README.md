@@ -29,7 +29,7 @@ Upcoming ...
 
 ## Architectural overview
 
-RADIS is built using the Django web framework, and data is stored in a [PostgreSQL](https://www.postgresql.org/) database. Uploaded radiology reports are additionally stored and indexed for full text search in a [Vespa](https://vespa.ai/) vector database. The design of RADIS is very modular so that other text search databases can easily be integrated.
+RADIS is built using the Django web framework, and data is stored in a [PostgreSQL](https://www.postgresql.org/) database, which is also use for full text search. The design of RADIS is very modular so that other text search databases can easily be integrated.
 
 ## Contributors
 

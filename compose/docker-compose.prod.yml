@@ -28,10 +28,6 @@ services:
         ./manage.py collectstatic --no-input &&
         ./manage.py create_admin &&
         ./manage.py generate_cert &&
-        wait-for-it -s opensearch-node1.local:9200 -t 60 &&
-        ./manage.py opensearch --mappings prod &&
-        # wait-for-it -s vespa.local:19071 -t 60 &&
-        # ./manage.py vespa --generate --deploy &&
         ./manage.py ok_server --host 0.0.0.0 --port 8000
       "
     deploy:
@@ -57,12 +53,6 @@ services:
   worker_default:
     <<: *default-app
     command: ./manage.py celery_worker -Q default_queue
-    deploy:
-      <<: *deploy
-
-  worker_vespa:
-    <<: *default-app
-    command: ./manage.py celery_worker -c 1 -Q vespa_queue
     deploy:
       <<: *deploy
 
@@ -111,56 +101,6 @@ services:
     deploy:
       <<: *deploy
 
-  opensearch_node1:
-    image: opensearchproject/opensearch:2
-    hostname: opensearch-node1.local
-    environment:
-      discovery.type: single-node # https://github.com/gitpod-io/gitpod/issues/8399
-      bootstrap.memory_lock: "true"
-      OPENSEARCH_JAVA_OPTS: "-Xms4g -Xmx4g"
-      DISABLE_SECURITY_PLUGIN: "true"
-    env_file:
-      - ../.env.prod
-    ulimits:
-      memlock:
-        soft: -1
-        hard: -1
-      nofile:
-        soft: 65536
-        hard: 65536
-    volumes:
-      - opensearch_data1:/usr/share/opensearch/data
-    ports:
-      - 9200:9200 # REST API
-      - 9600:9600 # Performance Analyzer
-    deploy:
-      <<: *deploy
-
-  opensearch-dashboards:
-    image: opensearchproject/opensearch-dashboards:2
-    ports:
-      - 5601:5601
-    environment:
-      OPENSEARCH_HOSTS: '["https://opensearch-node1.local:9200"]'
-    deploy:
-      <<: *deploy
-
-  vespa:
-    image: vespaengine/vespa:8
-    hostname: vespa.local
-    healthcheck:
-      test: curl http://localhost:19071/state/v1/health
-      timeout: 10s
-      retries: 3
-      start_period: 40s
-    volumes:
-      - vespa_data:/opt/vespa/var
-      - vespa_logs:/opt/vespa/logs
-    ports:
-      - 9620:8080
-    deploy:
-      replicas: 0
-
   rabbit:
     deploy:
       <<: *deploy
@@ -171,6 +111,3 @@ services:
 
 volumes:
   models_data:
-  opensearch_data1:
-  vespa_data:
-  vespa_logs:

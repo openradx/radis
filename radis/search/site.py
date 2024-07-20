@@ -48,8 +48,8 @@ class SearchFilters:
         - patient_age_till (int | None): Filter only reports where the patient is at most this age
     """
 
-    group: int
-    language: str
+    group: int  # TODO: Rename to group_id
+    language: str  # TODO: Rename to language_code
     modalities: list[str] = field(default_factory=list)
     study_date_from: date | None = None
     study_date_till: date | None = None

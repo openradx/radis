@@ -72,11 +72,10 @@ INSTALLED_APPS = [
     "adit_radis_shared.token_authentication.apps.TokenAuthenticationConfig",
     "radis.reports.apps.ReportsConfig",
     "radis.search.apps.SearchConfig",
+    "radis.pgsearch.apps.PgSearchConfig",
     "radis.rag.apps.RagConfig",
     "radis.collections.apps.CollectionsConfig",
     "radis.notes.apps.NotesConfig",
-    "radis.vespa.apps.VespaConfig",
-    "radis.opensearch.apps.OpenSearchConfig",
     "channels",
 ]
 
@@ -357,22 +356,6 @@ SUPPORTED_LANGUAGES = ["de", "en"]
 
 # llama.cpp
 LLAMACPP_URL = env.str("LLAMACPP_URL", default="http://localhost:8088")  # type: ignore
-
-# OpenSearch
-OPENSEARCH_ENABLED = env.bool("OPENSEARCH_ENABLED", default=True)  # type: ignore
-OPENSEARCH_HOST = env.str("OPENSEARCH_HOST", default="localhost")  # type: ignore
-OPENSEARCH_PORT = env.int("OPENSEARCH_PORT", default=9200)  # type: ignore
-OPENSEARCH_PASSWORD = env.str("OPENSEARCH_INITIAL_ADMIN_PASSWORD", default="admin")  # type: ignore
-OPENSEARCH_INDICES = [
-    {"language": "de", "analyzer": "german"},
-    {"language": "en", "analyzer": "english"},
-]
-
-# Vespa
-VESPA_ENABLED = env.bool("VESPA_ENABLED", default=False)  # type: ignore
-VESPA_HOST = env.str("VESPA_HOST", default="localhost")  # type: ignore
-VESPA_CONFIG_PORT = env.int("VESPA_CONFIG_PORT", default=19071)  # type: ignore
-VESPA_DATA_PORT = env.int("VESPA_DATA_PORT", default=8080)  # type: ignore
 
 # Chat settings
 CHAT_SYSTEM_PROMPT = {

@@ -14,6 +14,6 @@ class Migration(migrations.Migration):
         migrations.AlterField(
             model_name='ragjob',
             name='provider',
-            field=models.CharField(choices=[('Vespa BM25', 'Vespa BM25')], max_length=100),
+            field=models.CharField(choices=[], max_length=100),
         ),
     ]
