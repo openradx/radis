@@ -4,6 +4,7 @@ from typing import (
     cast,
 )
 
+import pyparsing as pp
 from django.contrib.postgres.search import (
     SearchHeadline,  # type: ignore
     SearchQuery,
@@ -24,12 +25,21 @@ from .utils.language_utils import code_to_language
 logger = logging.getLogger(__name__)
 
 
+def sanitize_term(term: str) -> str:
+    valid_chars = pp.alphanums + pp.alphas8bit + "_-'"
+    return "".join(char for char in term if char in valid_chars)
+
+
 def _build_query_string(node: QueryNode) -> str:
     if isinstance(node, TermNode):
         if node.term_type == "WORD":
             return node.value
         elif node.term_type == "PHRASE":
-            return f'"{node.value.replace('"', '"')}"'
+            terms = node.value.split()
+            terms = [sanitize_term(term) for term in terms]
+            terms = [term for term in terms if term]
+            terms = [f"'{term}'" for term in terms]
+            return " <-> ".join(terms)
         else:
             raise ValueError(f"Unknown term type: {node.term_type}")
     elif isinstance(node, ParensNode):
