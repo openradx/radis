@@ -14,7 +14,7 @@
 {% endblock heading %}
 {% block content %}
     <div class="d-flex justify-content-between">{% include "core/_table_filters.html" %}</div>
-    {% for task in object_list %}
+    {% for rag_instance in object_list %}
         {% include "rag/_rag_result_summary.html" %}
     {% empty %}
         No results to show

@@ -2,11 +2,11 @@
     <div class="card-body" x-data="{full: false, questions: false}">
         <div class="d-flex flex-column gap-1">
             <div class="d-flex justify-content-between">
-                {% include "reports/_report_header.html" with report=task.report %}
+                {% include "reports/_report_header.html" with report=rag_instance.reports.first %}
                 <div>{% include "rag/_overall_result_badge.html" %}</div>
             </div>
             <div class="d-flex flex-column gap-1">
-                <div class="clamp-3" :class="{'clamp-3': !full, 'pre-line': full}">{{ task.report.body }}</div>
+                <div class="clamp-3" :class="{'clamp-3': !full, 'pre-line': full}">{{ rag_instance.reports.first.body }}</div>
                 <div class="d-flex gap-2">
                     <button type="button"
                             class="btn btn-sm btn-link p-0 border-0"
@@ -29,7 +29,7 @@
             </div>
             <div x-cloak x-show="questions">
                 Questions:
-                {% for result in task.results.all %}
+                {% for result in rag_instance.results.all %}
                     <div>
                         <span class="me-2">{{ result.question.question }}</span>
                         {% include "rag/_current_answer.html" %}
@@ -38,7 +38,7 @@
                     </div>
                 {% endfor %}
             </div>
-            {% include "reports/_report_buttons_panel.html" with report=task.report %}
+            {% include "reports/_report_buttons_panel.html" with report=rag_instance.reports.first %}
         </div>
     </div>
 </div>

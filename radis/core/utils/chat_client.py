@@ -2,8 +2,8 @@ import logging
 from string import Template
 from typing import Literal
 
+import openai
 from django.conf import settings
-from openai import OpenAI
 
 logger = logging.getLogger(__name__)
 
@@ -13,27 +13,27 @@ YES_NO_GRAMMAR = """
 """
 
 
-class ChatClient:
+class AsyncChatClient:
     def __init__(self):
-        self._client = OpenAI(base_url=f"{settings.LLAMACPP_URL}/v1", api_key="none")
+        self._client = openai.AsyncOpenAI(base_url=f"{settings.LLAMACPP_URL}/v1", api_key="none")
 
-    def ask_question(
+    async def ask_question(
         self, report_body: str, language: str, question: str, grammar: str | None = None
     ) -> str:
-        system_prompt = settings.CHAT_SYSTEM_PROMPT[language]
+        system = settings.CHAT_SYSTEM_PROMPT[language]
         user_prompt = Template(settings.CHAT_USER_PROMPT[language]).substitute(
             {"report": report_body, "question": question}
         )
 
-        log_msg = f"Sending to LLM:\n[System] {system_prompt}\n[User] {user_prompt}"
+        log_msg = f"Sending to LLM:\n[System] {system}\n[User] {user_prompt}"
         if grammar:
             log_msg += f"\n[Grammar] {grammar}"
         logger.debug(log_msg)
 
-        completion = self._client.chat.completions.create(
+        completion = await self._client.chat.completions.create(
             model="none",
             messages=[
-                {"role": "system", "content": system_prompt},
+                {"role": "system", "content": system},
                 {"role": "user", "content": user_prompt},
             ],
             extra_body={"grammar": grammar},
@@ -45,7 +45,7 @@ class ChatClient:
 
         return answer
 
-    def ask_yes_no_question(
+    async def ask_yes_no_question(
         self, report_body: str, language: str, question: str
     ) -> Literal["yes", "no"]:
         grammar = Template(YES_NO_GRAMMAR).substitute(
@@ -55,7 +55,7 @@ class ChatClient:
             }
         )
 
-        llm_answer = self.ask_question(report_body, language, question, grammar)
+        llm_answer = await self.ask_question(report_body, language, question, grammar)
 
         if llm_answer == settings.CHAT_ANSWER_YES[language]:
             return "yes"

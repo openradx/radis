@@ -1,17 +1,22 @@
+import asyncio
 import logging
+from asyncio import Semaphore
+from itertools import batched
 from typing import Iterator, override
 
+from channels.db import database_sync_to_async
+from django import db
 from django.conf import settings
-from openai import OpenAI
+from django.db.models.query import QuerySet
 
 from radis.celery import app as celery_app
 from radis.core.tasks import ProcessAnalysisJob, ProcessAnalysisTask
-from radis.core.utils.chat_client import ChatClient
+from radis.core.utils.chat_client import AsyncChatClient
 from radis.reports.models import Report
 from radis.search.site import Search, SearchFilters
 from radis.search.utils.query_parser import QueryParser
 
-from .models import Answer, QuestionResult, RagJob, RagTask
+from .models import Answer, Question, QuestionResult, RagInstance, RagJob, RagTask
 from .site import retrieval_providers
 
 logger = logging.getLogger(__name__)
@@ -23,60 +28,102 @@ class ProcessRagTask(ProcessAnalysisTask):
     def __init__(self) -> None:
         super().__init__()
 
-        self._client = OpenAI(base_url=f"{settings.LLAMACPP_URL}/v1", api_key="none")
-
     @override
     def process_task(self, task: RagTask) -> None:
-        report_body = task.report.body
-        language = task.report.language.code
+        asyncio.run(self.process_rag_task(task))
 
-        if language not in settings.SUPPORTED_LANGUAGES:
+    async def process_rag_task(self, task: RagTask) -> None:
+        client = AsyncChatClient()
+        sem = Semaphore(settings.RAG_LLM_CONCURRENCY_LIMIT)
+
+        await asyncio.gather(
+            *[
+                self.process_rag_instance(rag_instance, client, sem)
+                async for rag_instance in task.rag_instances.prefetch_related("reports")
+            ]
+        )
+        await database_sync_to_async(db.close_old_connections)()
+
+    async def process_rag_instance(
+        self, rag_instance: RagInstance, client: AsyncChatClient, sem: Semaphore
+    ) -> None:
+        report = await self.combine_reports(rag_instance.reports.prefetch_related("language"))
+        language = report.language
+
+        if language.code not in settings.SUPPORTED_LANGUAGES:
             raise ValueError(f"Language '{language}' is not supported.")
 
-        all_results: list[RagTask.Result] = []
-
-        chat_client = ChatClient()
-
-        for question in task.job.questions.all():
-            llm_answer = chat_client.ask_yes_no_question(report_body, language, question.question)
-
-            if llm_answer == "yes":
-                answer = Answer.YES
-            elif llm_answer == "no":
-                answer = Answer.NO
-            else:
-                raise ValueError(f"Unexpected answer: {llm_answer}")
-
-            result = (
-                RagTask.Result.ACCEPTED
-                if question.accepted_answer == answer
-                else RagTask.Result.REJECTED
+        async with sem:
+            results = await asyncio.gather(
+                *[
+                    self.process_yes_or_no_question(
+                        rag_instance, report.body, language.code, question, client
+                    )
+                    async for question in rag_instance.task.job.questions.all()
+                ]
             )
 
-            QuestionResult.objects.update_or_create(
-                task=task,
-                question=question,
-                defaults={
-                    "original_answer": answer,
-                    "current_answer": answer,
-                    "result": result,
-                },
-            )
+        if all([result == RagInstance.Result.ACCEPTED for result in results]):
+            overall_result = RagInstance.Result.ACCEPTED
+        else:
+            overall_result = RagInstance.Result.REJECTED
 
-            all_results.append(result)
+        rag_instance.overall_result = overall_result
+        await rag_instance.asave()
 
-            if all([result == RagTask.Result.ACCEPTED for result in all_results]):
-                task.overall_result = RagTask.Result.ACCEPTED
-            else:
-                task.overall_result = RagTask.Result.REJECTED
+        logger.info(
+            "Overall RAG result for for report %s: %s",
+            rag_instance,
+            rag_instance.get_overall_result_display(),
+        )
 
-            logger.info(
-                "RAG task %s finished with overall result: %s",
-                task,
-                task.get_overall_result_display(),
-            )
+    async def process_yes_or_no_question(
+        self,
+        rag_instance: RagInstance,
+        body: str,
+        language: str,
+        question: Question,
+        client: AsyncChatClient,
+    ) -> RagInstance.Result:
+        llm_answer = await client.ask_yes_no_question(body, language, question.question)
 
-            task.save()
+        if llm_answer == "yes":
+            answer = Answer.YES
+        elif llm_answer == "no":
+            answer = Answer.NO
+        else:
+            raise ValueError(f"Unexpected answer: {llm_answer}")
+
+        result = (
+            RagInstance.Result.ACCEPTED
+            if question.accepted_answer == answer
+            else RagInstance.Result.REJECTED
+        )
+
+        await QuestionResult.objects.aupdate_or_create(
+            rag_instance=rag_instance,
+            question=question,
+            defaults={
+                "original_answer": answer,
+                "current_answer": answer,
+                "result": result,
+            },
+        )
+
+        logger.debug("RAG result for question %s: %s", question, answer)
+
+        return result
+
+    async def combine_reports(self, reports: QuerySet[Report]) -> Report:
+        count = await reports.acount()
+        if count > 1:
+            raise ValueError("Multiple reports is not yet supported")
+
+        report = await reports.afirst()
+        if report is None:
+            raise ValueError("No reports to combine")
+
+        return report
 
 
 process_rag_task = ProcessRagTask()
@@ -128,10 +175,15 @@ class ProcessRagJob(ProcessAnalysisJob):
 
         logger.debug("Searching reports for task with search: %s", search)
 
-        for document_id in retrieval_provider.retrieve(search):
-            task = RagTask.objects.create(
-                job=job, report=Report.objects.get(document_id=document_id)
-            )
+        for document_ids in batched(
+            retrieval_provider.retrieve(search), settings.RAG_TASK_BATCH_SIZE
+        ):
+            logger.debug("Creating RAG task for document IDs: %s", document_ids)
+            task = RagTask.objects.create(job=job)
+            for document_id in document_ids:
+                rag_instance = RagInstance.objects.create(task=task)
+                rag_instance.reports.add(Report.objects.get(document_id=document_id))
+
             yield task
 
 

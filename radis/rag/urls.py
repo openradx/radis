@@ -3,6 +3,7 @@ from django.urls import path
 
 from .views import (
     ChangeAnswerView,
+    RagInstanceDetailView,
     RagJobCancelView,
     RagJobDeleteView,
     RagJobDetailView,
@@ -103,5 +104,10 @@ urlpatterns = [
         "change-answer/<int:result_id>/",
         ChangeAnswerView.as_view(),
         name="rag_change_answer",
+    ),
+    path(
+        "tasks/<int:task_id>/rag-instances/<int:pk>/",
+        RagInstanceDetailView.as_view(),
+        name="rag_instance_detail",
     ),
 ]
