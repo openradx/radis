@@ -72,6 +72,7 @@ INSTALLED_APPS = [
     "adit_radis_shared.token_authentication.apps.TokenAuthenticationConfig",
     "radis.reports.apps.ReportsConfig",
     "radis.search.apps.SearchConfig",
+    "radis.pgsearch.apps.PgSearchConfig",
     "radis.rag.apps.RagConfig",
     "radis.collections.apps.CollectionsConfig",
     "radis.notes.apps.NotesConfig",

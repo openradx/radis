@@ -4,7 +4,6 @@ from adit_radis_shared.common.models import AppSettings
 from django.contrib.auth.models import Group
 from django.db import models
 
-from radis.core.utils.date_utils import calculate_age
 from radis.core.validators import (
     no_backslash_char_validator,
     no_control_chars_validator,
@@ -64,6 +63,16 @@ class Report(models.Model):
         ],
     )
     patient_birth_date = models.DateField()
+    patient_age = models.GeneratedField(  # type: ignore
+        expression=models.ExpressionWrapper(
+            models.Func(
+                models.F("study_datetime"), models.F("patient_birth_date"), function="calc_age"
+            ),
+            output_field=models.IntegerField(),
+        ),
+        output_field=models.IntegerField(),
+        db_persist=True,
+    )
     patient_sex = models.CharField(
         max_length=1,
         validators=[validate_patient_sex],
@@ -81,11 +90,6 @@ class Report(models.Model):
     @property
     def modality_codes(self) -> list[str]:
         return [modality.code for modality in self.modalities.all()]
-
-    @property
-    def patient_age(self) -> int:
-        """Patient age at study date"""
-        return calculate_age(self.patient_birth_date, self.study_datetime)
 
 
 class Metadata(models.Model):
