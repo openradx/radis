@@ -5,8 +5,8 @@ x-app: &default-app
   environment:
     ENABLE_REMOTE_DEBUGGING: 0
     DJANGO_SETTINGS_MODULE: "radis.settings.production"
-    SSL_CERT_FILE: "/var/www/radis/ssl/cert.pem"
-    SSL_KEY_FILE: "/var/www/radis/ssl/key.pem"
+    SSL_CERT_FILE: "/var/www/web/ssl/cert.pem"
+    SSL_KEY_FILE: "/var/www/web/ssl/key.pem"
 
 x-deploy: &deploy
   replicas: 1
@@ -44,7 +44,7 @@ services:
       bash -c "
         wait-for-it -s init.local:8000 -t 300 &&
         echo 'Starting web server ...'
-        daphne -b 0.0.0.0 -p 80 -e ssl:443:privateKey=/var/www/radis/ssl/key.pem:certKey=/var/www/radis/ssl/cert.pem radis.asgi:application
+        daphne -b 0.0.0.0 -p 80 -e ssl:443:privateKey=/var/www/web/ssl/key.pem:certKey=/var/www/web/ssl/cert.pem radis.asgi:application
       "
     deploy:
       <<: *deploy

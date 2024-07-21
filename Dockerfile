@@ -72,9 +72,9 @@ RUN poetry install
 RUN playwright install --with-deps chromium
 
 # Required folders for RADIS
-RUN mkdir -p /var/www/radis/logs \
-    /var/www/radis/static \
-    /var/www/radis/ssl
+RUN mkdir -p /var/www/web/logs \
+    /var/www/web/static \
+    /var/www/web/ssl
 
 # will become mountpoint of our code
 WORKDIR /app
@@ -86,8 +86,8 @@ COPY --from=builder-base $PYSETUP_PATH $PYSETUP_PATH
 COPY . /app/
 
 # Required folders for RADIS
-RUN mkdir -p /var/www/radis/logs \
-    /var/www/radis/static \
-    /var/www/radis/ssl
+RUN mkdir -p /var/www/web/logs \
+    /var/www/web/static \
+    /var/www/web/ssl
 
 WORKDIR /app
