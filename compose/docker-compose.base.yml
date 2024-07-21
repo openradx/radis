@@ -7,20 +7,14 @@ x-app: &default-app
     USE_DOCKER: 1
     DJANGO_STATIC_ROOT: "/var/www/radis/static/"
     DATABASE_URL: "psql://postgres:postgres@postgres.local:5432/postgres"
-    RABBITMQ_URL: "amqp://rabbit"
-    RABBIT_MANAGEMENT_HOST: "rabbit"
-    RABBIT_MANAGEMENT_PORT: "15672"
-    REDIS_URL: "redis://redis.local:6379/0"
     LLAMACPP_URL: "http://llamacpp.local:8080"
-    FLOWER_HOST: "flower.local"
-    FLOWER_PORT: "5555"
 
 services:
   init:
     <<: *default-app
     hostname: init.local
     volumes:
-      - radis_data:/var/www/radis
+      - web_data:/var/www/radis
       - /mnt:/mnt
 
   web:
@@ -29,7 +23,7 @@ services:
     build:
       context: ..
     volumes:
-      - radis_data:/var/www/radis
+      - web_data:/var/www/radis
       - /mnt:/mnt
 
   worker_default:
@@ -40,50 +34,12 @@ services:
     <<: *default-app
     hostname: worker_llm.local
 
-  celery_beat:
-    <<: *default-app
-    hostname: celery_beat.local
-
-  flower:
-    <<: *default-app
-    hostname: flower.local
-    command: >
-      bash -c "
-        wait-for-it -s rabbit:5672 -t 100 &&
-        celery --broker=amqp://rabbit/ flower --url_prefix=flower
-      "
-
   postgres:
     image: postgres:16
     hostname: postgres.local
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
-  # RabbitMQ authentication can't be disabled. So when we try to log into
-  # the management console we have to use "guest" as username and password.
-  # The real authentication happens by ADIT itself, because the management
-  # console is behind a ProxyView.
-  rabbit:
-    image: rabbitmq:3.12.2-management
-    configs:
-      - source: rabbit_config
-        target: /etc/rabbitmq/rabbitmq.conf
-    volumes:
-      - rabbit_data:/var/lib/rabbitmq
-
-  redis:
-    image: redis:7.2
-    hostname: redis.local
-    volumes:
-      - redis_data:/data
-
-configs:
-  rabbit_config:
-    file: ./rabbitmq/rabbitmq.conf
-
 volumes:
-  radis_data:
-  flower_data:
+  web_data:
   postgres_data:
-  rabbit_data:
-  redis_data:

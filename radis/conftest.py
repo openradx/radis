@@ -1,12 +1,5 @@
-from multiprocessing import Process
-
 import nest_asyncio
-import pytest
 from adit_radis_shared.conftest import *  # noqa: F403
-from django.core.management import call_command
-from faker import Faker
-
-fake = Faker()
 
 
 def pytest_configure():
@@ -17,14 +10,3 @@ def pytest_configure():
     # https://github.com/pytest-dev/pytest-asyncio/issues/543
     # https://github.com/microsoft/playwright-pytest/issues/167
     nest_asyncio.apply()
-
-
-@pytest.fixture
-def radis_celery_worker():
-    def start_worker():
-        call_command("celery_worker", "-Q", "test_queue")
-
-    p = Process(target=start_worker)
-    p.start()
-    yield
-    p.terminate()

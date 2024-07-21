@@ -50,21 +50,19 @@ services:
 
   worker_default:
     <<: *default-app
-    command: |
-      ./manage.py celery_worker -c 1 -Q default_queue --autoreload
+    command: >
+      bash -c "
+        wait-for-it -s postgres.local:5432 -t 60 &&
+        ./manage.py worker -l debug -q default --autoreload
+      "
 
   worker_llm:
     <<: *default-app
-    command: |
-      ./manage.py celery_worker -c 1 -Q llm_queue --autoreload
-
-  celery_beat:
-    <<: *default-app
-    command: |
-      ./manage.py celery_beat --autoreload
-
-  flower:
-    <<: *default-app
+    command: >
+      bash -c "
+        wait-for-it -s postgres.local:5432 -t 60 &&
+        ./manage.py worker -l debug -q llm --autoreload
+      "
 
   llamacpp_cpu:
     <<: *llamacpp

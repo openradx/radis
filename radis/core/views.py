@@ -4,12 +4,10 @@ from adit_radis_shared.common.mixins import PageSizeSelectMixin, RelatedFilterMi
 from adit_radis_shared.common.site import THEME_PREFERENCE_KEY
 from adit_radis_shared.common.types import AuthenticatedHttpRequest
 from adit_radis_shared.common.views import (
-    AdminProxyView,
     BaseBroadcastView,
     BaseHomeView,
     BaseUpdatePreferencesView,
 )
-from django.conf import settings
 from django.contrib import messages
 from django.contrib.admin.views.decorators import staff_member_required
 from django.contrib.auth.mixins import (
@@ -29,8 +27,8 @@ from django.views.generic.detail import SingleObjectMixin
 from django_filters.filterset import FilterSet
 from django_filters.views import FilterView
 from django_tables2 import SingleTableMixin, Table
+from procrastinate.contrib.django import app
 
-from radis.celery import app as celery_app
 from radis.core.utils.model_utils import reset_tasks
 
 from .models import AnalysisJob, AnalysisTask
@@ -46,7 +44,7 @@ class BroadcastView(BaseBroadcastView):
     success_url = reverse_lazy("broadcast")
 
     def send_mails(self, subject: str, message: str) -> None:
-        broadcast_mail.delay(subject, message)
+        broadcast_mail.defer(subject, message)
 
 
 class HomeView(BaseHomeView):
@@ -204,12 +202,11 @@ class AnalysisJobCancelView(LoginRequiredMixin, SingleObjectMixin, View):
             )
 
         tasks = job.tasks.filter(status=AnalysisTask.Status.PENDING)
-        tasks.update(status=AnalysisTask.Status.CANCELED)
         for task in tasks.only("celery_task_id"):
-            if task.celery_task_id:
-                # Cave, can only revoke tasks that are not already fetched by a worker.
-                # So the worker will check again each task if it was cancelled.
-                celery_app.control.revoke(task.celery_task_id)
+            queued_job_id = task.queued_job_id
+            if queued_job_id is not None:
+                app.job_manager.cancel_job_by_id(queued_job_id, delete_job=True)
+        tasks.update(status=AnalysisTask.Status.CANCELED)
 
         if job.tasks.filter(status=AnalysisTask.Status.IN_PROGRESS).exists():
             job.status = AnalysisJob.Status.CANCELING
@@ -384,11 +381,3 @@ class AnalysisTaskResetView(LoginRequiredMixin, SingleObjectMixin, View):
 
         messages.success(request, self.success_message % task.__dict__)
         return redirect(task)
-
-
-class RabbitManagementProxyView(AdminProxyView):
-    upstream = (
-        f"http://{settings.RABBIT_MANAGEMENT_HOST}:" f"{settings.RABBIT_MANAGEMENT_PORT}"  # type: ignore
-    )
-    url_prefix = "rabbit"
-    rewrite = ((rf"^/{url_prefix}$", r"/"),)

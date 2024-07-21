@@ -1,10 +1,8 @@
-from adit_radis_shared.common.views import FlowerProxyView
 from django.urls import path
 
 from .views import (
     BroadcastView,
     HomeView,
-    RabbitManagementProxyView,
     UpdatePreferencesView,
     admin_section,
 )
@@ -29,6 +27,4 @@ urlpatterns = [
         HomeView.as_view(),
         name="home",
     ),
-    FlowerProxyView.as_url(),
-    RabbitManagementProxyView.as_url(),
 ]

@@ -3,6 +3,7 @@ from typing import TYPE_CHECKING, Callable
 from django.conf import settings
 from django.db import models
 from django.utils import timezone
+from procrastinate.contrib.django.models import ProcrastinateJob
 
 from radis.core.utils.model_utils import reset_tasks
 
@@ -196,14 +197,17 @@ class AnalysisTask(models.Model):
     id: int
     job_id: int
     job = models.ForeignKey(AnalysisJob, on_delete=models.CASCADE, related_name="tasks")
-    celery_task_id = models.CharField(max_length=255)
+    queued_job_id: int | None
+    queued_job = models.OneToOneField(
+        ProcrastinateJob, null=True, on_delete=models.SET_NULL, related_name="+"
+    )
     status = models.CharField(
         max_length=2,
         choices=Status.choices,
         default=Status.PENDING,
     )
     get_status_display: Callable[[], str]
-    retries = models.PositiveSmallIntegerField(default=0)
+    attempts = models.PositiveSmallIntegerField(default=0)
     message = models.TextField(blank=True, default="")
     log = models.TextField(blank=True, default="")
     created_at = models.DateTimeField(auto_now_add=True)

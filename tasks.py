@@ -394,20 +394,6 @@ def try_github_actions(ctx: Context):
 
 
 @task
-def purge_celery(
-    ctx: Context,
-    env: Environments = "dev",
-    queues: str = "default_queue",
-    force=False,
-):
-    """Purge Celery queues"""
-    cmd = f"{build_compose_cmd(env)} exec web celery -A radis purge -Q {queues}"
-    if force:
-        cmd += " -f"
-    ctx.run(cmd, pty=True)
-
-
-@task
 def backup_db(ctx: Context, env: Environments = "prod"):
     """Backup database
 

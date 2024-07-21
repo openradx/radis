@@ -14,7 +14,6 @@
   - Reference: name (unique), match (unique)
 - Remove unneeded templatetags
 - Are pandas and openpyxl needed as deps?!
-- Remove Redis if not needed anymore
 
 ## Fix
 
@@ -91,5 +90,4 @@
 - Delete reset_dev_db and add reset option to populate_dev_db
 - globals.d.ts
 - rename all Alpine components to Uppercase
-- Turn off debug logging in Celery
 - Add metaclass=ABCMeta to abstract core/models and core/views (also core/tables and core/filters even in RADIS)

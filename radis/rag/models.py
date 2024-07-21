@@ -1,11 +1,12 @@
 from typing import TYPE_CHECKING, Callable
 
 from adit_radis_shared.common.models import AppSettings
-from celery import current_app
 from django.conf import settings
 from django.contrib.auth.models import Group
 from django.db import models
 from django.urls import reverse
+from procrastinate.contrib.django import app
+from procrastinate.contrib.django.models import ProcrastinateJob
 
 from radis.core.models import AnalysisJob, AnalysisTask
 from radis.reports.models import Language, Modality, Report
@@ -25,9 +26,11 @@ class RagJob(AnalysisJob):
     urgent_priority = settings.RAG_URGENT_PRIORITY
     continuous_job = False
 
+    queued_job_id: int | None
+    queued_job = models.OneToOneField(
+        ProcrastinateJob, null=True, on_delete=models.SET_NULL, related_name="+"
+    )
     title = models.CharField(max_length=100)
-    "The title of the job that is shown in the job list"
-
     provider = models.CharField(max_length=100)
     group = models.ForeignKey(Group, on_delete=models.CASCADE)
     query = models.CharField(max_length=200)
@@ -53,7 +56,13 @@ class RagJob(AnalysisJob):
         return reverse("rag_job_detail", args=[self.id])
 
     def delay(self) -> None:
-        current_app.send_task("radis.rag.tasks.ProcessRagJob", args=[self.id])
+        queued_job_id = app.configure_task(
+            "radis.rag.tasks.process_rag_job",
+            allow_unknown=False,
+            priority=self.urgent_priority if self.urgent else self.default_priority,
+        ).defer(job_id=self.id)
+        self.queued_job_id = queued_job_id
+        self.save()
 
 
 class Answer(models.TextChoices):
@@ -82,7 +91,13 @@ class RagTask(AnalysisTask):
         return reverse("rag_task_detail", args=[self.id])
 
     def delay(self) -> None:
-        current_app.send_task("radis.rag.tasks.ProcessRagTask", args=[self.id])
+        queued_job_id = app.configure_task(
+            "radis.rag.tasks.process_rag_task",
+            allow_unknown=False,
+            priority=self.job.urgent_priority if self.job.urgent else self.job.default_priority,
+        ).defer(task_id=self.id)
+        self.queued_job_id = queued_job_id
+        self.save()
 
 
 class RagInstance(models.Model):
