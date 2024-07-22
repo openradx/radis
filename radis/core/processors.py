@@ -1,6 +1,7 @@
 import logging
 import traceback
 
+from channels.db import database_sync_to_async
 from django.utils import timezone
 
 from .models import AnalysisJob, AnalysisTask
@@ -9,7 +10,11 @@ logger = logging.getLogger(__name__)
 
 
 class AnalysisTaskProcessor:
-    def start(self, task: AnalysisTask) -> None:
+    def __init__(self, task: AnalysisTask) -> None:
+        self.task = task
+
+    async def start(self) -> None:
+        task = self.task
         job = task.job
 
         logger.info("Start processing task %s", task)
@@ -37,17 +42,17 @@ class AnalysisTaskProcessor:
         if job.status == job.Status.PENDING:
             job.status = job.Status.IN_PROGRESS
             job.started_at = timezone.now()
-            job.save()
+            await job.asave()
 
         assert job.status == job.Status.IN_PROGRESS
 
         # Prepare the task itself
         task.status = AnalysisTask.Status.IN_PROGRESS
         task.started_at = timezone.now()
-        task.save()
+        await task.asave()
 
         try:
-            self.process_task(task)
+            await self.process_task(task)
 
             # If the overwritten process_task method changes the status of the
             # task itself then we leave it as it is. Otherwise if the status is
@@ -65,9 +70,9 @@ class AnalysisTaskProcessor:
         finally:
             logger.info("Task %s ended", task)
             task.ended_at = timezone.now()
-            task.save()
-            job.update_job_state()
+            await task.asave()
+            await database_sync_to_async(job.update_job_state)()
 
-    def process_task(self, task: AnalysisTask) -> None:
+    async def process_task(self, task: AnalysisTask) -> None:
         """The derived class should process the task here."""
         ...

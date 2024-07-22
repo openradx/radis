@@ -6,7 +6,6 @@ from channels.db import database_sync_to_async
 from django import db
 from django.conf import settings
 from django.db.models.query import QuerySet
-from pebble import concurrent
 
 from radis.core.processors import AnalysisTaskProcessor
 from radis.core.utils.chat_client import AsyncChatClient
@@ -18,15 +17,7 @@ logger = logging.getLogger(__name__)
 
 
 class RagTaskProcessor(AnalysisTaskProcessor):
-    def process_task(self, task: RagTask) -> None:
-        future = self.process_task_in_thread(task)
-        future.result()
-
-    @concurrent.thread
-    def process_task_in_thread(self, task: RagTask) -> None:
-        asyncio.run(self.process_rag_task(task))
-
-    async def process_rag_task(self, task: RagTask) -> None:
+    async def process_task(self, task: RagTask) -> None:
         client = AsyncChatClient()
         sem = Semaphore(settings.RAG_LLM_CONCURRENCY_LIMIT)
 
@@ -37,6 +28,39 @@ class RagTaskProcessor(AnalysisTaskProcessor):
             ]
         )
         await database_sync_to_async(db.close_old_connections)()
+
+    async def process_rag_instance(
+        self, rag_instance: RagInstance, client: AsyncChatClient, sem: Semaphore
+    ) -> None:
+        report = await self.combine_reports(rag_instance.reports.prefetch_related("language"))
+        language = report.language
+
+        if language.code not in settings.SUPPORTED_LANGUAGES:
+            raise ValueError(f"Language '{language}' is not supported.")
+
+        async with sem:
+            results = await asyncio.gather(
+                *[
+                    self.process_yes_or_no_question(
+                        rag_instance, report.body, language.code, question, client
+                    )
+                    async for question in rag_instance.task.job.questions.all()
+                ]
+            )
+
+        if all([result == RagInstance.Result.ACCEPTED for result in results]):
+            overall_result = RagInstance.Result.ACCEPTED
+        else:
+            overall_result = RagInstance.Result.REJECTED
+
+        rag_instance.overall_result = overall_result
+        await rag_instance.asave()
+
+        logger.info(
+            "Overall RAG result for for report %s: %s",
+            rag_instance,
+            rag_instance.get_overall_result_display(),
+        )
 
     async def combine_reports(self, reports: QuerySet[Report]) -> Report:
         count = await reports.acount()
@@ -85,36 +109,3 @@ class RagTaskProcessor(AnalysisTaskProcessor):
         logger.debug("RAG result for question %s: %s", question, answer)
 
         return result
-
-    async def process_rag_instance(
-        self, rag_instance: RagInstance, client: AsyncChatClient, sem: Semaphore
-    ) -> None:
-        report = await self.combine_reports(rag_instance.reports.prefetch_related("language"))
-        language = report.language
-
-        if language.code not in settings.SUPPORTED_LANGUAGES:
-            raise ValueError(f"Language '{language}' is not supported.")
-
-        async with sem:
-            results = await asyncio.gather(
-                *[
-                    self.process_yes_or_no_question(
-                        rag_instance, report.body, language.code, question, client
-                    )
-                    async for question in rag_instance.task.job.questions.all()
-                ]
-            )
-
-        if all([result == RagInstance.Result.ACCEPTED for result in results]):
-            overall_result = RagInstance.Result.ACCEPTED
-        else:
-            overall_result = RagInstance.Result.REJECTED
-
-        rag_instance.overall_result = overall_result
-        await rag_instance.asave()
-
-        logger.info(
-            "Overall RAG result for for report %s: %s",
-            rag_instance,
-            rag_instance.get_overall_result_display(),
-        )

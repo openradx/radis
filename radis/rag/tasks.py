@@ -16,10 +16,10 @@ logger = logging.getLogger(__name__)
 
 
 @app.task(queue="llm")
-def process_rag_task(task_id: int) -> None:
-    task = RagTask.objects.get(id=task_id)
-    processor = RagTaskProcessor()
-    processor.start(task)
+async def process_rag_task(task_id: int) -> None:
+    task = await RagTask.objects.prefetch_related("job").aget(id=task_id)
+    processor = RagTaskProcessor(task)
+    await processor.start()
 
 
 @app.task
