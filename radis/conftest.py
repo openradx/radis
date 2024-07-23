@@ -1,5 +1,6 @@
 import nest_asyncio
-from adit_radis_shared.conftest import *  # noqa: F403
+
+pytest_plugins = ["adit_radis_shared.pytest_fixtures"]
 
 
 def pytest_configure():
