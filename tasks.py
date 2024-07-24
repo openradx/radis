@@ -38,7 +38,7 @@ def compose_up(
     else:
         profiles = ["cpu"]
 
-    invoke_tasks.compose_up(ctx=ctx, env=env, no_build=no_build, profile=profiles)
+    invoke_tasks.compose_up(ctx, env=env, no_build=no_build, profile=profiles)
 
 
 @task
@@ -48,4 +48,4 @@ def compose_down(
     cleanup: bool = False,
 ):
     """Stop containers in specified environment"""
-    invoke_tasks.compose_down(ctx=ctx, env=env, cleanup=cleanup, profile=["cpu", "gpu"])
+    invoke_tasks.compose_down(ctx, env=env, cleanup=cleanup, profile=["cpu", "gpu"])
