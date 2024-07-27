@@ -1,16 +1,19 @@
 from unittest.mock import patch
 
 import pytest
+from channels.db import database_sync_to_async
+from django.db import close_old_connections
 
 from radis.rag.models import Answer, RagInstance
 from radis.rag.processors import RagTaskProcessor
 
 
+@pytest.mark.asyncio
 @pytest.mark.django_db(transaction=True)
-def test_rag_task_processor(create_rag_task, openai_chat_completions_mock, mocker):
+async def test_rag_task_processor(create_rag_task, openai_chat_completions_mock, mocker):
     num_rag_instances = 5
     num_questions = 5
-    rag_task = create_rag_task(
+    rag_task = await database_sync_to_async(create_rag_task)(
         language_code="en",
         num_questions=num_questions,
         accepted_answer="Y",
@@ -18,12 +21,12 @@ def test_rag_task_processor(create_rag_task, openai_chat_completions_mock, mocke
     )
 
     openai_mock = openai_chat_completions_mock("Yes")
-    process_rag_task_spy = mocker.spy(RagTaskProcessor, "process_rag_task")
+    process_rag_task_spy = mocker.spy(RagTaskProcessor, "process_task")
     process_rag_instance_spy = mocker.spy(RagTaskProcessor, "process_rag_instance")
     process_yes_or_no_question_spy = mocker.spy(RagTaskProcessor, "process_yes_or_no_question")
 
     with patch("openai.AsyncOpenAI", return_value=openai_mock):
-        RagTaskProcessor().start(rag_task)
+        await RagTaskProcessor(rag_task).start()
         rag_instances = rag_task.rag_instances.all()
 
         for instance in rag_instances:
@@ -40,3 +43,5 @@ def test_rag_task_processor(create_rag_task, openai_chat_completions_mock, mocke
             assert (
                 openai_mock.chat.completions.create.call_count == num_rag_instances * num_questions
             )
+
+    close_old_connections()
