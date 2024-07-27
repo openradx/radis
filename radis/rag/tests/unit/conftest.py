@@ -4,7 +4,7 @@ import pytest
 
 from radis.core.tests.unit.conftest import openai_chat_completions_mock  # noqa
 from radis.rag.factories import QuestionFactory, RagInstanceFactory, RagJobFactory, RagTaskFactory
-from radis.rag.models import RagTask
+from radis.rag.models import RagJob, RagTask
 from radis.reports.factories import LanguageFactory, ReportFactory
 from radis.reports.models import Language
 
@@ -20,6 +20,7 @@ def create_rag_task(
         num_rag_instances: int = 5,
     ) -> RagTask:
         job = RagJobFactory.create(
+            status=RagJob.Status.PENDING,
             owner_id=user_with_group.id,
             owner=user_with_group,
             language=LanguageFactory.create(code=language_code),

@@ -14,7 +14,7 @@ ENV PYTHONUNBUFFERED=1 \
     # poetry
     # https://python-poetry.org/docs/#installing-with-the-official-installer
     # https://python-poetry.org/docs/configuration/#using-environment-variables
-    POETRY_VERSION=1.8.2 \
+    POETRY_VERSION=1.8.3 \
     # make poetry install to this location
     POETRY_HOME="/opt/poetry" \
     # make poetry create the virtual environment in the project's root
@@ -72,10 +72,9 @@ RUN poetry install
 RUN playwright install --with-deps chromium
 
 # Required folders for RADIS
-RUN mkdir -p /var/www/radis/logs \
-    /var/www/radis/static \
-    /var/www/radis/ssl \
-    /var/www/radis/celery
+RUN mkdir -p /var/www/web/logs \
+    /var/www/web/static \
+    /var/www/web/ssl
 
 # will become mountpoint of our code
 WORKDIR /app
@@ -87,9 +86,8 @@ COPY --from=builder-base $PYSETUP_PATH $PYSETUP_PATH
 COPY . /app/
 
 # Required folders for RADIS
-RUN mkdir -p /var/www/radis/logs \
-    /var/www/radis/static \
-    /var/www/radis/ssl \
-    /var/www/radis/celery
+RUN mkdir -p /var/www/web/logs \
+    /var/www/web/static \
+    /var/www/web/ssl
 
 WORKDIR /app

@@ -1,6 +1,11 @@
 from typing import Any, Type, cast
 
-from adit_radis_shared.common.mixins import HtmxOnlyMixin, PageSizeSelectMixin, RelatedFilterMixin
+from adit_radis_shared.common.mixins import (
+    HtmxOnlyMixin,
+    PageSizeSelectMixin,
+    RelatedFilterMixin,
+    RelatedPaginationMixin,
+)
 from adit_radis_shared.common.types import AuthenticatedHttpRequest
 from django.conf import settings
 from django.contrib.auth.mixins import (
@@ -18,8 +23,6 @@ from django.views.generic import DetailView, View
 from django_tables2 import SingleTableMixin
 from formtools.wizard.views import SessionWizardView
 
-# TODO: Change to adit_radis_shared.common.mixins.RelatedPaginationMixin
-from radis.core.mixins import RelatedPaginationMixin
 from radis.core.views import (
     AnalysisJobCancelView,
     AnalysisJobDeleteView,
