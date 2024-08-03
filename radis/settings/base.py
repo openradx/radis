@@ -80,6 +80,7 @@ INSTALLED_APPS = [
     "radis.rag.apps.RagConfig",
     "radis.collections.apps.CollectionsConfig",
     "radis.notes.apps.NotesConfig",
+    "radis.inbox.apps.InboxConfig",
     "channels",
 ]
 
@@ -361,3 +362,8 @@ RAG_TASK_BATCH_SIZE = 64
 RAG_LLM_CONCURRENCY_LIMIT = 6
 
 START_RAG_JOB_UNVERIFIED = False
+
+
+# Inbox
+INBOX_DEFAULT_PRIORITY = 3
+INBOX_URGENT_PRIORITY = 4
