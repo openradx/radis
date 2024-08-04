@@ -1,0 +1,25 @@
+{% load crispy from crispy_forms_tags %}
+{% load static %}
+<link rel="stylesheet"
+      type="text/css"
+      href="{% static 'search/search.css' %}" />
+<script src="{% static 'search/search.js' %}"></script>
+<div class="modal-content" data-dialog-static>
+    <div class="modal-header">
+        <h5 class="modal-title">Create new inbox</h5>
+        <button type="button"
+                class="btn-close"
+                data-bs-dismiss="modal"
+                aria-label="Close" />
+    </div>
+    <div class="modal-body">
+        <form hx-post="{% url 'inbox_create' %}">
+            {% csrf_token %}
+            {% crispy form %}
+            <div class="d-flex gap-2">
+                <button type="submit" class="btn btn-primary">Create</button>
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+            </div>
+        </form>
+    </div>
+</div>

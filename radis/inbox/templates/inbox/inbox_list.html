@@ -1,0 +1,32 @@
+{% extends "inbox/inbox_layout.html" %}
+{% load crispy from crispy_forms_tags %}
+{% load bootstrap_icon from common_extras %}
+{% block title %}
+    Inbox List
+{% endblock title %}
+{% block heading %}
+    <div class="d-flex justify-content-between align-items-start">
+        <h4 class="mb-3 d-flex gap-3">
+            <span>Inbox List</span>
+            <button type="button"
+                    class="btn btn-sm btn-info align-baseline"
+                    hx-get="{% url 'inbox_help' %}"
+                    hx-target="#htmx-dialog">
+                Help
+                {% bootstrap_icon "question-circle" %}
+            </button>
+        </h4>
+        <button type="button"
+                class="btn btn-success btn-sm"
+                hx-get="{% url 'inbox_create' %}"
+                hx-target="#htmx-dialog">
+            {% bootstrap_icon "plus" %}
+            Add new inbox
+        </button>
+    </div>
+{% endblock heading %}
+{% block content %}
+    <div class="list-group"
+         hx-get="{% url 'inbox_list' %}"
+         hx-trigger="inboxListChanged from:body">{% include "inbox/_inbox_list.html" %}</div>
+{% endblock content %}

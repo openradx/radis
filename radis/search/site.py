@@ -18,6 +18,7 @@ class ReportDocument(NamedTuple):
     study_datetime: datetime
     modalities: list[str]
     summary: str
+    created_at: datetime
 
     @property
     def full_report(self) -> Report:
@@ -57,6 +58,8 @@ class SearchFilters:
     patient_sex: Literal["M", "F"] | None = None
     patient_age_from: int | None = None
     patient_age_till: int | None = None
+    created_after: datetime | None = None
+    created_before: datetime | None = None
 
 
 class Search(NamedTuple):

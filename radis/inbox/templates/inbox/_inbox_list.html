@@ -1,0 +1,7 @@
+{% if inbox_list %}
+    {% for inbox in inbox_list %}
+        {% include "inbox/_inbox_preview.html" %}
+    {% endfor %}
+{% else %}
+    <p>No inboxes are available.</p>
+{% endif %}
