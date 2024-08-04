@@ -1,0 +1,112 @@
+{% extends "inbox/inbox_layout.html" %}
+{% load bootstrap_icon from common_extras %}
+{% block title %}
+    Inbox {{ inbox.name }}
+{% endblock title %}
+{% block heading %}
+    <div class="d-flex justify-content-between align-items-start">
+        <h4 class="mb-3">Inbox {{ inbox.name }}</h4>
+        <div class="d-flex gap-1">
+            <form action="{% url 'inbox_delete' inbox.id %}" method="post">
+                {% csrf_token %}
+                <button type="submit"
+                        class="btn btn-danger"
+                        onclick="return confirm(`Really delete inbox '{{ inbox.name }}'?`)">
+                    {% bootstrap_icon "trash" %}
+                    Delete
+                </button>
+            </form>
+        </div>
+    </div>
+{% endblock heading %}
+{% block content %}
+    <dl class="row">
+        <i>General</i>
+        <dt class="col-sm-3">Inbox ID</dt>
+        <dd class="col-sm-9">
+            {{ inbox.id }}
+        </dd>
+        <dt class="col-sm-3">Inbox Title</dt>
+        <dd class="col-sm-9">
+            {{ inbox.name }}
+        </dd>
+        <dt class="col-sm-3">Created At</dt>
+        <dd class="col-sm-9">
+            {{ inbox.created_at }}
+        </dd>
+        <dt class="col-sm-3">Last Refreshed</dt>
+        <dd class="col-sm-9">
+            {{ inbox.last_refreshed }}
+        </dd>
+        <i>Search Details</i>
+        <dt class="col-sm-3">Search Provider</dt>
+        <dd class="col-sm-9">
+            {{ inbox.provider }}
+        </dd>
+        <dt class="col-sm-3">Search Query</dt>
+        <dd class="col-sm-9">
+            {% if inbox.query %}
+                {{ inbox.query }}
+            {% else %}
+                –
+            {% endif %}
+        </dd>
+        <i>Filter Details</i>
+        <dt class="col-sm-3">Language</dt>
+        <dd class="col-sm-9">
+            {% if inbox.language %}
+                {{ inbox.language.code }}
+            {% else %}
+                –
+            {% endif %}
+        </dd>
+        <dt class="col-sm-3">Modalities</dt>
+        <dd class="col-sm-9">
+            {% if inbox.modalities.count == 0 %}
+                – 
+            {% else %}
+                {% for modality in inbox.modalities %}{{ modality.code }}{% endfor %}
+            {% endif %}
+        </dd>
+        <dt class="col-sm-3">Study Date Range</dt>
+        <dd class="col-sm-9">
+            {% if inbox.study_date_from or inbox.study_date_till %}
+                {{ inbox.study_date_from }} – {{ inbox.study_date_till }}
+            {% else %}
+                –
+            {% endif %}
+        </dd>
+        <dt class="col-sm-3">Study Description</dt>
+        <dd class="col-sm-9">
+            {% if inbox.study_description %}
+                {{ inbox.study_description }}
+            {% else %}
+                –
+            {% endif %}
+        </dd>
+        <dt class="col-sm-3">Patient Sex</dt>
+        <dd class="col-sm-9">
+            {% if inbox.patient_sex %}
+                {{ inbox.patient_sex }}
+            {% else %}
+                –
+            {% endif %}
+        </dd>
+        <dt class="col-sm-3">Patient Age Range</dt>
+        <dd class="col-sm-9">
+            {% if inbox.age_from or inbox.age_till %}
+                {{ inbox.age_from }} – {{ inbox.age_till }}
+            {% else %}
+                –
+            {% endif %}
+        </dd>
+        <dt class="col-sm-3">Patient ID</dt>
+        <dd class="col-sm-9">
+            {% if inbox.patient_id %}
+                {{ inbox.patient_id }}
+            {% else %}
+                –
+            {% endif %}
+        </dd>
+    </dl>
+{% endblock content %}
