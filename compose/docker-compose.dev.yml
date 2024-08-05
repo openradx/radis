@@ -53,7 +53,7 @@ services:
     command: >
       bash -c "
         wait-for-it -s postgres.local:5432 -t 60 &&
-        ./manage.py worker -l debug -q default --autoreload
+        ./manage.py bg_worker -l debug -q default --autoreload
       "
 
   worker_llm:
@@ -61,7 +61,7 @@ services:
     command: >
       bash -c "
         wait-for-it -s postgres.local:5432 -t 60 &&
-        ./manage.py worker -l debug -q llm --autoreload
+        ./manage.py bg_worker -l debug -q llm --autoreload
       "
 
   llamacpp_cpu:
