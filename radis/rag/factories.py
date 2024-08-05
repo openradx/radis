@@ -78,9 +78,10 @@ class RagInstanceFactory(BaseDjangoModelFactory[RagInstance]):
         model = RagInstance
 
     task = factory.SubFactory("radis.rag.factories.RagTaskFactory")
+    report = factory.SubFactory("radis.reports.factories.ReportFactory")
 
     @factory.post_generation
-    def reports(self, create, extracted, **kwargs):
+    def other_reports(self, create, extracted, **kwargs):
         if not create:
             return
 
@@ -88,8 +89,8 @@ class RagInstanceFactory(BaseDjangoModelFactory[RagInstance]):
 
         if extracted:
             for report in extracted:
-                self.reports.add(report)
+                self.other_reports.add(report)
         else:
             from radis.reports.factories import ReportFactory
 
-            self.reports.add(*[ReportFactory() for _ in range(3)])
+            self.other_reports.add(*[ReportFactory() for _ in range(3)])
