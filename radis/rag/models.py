@@ -109,7 +109,10 @@ class RagInstance(models.Model):
         results = RelatedManager["QuestionResult"]()
 
     id: int
-    reports = models.ManyToManyField(Report)
+    text = models.TextField()
+    report_id: int
+    report = models.ForeignKey(Report, on_delete=models.CASCADE, related_name="rag_instances")
+    other_reports = models.ManyToManyField(Report)
     overall_result = models.CharField(max_length=1, choices=Result.choices, blank=True)
     get_overall_result_display: Callable[[], str]
     task = models.ForeignKey(RagTask, on_delete=models.CASCADE, related_name="rag_instances")

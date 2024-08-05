@@ -2,6 +2,7 @@ import logging
 from itertools import batched
 
 from django.conf import settings
+from django.db.models import Prefetch
 from procrastinate.contrib.django import app
 
 from radis.reports.models import Report
@@ -17,7 +18,12 @@ logger = logging.getLogger(__name__)
 
 @app.task(queue="llm")
 async def process_rag_task(task_id: int) -> None:
-    task = await RagTask.objects.prefetch_related("job").aget(id=task_id)
+    task = await RagTask.objects.prefetch_related(
+        Prefetch(
+            "job",
+            queryset=RagJob.objects.prefetch_related("language"),
+        )
+    ).aget(id=task_id)
     processor = RagTaskProcessor(task)
     await processor.start()
 
@@ -64,9 +70,10 @@ def process_rag_job(job_id: int) -> None:
     for document_ids in batched(retrieval_provider.retrieve(search), settings.RAG_TASK_BATCH_SIZE):
         logger.debug("Creating RAG task for document IDs: %s", document_ids)
         task = RagTask.objects.create(job=job, status=RagTask.Status.PENDING)
+
         for document_id in document_ids:
-            rag_instance = RagInstance.objects.create(task=task)
-            rag_instance.reports.add(Report.objects.get(document_id=document_id))
+            report = Report.objects.get(document_id=document_id)
+            RagInstance.objects.create(task=task, report_id=report.id)
 
         task.delay()
 

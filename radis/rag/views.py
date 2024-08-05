@@ -15,7 +15,7 @@ from django.contrib.auth.mixins import (
 )
 from django.core.exceptions import SuspiciousOperation
 from django.db import transaction
-from django.db.models import QuerySet
+from django.db.models import Prefetch, QuerySet
 from django.forms import BaseInlineFormSet
 from django.shortcuts import redirect, render
 from django.urls import reverse_lazy
@@ -254,14 +254,13 @@ class RagResultListView(
 
     def get_related_queryset(self) -> QuerySet[RagInstance]:
         job = cast(RagJob, self.get_object())
-        rag_instances = RagInstance.objects.filter(
+        return RagInstance.objects.filter(
             task__job=job,
             overall_result__in=[
                 RagInstance.Result.ACCEPTED,
                 RagInstance.Result.REJECTED,
             ],
-        ).prefetch_related("reports")
-        return rag_instances
+        ).prefetch_related(Prefetch("report"), Prefetch("other_reports"))
 
     def get_filter_queryset(self) -> QuerySet[RagInstance]:
         return self.get_related_queryset()
