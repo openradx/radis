@@ -1,6 +1,5 @@
-from adit_radis_shared.accounts.models import User
 from crispy_forms.helper import FormHelper
-from crispy_forms.layout import HTML, Column, Div, Layout, Row, Submit
+from crispy_forms.layout import Column, Layout, Row
 from django import forms
 
 from radis.core.constants import LANGUAGE_LABELS

@@ -1,4 +1,3 @@
-from datetime import datetime
 from typing import TYPE_CHECKING
 
 from adit_radis_shared.accounts.models import Group
@@ -42,7 +41,7 @@ class Subscription(models.Model):
     )
     age_from = models.IntegerField(null=True, blank=True)
     age_till = models.IntegerField(null=True, blank=True)
-    patient_id = models.CharField(max_length=100, null=True, blank=True)
+    patient_id = models.CharField(max_length=100, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
     last_refreshed = models.DateTimeField(auto_now_add=True)

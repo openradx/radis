@@ -1,17 +1,17 @@
 from logging import getLogger
 from typing import Any, Type, cast
 
-from adit_radis_shared.common.mixins import (PageSizeSelectMixin,
-                                             RelatedFilterMixin,
-                                             RelatedPaginationMixin)
-from django.contrib.auth.mixins import (LoginRequiredMixin,
-                                        PermissionRequiredMixin)
+from adit_radis_shared.common.mixins import (
+    PageSizeSelectMixin,
+    RelatedFilterMixin,
+    RelatedPaginationMixin,
+)
+from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib.messages.views import SuccessMessageMixin
 from django.db.models import QuerySet
 from django.http import HttpResponse
 from django.urls import reverse_lazy
-from django.views.generic import (CreateView, DeleteView, DetailView, ListView,
-                                  UpdateView)
+from django.views.generic import CreateView, DeleteView, DetailView, ListView
 from django_htmx.http import trigger_client_event
 
 from .forms import SearchForm
@@ -108,7 +108,9 @@ class SubscriptionInboxView(
 
     def get_related_queryset(self) -> QuerySet[InboxItem]:
         subscription = cast(Subscription, self.get_object())
-        inbox_items = InboxItem.objects.filter(subscription_id=subscription.id).prefetch_related("report")
+        inbox_items = InboxItem.objects.filter(subscription_id=subscription.id).prefetch_related(
+            "report"
+        )
         return inbox_items
 
     def get_filter_queryset(self) -> QuerySet[InboxItem]:
