@@ -6,6 +6,7 @@ from adit_radis_shared.common.mixins import (
     RelatedFilterMixin,
     RelatedPaginationMixin,
 )
+from adit_radis_shared.common.types import AuthenticatedHttpRequest
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib.messages.views import SuccessMessageMixin
 from django.db.models import QuerySet
@@ -15,7 +16,7 @@ from django.views.generic import CreateView, DeleteView, DetailView, ListView
 from django_htmx.http import trigger_client_event
 
 from .forms import SearchForm
-from .models import InboxItem, Subscription
+from .models import SubscribedItem, Subscription
 
 logger = getLogger(__name__)
 
@@ -23,6 +24,7 @@ logger = getLogger(__name__)
 class SubscriptionCreateView(CreateView, LoginRequiredMixin):  # TODO: Add PermissionRequiredMixin
     template_name = "subscription/_subscription_create.html"
     form_class = SearchForm
+    request: AuthenticatedHttpRequest
 
     def form_valid(self, form) -> HttpResponse:
         user = self.request.user
@@ -57,6 +59,7 @@ class SubscriptionCreateView(CreateView, LoginRequiredMixin):  # TODO: Add Permi
 
 class SubscriptionListView(ListView):
     model = Subscription
+    request: AuthenticatedHttpRequest
 
     def get_template_names(self) -> list[str]:
         if self.request.htmx:
@@ -98,6 +101,7 @@ class SubscriptionInboxView(
 ):
     model = Subscription
     template_name = "subscription/subscription_inbox.html"
+    request: AuthenticatedHttpRequest
 
     def get_queryset(self) -> QuerySet[Subscription]:
         assert self.model
@@ -106,12 +110,11 @@ class SubscriptionInboxView(
             return model.objects.all()
         return model.objects.filter(owner=self.request.user)
 
-    def get_related_queryset(self) -> QuerySet[InboxItem]:
+    def get_related_queryset(self) -> QuerySet[SubscribedItem]:
         subscription = cast(Subscription, self.get_object())
-        inbox_items = InboxItem.objects.filter(subscription_id=subscription.id).prefetch_related(
+        return SubscribedItem.objects.filter(subscription_id=subscription.id).prefetch_related(
             "report"
         )
-        return inbox_items
 
-    def get_filter_queryset(self) -> QuerySet[InboxItem]:
+    def get_filter_queryset(self) -> QuerySet[SubscribedItem]:
         return self.get_related_queryset()

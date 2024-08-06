@@ -12,7 +12,7 @@ from radis.reports.models import Report
 from radis.search.site import Search, SearchFilters
 from radis.search.utils.query_parser import QueryParser
 
-from .models import InboxItem, Subscription, SubscriptionJob, SubscriptionTask
+from .models import SubscribedItem, Subscription, SubscriptionJob, SubscriptionTask
 
 logger = logging.getLogger(__name__)
 
@@ -59,13 +59,17 @@ def process_subscription_job(job_id: int) -> None:
     if len(fixes) > 0:
         logger.info(f"The following fixes were applied to the query:\n{"\n - ".join(fixes)}")
 
+    language_code = ""
+    if job.subscription.language:
+        language_code = job.subscription.language.code
+
     search = Search(
         query=query_node,
         offset=0,
         limit=retrieval_provider.max_results,
         filters=SearchFilters(
             group=job.subscription.group.pk,
-            language=job.subscription.language.code,
+            language=language_code,
             modalities=list(job.subscription.modalities.values_list("code", flat=True)),
             study_date_from=job.subscription.study_date_from,
             study_date_till=job.subscription.study_date_till,
@@ -102,10 +106,9 @@ def process_subscription_job(job_id: int) -> None:
 @app.task
 def process_subscription_task(task_id: int) -> None:
     task = SubscriptionTask.objects.get(id=task_id)
-    logger.debug("Storing InboxItems for subscription %s", task.job.subscription.name)
+    logger.debug("Storing subscribed items for subscription %s", task.job.subscription.name)
     for report in task.reports.all():
-        inbox_item = InboxItem(
+        SubscribedItem.objects.create(
             subscription=task.job.subscription,
             report=report,
         )
-        inbox_item.save()

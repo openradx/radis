@@ -25,14 +25,16 @@ class Subscription(models.Model):
     name = models.CharField(max_length=100)
     owner_id: int
     owner = models.ForeignKey(
-        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="%(app_label)s"
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="subscriptions"
     )
-    group = models.ForeignKey(Group, on_delete=models.CASCADE)
 
     provider = models.CharField(max_length=100)
+    group = models.ForeignKey(Group, on_delete=models.CASCADE, related_name="+")
+    patient_id = models.CharField(max_length=100, blank=True)
     query = models.CharField(max_length=200)
-
-    language = models.ForeignKey(Language, on_delete=models.CASCADE, blank=True, null=True)
+    language = models.ForeignKey(
+        Language, on_delete=models.CASCADE, blank=True, null=True, related_name="+"
+    )
     modalities = models.ManyToManyField(Modality, blank=True)
     study_date_from = models.DateField(null=True, blank=True)
     study_date_till = models.DateField(null=True, blank=True)
@@ -42,13 +44,12 @@ class Subscription(models.Model):
     )
     age_from = models.IntegerField(null=True, blank=True)
     age_till = models.IntegerField(null=True, blank=True)
-    patient_id = models.CharField(max_length=100, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
     last_refreshed = models.DateTimeField(auto_now_add=True)
 
     if TYPE_CHECKING:
-        items = RelatedManager["InboxItem"]()
+        items = RelatedManager["SubscribedItem"]()
 
     class Meta:
         constraints = [
@@ -62,10 +63,10 @@ class Subscription(models.Model):
         return f"Subscription {self.id} [{self.name}]"
 
 
-class InboxItem(models.Model):
+class SubscribedItem(models.Model):
     id: int
-    subscription = models.ForeignKey(Subscription, on_delete=models.CASCADE)
-    report = models.ForeignKey(Report, on_delete=models.CASCADE)
+    subscription = models.ForeignKey(Subscription, on_delete=models.CASCADE, related_name="items")
+    report = models.ForeignKey(Report, on_delete=models.CASCADE, related_name="+")
 
     def __str__(self):
         return f"SubscribedItem {self.id} [Subscription {self.subscription.id}]"
@@ -80,9 +81,7 @@ class SubscriptionJob(AnalysisJob):
     queued_job = models.OneToOneField(
         ProcrastinateJob, null=True, on_delete=models.SET_NULL, related_name="+"
     )
-    subscription = models.ForeignKey(
-        Subscription, on_delete=models.CASCADE, related_name="refresh_jobs"
-    )
+    subscription = models.ForeignKey(Subscription, on_delete=models.CASCADE, related_name="jobs")
 
     if TYPE_CHECKING:
         tasks = RelatedManager["SubscriptionTask"]()
@@ -101,7 +100,7 @@ class SubscriptionJob(AnalysisJob):
 
 
 class SubscriptionTask(AnalysisTask):
-    job = models.ForeignKey(SubscriptionJob, on_delete=models.CASCADE)
+    job = models.ForeignKey(SubscriptionJob, on_delete=models.CASCADE, related_name="tasks")
     reports = models.ManyToManyField(Report, blank=True)
 
     def __str__(self) -> str:
