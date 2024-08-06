@@ -21,6 +21,7 @@ class SubscriptionAppSettings(AppSettings):
 
 
 class Subscription(models.Model):
+    id: int
     name = models.CharField(max_length=100)
     owner_id: int
     owner = models.ForeignKey(
@@ -57,10 +58,17 @@ class Subscription(models.Model):
             )
         ]
 
+    def __str__(self):
+        return f"Subscription {self.id} [{self.name}]"
+
 
 class InboxItem(models.Model):
+    id: int
     subscription = models.ForeignKey(Subscription, on_delete=models.CASCADE)
     report = models.ForeignKey(Report, on_delete=models.CASCADE)
+
+    def __str__(self):
+        return f"SubscribedItem {self.id} [Subscription {self.subscription.id}]"
 
 
 class SubscriptionJob(AnalysisJob):
