@@ -2,8 +2,8 @@ from django.apps import AppConfig
 from django.db.models.signals import post_migrate
 
 
-class SubscriptionConfig(AppConfig):
-    name = "radis.subscription"
+class SubscriptionsConfig(AppConfig):
+    name = "radis.subscriptions"
 
     def ready(self):
         register_app()

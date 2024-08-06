@@ -80,7 +80,7 @@ INSTALLED_APPS = [
     "radis.rag.apps.RagConfig",
     "radis.collections.apps.CollectionsConfig",
     "radis.notes.apps.NotesConfig",
-    "radis.subscription.apps.SubscriptionConfig",
+    "radis.subscriptions.apps.SubscriptionsConfig",
     "channels",
 ]
 

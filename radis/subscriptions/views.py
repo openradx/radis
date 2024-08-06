@@ -22,7 +22,7 @@ logger = getLogger(__name__)
 
 
 class SubscriptionCreateView(CreateView, LoginRequiredMixin):  # TODO: Add PermissionRequiredMixin
-    template_name = "subscription/_subscription_create.html"
+    template_name = "subscriptions/_subscription_create.html"
     form_class = SearchForm
     request: AuthenticatedHttpRequest
 
@@ -63,8 +63,8 @@ class SubscriptionListView(ListView):
 
     def get_template_names(self) -> list[str]:
         if self.request.htmx:
-            return ["subscription/_subscription_list.html"]
-        return ["subscription/subscription_list.html"]
+            return ["subscriptions/_subscription_list.html"]
+        return ["subscriptions/subscription_list.html"]
 
     def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
         context = super().get_context_data(**kwargs)
@@ -76,7 +76,7 @@ class SubscriptionListView(ListView):
 
 class SubscriptionDetailView(LoginRequiredMixin, DetailView):
     model = Subscription
-    template_name = "subscription/subscription_detail.html"
+    template_name = "subscriptions/subscription_detail.html"
 
     def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
         context = super().get_context_data(**kwargs)
@@ -100,7 +100,7 @@ class SubscriptionInboxView(
     DetailView,
 ):
     model = Subscription
-    template_name = "subscription/subscription_inbox.html"
+    template_name = "subscriptions/subscription_inbox.html"
     request: AuthenticatedHttpRequest
 
     def get_queryset(self) -> QuerySet[Subscription]:

@@ -1,4 +1,4 @@
-{% extends "subscription/subscription_layout.html" %}
+{% extends "subscriptions/subscription_layout.html" %}
 {% load crispy from crispy_forms_tags %}
 {% load bootstrap_icon from common_extras %}
 {% block title %}
@@ -28,5 +28,5 @@
 {% block content %}
     <div class="list-group"
          hx-get="{% url 'subscription_list' %}"
-         hx-trigger="subscriptionListChanged from:body">{% include "subscription/_subscription_list.html" %}</div>
+         hx-trigger="subscriptionListChanged from:body">{% include "subscriptions/_subscription_list.html" %}</div>
 {% endblock content %}

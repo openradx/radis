@@ -31,7 +31,7 @@ urlpatterns = [
     path("rag/", include("radis.rag.urls")),
     path("collections/", include("radis.collections.urls")),
     path("notes/", include("radis.notes.urls")),
-    path("subscription/", include("radis.subscription.urls")),
+    path("subscriptions/", include("radis.subscriptions.urls")),
 ]
 
 # Debug Toolbar in Debug mode only

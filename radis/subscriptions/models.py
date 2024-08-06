@@ -91,7 +91,7 @@ class SubscriptionJob(AnalysisJob):
 
     def delay(self) -> None:
         queued_job_id = app.configure_task(
-            "radis.subscription.tasks.process_subscription_job",
+            "radis.subscriptions.tasks.process_subscription_job",
             allow_unknown=False,
             priority=self.urgent_priority if self.urgent else self.default_priority,
         ).defer(job_id=self.id)
@@ -108,7 +108,7 @@ class SubscriptionTask(AnalysisTask):
 
     def delay(self) -> None:
         queued_job_id = app.configure_task(
-            "radis.subscription.tasks.process_subscription_task",
+            "radis.subscriptions.tasks.process_subscription_task",
             allow_unknown=False,
             priority=self.job.urgent_priority if self.job.urgent else self.job.default_priority,
         ).defer(task_id=self.id)
