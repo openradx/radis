@@ -10,7 +10,7 @@
     </div>
 {% endblock heading %}
 {% block content %}
-    {% for inbox_item in object_list %}
-        {% include "subscription/_subscription_inbox_item_preview" %}
+    {% for subscribed_item in object_list %}
+        {% include "subscription/_subscribed_item_preview.html" %}
     {% endfor %}
 {% endblock content %}
