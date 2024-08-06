@@ -9,12 +9,12 @@ from radis.reports.models import Language, Modality
 from radis.search.forms import AGE_STEP, MAX_AGE, MIN_AGE
 from radis.search.layouts import RangeSlider
 
-from .models import Inbox
+from .models import Subscription
 
 
 class SearchForm(forms.ModelForm):
     class Meta:
-        model = Inbox
+        model = Subscription
         fields = [
             "name",
             "provider",
@@ -30,7 +30,7 @@ class SearchForm(forms.ModelForm):
             "patient_id",
         ]
         help_texts = {
-            "name": "Name of the Inbox",
+            "name": "Name of the Subscription",
             "provider": "The search provider to use for the database query",
             "query": "A query to find reports",
         }
@@ -100,24 +100,27 @@ class SearchForm(forms.ModelForm):
                 Column("language", css_class="form-group col-md-6 mb-0"),
                 Column("modalities", css_class="form-group col-md-6 mb-0"),
                 css_class="form-row",
-                id="filters"
+                id="filters",
             ),
             Row(
                 Column("study_date_from", css_class="form-group col-md-6 mb-0"),
                 Column("study_date_till", css_class="form-group col-md-6 mb-0"),
                 css_class="form-row",
-                id="filters"
+                id="filters",
             ),
             Row(
                 Column("study_description", css_class="form-group col-md-12 mb-0"),
                 css_class="form-row",
-                id="filters"
+                id="filters",
             ),
             Row(
                 Column("patient_sex", css_class="form-group col-md-4 mb-0"),
                 Column("patient_id", css_class="form-group col-md-4 mb-0"),
-                Column(RangeSlider("Patient age", "age_from", "age_till"), css_class="form-group col-md-4 mb-0"),
+                Column(
+                    RangeSlider("Patient age", "age_from", "age_till"),
+                    css_class="form-group col-md-4 mb-0",
+                ),
                 css_class="form-row",
-                id="filters"
+                id="filters",
             ),
         )

@@ -14,6 +14,7 @@ class ReportDocument(NamedTuple):
     patient_birth_date: date
     patient_age: int
     patient_sex: Literal["F", "M", "U"]
+    patient_id: str
     study_description: str
     study_datetime: datetime
     modalities: list[str]
@@ -58,6 +59,7 @@ class SearchFilters:
     patient_sex: Literal["M", "F"] | None = None
     patient_age_from: int | None = None
     patient_age_till: int | None = None
+    patient_id: str | None = None
     created_after: datetime | None = None
     created_before: datetime | None = None
 

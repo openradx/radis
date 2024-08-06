@@ -6,14 +6,14 @@
 <script src="{% static 'search/search.js' %}"></script>
 <div class="modal-content" data-dialog-static>
     <div class="modal-header">
-        <h5 class="modal-title">Create new inbox</h5>
+        <h5 class="modal-title">Create new subscription</h5>
         <button type="button"
                 class="btn-close"
                 data-bs-dismiss="modal"
                 aria-label="Close" />
     </div>
     <div class="modal-body">
-        <form hx-post="{% url 'inbox_create' %}">
+        <form hx-post="{% url 'subscription_create' %}">
             {% csrf_token %}
             {% crispy form %}
             <div class="d-flex gap-2">

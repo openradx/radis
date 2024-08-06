@@ -1,0 +1,24 @@
+<div class="card mb-3">
+    <div class="card-body" x-data="{full: false, questions: false}">
+        <div class="d-flex flex-column gap-1">
+            <div class="d-flex justify-content-between">
+                {% include "reports/_report_header.html" with report=inbox_item.report %}
+            </div>
+            <div class="d-flex flex-column gap-1">
+                <div class="clamp-3" :class="{'clamp-3': !full, 'pre-line': full}">{{ inbox_item.report.body }}</div>
+                <div class="d-flex gap-2">
+                    <button type="button"
+                            class="btn btn-sm btn-link p-0 border-0"
+                            @click.prevent="full=true"
+                            x-show="!full">[Show full report]</button>
+                    <button type="button"
+                            class="btn btn-sm btn-link p-0 border-0"
+                            @click.prevent="full=false"
+                            x-cloak
+                            x-show="full">[Show summary]</button>
+                </div>
+            </div>
+            {% include "reports/_report_buttons_panel.html" with report=inbox_item.report %}
+        </div>
+    </div>
+</div>

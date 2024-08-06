@@ -1,0 +1,16 @@
+{% extends 'subscription/subscription_layout.html' %}
+{% block title %}
+    Subscription Inbox
+{% endblock title %}
+{% block heading %}
+    <div class="d-flex justify-content-between align-items-start">
+        <h4 class="mb-3 d-flex gap-3">
+            <span>Subscription Inbox</span>
+        </h4>
+    </div>
+{% endblock heading %}
+{% block content %}
+    {% for inbox_item in object_list %}
+        {% include "subscription/_subscription_inbox_item_preview" %}
+    {% endfor %}
+{% endblock content %}

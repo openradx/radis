@@ -2,8 +2,8 @@ from django.apps import AppConfig
 from django.db.models.signals import post_migrate
 
 
-class InboxConfig(AppConfig):
-    name = "radis.inbox"
+class SubscriptionConfig(AppConfig):
+    name = "radis.subscription"
 
     def ready(self):
         register_app()
@@ -18,8 +18,8 @@ def register_app():
 
     register_main_menu_item(
         MainMenuItem(
-            url_name="inbox_list",
-            label="Inbox",
+            url_name="subscription_list",
+            label="Subscriptions",
         )
     )
 
@@ -29,8 +29,7 @@ def init_db(**kwargs):
 
 
 def create_app_settings():
-    from .models import InboxAppSettings
+    from .models import SubscriptionAppSettings
 
-    if not InboxAppSettings.objects.exists():
-        InboxAppSettings.objects.create()
-        InboxAppSettings.objects.create()
+    if not SubscriptionAppSettings.objects.exists():
+        SubscriptionAppSettings.objects.create()
