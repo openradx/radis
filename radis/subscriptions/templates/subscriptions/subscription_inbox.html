@@ -1,4 +1,4 @@
-{% extends 'subscription/subscription_layout.html' %}
+{% extends 'subscriptions/subscription_layout.html' %}
 {% block title %}
     Subscription Inbox
 {% endblock title %}
@@ -11,6 +11,6 @@
 {% endblock heading %}
 {% block content %}
     {% for subscribed_item in object_list %}
-        {% include "subscription/_subscribed_item_preview.html" %}
+        {% include "subscriptions/_subscribed_item_preview.html" %}
     {% endfor %}
 {% endblock content %}
