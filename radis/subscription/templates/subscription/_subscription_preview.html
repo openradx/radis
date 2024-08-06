@@ -1,0 +1,32 @@
+{% load bootstrap_icon from common_extras %}
+<div class="card mb-3" id="subscription-{{ subscription.id }}">
+    <div class="card-body">
+        <div class="d-flex flex-column gap-1">
+            <div class="d-flex justify-content-between">
+                <a href="{% url 'subscription_detail' subscription.id %}">
+                    {{ subscription.name }}
+                    {% bootstrap_icon "box-arrow-in-down-right" %}
+                </a>
+                <div class="d-flex gap-1">
+                    <form action="{% url 'subscription_delete' subscription.id %}"
+                          method="post">
+                        {% csrf_token %}
+                        <button type="submit"
+                                class="btn btn-danger btn-sm"
+                                onclick="return confirm(`Really delete subscription '{{ subscription.name }}'?`)">
+                            {% bootstrap_icon "trash" %}
+                            Delete
+                        </button>
+                    </form>
+                </div>
+            </div>
+            <div class="d-flex justify-content-between">
+                <span>Last refreshed on {{ subscription.last_refreshed }}</span>
+                <a href="{% url 'subscription_inbox' subscription.id %}">
+                    Inbox
+                    {% bootstrap_icon "box-arrow-in-down-right" %}
+                </a>
+            </div>
+        </div>
+    </div>
+</div>

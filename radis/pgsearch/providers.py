@@ -2,17 +2,18 @@ import logging
 from typing import Iterator, cast
 
 import pyparsing as pp
-from django.contrib.postgres.search import SearchHeadline  # type: ignore
-from django.contrib.postgres.search import SearchQuery, SearchRank
+from django.contrib.postgres.search import (
+    SearchHeadline,  # type: ignore
+    SearchQuery,
+    SearchRank,
+)
 from django.db.models import F, Q
 
 from radis.search.site import Search, SearchFilters, SearchResult
-from radis.search.utils.query_parser import (BinaryNode, ParensNode, QueryNode,
-                                             TermNode, UnaryNode)
+from radis.search.utils.query_parser import BinaryNode, ParensNode, QueryNode, TermNode, UnaryNode
 
 from .models import ReportSearchVector
-from .utils.document_utils import (AnnotatedReportSearchVector,
-                                   document_from_pgsearch_response)
+from .utils.document_utils import AnnotatedReportSearchVector, document_from_pgsearch_response
 from .utils.language_utils import code_to_language
 
 logger = logging.getLogger(__name__)
@@ -71,6 +72,8 @@ def _build_filter_query(filters: SearchFilters):
         fq &= Q(report__patient_age__gte=filters.patient_age_from)
     if filters.patient_age_till is not None:
         fq &= Q(report__patient_age__lte=filters.patient_age_till)
+    if filters.patient_id:
+        fq &= Q(report__patient_id=filters.patient_id)
     if filters.created_after:
         fq &= Q(report__created_at__gte=filters.created_after)
     if filters.created_before:

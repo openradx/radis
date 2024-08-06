@@ -11,8 +11,7 @@ from django.forms import BaseModelForm, modelform_factory
 from django.http import HttpRequest, HttpResponse
 from django.shortcuts import get_object_or_404, render
 from django.urls import reverse_lazy
-from django.views.generic import (CreateView, DeleteView, ListView, UpdateView,
-                                  View)
+from django.views.generic import CreateView, DeleteView, ListView, UpdateView, View
 from django.views.generic.detail import SingleObjectMixin
 from django_htmx.http import HttpResponseClientRefresh, trigger_client_event
 from django_tables2 import SingleTableView
