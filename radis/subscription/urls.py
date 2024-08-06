@@ -1,9 +1,13 @@
 from adit_radis_shared.common.views import HtmxTemplateView
 from django.urls import path
 
-from .views import (SubscriptionCreateView, SubscriptionDeleteView,
-                    SubscriptionDetailView, SubscriptionInboxView,
-                    SubscriptionListView)
+from .views import (
+    SubscriptionCreateView,
+    SubscriptionDeleteView,
+    SubscriptionDetailView,
+    SubscriptionInboxView,
+    SubscriptionListView,
+)
 
 urlpatterns = [
     path("create/", SubscriptionCreateView.as_view(), name="subscription_create"),
