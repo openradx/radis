@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import TYPE_CHECKING
 
 from adit_radis_shared.accounts.models import Group
@@ -10,18 +11,17 @@ from procrastinate.contrib.django.models import ProcrastinateJob
 
 from radis.core.models import AnalysisJob, AnalysisTask
 from radis.reports.models import Language, Modality, Report
-from radis.rag.models import RagInstance
 
 if TYPE_CHECKING:
     from django.db.models.manager import RelatedManager
 
 
-class InboxAppSettings(AppSettings):
+class SubscriptionAppSettings(AppSettings):
     class Meta:
-        verbose_name_plural = "Inbox app settings"
+        verbose_name_plural = "Subscription app settings"
 
 
-class Inbox(models.Model):
+class Subscription(models.Model):
     name = models.CharField(max_length=100)
     owner_id: int
     owner = models.ForeignKey(
@@ -30,7 +30,7 @@ class Inbox(models.Model):
     group = models.ForeignKey(Group, on_delete=models.CASCADE)
 
     provider = models.CharField(max_length=100)
-    query = models.CharField(max_length=200, null=True, blank=True)
+    query = models.CharField(max_length=200)
 
     language = models.ForeignKey(Language, on_delete=models.CASCADE, blank=True, null=True)
     modalities = models.ManyToManyField(Modality, blank=True)
@@ -54,37 +54,38 @@ class Inbox(models.Model):
         constraints = [
             UniqueConstraint(
                 fields=["name", "owner_id"],
-                name="unique_inbox_name_per_user",
+                name="unique_subscription_name_per_user",
             )
         ]
 
 
 class InboxItem(models.Model):
-    inbox = models.ForeignKey(Inbox, on_delete=models.CASCADE)
+    subscription = models.ForeignKey(Subscription, on_delete=models.CASCADE)
     report = models.ForeignKey(Report, on_delete=models.CASCADE)
 
 
-class RefreshInboxJob(AnalysisJob):
-    default_priority = settings.INBOX_DEFAULT_PRIORITY
-    urgent_priority = settings.INBOX_URGENT_PRIORITY
-    continuous_job = True
+class SubscriptionJob(AnalysisJob):
+    default_priority = settings.SUBSCRIPTION_DEFAULT_PRIORITY
+    urgent_priority = settings.SUBSCRIPTION_URGENT_PRIORITY
+    continuous_job = False
 
     queued_job_id: int | None
     queued_job = models.OneToOneField(
         ProcrastinateJob, null=True, on_delete=models.SET_NULL, related_name="+"
     )
-
-    inbox = models.ForeignKey(Inbox, on_delete=models.CASCADE, related_name="refresh_jobs")
+    subscription = models.ForeignKey(
+        Subscription, on_delete=models.CASCADE, related_name="refresh_jobs"
+    )
 
     if TYPE_CHECKING:
-        tasks = RelatedManager["RefreshInboxTask"]()
+        tasks = RelatedManager["SubscriptionTask"]()
 
     def __str__(self) -> str:
-        return f"RefreshInboxJob {self.id}"
+        return f"SubscriptionJob {self.id}"
 
     def delay(self) -> None:
         queued_job_id = app.configure_task(
-            "radis.inbox.tasks.process_refresh_inbox_job",
+            "radis.subscription.tasks.process_subscription_job",
             allow_unknown=False,
             priority=self.urgent_priority if self.urgent else self.default_priority,
         ).defer(job_id=self.id)
@@ -92,16 +93,16 @@ class RefreshInboxJob(AnalysisJob):
         self.save()
 
 
-class RefreshInboxTask(AnalysisTask):
-    job = models.ForeignKey(RefreshInboxJob, on_delete=models.CASCADE)
-    instances = 
+class SubscriptionTask(AnalysisTask):
+    job = models.ForeignKey(SubscriptionJob, on_delete=models.CASCADE)
+    reports = models.ManyToManyField(Report, blank=True)
 
     def __str__(self) -> str:
-        return f"RefreshInboxTask {self.id} for {self.job.inbox}"
+        return f"SubscriptionTask {self.id} for {self.job.subscription}"
 
     def delay(self) -> None:
         queued_job_id = app.configure_task(
-            "radis.inbox.tasks.process_refresh_inbox_task",
+            "radis.subscription.tasks.process_subscription_task",
             allow_unknown=False,
             priority=self.job.urgent_priority if self.job.urgent else self.job.default_priority,
         ).defer(task_id=self.id)

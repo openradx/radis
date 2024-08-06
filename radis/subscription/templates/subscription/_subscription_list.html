@@ -1,0 +1,7 @@
+{% if subscription_list %}
+    {% for subscription in subscription_list %}
+        {% include "subscription/_subscription_preview.html" %}
+    {% endfor %}
+{% else %}
+    <p>No subscriptions are available.</p>
+{% endif %}
