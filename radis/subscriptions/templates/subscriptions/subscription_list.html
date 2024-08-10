@@ -24,7 +24,7 @@
 {% endblock heading %}
 {% block content %}
     {% for subscription in subscription_list %}
-        {% include "subscriptions/_subscription_preview.html" %}
+        {% include "subscriptions/_subscription_list_item.html" %}
     {% empty %}
         <p>No subscriptions available</p>
     {% endfor %}

@@ -3,9 +3,10 @@
     <div class="card-body">
         <div class="d-flex flex-column gap-1">
             <div class="d-flex justify-content-between">
-                <a href="{% url 'subscription_detail' subscription.id %}">
-                    {{ subscription.name }}
+                {{ subscription.name }}
+                <a href="{% url 'subscription_update' subscription.id %}">
                     {% bootstrap_icon "box-arrow-in-down-right" %}
+                    EDIT
                 </a>
                 <div class="d-flex gap-1">
                     <form action="{% url 'subscription_delete' subscription.id %}"

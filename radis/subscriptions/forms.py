@@ -13,7 +13,7 @@ from radis.search.layouts import RangeSlider
 from .models import Subscription
 
 
-class SearchForm(forms.ModelForm):
+class SubscriptionForm(forms.ModelForm):
     class Meta:
         model = Subscription
         fields = [
@@ -82,6 +82,11 @@ class SearchForm(forms.ModelForm):
         self.helper.layout = self.build_layout()
 
     def build_layout(self):
+        if self.instance.pk is None:
+            submit_btn = Submit("create", "Create subscription", css_class="btn btn-primary")
+        else:
+            submit_btn = Submit("update", "Update subscription", css_class="btn btn-primary")
+
         return Layout(
             Row(
                 Column(
@@ -89,7 +94,7 @@ class SearchForm(forms.ModelForm):
                     "provider",
                     "language",
                     "query",
-                    Submit("create", "Create subscription", css_class="btn btn-primary"),
+                    submit_btn,
                 ),
                 Column(
                     "patient_id",

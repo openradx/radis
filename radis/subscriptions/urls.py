@@ -12,7 +12,7 @@ from .views import (
 urlpatterns = [
     path("", SubscriptionListView.as_view(), name="subscription_list"),
     path("create/", SubscriptionCreateView.as_view(), name="subscription_create"),
-    path("<int:pk>/update/", SubscriptionUpdateView.as_view(), name="subscription_detail"),
+    path("<int:pk>/update/", SubscriptionUpdateView.as_view(), name="subscription_update"),
     path("<int:pk>/delete/", SubscriptionDeleteView.as_view(), name="subscription_delete"),
     path(
         "help/",

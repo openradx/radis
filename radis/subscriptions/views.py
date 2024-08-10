@@ -13,9 +13,9 @@ from django.db import IntegrityError
 from django.db.models import QuerySet
 from django.http import HttpResponse
 from django.urls import reverse_lazy
-from django.views.generic import CreateView, DeleteView, DetailView, ListView
+from django.views.generic import CreateView, DeleteView, DetailView, ListView, UpdateView
 
-from .forms import SearchForm
+from .forms import SubscriptionForm
 from .models import SubscribedItem, Subscription
 
 logger = getLogger(__name__)
@@ -36,7 +36,7 @@ class SubscriptionListView(LoginRequiredMixin, ListView):
 
 class SubscriptionCreateView(LoginRequiredMixin, CreateView):  # TODO: Add PermissionRequiredMixin
     template_name = "subscriptions/subscription_create.html"
-    form_class = SearchForm
+    form_class = SubscriptionForm
     success_url = reverse_lazy("subscription_list")
     request: AuthenticatedHttpRequest
 
@@ -57,13 +57,23 @@ class SubscriptionCreateView(LoginRequiredMixin, CreateView):  # TODO: Add Permi
             raise e
 
 
-class SubscriptionUpdateView(LoginRequiredMixin, DetailView):
+class SubscriptionUpdateView(LoginRequiredMixin, UpdateView):
+    template_name = "subscriptions/subscription_update.html"
+    form_class = SubscriptionForm
+    success_url = reverse_lazy("subscription_list")
     model = Subscription
-    template_name = "subscriptions/subscription_detail.html"
 
-    def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
-        context = super().get_context_data(**kwargs)
-        return context
+    def get_queryset(self):
+        return super().get_queryset().filter(owner=self.request.user)
+
+    def form_valid(self, form) -> HttpResponse:
+        try:
+            return super().form_valid(form)
+        except IntegrityError as e:
+            if "unique_subscription_name_per_user" in str(e):
+                form.add_error("name", "A subscription with this name already exists.")
+                return self.form_invalid(form)
+            raise e
 
 
 class SubscriptionDeleteView(LoginRequiredMixin, SuccessMessageMixin, DeleteView):

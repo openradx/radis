@@ -1,0 +1,19 @@
+{% extends "subscriptions/subscription_layout.html" %}
+{% load crispy from crispy_forms_tags %}
+{% load static %}
+{% block title %}
+    Update Subscription
+{% endblock title %}
+{% block heading %}
+    <div class="d-flex justify-content-between align-items-start">
+        <h4 class="mb-3 d-flex gap-3">
+            <span>Update subscription</span>
+        </h4>
+    </div>
+{% endblock heading %}
+{% block content %}
+    <form action="{% url 'subscription_update' object.id %}" method="post">
+        {% csrf_token %}
+        {% crispy form %}
+    </form>
+{% endblock content %}
