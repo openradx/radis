@@ -10,10 +10,14 @@ from adit_radis_shared.common.types import AuthenticatedHttpRequest
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib.messages.views import SuccessMessageMixin
 from django.db import IntegrityError
-from django.db.models import QuerySet
+from django.db.models import Count, QuerySet
 from django.http import HttpResponse
 from django.urls import reverse_lazy
-from django.views.generic import CreateView, DeleteView, DetailView, ListView, UpdateView
+from django.views.generic import CreateView, DeleteView, DetailView, UpdateView
+from django_tables2 import SingleTableView
+
+from radis.subscriptions.filters import SubscriptionFilter
+from radis.subscriptions.tables import SubscriptionTable
 
 from .forms import SubscriptionForm
 from .models import SubscribedItem, Subscription
@@ -21,9 +25,11 @@ from .models import SubscribedItem, Subscription
 logger = getLogger(__name__)
 
 
-class SubscriptionListView(LoginRequiredMixin, ListView):
+class SubscriptionListView(LoginRequiredMixin, SingleTableView):
     model = Subscription
-    template_name = "subscriptions/subscription_list.html"
+    table_class = SubscriptionTable
+    filterset_class = SubscriptionFilter
+    paginate_by = 30
     request: AuthenticatedHttpRequest
 
     def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
@@ -31,7 +37,9 @@ class SubscriptionListView(LoginRequiredMixin, ListView):
         return context
 
     def get_queryset(self) -> QuerySet[Subscription]:
-        return Subscription.objects.filter(owner=self.request.user)
+        return Subscription.objects.filter(owner=self.request.user).annotate(
+            num_reports=Count("items")
+        )
 
 
 class SubscriptionCreateView(LoginRequiredMixin, CreateView):  # TODO: Add PermissionRequiredMixin
@@ -55,6 +63,14 @@ class SubscriptionCreateView(LoginRequiredMixin, CreateView):  # TODO: Add Permi
                 form.add_error("name", "An subscription with this name already exists.")
                 return self.form_invalid(form)
             raise e
+
+
+class SubscriptionDetailView(LoginRequiredMixin, DetailView):
+    model = Subscription
+    template_name = "subscriptions/subscription_detail.html"
+
+    def get_queryset(self):
+        return super().get_queryset().filter(owner=self.request.user)
 
 
 class SubscriptionUpdateView(LoginRequiredMixin, UpdateView):

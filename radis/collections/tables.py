@@ -19,7 +19,7 @@ class CollectionTable(tables.Table):
         model = Collection
         fields = ("name", "num_reports", "created")
         order_by = ("name",)
-        empty_text = "No collections yet"
+        empty_text = "No collections found"
         attrs = {
             "class": "table table-bordered table-hover",
         }

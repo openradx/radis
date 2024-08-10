@@ -1,13 +1,14 @@
 {% extends "subscriptions/subscription_layout.html" %}
 {% load crispy from crispy_forms_tags %}
 {% load bootstrap_icon from common_extras %}
+{% load render_table from django_tables2 %}
 {% block title %}
-    Subscription List
+    Subscriptions
 {% endblock title %}
 {% block heading %}
     <div class="d-flex justify-content-between align-items-start">
         <h4 class="mb-3 d-flex gap-3">
-            <span>Subscription List</span>
+            <span>Subscriptions</span>
             <button type="button"
                     class="btn btn-sm btn-info align-baseline"
                     hx-get="{% url 'subscription_help' %}"
@@ -23,9 +24,5 @@
     </div>
 {% endblock heading %}
 {% block content %}
-    {% for subscription in subscription_list %}
-        {% include "subscriptions/_subscription_list_item.html" %}
-    {% empty %}
-        <p>No subscriptions available</p>
-    {% endfor %}
+    <div class="list-group">{% render_table table %}</div>
 {% endblock content %}

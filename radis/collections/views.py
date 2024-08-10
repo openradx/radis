@@ -31,11 +31,11 @@ class AnnotatedCollection(Protocol):
 
 
 class CollectionListView(LoginRequiredMixin, SingleTableView):
-    request: AuthenticatedHttpRequest
     model = Collection
     table_class = CollectionTable
     filterset_class = CollectionFilter
     paginate_by = 30
+    request: AuthenticatedHttpRequest
 
     def get_template_names(self) -> list[str]:
         if self.request.htmx:

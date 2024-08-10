@@ -1,7 +1,7 @@
 from typing import Any
 
 from crispy_forms.helper import FormHelper
-from crispy_forms.layout import Column, Layout, Row, Submit
+from crispy_forms.layout import HTML, Column, Div, Layout, Row, Submit
 from django import forms
 
 from radis.core.constants import LANGUAGE_LABELS
@@ -84,8 +84,17 @@ class SubscriptionForm(forms.ModelForm):
     def build_layout(self):
         if self.instance.pk is None:
             submit_btn = Submit("create", "Create subscription", css_class="btn btn-primary")
+            cancel_btn = HTML(
+                '<a href="{% url \'subscription_list\' %}" class="btn btn-secondary">Cancel</a>'
+            )
         else:
             submit_btn = Submit("update", "Update subscription", css_class="btn btn-primary")
+            cancel_btn = HTML(
+                f"<a href=\"{{% url 'subscription_detail' { self.instance.pk } %}}\" "
+                'class="btn btn-secondary">Cancel</a>'
+            )
+
+        buttons = Div(submit_btn, cancel_btn, css_class="d-flex gap-2")
 
         return Layout(
             Row(
@@ -94,7 +103,7 @@ class SubscriptionForm(forms.ModelForm):
                     "provider",
                     "language",
                     "query",
-                    submit_btn,
+                    buttons,
                 ),
                 Column(
                     "patient_id",

@@ -1,0 +1,118 @@
+{% extends "subscriptions/subscription_layout.html" %}
+{% load bootstrap_icon from common_extras %}
+{% block title %}
+    Subscription {{ subscription.name }}
+{% endblock title %}
+{% block heading %}
+    <div class="d-flex justify-content-between align-items-start">
+        <h4 class="mb-3">Subscription {{ subscription.name }}</h4>
+        <div class="d-flex gap-1">
+            <a href="{% url 'subscription_update' subscription.id %}"
+               class="btn btn-primary btn-sm">
+                {% bootstrap_icon "pencil" %}
+                Edit
+            </a>
+            <form action="{% url 'subscription_delete' subscription.id %}"
+                  method="post">
+                {% csrf_token %}
+                <button type="submit"
+                        class="btn btn-danger btn-sm"
+                        onclick="return confirm(`Really delete subscription '{{ subscription.name }}'?`)">
+                    {% bootstrap_icon "trash" %}
+                    Delete
+                </button>
+            </form>
+        </div>
+    </div>
+{% endblock heading %}
+{% block content %}
+    <dl class="row">
+        <i>General</i>
+        <dt class="col-sm-3">Subscription ID</dt>
+        <dd class="col-sm-9">
+            {{ subscription.id }}
+        </dd>
+        <dt class="col-sm-3">Subscription Title</dt>
+        <dd class="col-sm-9">
+            {{ subscription.name }}
+        </dd>
+        <dt class="col-sm-3">Created At</dt>
+        <dd class="col-sm-9">
+            {{ subscription.created_at }}
+        </dd>
+        <dt class="col-sm-3">Last Refreshed</dt>
+        <dd class="col-sm-9">
+            {{ subscription.last_refreshed }}
+        </dd>
+        <i>Search Details</i>
+        <dt class="col-sm-3">Search Provider</dt>
+        <dd class="col-sm-9">
+            {{ subscription.provider }}
+        </dd>
+        <dt class="col-sm-3">Search Query</dt>
+        <dd class="col-sm-9">
+            {% if subscription.query %}
+                {{ subscription.query }}
+            {% else %}
+                –
+            {% endif %}
+        </dd>
+        <i>Filter Details</i>
+        <dt class="col-sm-3">Language</dt>
+        <dd class="col-sm-9">
+            {% if subscription.language %}
+                {{ subscription.language.code }}
+            {% else %}
+                –
+            {% endif %}
+        </dd>
+        <dt class="col-sm-3">Modalities</dt>
+        <dd class="col-sm-9">
+            {% if subscription.modalities.count == 0 %}
+                – 
+            {% else %}
+                {% for modality in subscription.modalities %}{{ modality.code }}{% endfor %}
+            {% endif %}
+        </dd>
+        <dt class="col-sm-3">Study Date Range</dt>
+        <dd class="col-sm-9">
+            {% if subscription.study_date_from or subscription.study_date_till %}
+                {{ subscription.study_date_from }} – {{ subscription.study_date_till }}
+            {% else %}
+                –
+            {% endif %}
+        </dd>
+        <dt class="col-sm-3">Study Description</dt>
+        <dd class="col-sm-9">
+            {% if subscription.study_description %}
+                {{ subscription.study_description }}
+            {% else %}
+                –
+            {% endif %}
+        </dd>
+        <dt class="col-sm-3">Patient Sex</dt>
+        <dd class="col-sm-9">
+            {% if subscription.patient_sex %}
+                {{ subscription.patient_sex }}
+            {% else %}
+                –
+            {% endif %}
+        </dd>
+        <dt class="col-sm-3">Patient Age Range</dt>
+        <dd class="col-sm-9">
+            {% if subscription.age_from or subscription.age_till %}
+                {{ subscription.age_from }} – {{ subscription.age_till }}
+            {% else %}
+                –
+            {% endif %}
+        </dd>
+        <dt class="col-sm-3">Patient ID</dt>
+        <dd class="col-sm-9">
+            {% if subscription.patient_id %}
+                {{ subscription.patient_id }}
+            {% else %}
+                –
+            {% endif %}
+        </dd>
+    </dl>
+{% endblock content %}
