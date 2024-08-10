@@ -16,17 +16,16 @@
                 {% bootstrap_icon "question-circle" %}
             </button>
         </h4>
-        <button type="button"
-                class="btn btn-success btn-sm"
-                hx-get="{% url 'subscription_create' %}"
-                hx-target="#htmx-dialog">
+        <a href="{% url 'subscription_create' %}" class="btn btn-success btn-sm">
             {% bootstrap_icon "plus" %}
             Add new subscription
-        </button>
+        </a>
     </div>
 {% endblock heading %}
 {% block content %}
-    <div class="list-group"
-         hx-get="{% url 'subscription_list' %}"
-         hx-trigger="subscriptionListChanged from:body">{% include "subscriptions/_subscription_list.html" %}</div>
+    {% for subscription in subscription_list %}
+        {% include "subscriptions/_subscription_preview.html" %}
+    {% empty %}
+        <p>No subscriptions available</p>
+    {% endfor %}
 {% endblock content %}

@@ -4,15 +4,15 @@ from django.urls import path
 from .views import (
     SubscriptionCreateView,
     SubscriptionDeleteView,
-    SubscriptionDetailView,
     SubscriptionInboxView,
     SubscriptionListView,
+    SubscriptionUpdateView,
 )
 
 urlpatterns = [
+    path("", SubscriptionListView.as_view(), name="subscription_list"),
     path("create/", SubscriptionCreateView.as_view(), name="subscription_create"),
-    path("list/", SubscriptionListView.as_view(), name="subscription_list"),
-    path("<int:pk>/", SubscriptionDetailView.as_view(), name="subscription_detail"),
+    path("<int:pk>/update/", SubscriptionUpdateView.as_view(), name="subscription_detail"),
     path("<int:pk>/delete/", SubscriptionDeleteView.as_view(), name="subscription_delete"),
     path(
         "help/",

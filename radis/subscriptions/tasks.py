@@ -71,8 +71,6 @@ def process_subscription_job(job_id: int) -> None:
             group=job.subscription.group.pk,
             language=language_code,
             modalities=list(job.subscription.modalities.values_list("code", flat=True)),
-            study_date_from=job.subscription.study_date_from,
-            study_date_till=job.subscription.study_date_till,
             study_description=job.subscription.study_description,
             patient_sex=job.subscription.patient_sex,  # type: ignore
             patient_age_from=job.subscription.age_from,

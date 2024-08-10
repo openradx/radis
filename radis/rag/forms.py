@@ -40,10 +40,9 @@ class SearchForm(forms.ModelForm):
 
         super().__init__(*args, **kwargs)
 
-        provider_choices = sorted(
-            [(provider.name, provider.name) for provider in retrieval_providers.values()]
+        self.fields["provider"].widget = forms.Select(
+            choices=[(provider.name, provider.name) for provider in retrieval_providers.values()]
         )
-        self.fields["provider"].widget = forms.Select(choices=provider_choices)
         self.fields["language"].choices = [
             (language.pk, LANGUAGE_LABELS[language.code])
             for language in Language.objects.order_by("code")
@@ -90,7 +89,6 @@ class SearchForm(forms.ModelForm):
                     "title",
                     "provider",
                     "query",
-                    "question",
                     Submit("next", "Next Step (Questions)", css_class="btn-primary"),
                 ),
                 Column(

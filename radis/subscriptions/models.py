@@ -31,13 +31,11 @@ class Subscription(models.Model):
     provider = models.CharField(max_length=100)
     group = models.ForeignKey(Group, on_delete=models.CASCADE, related_name="+")
     patient_id = models.CharField(max_length=100, blank=True)
-    query = models.CharField(max_length=200)
+    query = models.CharField(max_length=200, blank=True)
     language = models.ForeignKey(
-        Language, on_delete=models.CASCADE, blank=True, null=True, related_name="+"
+        Language, on_delete=models.SET_NULL, blank=True, null=True, related_name="+"
     )
     modalities = models.ManyToManyField(Modality, blank=True)
-    study_date_from = models.DateField(null=True, blank=True)
-    study_date_till = models.DateField(null=True, blank=True)
     study_description = models.CharField(max_length=200, blank=True)
     patient_sex = models.CharField(
         max_length=1, blank=True, choices=[("", "All"), ("M", "Male"), ("F", "Female")]

@@ -1,5 +1,7 @@
+from typing import Any
+
 from crispy_forms.helper import FormHelper
-from crispy_forms.layout import Column, Layout, Row
+from crispy_forms.layout import Column, Layout, Row, Submit
 from django import forms
 
 from radis.core.constants import LANGUAGE_LABELS
@@ -20,18 +22,17 @@ class SearchForm(forms.ModelForm):
             "query",
             "language",
             "modalities",
-            "study_date_from",
-            "study_date_till",
             "study_description",
             "patient_sex",
             "age_from",
             "age_till",
             "patient_id",
         ]
+        labels = {"patient_id": "Patient ID"}
         help_texts = {
             "name": "Name of the Subscription",
             "provider": "The search provider to use for the database query",
-            "query": "A query to find reports",
+            "query": "A query to filter reports",
         }
 
     def __init__(self, *args, **kwargs):
@@ -46,12 +47,11 @@ class SearchForm(forms.ModelForm):
             (language.pk, LANGUAGE_LABELS[language.code])
             for language in Language.objects.order_by("code")
         ]
+        self.fields["language"].empty_label = "All"
         self.fields["modalities"].choices = [
             (modality.pk, modality.code)
             for modality in Modality.objects.filter(filterable=True).order_by("code")
         ]
-        self.fields["study_date_from"].widget = forms.DateInput(attrs={"type": "date"})
-        self.fields["study_date_till"].widget = forms.DateInput(attrs={"type": "date"})
         self.fields["age_from"] = forms.IntegerField(
             required=False,
             min_value=MIN_AGE,
@@ -76,9 +76,6 @@ class SearchForm(forms.ModelForm):
                 }
             ),
         )
-        self.fields["patient_id"] = forms.CharField(
-            required=False,
-        )
 
         self.helper = FormHelper()
         self.helper.form_tag = False
@@ -87,39 +84,49 @@ class SearchForm(forms.ModelForm):
     def build_layout(self):
         return Layout(
             Row(
-                Column("name", css_class="form-group col-md-6 mb-0"),
-                Column("provider", css_class="form-group col-md-6 mb-0"),
-                css_class="form-row",
-            ),
-            Row(
-                Column("query", css_class="form-group col-md-12 mb-0"),
-                css_class="form-row",
-            ),
-            Row(
-                Column("language", css_class="form-group col-md-6 mb-0"),
-                Column("modalities", css_class="form-group col-md-6 mb-0"),
-                css_class="form-row",
-                id="filters",
-            ),
-            Row(
-                Column("study_date_from", css_class="form-group col-md-6 mb-0"),
-                Column("study_date_till", css_class="form-group col-md-6 mb-0"),
-                css_class="form-row",
-                id="filters",
-            ),
-            Row(
-                Column("study_description", css_class="form-group col-md-12 mb-0"),
-                css_class="form-row",
-                id="filters",
-            ),
-            Row(
-                Column("patient_sex", css_class="form-group col-md-4 mb-0"),
-                Column("patient_id", css_class="form-group col-md-4 mb-0"),
                 Column(
-                    RangeSlider("Patient age", "age_from", "age_till"),
-                    css_class="form-group col-md-4 mb-0",
+                    "name",
+                    "provider",
+                    "language",
+                    "query",
+                    Submit("create", "Create subscription", css_class="btn btn-primary"),
                 ),
-                css_class="form-row",
-                id="filters",
+                Column(
+                    "patient_id",
+                    "modalities",
+                    "study_description",
+                    "patient_sex",
+                    RangeSlider("Patient age", "age_from", "age_till"),
+                    css_class="col-3",
+                ),
             ),
         )
+
+    def clean_provider(self) -> str:
+        provider = self.cleaned_data["provider"]
+        if not provider:
+            raise forms.ValidationError(
+                "Setup of RADIS is incomplete. No retrieval providers are registered."
+            )
+        return provider
+
+    def clean_age_from(self) -> int:
+        age_from = self.cleaned_data["age_from"]
+        if age_from is not None and age_from % AGE_STEP != 0:
+            raise forms.ValidationError(f"Age from must be a multiple of {AGE_STEP}")
+        return age_from
+
+    def clean_age_till(self) -> int:
+        age_till = self.cleaned_data["age_till"]
+        if age_till is not None and age_till % AGE_STEP != 0:
+            raise forms.ValidationError(f"Age till must be a multiple of {AGE_STEP}")
+        return age_till
+
+    def clean(self) -> dict[str, Any]:
+        age_from = self.cleaned_data["age_from"]
+        age_till = self.cleaned_data["age_till"]
+
+        if age_from is not None and age_till is not None and age_from >= age_till:
+            raise forms.ValidationError("Age from must be less than age till")
+
+        return super().clean()
