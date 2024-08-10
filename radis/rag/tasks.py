@@ -2,7 +2,7 @@ import logging
 from itertools import batched
 
 from django.conf import settings
-from django.db.models import Prefetch
+from pebble import asynchronous
 from procrastinate.contrib.django import app
 
 from radis.reports.models import Report
@@ -18,14 +18,15 @@ logger = logging.getLogger(__name__)
 
 @app.task(queue="llm")
 async def process_rag_task(task_id: int) -> None:
-    task = await RagTask.objects.prefetch_related(
-        Prefetch(
-            "job",
-            queryset=RagJob.objects.prefetch_related("language"),
-        )
-    ).aget(id=task_id)
-    processor = RagTaskProcessor(task)
-    await processor.start()
+    # We have to run RagTaskProcessor in a separate thread because it is
+    # creating an async loop itself.
+    @asynchronous.thread
+    def _process_tag_task(task_id: int) -> None:
+        task = RagTask.objects.get(id=task_id)
+        processor = RagTaskProcessor(task)
+        processor.start()
+
+    await _process_tag_task(task_id)
 
 
 @app.task

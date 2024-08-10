@@ -6,7 +6,6 @@ from radis.core.tests.unit.conftest import openai_chat_completions_mock  # noqa
 from radis.rag.factories import QuestionFactory, RagInstanceFactory, RagJobFactory, RagTaskFactory
 from radis.rag.models import RagJob, RagTask
 from radis.reports.factories import LanguageFactory, ReportFactory
-from radis.reports.models import Language
 
 
 @pytest.fixture
@@ -19,11 +18,13 @@ def create_rag_task(
         accepted_answer: Optional[Literal["Y", "N"]] = None,
         num_rag_instances: int = 5,
     ) -> RagTask:
+        language = LanguageFactory.create(code=language_code)
+
         job = RagJobFactory.create(
             status=RagJob.Status.PENDING,
             owner_id=user_with_group.id,
             owner=user_with_group,
-            language=LanguageFactory.create(code=language_code),
+            language=language,
         )
 
         if accepted_answer is not None:
@@ -32,9 +33,10 @@ def create_rag_task(
             QuestionFactory.create_batch(num_questions, job=job)
 
         task = RagTaskFactory.create(job=job)
+
         for _ in range(num_rag_instances):
-            report = ReportFactory.create(language=Language.objects.get(code=language_code))
-            RagInstanceFactory.create(task=task, reports=[report])
+            report = ReportFactory.create(language=language)
+            RagInstanceFactory.create(task=task, report=report, other_reports=[])
 
         return task
 

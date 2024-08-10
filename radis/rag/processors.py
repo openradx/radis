@@ -16,7 +16,10 @@ logger = logging.getLogger(__name__)
 
 
 class RagTaskProcessor(AnalysisTaskProcessor):
-    async def process_task(self, task: RagTask) -> None:
+    def process_task(self, task: RagTask) -> None:
+        asyncio.run(self.process_task_async(task))
+
+    async def process_task_async(self, task: RagTask) -> None:
         language_code = task.job.language.code
         client = AsyncChatClient()
         sem = Semaphore(settings.RAG_LLM_CONCURRENCY_LIMIT)

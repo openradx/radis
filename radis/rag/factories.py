@@ -87,10 +87,10 @@ class RagInstanceFactory(BaseDjangoModelFactory[RagInstance]):
 
         self = cast(RagInstance, self)
 
-        if extracted:
-            for report in extracted:
-                self.other_reports.add(report)
-        else:
+        if extracted is None:
             from radis.reports.factories import ReportFactory
 
             self.other_reports.add(*[ReportFactory() for _ in range(3)])
+        else:
+            for report in extracted:
+                self.other_reports.add(report)
