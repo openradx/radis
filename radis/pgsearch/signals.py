@@ -10,5 +10,6 @@ from .models import ReportSearchVector
 def create_or_update_report_search_vector(sender, instance, created, **kwargs):
     if created:
         ReportSearchVector.objects.create(report=instance)
+        return
 
     instance.search_vector.save()
