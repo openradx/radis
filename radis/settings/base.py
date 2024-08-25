@@ -82,6 +82,7 @@ INSTALLED_APPS = [
     "radis.notes.apps.NotesConfig",
     "radis.pgsearch.apps.PgSearchConfig",
     "channels",
+    "betterforms",
 ]
 
 MIDDLEWARE = [

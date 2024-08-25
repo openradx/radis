@@ -114,5 +114,12 @@
                 –
             {% endif %}
         </dd>
+        <i>RAG Questions</i>
+        {% for question in subscription.questions.all %}
+            <dt class="col-sm-3">{{ question.question }}</dt>
+            <dd class="col-sm-9">
+                {{ question.accepted_answer }}
+            </dd>
+        {% endfor %}
     </dl>
 {% endblock content %}

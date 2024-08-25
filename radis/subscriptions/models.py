@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable
 
 from adit_radis_shared.accounts.models import Group
 from adit_radis_shared.common.models import AppSettings
@@ -48,6 +48,7 @@ class Subscription(models.Model):
 
     if TYPE_CHECKING:
         items = RelatedManager["SubscribedItem"]()
+        questions = RelatedManager["SubscriptionQuestion"]()
 
     class Meta:
         constraints = [
@@ -61,10 +62,34 @@ class Subscription(models.Model):
         return f"Subscription {self.id} [{self.name}]"
 
 
+class Answer(models.TextChoices):
+    YES = "Y", "Yes"
+    NO = "N", "No"
+
+
+class SubscriptionQuestion(models.Model):
+    id: int
+    question = models.CharField(max_length=500)
+    subscription = models.ForeignKey(
+        Subscription, on_delete=models.CASCADE, related_name="questions"
+    )
+    accepted_answer = models.CharField(max_length=1, choices=Answer.choices, default=Answer.YES)
+    get_accepted_answer_display: Callable[[], str]
+
+    def __str__(self) -> str:
+        return f'Question "{self.question}" [ID {self.id}]'
+
+
+class RagResult(models.TextChoices):
+    ACCEPTED = "A", "Accepted"
+    REJECTED = "R", "Rejected"
+
+
 class SubscribedItem(models.Model):
     id: int
     subscription = models.ForeignKey(Subscription, on_delete=models.CASCADE, related_name="items")
     report = models.ForeignKey(Report, on_delete=models.CASCADE, related_name="+")
+    created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
         return f"SubscribedItem {self.id} [Subscription {self.subscription.id}]"

@@ -72,8 +72,8 @@ class Answer(models.TextChoices):
 
 class Question(models.Model):
     id: int
-    job = models.ForeignKey(RagJob, on_delete=models.CASCADE, related_name="questions")
     question = models.CharField(max_length=500)
+    job = models.ForeignKey(RagJob, on_delete=models.CASCADE, related_name="questions")
     accepted_answer = models.CharField(max_length=1, choices=Answer.choices, default=Answer.YES)
     get_accepted_answer_display: Callable[[], str]
 
