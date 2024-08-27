@@ -2,6 +2,11 @@
 
 ## High Priority
 
+- Use pk instead of id (also ADIT)
+- Use django-stubs instead of django-types (also ADIT)
+- Use Alpine directive instead data for age range slider
+- Rename all derived models from AppSettings (to be congruent with ADIT)
+- Make notes.urls.py restful
 - Rename patient_birth_date to patient_birthdate (sounds better, but DICOM uses Patient Birth Date)
 - Check if for RAG ranking should be turned off for performance improvements (and using some fixed sort order)
 - Some present provider.max_results to the user somehow, especially important if the query results (step 1) is larger

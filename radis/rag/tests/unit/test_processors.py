@@ -14,7 +14,7 @@ def test_rag_task_processor(create_rag_task, openai_chat_completions_mock, mocke
     rag_task = create_rag_task(
         language_code="en",
         num_questions=num_questions,
-        accepted_answer="Y",
+        accepted_answer=Answer.YES,
         num_rag_instances=num_rag_instances,
     )
 

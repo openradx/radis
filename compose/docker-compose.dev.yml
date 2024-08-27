@@ -44,7 +44,7 @@ services:
         ./manage.py migrate &&
         ./manage.py collectstatic --no-input &&
         ./manage.py populate_users_and_groups --users 20 --groups 3 &&
-        ./manage.py populate_reports --report-language de &&
+        ./manage.py populate_example_reports --report-language de &&
         ./manage.py runserver 0.0.0.0:8000
       "
 

@@ -2,7 +2,6 @@ from typing import Callable, Literal, Optional
 
 import pytest
 
-from radis.core.tests.unit.conftest import openai_chat_completions_mock  # noqa
 from radis.rag.factories import QuestionFactory, RagInstanceFactory, RagJobFactory, RagTaskFactory
 from radis.rag.models import RagJob, RagTask
 from radis.reports.factories import LanguageFactory, ReportFactory
@@ -11,11 +10,11 @@ from radis.reports.factories import LanguageFactory, ReportFactory
 @pytest.fixture
 def create_rag_task(
     user_with_group,
-) -> Callable[[Literal["en", "de"], int, Optional[Literal["Y", "N"]], int], RagTask]:
+) -> Callable[[Literal["en", "de"], int, Optional[Literal["Yes", "No"]], int], RagTask]:
     def _create_rag_task(
         language_code: Literal["en", "de"] = "en",
         num_questions: int = 5,
-        accepted_answer: Optional[Literal["Y", "N"]] = None,
+        accepted_answer: Optional[Literal["Yes", "No"]] = None,
         num_rag_instances: int = 5,
     ) -> RagTask:
         language = LanguageFactory.create(code=language_code)

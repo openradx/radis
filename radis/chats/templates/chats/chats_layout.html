@@ -1,0 +1,12 @@
+{% extends "core/core_layout.html" %}
+{% load static from static %}
+{% block css %}
+    {{ block.super }}
+    <link rel="stylesheet"
+          type="text/css"
+          href="{% static 'chats/chats.css' %}" />
+{% endblock css %}
+{% block script %}
+    {{ block.super }}
+    <script src="{% static 'chats/chats.js' %}"></script>
+{% endblock script %}

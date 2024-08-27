@@ -1,0 +1,34 @@
+{% load crispy from crispy_forms_tags %}
+<div id="chat-with-form">
+  {% if chat %}
+    <div class="d-flex flex-column gap-3 mb-3">
+      {% for message in chat_messages %}
+        <div class="card">
+          <div class="card-body">
+            <h6 class="card-subtitle mb-2 text-muted">{{ message.get_role_display }}</h6>
+            <p class="card-text">{{ message.content }}</p>
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+  {% endif %}
+  <div id="loader" class="my-indicator htmx-indicator">
+    <div class="mb-3 d-flex justify-content-center gap-1">
+      <div class="spinner-grow spinner-grow-sm" role="status">
+        <span class="visually-hidden">Loading...</span>
+      </div>
+      <div class="spinner-grow spinner-grow-sm" role="status">
+        <span class="visually-hidden">Loading...</span>
+      </div>
+      <div class="spinner-grow spinner-grow-sm" role="status">
+        <span class="visually-hidden">Loading...</span>
+      </div>
+    </div>
+  </div>
+  <form hx-post="{% if chat %}{% url 'chat_update' chat.id %}{% else %}{% url 'chat_create' %}{% endif %}"
+        hx-target="#chat-with-form"
+        hx-indicator="#loader"
+        hx-disabled-elt="textarea">
+    {% crispy form %}
+  </form>
+</div>

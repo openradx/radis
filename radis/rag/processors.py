@@ -7,8 +7,8 @@ from django import db
 from django.conf import settings
 from django.db.models import Prefetch
 
+from radis.chats.utils.chat_client import AsyncChatClient
 from radis.core.processors import AnalysisTaskProcessor
-from radis.core.utils.chat_client import AsyncChatClient
 
 from .models import Answer, Question, QuestionResult, RagInstance, RagTask
 
@@ -39,9 +39,6 @@ class RagTaskProcessor(AnalysisTaskProcessor):
     ) -> None:
         rag_instance.text = await self.get_text_to_analyze(rag_instance)
         await rag_instance.asave()
-
-        if language_code not in settings.SUPPORTED_LANGUAGES:
-            raise ValueError(f"Language '{language_code}' is not supported.")
 
         async with sem:
             results = await asyncio.gather(
@@ -83,9 +80,7 @@ class RagTaskProcessor(AnalysisTaskProcessor):
         question: Question,
         client: AsyncChatClient,
     ) -> RagInstance.Result:
-        llm_answer = await client.ask_yes_no_question(
-            rag_instance.text, language, question.question
-        )
+        llm_answer = await client.ask_report_yes_no_question(rag_instance.text, question.question)
 
         if llm_answer == "yes":
             answer = Answer.YES

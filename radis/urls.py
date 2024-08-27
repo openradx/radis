@@ -25,6 +25,7 @@ urlpatterns = [
     path("accounts/", include("adit_radis_shared.accounts.urls")),
     path("", include("radis.core.urls")),
     path("token-authentication/", include("adit_radis_shared.token_authentication.urls")),
+    path("chats/", include("radis.chats.urls")),
     path("reports/", include("radis.reports.urls")),
     path("api/reports/", include("radis.reports.api.urls")),
     path("search/", include("radis.search.urls")),

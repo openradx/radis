@@ -80,6 +80,7 @@ INSTALLED_APPS = [
     "radis.subscriptions.apps.SubscriptionsConfig",
     "radis.collections.apps.CollectionsConfig",
     "radis.notes.apps.NotesConfig",
+    "radis.chats.apps.ChatsConfig",
     "radis.pgsearch.apps.PgSearchConfig",
     "channels",
 ]
@@ -311,41 +312,61 @@ TOKEN_AUTHENTICATION_SALT = env.str(
     default="Rn4YNfgAar5dYbPu",  # type: ignore
 )
 
-# Language specific setup. Currently only German and English are supported.
-SUPPORTED_LANGUAGES = ["de", "en"]
-
 # llama.cpp
 LLAMACPP_URL = env.str("LLAMACPP_URL", default="http://localhost:8088")  # type: ignore
 
-# Chat settings
-CHAT_SYSTEM_PROMPT = {
-    "de": "Du bist ein radiologischer Facharzt",
-    "en": "You are a radiologist",
-}
-CHAT_ANSWER_YES = {
-    "de": "Ja",
-    "en": "Yes",
-}
-CHAT_ANSWER_NO = {
-    "de": "Nein",
-    "en": "No",
-}
-CHAT_USER_PROMPT = {
-    "de": f"""
-        Im folgenden erhälst Du einen radiologischen Befund und eine Frage zu diesem Befund.
-        Beantworte die Frage zu dem Befund mit {CHAT_ANSWER_YES['de']} oder {CHAT_ANSWER_NO['de']}.
-        Befund: $report
-        Frage: $question
-        Antwort: 
-    """,
-    "en": f"""
-        In the following you will find a radiological report and a question about this report.
-        Answer the question about the report with {CHAT_ANSWER_YES['en']} or {CHAT_ANSWER_NO['en']}.
-        Report: $report
-        Question: $question
-        Answer:
-    """,
-}
+# Chat
+CHAT_GENERATE_TITLE_SYSTEM_PROMPT = """
+Summarize the following text in $num_words words or less and in the same language as the text.
+"""
+
+CHAT_GENERAL_SYSTEM_PROMPT = """
+You are an AI medical assistant with extensive knowledge in radiology and general medicine.
+You have been trained on a wide range of medical literature, including the latest research
+and guidelines in radiological practices.
+Provide concise, well-structured answers using appropriate medical terminology.
+Use headers to organize information when necessary. Include relevant anatomical details,
+imaging modalities, and diagnostic considerations where applicable.
+Base your responses on current, peer-reviewed medical literature and established radiological
+guidelines. If there are conflicting views or ongoing debates in the field, acknowledge them
+briefly.
+"""
+
+CHAT_REPORT_QUESTION_SYSTEM_PROMPT = """
+You are an AI medical assistant with extensive knowledge in radiology and general medicine.
+You have been trained on a wide range of medical literature, including the latest research
+and guidelines in radiological practices. You will be asked questions about a radiological
+report that you have to answer those questions. The report and each question can be given
+in any language.
+Provide concise, well-structured answers in the same language used in the question. Do use
+appropriate medical terminology. Use headers to organize information when necessary. Include
+relevant anatomical details, imaging modalities, and diagnostic considerations where applicable.
+Base your responses on current, peer-reviewed medical literature and established radiological
+guidelines. If there are conflicting views or ongoing debates in the field, acknowledge them
+briefly.
+
+Report: $report
+"""
+
+CHAT_REPORT_YES_NO_QUESTION_SYSTEM_PROMPT = """
+You are an AI medical assistant with extensive knowledge in radiology and general medicine.
+You have been trained on a wide range of medical literature, including the latest research
+and guidelines in radiological practices. You will be asked questions about a radiological
+report that you have to answer those questions. The report and each question can be given
+in any language. Answer each question in English faithfully with "Yes" or "No".
+
+Report: $report
+"""
+
+CHAT_REPORT_QUESTION_USER_PROMPT = """
+Question: $question
+Answer:
+"""
+
+CHAT_YES_NO_ANSWER_GRAMMAR = """
+root ::= Answer
+Answer ::= "Yes" | "No"
+"""
 
 # RAG
 RAG_DEFAULT_PRIORITY = 2
