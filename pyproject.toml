@@ -42,6 +42,7 @@ Twisted = { extras = ["tls", "http2"], version = "^24.3.0" }
 wait-for-it = "^2.2.2"
 watchfiles = "^0.22.0"
 whitenoise = "^6.0.0"
+django-betterforms = "^2.0.0"
 
 [tool.poetry.group.dev.dependencies]
 debugpy = "^1.8.1"

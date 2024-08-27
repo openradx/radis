@@ -11,15 +11,16 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib.messages.views import SuccessMessageMixin
 from django.db import IntegrityError
 from django.db.models import Count, QuerySet
-from django.http import HttpResponse
-from django.urls import reverse_lazy
+from django.forms.models import BaseInlineFormSet
+from django.http import HttpResponse, HttpResponseRedirect
+from django.urls import reverse, reverse_lazy
 from django.views.generic import CreateView, DeleteView, DetailView, UpdateView
 from django_tables2 import SingleTableView
 
 from radis.subscriptions.filters import SubscriptionFilter
 from radis.subscriptions.tables import SubscriptionTable
 
-from .forms import SubscriptionForm
+from .forms import SubscriptionAndQuestionForm, SubscriptionForm
 from .models import SubscribedItem, Subscription
 
 logger = getLogger(__name__)
@@ -44,25 +45,33 @@ class SubscriptionListView(LoginRequiredMixin, SingleTableView):
 
 class SubscriptionCreateView(LoginRequiredMixin, CreateView):  # TODO: Add PermissionRequiredMixin
     template_name = "subscriptions/subscription_create.html"
-    form_class = SubscriptionForm
+    form_class = SubscriptionAndQuestionForm
     success_url = reverse_lazy("subscription_list")
     request: AuthenticatedHttpRequest
 
     def form_valid(self, form) -> HttpResponse:
         user = self.request.user
-        form.instance.owner = user
+        subscription_form = cast(SubscriptionForm, form["subscription"])
+        question_formset = cast(BaseInlineFormSet, form["questions"])
+
+        subscription_form.instance.owner = self.request.user
 
         group = user.active_group
         assert group, "User has no active group"
-        form.instance.group = group
+        subscription_form.instance.group = group
 
         try:
-            return super().form_valid(form)
+            self.object = subscription_form.save()
         except IntegrityError as e:
             if "unique_subscription_name_per_user" in str(e):
                 form.add_error("name", "An subscription with this name already exists.")
                 return self.form_invalid(form)
             raise e
+
+        question_formset.instance = self.object
+        question_formset.save()
+
+        return HttpResponseRedirect(self.get_success_url())
 
 
 class SubscriptionDetailView(LoginRequiredMixin, DetailView):
@@ -70,26 +79,52 @@ class SubscriptionDetailView(LoginRequiredMixin, DetailView):
     template_name = "subscriptions/subscription_detail.html"
 
     def get_queryset(self):
-        return super().get_queryset().filter(owner=self.request.user)
+        return super().get_queryset().filter(owner=self.request.user).prefetch_related("questions")
 
 
 class SubscriptionUpdateView(LoginRequiredMixin, UpdateView):
     template_name = "subscriptions/subscription_update.html"
-    form_class = SubscriptionForm
-    success_url = reverse_lazy("subscription_list")
+    form_class = SubscriptionAndQuestionForm
     model = Subscription
+    request: AuthenticatedHttpRequest
 
-    def get_queryset(self):
-        return super().get_queryset().filter(owner=self.request.user)
+    def get_success_url(self):
+        return reverse("subscription_detail", kwargs={"pk": self.object.pk})
+
+    def get_form_kwargs(self):
+        kwargs = super(SubscriptionUpdateView, self).get_form_kwargs()
+        kwargs["instance"] = {
+            "subscription": self.object,
+            "questions": self.object,
+        }
+        kwargs["queryset"] = {
+            "questions": self.object.questions.all(),
+        }
+        return kwargs
 
     def form_valid(self, form) -> HttpResponse:
+        user = self.request.user
+        subscription_form = cast(SubscriptionForm, form["subscription"])
+        question_formset = cast(BaseInlineFormSet, form["questions"])
+
+        subscription_form.instance.owner = self.request.user
+
+        group = user.active_group
+        assert group, "User has no active group"
+        subscription_form.instance.group = group
+
         try:
-            return super().form_valid(form)
+            self.object = subscription_form.save()
         except IntegrityError as e:
             if "unique_subscription_name_per_user" in str(e):
-                form.add_error("name", "A subscription with this name already exists.")
+                form.add_error("name", "An subscription with this name already exists.")
                 return self.form_invalid(form)
             raise e
+
+        question_formset.instance = self.object
+        question_formset.save()
+
+        return HttpResponseRedirect(self.get_success_url())
 
 
 class SubscriptionDeleteView(LoginRequiredMixin, SuccessMessageMixin, DeleteView):

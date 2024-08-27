@@ -83,6 +83,7 @@ INSTALLED_APPS = [
     "radis.chats.apps.ChatsConfig",
     "radis.pgsearch.apps.PgSearchConfig",
     "channels",
+    "betterforms",
 ]
 
 MIDDLEWARE = [

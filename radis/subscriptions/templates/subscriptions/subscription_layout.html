@@ -5,8 +5,12 @@
     <link rel="stylesheet"
           type="text/css"
           href="{% static 'search/search.css' %}" />
+    <link rel="stylesheet"
+          type="text/css"
+          href="{% static 'subscriptions/subscriptions.css' %}" />
 {% endblock css %}
 {% block script %}
     {{ block.super }}
     <script src="{% static 'search/search.js' %}"></script>
+    <script src="{% static 'subscriptions/subscriptions.js' %}"></script>
 {% endblock script %}

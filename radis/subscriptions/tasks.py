@@ -5,6 +5,7 @@ from itertools import batched
 from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
+from pebble import asynchronous
 from procrastinate.contrib.django import app
 
 from radis.rag.site import retrieval_providers
@@ -12,31 +13,25 @@ from radis.reports.models import Report
 from radis.search.site import Search, SearchFilters
 from radis.search.utils.query_parser import QueryParser
 
-from .models import SubscribedItem, Subscription, SubscriptionJob, SubscriptionTask
+from .models import Subscription, SubscriptionJob, SubscriptionTask
+from .processors import SubscriptionTaskProcessor
 
 logger = logging.getLogger(__name__)
 
 
-@app.periodic(cron=settings.SUBSCRIPTION_CRON)
-@app.task()
-def subscription_launcher(timestamp: int):
-    logger.info("Launching SubscriptionJobs (Timestamp %s)", datetime.fromtimestamp(timestamp))
-    subscriptions = Subscription.objects.all()
+@app.task
+async def process_subscription_task(task_id: int) -> None:
+    @asynchronous.thread
+    def _process_subscription_task(task_id: int) -> None:
+        task = SubscriptionTask.objects.get(id=task_id)
+        processor = SubscriptionTaskProcessor(task)
+        processor.start()
 
-    for subscription in subscriptions:
-        logger.debug(
-            "Creating SubscriptionJob for Subsription %s of user %s",
-            subscription.name,
-            subscription.owner,
-        )
-        job = SubscriptionJob.objects.create(
-            subscription=subscription,
-            status=SubscriptionJob.Status.PREPARING,
-            owner=subscription.owner,
-            owner_id=subscription.owner_id,
-        )
-        job.save()
-        transaction.on_commit(job.delay)
+    await _process_subscription_task(task_id)
+
+    task = await SubscriptionTask.objects.aget(id=task_id)
+    task.queued_job_id = None
+    await task.asave()
 
 
 @app.task
@@ -96,17 +91,28 @@ def process_subscription_job(job_id: int) -> None:
     job.subscription.last_refreshed = timezone.now()
     job.subscription.save()
 
-    job.status = SubscriptionJob.Status.SUCCESS
+    job.status = SubscriptionJob.Status.PENDING
     job.queued_job_id = None
     job.save()
 
 
-@app.task
-def process_subscription_task(task_id: int) -> None:
-    task = SubscriptionTask.objects.get(id=task_id)
-    logger.debug("Storing subscribed items for subscription %s", task.job.subscription.name)
-    for report in task.reports.all():
-        SubscribedItem.objects.create(
-            subscription=task.job.subscription,
-            report=report,
+@app.periodic(cron=settings.SUBSCRIPTION_CRON)
+@app.task()
+def subscription_launcher(timestamp: int):
+    logger.info("Launching SubscriptionJobs (Timestamp %s)", datetime.fromtimestamp(timestamp))
+    subscriptions = Subscription.objects.all()
+
+    for subscription in subscriptions:
+        logger.debug(
+            "Creating SubscriptionJob for Subsription %s of user %s",
+            subscription.name,
+            subscription.owner,
         )
+        job = SubscriptionJob.objects.create(
+            subscription=subscription,
+            status=SubscriptionJob.Status.PREPARING,
+            owner=subscription.owner,
+            owner_id=subscription.owner_id,
+        )
+        job.save()
+        transaction.on_commit(job.delay)
