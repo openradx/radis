@@ -1,6 +1,6 @@
 <div class="card mb-2">
     <div class="card-body">
-        {% include "notes/_note_text.html" %}
+        {% include "notes/_note_detail.html" %}
         <hr />
         <div class="d-flex flex-column gap-1" x-data="{full: false}">
             <div class="clamp-3" :class="{'clamp-3': !full, 'pre-line': full}">{{ note.report.body }}</div>

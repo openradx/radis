@@ -28,8 +28,8 @@ class NoteListView(LoginRequiredMixin, PageSizeSelectMixin, FilterView):
         return Note.objects.filter(owner=self.request.user)
 
 
-class NoteTextView(LoginRequiredMixin, HtmxOnlyMixin, DetailView):
-    template_name = "notes/_note_text.html"
+class NoteDetailView(LoginRequiredMixin, HtmxOnlyMixin, DetailView):
+    template_name = "notes/_note_detail.html"
     request: AuthenticatedHttpRequest
 
     def get_queryset(self) -> QuerySet[Note]:

@@ -1,4 +1,4 @@
-<div hx-get="{% url 'note_text' note.id %}"
+<div hx-get="{% url 'note_detail' note.id %}"
      hx-trigger="noteChanged_{{ note.report_id }} from:body"
      hx-swap="outerHTML"
      hx-target="this"
