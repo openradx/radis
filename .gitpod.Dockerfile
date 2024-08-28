@@ -13,9 +13,6 @@ RUN apt-get update && \
 
 USER gitpod
 
-RUN git clone https://github.com/ingydotnet/git-subrepo $HOME/.git-subrepo && \
-  printf "\nsource \$HOME/.git-subrepo/.rc\n" >> $HOME/.bashrc
-
 ENV NVM_DIR $HOME/.nvm
 ENV NODE_VERSION 20.11.0
 
