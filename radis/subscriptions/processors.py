@@ -8,9 +8,9 @@ from django import db
 from django.conf import settings
 from django.db.models import Prefetch, QuerySet
 
+from radis.chats.utils.chat_client import AsyncChatClient
 from radis.core.processors import AnalysisTaskProcessor
-from radis.core.utils.chat_client import AsyncChatClient
-from radis.reports.models import Language, Report
+from radis.reports.models import Report
 
 from .models import Answer, RagResult, SubscribedItem, SubscriptionQuestion, SubscriptionTask
 
@@ -49,7 +49,7 @@ class SubscriptionTaskProcessor(AnalysisTaskProcessor):
         async with sem:
             results: List[RagResult] = await asyncio.gather(
                 *[
-                    self.process_yes_or_no_question(report.body, report.language, question, client)
+                    self.process_yes_or_no_question(report.body, question, client)
                     async for question in questions
                 ]
             )
@@ -71,11 +71,10 @@ class SubscriptionTaskProcessor(AnalysisTaskProcessor):
     async def process_yes_or_no_question(
         self,
         report_body: str,
-        language: Language,
         question: SubscriptionQuestion,
         client: AsyncChatClient,
     ) -> RagResult:
-        llm_answer = await client.ask_yes_no_question(report_body, language.code, question.question)
+        llm_answer = await client.ask_report_yes_no_question(report_body, question.question)
 
         if llm_answer == "yes":
             answer = Answer.YES

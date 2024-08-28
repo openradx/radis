@@ -1,7 +1,7 @@
 from django.contrib.auth.models import Group
 from django.core.management.base import BaseCommand, CommandParser
 
-from .populate_reports import create_report
+from .populate_example_reports import create_report
 
 
 class Command(BaseCommand):
