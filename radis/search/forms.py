@@ -21,11 +21,11 @@ def get_search_providers():
 
 class SearchForm(forms.Form):
     # Query fields
-    query = forms.CharField(required=False, label=False)
+    query = forms.CharField(required=False, label=False)  # type: ignore
     provider = forms.ChoiceField(
         required=False,
         choices=get_search_providers,
-        label=False,
+        label=False,  # type: ignore
     )
     # Filter fields
     language = forms.ChoiceField(required=False, choices=[])
@@ -68,14 +68,14 @@ class SearchForm(forms.Form):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-        search_provider_choices = self.fields["provider"].choices
+        search_provider_choices = self.fields["provider"].choices  # type: ignore
         if search_provider_choices:
             self.fields["provider"].initial = search_provider_choices[0][0]
-        self.fields["language"].choices = [
+        self.fields["language"].choices = [  # type: ignore
             (language.code, LANGUAGE_LABELS[language.code])
             for language in Language.objects.order_by("code")
         ]
-        self.fields["modalities"].choices = [
+        self.fields["modalities"].choices = [  # type: ignore
             (modality.code, modality.code)
             for modality in Modality.objects.filter(filterable=True).order_by("code")
         ]
@@ -148,8 +148,8 @@ class SearchForm(forms.Form):
             raise forms.ValidationError(f"Age till must be a multiple of {AGE_STEP}")
         return age_till
 
-    def clean(self) -> dict[str, Any]:
-        if not self.fields["provider"].choices:
+    def clean(self) -> dict[str, Any] | None:
+        if not self.fields["provider"].choices:  # type: ignore
             raise forms.ValidationError(
                 "Setup of RADIS is incomplete. No search providers are registered."
             )

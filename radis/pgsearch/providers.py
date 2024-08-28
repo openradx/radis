@@ -3,7 +3,7 @@ from typing import Iterator, cast
 
 import pyparsing as pp
 from django.contrib.postgres.search import (
-    SearchHeadline,  # type: ignore
+    SearchHeadline,
     SearchQuery,
     SearchRank,
 )

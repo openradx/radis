@@ -34,7 +34,7 @@ class QuestionResultInlineFormset(forms.BaseInlineFormSet):
     def add_fields(self, form: forms.Form, index: int) -> None:
         super().add_fields(form, index)
         rag_instance = self.instance
-        form.fields["question"].queryset = rag_instance.task.job.questions.all()
+        form.fields["question"].queryset = rag_instance.task.job.questions.all()  # type: ignore
 
 
 class QuestionResultInline(admin.StackedInline):

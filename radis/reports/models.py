@@ -1,5 +1,3 @@
-from typing import TYPE_CHECKING
-
 from adit_radis_shared.common.models import AppSettings
 from django.contrib.auth.models import Group
 from django.db import models
@@ -10,9 +8,6 @@ from radis.core.validators import (
     no_wildcard_chars_validator,
     validate_patient_sex,
 )
-
-if TYPE_CHECKING:
-    from django.db.models.manager import RelatedManager
 
 
 class ReportsAppSettings(AppSettings):
@@ -41,9 +36,6 @@ class Modality(models.Model):
 
 
 class Report(models.Model):
-    if TYPE_CHECKING:
-        metadata = RelatedManager["Metadata"]()
-
     id: int
     document_id = models.CharField(max_length=128, unique=True)
     language = models.ForeignKey(Language, on_delete=models.CASCADE, related_name="reports")
@@ -63,7 +55,7 @@ class Report(models.Model):
         ],
     )
     patient_birth_date = models.DateField()
-    patient_age = models.GeneratedField(  # type: ignore
+    patient_age = models.GeneratedField(
         expression=models.ExpressionWrapper(
             models.Func(
                 models.F("study_datetime"), models.F("patient_birth_date"), function="calc_age"
@@ -83,6 +75,8 @@ class Report(models.Model):
     body = models.TextField()
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+
+    metadata: models.QuerySet["Metadata"]
 
     def __str__(self) -> str:
         return f"Report {self.id} [{self.document_id}]"

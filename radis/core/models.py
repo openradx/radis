@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Callable
+from typing import Callable
 
 from django.conf import settings
 from django.db import models
@@ -6,9 +6,6 @@ from django.utils import timezone
 from procrastinate.contrib.django.models import ProcrastinateJob
 
 from radis.core.utils.model_utils import reset_tasks
-
-if TYPE_CHECKING:
-    from django.db.models.manager import RelatedManager
 
 
 class AnalysisJob(models.Model):
@@ -22,9 +19,6 @@ class AnalysisJob(models.Model):
         SUCCESS = "SU", "Success"
         WARNING = "WA", "Warning"
         FAILURE = "FA", "Failure"
-
-    if TYPE_CHECKING:
-        tasks = RelatedManager["AnalysisTask"]()
 
     default_priority: int
     urgent_priority: int
@@ -45,6 +39,8 @@ class AnalysisJob(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     started_at = models.DateTimeField(null=True, blank=True)
     ended_at = models.DateTimeField(null=True, blank=True)
+
+    tasks: models.QuerySet["AnalysisTask"]
 
     class Meta:
         abstract = True
@@ -220,6 +216,8 @@ class AnalysisTask(models.Model):
 
     def __str__(self) -> str:
         return f"{self.__class__.__name__} [ID {self.id} (Job ID {self.job.id})]"
+
+    def get_absolute_url(self) -> str: ...
 
     def delay(self) -> None: ...
 

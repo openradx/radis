@@ -1,12 +1,9 @@
 import logging
-from typing import TYPE_CHECKING, Callable
+from typing import Callable
 
 from adit_radis_shared.common.models import AppSettings
 from django.conf import settings
 from django.db import models
-
-if TYPE_CHECKING:
-    from django.db.models.manager import RelatedManager
 
 logger = logging.getLogger(__name__)
 
@@ -24,8 +21,7 @@ class Chat(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
-    if TYPE_CHECKING:
-        messages = RelatedManager["ChatMessage"]()
+    messages: models.QuerySet["ChatMessage"]
 
     def __str__(self):
         return f"Chat {self.pk}"

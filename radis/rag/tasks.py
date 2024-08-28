@@ -60,7 +60,7 @@ def process_rag_job(job_id: int) -> None:
             study_date_from=job.study_date_from,
             study_date_till=job.study_date_till,
             study_description=job.study_description,
-            patient_sex=job.patient_sex,  # type: ignore
+            patient_sex=job.patient_sex,
             patient_age_from=job.age_from,
             patient_age_till=job.age_till,
         ),

@@ -5,7 +5,7 @@ from adit_radis_shared.common.types import AuthenticatedHttpRequest
 from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
 from django.db.models import QuerySet
 from django.http import HttpResponse
-from django.shortcuts import aget_object_or_404, render  # type: ignore
+from django.shortcuts import aget_object_or_404, render
 from django.views.generic.detail import DetailView
 
 from radis.chats.utils.chat_client import AsyncChatClient

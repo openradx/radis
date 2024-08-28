@@ -6,8 +6,6 @@
 - Use django-stubs instead of django-types (also ADIT)
 - Use Alpine directive instead data for age range slider
 - Rename all derived models from AppSettings (to be congruent with ADIT)
-- Make notes.urls.py restful
-- Rename patient_birth_date to patient_birthdate (sounds better, but DICOM uses Patient Birth Date)
 - Check if for RAG ranking should be turned off for performance improvements (and using some fixed sort order)
 - Some present provider.max_results to the user somehow, especially important if the query results (step 1) is larger
 - task control panel
@@ -68,7 +66,6 @@
 
 ## Maybe
 
-- Consider Manticore or Quickwit as FTS
 - Look into distanceThreshold when using semantic/hybrid search
   -- In normal nearestNeighbor search every document is included as all documents are neighbors
   -- That is why we currently only use semantic stuff as ranking algorithm

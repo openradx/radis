@@ -91,7 +91,7 @@ class RagJobWizardView(
             context["helper"] = QuestionFormSetHelper()
 
             data = self.get_cleaned_data_for_step(RagJobWizardView.SEARCH_STEP)
-            assert data
+            assert data and isinstance(data, dict)
             context["provider"] = retrieval_providers[data["provider"]]
 
             active_group = self.request.user.active_group

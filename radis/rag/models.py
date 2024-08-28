@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Callable
+from typing import Callable
 
 from adit_radis_shared.common.models import AppSettings
 from django.conf import settings
@@ -10,9 +10,6 @@ from procrastinate.contrib.django.models import ProcrastinateJob
 
 from radis.core.models import AnalysisJob, AnalysisTask
 from radis.reports.models import Language, Modality, Report
-
-if TYPE_CHECKING:
-    from django.db.models.manager import RelatedManager
 
 
 # TODO: Rename to RagSettings (as in ADIT)
@@ -45,9 +42,8 @@ class RagJob(AnalysisJob):
     age_from = models.IntegerField(null=True, blank=True)
     age_till = models.IntegerField(null=True, blank=True)
 
-    if TYPE_CHECKING:
-        tasks = RelatedManager["RagTask"]()
-        questions = RelatedManager["Question"]()
+    tasks: models.QuerySet["RagTask"]
+    questions: models.QuerySet["Question"]
 
     def __str__(self) -> str:
         return f"RagJob {self.id}"
@@ -82,10 +78,9 @@ class Question(models.Model):
 
 
 class RagTask(AnalysisTask):
-    if TYPE_CHECKING:
-        rag_instances = RelatedManager["RagInstance"]()
-
     job = models.ForeignKey(RagJob, on_delete=models.CASCADE, related_name="tasks")
+
+    rag_instances: models.QuerySet["RagInstance"]
 
     def get_absolute_url(self) -> str:
         return reverse("rag_task_detail", args=[self.id])
@@ -105,9 +100,6 @@ class RagInstance(models.Model):
         ACCEPTED = "A", "Accepted"
         REJECTED = "R", "Rejected"
 
-    if TYPE_CHECKING:
-        results = RelatedManager["QuestionResult"]()
-
     id: int
     text = models.TextField()
     report_id: int
@@ -116,6 +108,8 @@ class RagInstance(models.Model):
     overall_result = models.CharField(max_length=1, choices=Result.choices, blank=True)
     get_overall_result_display: Callable[[], str]
     task = models.ForeignKey(RagTask, on_delete=models.CASCADE, related_name="rag_instances")
+
+    results: models.QuerySet["QuestionResult"]
 
     def __str__(self) -> str:
         return f"RagInstance {self.id}"

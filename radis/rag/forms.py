@@ -43,11 +43,11 @@ class SearchForm(forms.ModelForm):
         self.fields["provider"].widget = forms.Select(
             choices=[(provider.name, provider.name) for provider in retrieval_providers.values()]
         )
-        self.fields["language"].choices = [
+        self.fields["language"].choices = [  # type: ignore
             (language.pk, LANGUAGE_LABELS[language.code])
             for language in Language.objects.order_by("code")
         ]
-        self.fields["modalities"].choices = [
+        self.fields["modalities"].choices = [  # type: ignore
             (modality.pk, modality.code)
             for modality in Modality.objects.filter(filterable=True).order_by("code")
         ]

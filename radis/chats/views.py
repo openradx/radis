@@ -8,7 +8,7 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import SuspiciousOperation
 from django.http import HttpResponse
-from django.shortcuts import aget_object_or_404, get_object_or_404, redirect, render  # type: ignore
+from django.shortcuts import aget_object_or_404, get_object_or_404, redirect, render
 from django.urls import reverse
 from django.views.decorators.http import require_GET, require_POST
 from django_htmx.http import push_url

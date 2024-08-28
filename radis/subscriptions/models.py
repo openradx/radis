@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Callable
+from typing import Callable
 
 from adit_radis_shared.accounts.models import Group
 from adit_radis_shared.common.models import AppSettings
@@ -10,9 +10,6 @@ from procrastinate.contrib.django.models import ProcrastinateJob
 
 from radis.core.models import AnalysisJob, AnalysisTask
 from radis.reports.models import Language, Modality, Report
-
-if TYPE_CHECKING:
-    from django.db.models.manager import RelatedManager
 
 
 class SubscriptionAppSettings(AppSettings):
@@ -46,9 +43,8 @@ class Subscription(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     last_refreshed = models.DateTimeField(auto_now_add=True)
 
-    if TYPE_CHECKING:
-        items = RelatedManager["SubscribedItem"]()
-        questions = RelatedManager["SubscriptionQuestion"]()
+    items: models.QuerySet["SubscribedItem"]
+    questions: models.QuerySet["SubscriptionQuestion"]
 
     class Meta:
         constraints = [
@@ -106,8 +102,7 @@ class SubscriptionJob(AnalysisJob):
     )
     subscription = models.ForeignKey(Subscription, on_delete=models.CASCADE, related_name="jobs")
 
-    if TYPE_CHECKING:
-        tasks = RelatedManager["SubscriptionTask"]()
+    tasks: models.QuerySet["SubscriptionTask"]
 
     def __str__(self) -> str:
         return f"SubscriptionJob {self.id}"

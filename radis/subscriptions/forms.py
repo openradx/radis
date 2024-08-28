@@ -44,12 +44,12 @@ class SubscriptionForm(forms.ModelForm):
                 [(provider.name, provider.name) for provider in retrieval_providers.values()]
             )
         )
-        self.fields["language"].choices = [
+        self.fields["language"].choices = [  # type: ignore
             (language.pk, LANGUAGE_LABELS[language.code])
             for language in Language.objects.order_by("code")
         ]
-        self.fields["language"].empty_label = "All"
-        self.fields["modalities"].choices = [
+        self.fields["language"].empty_label = "All"  # type: ignore
+        self.fields["modalities"].choices = [  # type: ignore
             (modality.pk, modality.code)
             for modality in Modality.objects.filter(filterable=True).order_by("code")
         ]
@@ -122,7 +122,7 @@ class SubscriptionForm(forms.ModelForm):
             raise forms.ValidationError(f"Age till must be a multiple of {AGE_STEP}")
         return age_till
 
-    def clean(self) -> dict[str, Any]:
+    def clean(self) -> dict[str, Any] | None:
         age_from = self.cleaned_data["age_from"]
         age_till = self.cleaned_data["age_till"]
 
