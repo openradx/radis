@@ -2,8 +2,6 @@
 
 ## High Priority
 
-- Use pk instead of id (also ADIT)
-- Use django-stubs instead of django-types (also ADIT)
 - Use Alpine directive instead data for age range slider
 - Rename all derived models from AppSettings (to be congruent with ADIT)
 - Check if for RAG ranking should be turned off for performance improvements (and using some fixed sort order)
