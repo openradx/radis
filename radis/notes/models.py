@@ -12,7 +12,6 @@ class NotesAppSettings(AppSettings):
 
 
 class Note(models.Model):
-    id: int
     owner = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
@@ -35,4 +34,4 @@ class Note(models.Model):
         ]
 
     def __str__(self) -> str:
-        return f"Note {self.id} [{self.report} {self.owner}]"
+        return f"Note of {self.report} [{self.pk}]"

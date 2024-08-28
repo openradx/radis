@@ -16,7 +16,6 @@ class ReportsAppSettings(AppSettings):
 
 
 class Language(models.Model):
-    id: int
     code = models.CharField(max_length=10, unique=True)
 
     def __str__(self) -> str:
@@ -24,7 +23,6 @@ class Language(models.Model):
 
 
 class Modality(models.Model):
-    id: int
     code = models.CharField(max_length=16, unique=True)
     filterable = models.BooleanField(default=True)
 
@@ -36,7 +34,6 @@ class Modality(models.Model):
 
 
 class Report(models.Model):
-    id: int
     document_id = models.CharField(max_length=128, unique=True)
     language = models.ForeignKey(Language, on_delete=models.CASCADE, related_name="reports")
     groups = models.ManyToManyField(
@@ -79,7 +76,7 @@ class Report(models.Model):
     metadata: models.QuerySet["Metadata"]
 
     def __str__(self) -> str:
-        return f"Report {self.id} [{self.document_id}]"
+        return f"Report {self.document_id} [{self.pk}]"
 
     @property
     def modality_codes(self) -> list[str]:
@@ -87,7 +84,6 @@ class Report(models.Model):
 
 
 class Metadata(models.Model):
-    id: int
     report = models.ForeignKey(Report, on_delete=models.CASCADE, related_name="metadata")
     key = models.CharField(max_length=64)
     value = models.CharField(max_length=255)

@@ -46,17 +46,17 @@ class RagJob(AnalysisJob):
     questions: models.QuerySet["Question"]
 
     def __str__(self) -> str:
-        return f"RagJob {self.id}"
+        return f"RagJob [{self.pk}]"
 
     def get_absolute_url(self) -> str:
-        return reverse("rag_job_detail", args=[self.id])
+        return reverse("rag_job_detail", args=[self.pk])
 
     def delay(self) -> None:
         queued_job_id = app.configure_task(
             "radis.rag.tasks.process_rag_job",
             allow_unknown=False,
             priority=self.urgent_priority if self.urgent else self.default_priority,
-        ).defer(job_id=self.id)
+        ).defer(job_id=self.pk)
         self.queued_job_id = queued_job_id
         self.save()
 
@@ -67,14 +67,13 @@ class Answer(models.TextChoices):
 
 
 class Question(models.Model):
-    id: int
     question = models.CharField(max_length=500)
     job = models.ForeignKey(RagJob, on_delete=models.CASCADE, related_name="questions")
     accepted_answer = models.CharField(max_length=1, choices=Answer.choices, default=Answer.YES)
     get_accepted_answer_display: Callable[[], str]
 
     def __str__(self) -> str:
-        return f'Question "{self.question}" [ID {self.id}]'
+        return f'Question "{self.question}" [{self.pk}]'
 
 
 class RagTask(AnalysisTask):
@@ -83,14 +82,14 @@ class RagTask(AnalysisTask):
     rag_instances: models.QuerySet["RagInstance"]
 
     def get_absolute_url(self) -> str:
-        return reverse("rag_task_detail", args=[self.id])
+        return reverse("rag_task_detail", args=[self.pk])
 
     def delay(self) -> None:
         queued_job_id = app.configure_task(
             "radis.rag.tasks.process_rag_task",
             allow_unknown=False,
             priority=self.job.urgent_priority if self.job.urgent else self.job.default_priority,
-        ).defer(task_id=self.id)
+        ).defer(task_id=self.pk)
         self.queued_job_id = queued_job_id
         self.save()
 
@@ -100,7 +99,6 @@ class RagInstance(models.Model):
         ACCEPTED = "A", "Accepted"
         REJECTED = "R", "Rejected"
 
-    id: int
     text = models.TextField()
     report_id: int
     report = models.ForeignKey(Report, on_delete=models.CASCADE, related_name="rag_instances")
@@ -112,14 +110,13 @@ class RagInstance(models.Model):
     results: models.QuerySet["QuestionResult"]
 
     def __str__(self) -> str:
-        return f"RagInstance {self.id}"
+        return f"RagInstance [{self.pk}]"
 
     def get_absolute_url(self) -> str:
-        return reverse("rag_instance_detail", args=[self.task.id, self.id])
+        return reverse("rag_instance_detail", args=[self.task.pk, self.pk])
 
 
 class QuestionResult(models.Model):
-    id: int
     rag_instance = models.ForeignKey(RagInstance, on_delete=models.CASCADE, related_name="results")
     question = models.ForeignKey(Question, on_delete=models.CASCADE, related_name="results")
     original_answer = models.CharField(max_length=1, choices=Answer.choices)
@@ -128,4 +125,4 @@ class QuestionResult(models.Model):
     result = models.CharField(max_length=1, choices=RagInstance.Result.choices)
 
     def __str__(self) -> str:
-        return f'Result of "{self.question}": {self.get_current_answer_display} [ID {self.id}]'
+        return f'Result of "{self.question}": {self.get_current_answer_display} [{self.pk}]'

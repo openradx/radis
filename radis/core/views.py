@@ -142,7 +142,7 @@ class AnalysisJobDeleteView(LoginRequiredMixin, DeleteView):
 
         if not job.is_deletable:
             raise SuspiciousOperation(
-                f"Job with ID {job.id} and status {job.get_status_display()} is not deletable."
+                f"Job with ID {job.pk} and status {job.get_status_display()} is not deletable."
             )
 
         # We have to create the success message before we delete the job
@@ -172,7 +172,7 @@ class AnalysisJobVerifyView(LoginRequiredMixin, UserPassesTestMixin, SingleObjec
         job = cast(AnalysisJob, self.get_object())
         if job.is_verified:
             raise SuspiciousOperation(
-                f"Job with ID {job.id} and status {job.get_status_display()} was already verified."
+                f"Job with ID {job.pk} and status {job.get_status_display()} was already verified."
             )
 
         job.status = AnalysisJob.Status.PENDING
@@ -198,7 +198,7 @@ class AnalysisJobCancelView(LoginRequiredMixin, SingleObjectMixin, View):
         job = cast(AnalysisJob, self.get_object())
         if not job.is_cancelable:
             raise SuspiciousOperation(
-                f"Job with ID {job.id} and status {job.get_status_display()} is not cancelable."
+                f"Job with ID {job.pk} and status {job.get_status_display()} is not cancelable."
             )
 
         tasks = job.tasks.filter(status=AnalysisTask.Status.PENDING)
@@ -232,7 +232,7 @@ class AnalysisJobResumeView(LoginRequiredMixin, SingleObjectMixin, View):
         job = cast(AnalysisJob, self.get_object())
         if not job.is_resumable:
             raise SuspiciousOperation(
-                f"Job with ID {job.id} and status {job.get_status_display()} is not resumable."
+                f"Job with ID {job.pk} and status {job.get_status_display()} is not resumable."
             )
 
         job.tasks.filter(status=AnalysisTask.Status.CANCELED).update(
@@ -262,7 +262,7 @@ class AnalysisJobRetryView(LoginRequiredMixin, SingleObjectMixin, View):
         job = cast(AnalysisJob, self.get_object())
         if not job.is_retriable:
             raise SuspiciousOperation(
-                f"Job with ID {job.id} and status {job.get_status_display()} is not retriable."
+                f"Job with ID {job.pk} and status {job.get_status_display()} is not retriable."
             )
 
         job.reset_tasks(only_failed=True)
@@ -293,7 +293,7 @@ class AnalysisJobRestartView(LoginRequiredMixin, UserPassesTestMixin, SingleObje
         job = cast(AnalysisJob, self.get_object())
         if not request.user.is_staff or not job.is_restartable:
             raise SuspiciousOperation(
-                f"Job with ID {job.id} and status {job.get_status_display()} is not restartable."
+                f"Job with ID {job.pk} and status {job.get_status_display()} is not restartable."
             )
 
         job.tasks.all().delete()
@@ -341,7 +341,7 @@ class AnalysisTaskDeleteView(LoginRequiredMixin, DeleteView):
 
         if not task.is_deletable:
             raise SuspiciousOperation(
-                f"Task with ID {task.id} and status {task.get_status_display()} is not deletable."
+                f"Task with ID {task.pk} and status {task.get_status_display()} is not deletable."
             )
 
         # We have to create the success message before we delete the task
@@ -370,10 +370,10 @@ class AnalysisTaskResetView(LoginRequiredMixin, SingleObjectMixin, View):
         task = cast(AnalysisTask, self.get_object())
         if not task.is_resettable:
             raise SuspiciousOperation(
-                f"Task with ID {task.id} and status {task.get_status_display()} is not resettable."
+                f"Task with ID {task.pk} and status {task.get_status_display()} is not resettable."
             )
 
-        reset_tasks(self.model.objects.filter(id=task.id))
+        reset_tasks(self.model.objects.filter(pk=task.pk))
 
         task.job.update_job_state()
 

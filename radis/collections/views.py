@@ -171,16 +171,16 @@ class CollectionSelectView(LoginRequiredMixin, View):
                 raise SuspiciousOperation
 
             collection.reports.add(report)
-            request.user.preferences[LAST_USED_COLLECTION_PREFERENCE] = collection.id
+            request.user.preferences[LAST_USED_COLLECTION_PREFERENCE] = collection.pk
             request.user.save()
-            response = trigger_client_event(response, f"collectedReportsChanged_{collection.id}")
+            response = trigger_client_event(response, f"collectedReportsChanged_{collection.pk}")
             response = trigger_client_event(response, f"collectionsOfReportChanged_{report_id}")
         elif action == "remove":
             if not collection.reports.contains(report):
                 raise SuspiciousOperation
 
             collection.reports.remove(report)
-            response = trigger_client_event(response, f"collectedReportsChanged_{collection.id}")
+            response = trigger_client_event(response, f"collectedReportsChanged_{collection.pk}")
             response = trigger_client_event(response, f"collectionsOfReportChanged_{report_id}")
         else:
             raise SuspiciousOperation(f"Invalid action: {action}")
@@ -192,7 +192,7 @@ class CollectionCountBadgeView(LoginRequiredMixin, View):
     def get(self, request: AuthenticatedHttpRequest, report_id: int) -> HttpResponse:
         report = get_object_or_404(Report, id=report_id)
         collection_count = Collection.objects.filter(
-            owner=request.user, reports__id=report.id
+            owner=request.user, reports__id=report.pk
         ).count()
         return render(
             request,

@@ -24,7 +24,6 @@ class AnalysisJob(models.Model):
     urgent_priority: int
     continuous_job: bool
 
-    id: int
     status = models.CharField(max_length=2, choices=Status.choices, default=Status.UNVERIFIED)
     get_status_display: Callable[[], str]
     owner_id: int
@@ -53,7 +52,7 @@ class AnalysisJob(models.Model):
         ]
 
     def __str__(self) -> str:
-        return f"{self.__class__.__name__} [ID {self.id}]"
+        return f"{self.__class__.__name__} [{self.pk}]"
 
     def get_absolute_url(self) -> str: ...
 
@@ -190,7 +189,6 @@ class AnalysisTask(models.Model):
         WARNING = "WA", "Warning"
         FAILURE = "FA", "Failure"
 
-    id: int
     job_id: int
     job = models.ForeignKey(AnalysisJob, on_delete=models.CASCADE, related_name="tasks")
     queued_job_id: int | None
@@ -215,7 +213,7 @@ class AnalysisTask(models.Model):
         ordering = ("id",)
 
     def __str__(self) -> str:
-        return f"{self.__class__.__name__} [ID {self.id} (Job ID {self.job.id})]"
+        return f"{self.__class__.__name__} [{self.pk}]"
 
     def get_absolute_url(self) -> str: ...
 

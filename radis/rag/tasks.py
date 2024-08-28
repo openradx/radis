@@ -74,7 +74,7 @@ def process_rag_job(job_id: int) -> None:
 
         for document_id in document_ids:
             report = Report.objects.get(document_id=document_id)
-            RagInstance.objects.create(task=task, report_id=report.id)
+            RagInstance.objects.create(task=task, report_id=report.pk)
 
         task.delay()
 

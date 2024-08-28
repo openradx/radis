@@ -32,7 +32,6 @@ class CollectionManager(models.Manager["Collection"]):
 
 
 class Collection(models.Model):
-    id: int
     name = models.CharField(max_length=64)
     owner_id: int
     owner = models.ForeignKey(
@@ -57,4 +56,4 @@ class Collection(models.Model):
         ]
 
     def __str__(self):
-        return f"Collection {self.id} [{self.name}]"
+        return f"Collection {self.name} [{self.pk}]"

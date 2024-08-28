@@ -8,7 +8,6 @@ from .utils.language_utils import code_to_language
 
 
 class ReportSearchVector(models.Model):
-    id: int
     report = models.OneToOneField(Report, on_delete=models.CASCADE, related_name="search_vector")
     search_vector = SearchVectorField(null=True)
 

@@ -13,5 +13,5 @@ register = Library()
 @register.simple_tag(takes_context=True)
 def note_available(context: dict[str, Any], report: Report):
     user = cast(User, context["request"].user)
-    note = Note.objects.filter(owner=user, report_id=report.id).first()
+    note = Note.objects.filter(owner=user, report_id=report.pk).first()
     return note is not None

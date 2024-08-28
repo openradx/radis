@@ -156,7 +156,7 @@ class SubscriptionInboxView(
 
     def get_related_queryset(self) -> QuerySet[SubscribedItem]:
         subscription = cast(Subscription, self.get_object())
-        return SubscribedItem.objects.filter(subscription_id=subscription.id).prefetch_related(
+        return SubscribedItem.objects.filter(subscription_id=subscription.pk).prefetch_related(
             "report"
         )
 

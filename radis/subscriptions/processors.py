@@ -66,7 +66,7 @@ class SubscriptionTaskProcessor(AnalysisTaskProcessor):
                 report=report,
             )
 
-        logger.debug(f"Report {report.id} processed with result {overall_result}")
+        logger.debug(f"Report {report.pk} processed with result {overall_result}")
 
     async def process_yes_or_no_question(
         self,

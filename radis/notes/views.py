@@ -67,7 +67,7 @@ class NoteEditView(LoginRequiredMixin, HtmxOnlyMixin, UpdateView):
         note.report_id = report_id
 
         text: str = note.text
-        if note.id is not None and len(text.strip()) == 0:
+        if note.pk is not None and len(text.strip()) == 0:
             note.delete()
             response = HttpResponse(status=204)
             response = trigger_client_event(response, f"noteChanged_{report_id}")

@@ -18,7 +18,6 @@ class SubscriptionAppSettings(AppSettings):
 
 
 class Subscription(models.Model):
-    id: int
     name = models.CharField(max_length=100)
     owner_id: int
     owner = models.ForeignKey(
@@ -55,7 +54,7 @@ class Subscription(models.Model):
         ]
 
     def __str__(self):
-        return f"Subscription {self.id} [{self.name}]"
+        return f"Subscription {self.name} [{self.pk}]"
 
 
 class Answer(models.TextChoices):
@@ -64,7 +63,6 @@ class Answer(models.TextChoices):
 
 
 class SubscriptionQuestion(models.Model):
-    id: int
     question = models.CharField(max_length=500)
     subscription = models.ForeignKey(
         Subscription, on_delete=models.CASCADE, related_name="questions"
@@ -73,7 +71,7 @@ class SubscriptionQuestion(models.Model):
     get_accepted_answer_display: Callable[[], str]
 
     def __str__(self) -> str:
-        return f'Question "{self.question}" [ID {self.id}]'
+        return f'Question "{self.question}" [{self.pk}]'
 
 
 class RagResult(models.TextChoices):
@@ -82,13 +80,12 @@ class RagResult(models.TextChoices):
 
 
 class SubscribedItem(models.Model):
-    id: int
     subscription = models.ForeignKey(Subscription, on_delete=models.CASCADE, related_name="items")
     report = models.ForeignKey(Report, on_delete=models.CASCADE, related_name="+")
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
-        return f"SubscribedItem {self.id} [Subscription {self.subscription.id}]"
+        return f"SubscribedItem of {self.subscription} [{self.pk}]"
 
 
 class SubscriptionJob(AnalysisJob):
@@ -105,14 +102,14 @@ class SubscriptionJob(AnalysisJob):
     tasks: models.QuerySet["SubscriptionTask"]
 
     def __str__(self) -> str:
-        return f"SubscriptionJob {self.id}"
+        return f"SubscriptionJob [{self.pk}]"
 
     def delay(self) -> None:
         queued_job_id = app.configure_task(
             "radis.subscriptions.tasks.process_subscription_job",
             allow_unknown=False,
             priority=self.urgent_priority if self.urgent else self.default_priority,
-        ).defer(job_id=self.id)
+        ).defer(job_id=self.pk)
         self.queued_job_id = queued_job_id
         self.save()
 
@@ -122,13 +119,13 @@ class SubscriptionTask(AnalysisTask):
     reports = models.ManyToManyField(Report, blank=True)
 
     def __str__(self) -> str:
-        return f"SubscriptionTask {self.id} for {self.job.subscription}"
+        return f"SubscriptionTask of {self.job.subscription} [{self.pk}]"
 
     def delay(self) -> None:
         queued_job_id = app.configure_task(
             "radis.subscriptions.tasks.process_subscription_task",
             allow_unknown=False,
             priority=self.job.urgent_priority if self.job.urgent else self.job.default_priority,
-        ).defer(task_id=self.id)
+        ).defer(task_id=self.pk)
         self.queued_job_id = queued_job_id
         self.save()
