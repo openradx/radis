@@ -10,6 +10,10 @@
                 <td>{{ report.document_id }}</td>
             </tr>
             <tr>
+                <th>Patient ID</th>
+                <td>{{ report.patient_id }}</td>
+            </tr>
+            <tr>
                 <th>Patient Age</th>
                 <td>{{ report.patient_age }}</td>
             </tr>
@@ -28,6 +32,10 @@
             <tr>
                 <th>Modalities</th>
                 <td>{{ report.modality_codes|join:", " }}</td>
+            </tr>
+            <tr>
+                <th>PACS</th>
+                <td>{{ report.pacs_name }}</td>
             </tr>
         </tbody>
     </table>
