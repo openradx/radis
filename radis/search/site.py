@@ -11,15 +11,11 @@ class ReportDocument(NamedTuple):
     document_id: str
     pacs_name: str
     pacs_link: str
-    patient_birth_date: date
     patient_age: int
     patient_sex: Literal["F", "M", "U"]
-    patient_id: str
     study_description: str
-    study_datetime: datetime
     modalities: list[str]
     summary: str
-    created_at: datetime
 
     @property
     def full_report(self) -> Report:
