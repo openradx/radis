@@ -1,4 +1,4 @@
-from typing import Generic, TypeVar, cast
+from typing import cast
 
 import factory
 from faker import Faker
@@ -8,14 +8,12 @@ from radis.reports.factories import ModalityFactory
 from .models import Answer, Question, RagInstance, RagJob, RagTask
 from .site import retrieval_providers
 
-T = TypeVar("T")
-
 fake = Faker()
 
 MODALITIES = ("CT", "MR", "DX", "PT", "US")
 
 
-class BaseDjangoModelFactory(Generic[T], factory.django.DjangoModelFactory):
+class BaseDjangoModelFactory[T](factory.django.DjangoModelFactory):
     @classmethod
     def create(cls, *args, **kwargs) -> T:
         return super().create(*args, **kwargs)

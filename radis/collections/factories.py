@@ -1,5 +1,3 @@
-from typing import Generic, TypeVar
-
 import factory
 from adit_radis_shared.accounts.factories import UserFactory
 from faker import Faker
@@ -8,10 +6,8 @@ from .models import Collection
 
 fake = Faker()
 
-T = TypeVar("T")
 
-
-class BaseDjangoModelFactory(Generic[T], factory.django.DjangoModelFactory):
+class BaseDjangoModelFactory[T](factory.django.DjangoModelFactory):
     @classmethod
     def create(cls, *args, **kwargs) -> T:
         return super().create(*args, **kwargs)

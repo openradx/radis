@@ -1,20 +1,17 @@
 import random
 from datetime import timezone
-from typing import Generic, TypeVar
 
 import factory
 from faker import Faker
 
 from .models import Language, Metadata, Modality, Report
 
-T = TypeVar("T")
-
 fake = Faker()
 
 MODALITIES = ("CT", "MR", "DX", "PT", "US")
 
 
-class BaseDjangoModelFactory(Generic[T], factory.django.DjangoModelFactory):
+class BaseDjangoModelFactory[T](factory.django.DjangoModelFactory):
     @classmethod
     def create(cls, *args, **kwargs) -> T:
         return super().create(*args, **kwargs)

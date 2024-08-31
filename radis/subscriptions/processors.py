@@ -3,10 +3,12 @@ import logging
 from asyncio import Semaphore
 from typing import List
 
+from adit_radis_shared.accounts.models import Group
+from adit_radis_shared.common.types import User
 from channels.db import database_sync_to_async
 from django import db
 from django.conf import settings
-from django.db.models import Prefetch, QuerySet
+from django.db.models import QuerySet
 
 from radis.chats.utils.chat_client import AsyncChatClient
 from radis.core.processors import AnalysisTaskProcessor
@@ -19,9 +21,12 @@ logger = logging.getLogger(__name__)
 
 class SubscriptionTaskProcessor(AnalysisTaskProcessor):
     def process_task(self, task: SubscriptionTask) -> None:
-        asyncio.run(self.process_task_async(task))
+        user: User = task.job.owner
+        active_group = user.active_group
 
-    async def process_task_async(self, task: SubscriptionTask) -> None:
+        asyncio.run(self.process_task_async(task, active_group))
+
+    async def process_task_async(self, task: SubscriptionTask, active_group: Group) -> None:
         client = AsyncChatClient()
         sem = Semaphore(settings.RAG_LLM_CONCURRENCY_LIMIT)
 
@@ -30,7 +35,7 @@ class SubscriptionTaskProcessor(AnalysisTaskProcessor):
         await asyncio.gather(
             *[
                 self.process_report(task, report, questions, sem, client)
-                async for report in task.reports.prefetch_related(Prefetch("language"))
+                async for report in task.reports.filter(groups=active_group)
             ]
         )
         await database_sync_to_async(db.close_old_connections)()
@@ -43,9 +48,6 @@ class SubscriptionTaskProcessor(AnalysisTaskProcessor):
         sem: Semaphore,
         client: AsyncChatClient,
     ) -> None:
-        if report.language.code not in settings.SUPPORTED_LANGUAGES:
-            raise ValueError(f"Language '{report.language.code}' is not supported.")
-
         async with sem:
             results: List[RagResult] = await asyncio.gather(
                 *[
