@@ -1,0 +1,6 @@
+{% load bootstrap_icon from common_extras %}
+<a href="{% url 'chat_create' %}?report_id={{ report.id }}"
+   class="btn btn-secondary btn-sm">
+    {% bootstrap_icon "chat" %}
+    Chat
+</a>
