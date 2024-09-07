@@ -25,7 +25,6 @@ EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
 INSTALLED_APPS += [  # noqa: F405
     "debug_toolbar",
     "debug_permissions",
-    "django_fastdev",
     "django_browser_reload",
 ]
 

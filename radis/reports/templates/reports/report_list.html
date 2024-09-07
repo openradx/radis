@@ -1,0 +1,44 @@
+{% extends "reports/reports_layout.html" %}
+{% load crispy from crispy_forms_tags %}
+{% block title %}
+    Reports
+{% endblock title %}
+{% block heading %}
+    <h4 class="mb-3">Reports</h4>
+{% endblock heading %}
+{% block content %}
+    <div class="row mb-2">
+        <div>{% crispy page_size_select %}</div>
+    </div>
+    <div class="row">
+        <div class="col">
+            {% for report in reports %}
+                {% include "reports/_report_item.html" %}
+            {% empty %}
+                No reports found
+            {% endfor %}
+            <div class="d-flex justify-content-around align-items-center">
+                <div class="mt-2">{% include "common/_pagination.html" %}</div>
+            </div>
+        </div>
+        <div class="col col-auto">
+            <form action="{% url 'report_list' %}"
+                  method="get"
+                  x-data
+                  x-ignore-empty-inputs>
+                <div id="filters" class="card">
+                    <div class="card-body">
+                        <h5 class="card-title">Filters</h5>
+                        <input type="hidden"
+                               name="per_page"
+                               value="{{ request.GET.per_page|default:'' }}">
+                        <input type="hidden"
+                               name="sort_by"
+                               value="{{ request.GET.sort_by|default:'' }}">
+                        {% crispy filter.form %}
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+{% endblock content %}

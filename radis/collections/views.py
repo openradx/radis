@@ -156,7 +156,6 @@ class CollectionSelectView(LoginRequiredMixin, View):
         )
 
     def post(self, request: AuthenticatedHttpRequest, report_id: int) -> HttpResponse:
-        # user_id = request.user.id
         action = request.POST.get("action")
         collection_id = request.POST.get("collection")
 

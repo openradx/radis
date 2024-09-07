@@ -1,17 +1,9 @@
 function SearchForm($el) {
   return {
     handleSubmit() {
-      // Remove non set filters from URL by setting the not filled
-      // out inputs to disabled.
-      const filterInputEls = $el.querySelectorAll(
-        "#filters input, #filters select"
-      );
-      for (var i = 0; i < filterInputEls.length; i++) {
-        const filterInputEl = filterInputEls[i];
-        if (!filterInputEl.value) {
-          filterInputEl.setAttribute("disabled", true);
-        }
-      }
+      // Additionally remove age from and age till form the query url if
+      // they are equal to the min and max values of the age range
+      // Other fields are handled by the x-ignore-empty-inputs directive
       const ageFromEl = $el.querySelector("#id_age_from");
       if (ageFromEl.value === ageFromEl.min) {
         ageFromEl.setAttribute("disabled", true);
@@ -30,7 +22,9 @@ function SearchForm($el) {
         if (filterInputEl.id === event.target.id) {
           continue; // Don't reset the reset button value
         }
-        if (filterInputEl.id === "id_age_from") {
+        if (filterInputEl.id === "id_language") {
+          filterInputEl.value = filterInputEl.options[0].value;
+        } else if (filterInputEl.id === "id_age_from") {
           filterInputEl.value = filterInputEl.min;
           filterInputEl.dispatchEvent(new Event("input"));
         } else if (filterInputEl.id === "id_age_till") {

@@ -63,9 +63,9 @@ def _build_filter_query(filters: SearchFilters):
     if filters.modalities:
         fq &= Q(report__modalities__code__in=filters.modalities)
     if filters.study_date_from:
-        fq &= Q(report__study_datetime__gte=filters.study_date_from)
+        fq &= Q(report__study_datetime__date__gte=filters.study_date_from)
     if filters.study_date_till:
-        fq &= Q(report__study_datetime__lte=filters.study_date_till)
+        fq &= Q(report__study_datetime__date__lte=filters.study_date_till)
     if filters.study_description:
         fq &= Q(report__study_description__icontains=filters.study_description)
     if filters.patient_age_from is not None:

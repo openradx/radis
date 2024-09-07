@@ -25,4 +25,23 @@ document.addEventListener("alpine:init", () => {
       }
     });
   });
+
+  Alpine.directive("ignore-empty-inputs", (el) => {
+    if (el.tagName.toLowerCase() !== "form") {
+      throw new Error(
+        "submit-form directive can only be used on <form> elements"
+      );
+    }
+
+    el.addEventListener("submit", (e) => {
+      const inputs = el.querySelectorAll("input, select, textarea");
+      console.log(inputs);
+      inputs.forEach((input) => {
+        const value = input.value.trim();
+        if (value === "" || input.type === "submit") {
+          input.disabled = true;
+        }
+      });
+    });
+  });
 });

@@ -1,12 +1,14 @@
 <div class="d-flex justify-content-between">
     <div class="d-flex gap-4">
         <div class="d-flex flex-column">
-            <small>Age: {{ report.patient_age }}</small>
-            <small>Sex: {{ report.patient_sex }}</small>
+            <small>Patient ID: {{ report.patient_id }}</small>
+            <small>Patient Age: {{ report.patient_age }}</small>
+            <small>Patient Sex: {{ report.patient_sex }}</small>
         </div>
         <div class="d-flex flex-column">
             <small>Modalities: {{ report.modality_codes|join:", " }}</small>
             <small>Study Description: {{ report.study_description }}</small>
+            <small>Study Date: {{ report.study_datetime }}</small>
         </div>
     </div>
 </div>

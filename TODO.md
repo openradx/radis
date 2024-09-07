@@ -83,7 +83,6 @@
 ## Transfer to ADIT
 
 - Prepare Django translations
-- Use fastdev in development
 - Replace me-3 in control_panel.html with gap-3 of surrounding div
 - .env files in project dir (instead of compose dir)
 - Correct help in populate_dev_db command

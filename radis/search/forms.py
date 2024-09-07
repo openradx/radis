@@ -124,7 +124,7 @@ class SearchForm(forms.Form):
                     "reset_filters",
                     "Reset filters",
                     type="button",
-                    css_class="btn btn-secondary",
+                    css_class="btn btn-sm btn-secondary",
                     **{"@click": "resetFilters"},
                 ),
                 css_class="d-flex justify-content-center",

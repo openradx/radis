@@ -11,7 +11,9 @@
             </tr>
             <tr>
                 <th>Patient ID</th>
-                <td>{{ report.patient_id }}</td>
+                <td>
+                    <a href="{% url 'report_list' %}?patient_id={{ report.patient_id }}">{{ report.patient_id }}</a>
+                </td>
             </tr>
             <tr>
                 <th>Patient Age</th>

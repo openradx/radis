@@ -874,19 +874,6 @@ files = [
 Django = ">=3.2"
 
 [[package]]
-name = "django-fastdev"
-version = "1.9.0"
-description = "Django-fastdev is an app that makes it faster and more fun to develop Django apps"
-optional = false
-python-versions = "*"
-files = [
-    {file = "django-fastdev-1.9.0.tar.gz", hash = "sha256:e6aa516d95b856ae5e89c2a41a1a895b9c99cf5ad0af9cd25fedbff4d19f6ad3"},
-]
-
-[package.dependencies]
-Django = ">=2.0"
-
-[[package]]
 name = "django-filter"
 version = "24.3"
 description = "Django-filter is a reusable Django application for allowing users to filter querysets dynamically."
@@ -3722,4 +3709,4 @@ testing = ["coverage (>=5.0.3)", "zope.event", "zope.testing"]
 [metadata]
 lock-version = "2.0"
 python-versions = ">=3.12,<4.0"
-content-hash = "0b26c3529775b21a41d14c937c1549a23ba88cd8bd371dd6d4deaea264781d3e"
+content-hash = "20786415c4a280a2a3653c9f03a78e8a2e63ec37a9d6136f18c8145f6a0f8337"
