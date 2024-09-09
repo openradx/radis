@@ -68,6 +68,8 @@ class Report(models.Model):
     )
     study_description = models.CharField(blank=True, max_length=64)
     study_datetime = models.DateTimeField()
+    study_instance_uid = models.CharField(blank=True, max_length=64)
+    accession_number = models.CharField(blank=True, max_length=32)
     modalities = models.ManyToManyField(Modality, related_name="reports")
     body = models.TextField()
     created_at = models.DateTimeField(auto_now_add=True)

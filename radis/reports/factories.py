@@ -3,6 +3,7 @@ from datetime import timezone
 
 import factory
 from faker import Faker
+from pydicom.uid import generate_uid
 
 from .models import Language, Metadata, Modality, Report
 
@@ -58,6 +59,8 @@ class ReportFactory(BaseDjangoModelFactory[Report]):
     patient_sex = factory.Faker("random_element", elements=["M", "F", "O"])
     study_description = factory.Faker("text", max_nb_chars=64)
     study_datetime = factory.Faker("date_time_between", start_date="-10y", tzinfo=timezone.utc)
+    study_uid = factory.LazyFunction(generate_uid)
+    accession_number = factory.Faker("numerify", text="############")
     metadata = factory.RelatedFactoryList(
         MetadataFactory,
         factory_related_name="report",
