@@ -6,7 +6,7 @@
 {% block heading %}
     <div class="d-flex justify-content-between align-items-start">
         <h4 class="mb-3">Collection {{ collection.name }}</h4>
-        <div class="d-flex gap-1">
+        <div class="d-flex gap-2">
             <button type="button"
                     class="btn btn-primary btn-sm"
                     hx-get="{% url 'collection_update' collection.id %}"
@@ -14,6 +14,11 @@
                 {% bootstrap_icon "pencil" %}
                 Rename
             </button>
+            <a href="{% url 'collection_export' collection.id %}"
+               class="btn btn-success btn-sm">
+                {% bootstrap_icon "download" %}
+                Export
+            </a>
             <form action="{% url 'collection_delete' collection.id %}" method="post">
                 {% csrf_token %}
                 <button type="submit"

@@ -21,6 +21,7 @@ from radis.reports.models import Report
 from .filters import CollectionFilter
 from .models import Collection
 from .tables import CollectionTable
+from .utils.exporters import export_collection
 
 LAST_USED_COLLECTION_PREFERENCE = "last_used_collection"
 
@@ -100,6 +101,31 @@ class CollectionDeleteView(LoginRequiredMixin, SuccessMessageMixin, DeleteView):
 
     def get_queryset(self) -> QuerySet[Collection]:
         return super().get_queryset().filter(owner=self.request.user)
+
+
+class CollectionExportView(LoginRequiredMixin, SingleObjectMixin, View):
+    model = Collection
+    request: AuthenticatedHttpRequest
+
+    def get_queryset(self):
+        if self.request.user.is_staff:
+            return self.model.objects.all()
+        return self.model.objects.filter(owner=self.request.user)
+
+    def get(self, request, *args, **kwargs):
+        # by overriding get() we have to call get_object() ourselves
+        collection = cast(Collection, self.get_object())
+        self.object = collection
+
+        file = export_collection(collection)
+
+        response = HttpResponse(
+            content=file.getvalue(),
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        filename = f"collection_{collection.pk}.xlsx"
+        response["Content-Disposition"] = f"attachment;filename={filename}"
+        return response
 
 
 class CollectionDetailView(

@@ -6,6 +6,7 @@ from .views import (
     CollectionCreateView,
     CollectionDeleteView,
     CollectionDetailView,
+    CollectionExportView,
     CollectionListView,
     CollectionSelectView,
     CollectionUpdateView,
@@ -16,6 +17,7 @@ urlpatterns = [
     path("create/", CollectionCreateView.as_view(), name="collection_create"),
     path("<int:pk>/update/", CollectionUpdateView.as_view(), name="collection_update"),
     path("<int:pk>/delete/", CollectionDeleteView.as_view(), name="collection_delete"),
+    path("<int:pk>/export/", CollectionExportView.as_view(), name="collection_export"),
     path(
         "select/<int:report_id>/",
         CollectionSelectView.as_view(),
