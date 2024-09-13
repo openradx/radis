@@ -48,25 +48,32 @@ async def chat_create_view(request: AuthenticatedHttpRequest) -> HttpResponse:
             raise SuspiciousOperation
 
         form = CreateChatForm(request.POST)
+        report_id: str | None = None
+        report: Report | None = None
         if form.is_valid():
-            report_text: str = form.cleaned_data["report"]
+            report_id = form.cleaned_data["report_id"]
             user_prompt: str = form.cleaned_data["prompt"]
 
-            if report_text:
+            if report_id:
+                report = await aget_object_or_404(Report, pk=report_id)
                 instructions_system_prompt = Template(
                     settings.CHAT_REPORT_QUESTION_SYSTEM_PROMPT
-                ).substitute({"report": report_text})
+                ).substitute({"report": report.body})
             else:
                 instructions_system_prompt: str = settings.CHAT_GENERAL_SYSTEM_PROMPT
 
             client = AsyncChatClient()
+
+            # Generate an answer for the user prompt
             answer = await client.send_messages(
                 [
                     {"role": "system", "content": instructions_system_prompt},
                     {"role": "user", "content": user_prompt},
-                ]
+                ],
+                yes_no_answer=True if request.POST.get("yes_no_answer") else False,
             )
 
+            # Generate a title for the chat
             title_system_prompt = Template(settings.CHAT_GENERATE_TITLE_SYSTEM_PROMPT).substitute(
                 {"num_words": 6}
             )
@@ -80,7 +87,7 @@ async def chat_create_view(request: AuthenticatedHttpRequest) -> HttpResponse:
             )
             title = title.strip().rstrip(string.punctuation)[:100]
 
-            chat = await Chat.objects.acreate(owner=request.user, title=title)
+            chat = await Chat.objects.acreate(owner=request.user, title=title, report=report)
 
             await ChatMessage.objects.acreate(
                 chat=chat, role=ChatRole.SYSTEM, content=instructions_system_prompt
@@ -95,10 +102,12 @@ async def chat_create_view(request: AuthenticatedHttpRequest) -> HttpResponse:
                 "chats/_chat_created.html",
                 {
                     "chat": chat,
+                    "report": report,
                     "chat_messages": [
                         message
-                        async for message in chat.messages.all()
-                        if message.role != ChatRole.SYSTEM
+                        async for message in chat.messages.exclude(role=ChatRole.SYSTEM).order_by(
+                            "id"
+                        )
                     ],
                     "form": form,
                 },
@@ -107,18 +116,19 @@ async def chat_create_view(request: AuthenticatedHttpRequest) -> HttpResponse:
 
     else:
         report_id = request.GET.get("report_id", None)
+        report: Report | None = None
         if report_id is None:
             form = CreateChatForm()
         else:
             active_group = request.user.active_group
             assert active_group
-            report: Report = await aget_object_or_404(Report, id=report_id, groups=active_group)
-            form = CreateChatForm(initial={"report": report.body})
+            report = await aget_object_or_404(Report, id=report_id, groups=active_group)
+            form = CreateChatForm(initial={"report_id": report.pk})
 
     return render(
         request,
         "chats/chat_create.html",
-        {"chat": None, "chat_messages": [], "form": form},
+        {"chat": None, "report": report, "chat_messages": [], "form": form},
     )
 
 
@@ -127,11 +137,13 @@ async def chat_create_view(request: AuthenticatedHttpRequest) -> HttpResponse:
 def chat_detail_view(request: AuthenticatedHttpRequest, pk: int) -> HttpResponse:
     chat = get_object_or_404(Chat, pk=pk, owner=request.user)
     form = PromptForm()
+    print("report", chat.report)
     return render(
         request,
         "chats/chat_detail.html",
         {
             "chat": chat,
+            "report": chat.report,
             "chat_messages": [
                 message for message in chat.messages.all() if message.role != ChatRole.SYSTEM
             ],
@@ -146,12 +158,12 @@ async def chat_update_view(request: AuthenticatedHttpRequest, pk: int) -> HttpRe
     if not request.htmx:
         raise SuspiciousOperation
 
-    chat = await Chat.objects.aget(pk=pk, owner=request.user)
+    chat = await Chat.objects.prefetch_related("report").aget(pk=pk, owner=request.user)
 
     form = PromptForm(request.POST)
     if form.is_valid():
         messages: list[ChatCompletionMessageParam] = []
-        async for content in chat.messages.all():
+        async for content in chat.messages.order_by("id").all():
             role = content.get_role_display().lower()
             content = content.content
             messages.append({"role": role, "content": content})  # type: ignore
@@ -160,7 +172,10 @@ async def chat_update_view(request: AuthenticatedHttpRequest, pk: int) -> HttpRe
         messages.append({"role": "user", "content": prompt})
 
         client = AsyncChatClient()
-        response = await client.send_messages(messages)
+        response = await client.send_messages(
+            messages,
+            yes_no_answer=True if request.POST.get("yes_no_answer") else False,
+        )
 
         await ChatMessage.objects.acreate(chat=chat, role=ChatRole.USER, content=prompt)
         await ChatMessage.objects.acreate(chat=chat, role=ChatRole.ASSISTANT, content=response)
@@ -172,7 +187,11 @@ async def chat_update_view(request: AuthenticatedHttpRequest, pk: int) -> HttpRe
         "chats/_chat.html",
         {
             "chat": chat,
-            "chat_messages": [message async for message in chat.messages.all()],
+            "report": chat.report,
+            "chat_messages": [
+                message
+                async for message in chat.messages.exclude(role=ChatRole.SYSTEM).order_by("id")
+            ],
             "form": form,
         },
     )

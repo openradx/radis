@@ -1,5 +1,27 @@
 {% load crispy from crispy_forms_tags %}
+{% load bootstrap_icon from common_extras %}
 <div id="chat-with-form">
+  {% if report %}
+    <div class="card mb-3" x-data="{full: false}">
+      <div class="card-body">
+        <div class="d-flex flex-column gap-1">
+          <div class="clamp-3" :class="{'clamp-3': !full, 'pre-line': full}">{{ report.body }}</div>
+          <div class="d-flex justify-content-between gap-2">
+            <button type="button"
+                    class="btn btn-sm btn-link p-0 border-0"
+                    @click.prevent="full=true"
+                    x-show="!full">[Show full text]</button>
+            <button type="button"
+                    class="btn btn-sm btn-link p-0 border-0"
+                    @click.prevent="full=false"
+                    x-cloak
+                    x-show="full">[Collapse text]</button>
+            <a href="{% url 'report_detail' report.id %}" title="Report details">{% bootstrap_icon "box-arrow-in-down-right" %}</a>
+          </div>
+        </div>
+      </div>
+    </div>
+  {% endif %}
   {% if chat %}
     <div class="d-flex flex-column gap-3 mb-3">
       {% for message in chat_messages %}
@@ -28,7 +50,7 @@
   <form hx-post="{% if chat %}{% url 'chat_update' chat.id %}{% else %}{% url 'chat_create' %}{% endif %}"
         hx-target="#chat-with-form"
         hx-indicator="#loader"
-        hx-disabled-elt="textarea">
+        hx-disabled-elt="textarea, button">
     {% crispy form %}
   </form>
 </div>

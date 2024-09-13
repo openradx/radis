@@ -19,12 +19,14 @@ class AsyncChatClient:
         self,
         messages: Iterable[ChatCompletionMessageParam],
         max_tokens: int | None = None,
-        grammar: str = "",
+        yes_no_answer: bool = False,
     ) -> str:
-        log_msg = f"Sending messages to LLM:\n{messages}"
-        if grammar:
-            log_msg += f"\nUsing grammar: {grammar}"
-        logger.debug(log_msg)
+        logger.debug(f"Sending messages to LLM:\n{messages}")
+
+        grammar = ""
+        if yes_no_answer:
+            grammar = settings.CHAT_YES_NO_ANSWER_GRAMMAR
+            logger.debug(f"\nUsing grammar: {grammar}")
 
         completion = await self._client.chat.completions.create(
             model="unnecessary",
@@ -66,7 +68,7 @@ class AsyncChatClient:
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
             ],
-            grammar=settings.CHAT_YES_NO_ANSWER_GRAMMAR,
+            yes_no_answer=True,
         )
 
         if answer == "Yes":
