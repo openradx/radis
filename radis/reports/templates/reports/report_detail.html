@@ -1,4 +1,5 @@
 {% extends "reports/reports_layout.html" %}
+{% load bootstrap_icon from common_extras %}
 {% block heading %}
     <h4 class="mb-3">Report Details</h4>
 {% endblock heading %}
@@ -11,8 +12,13 @@
             </tr>
             <tr>
                 <th>Patient ID</th>
-                <td>
-                    <a href="{% url 'report_list' %}?patient_id={{ report.patient_id }}">{{ report.patient_id }}</a>
+                <td class="d-flex">
+                    <span class="me-3">{{ report.patient_id }}</span>
+                    <div class="d-flex gap-3">
+                        <a href="{% url 'report_list' %}?patient_id={{ report.patient_id }}&study_date_till={{ report.study_datetime|date:'Y-m-d' }}">{% bootstrap_icon "arrow-bar-left" %}</a>
+                        <a href="{% url 'report_list' %}?patient_id={{ report.patient_id }}">{% bootstrap_icon "arrows-expand-vertical" %}</a>
+                        <a href="{% url 'report_list' %}?patient_id={{ report.patient_id }}&study_date_from={{ report.study_datetime|date:'Y-m-d' }}">{% bootstrap_icon "arrow-bar-right" %}</a>
+                    </div>
                 </td>
             </tr>
             <tr>
