@@ -2,17 +2,14 @@ import logging
 from typing import Iterator, cast
 
 import pyparsing as pp
-from django.contrib.postgres.search import (SearchHeadline, SearchQuery,
-                                            SearchRank)
+from django.contrib.postgres.search import SearchHeadline, SearchQuery, SearchRank
 from django.db.models import F, Q
 
 from radis.search.site import Search, SearchFilters, SearchResult
-from radis.search.utils.query_parser import (BinaryNode, ParensNode, QueryNode,
-                                             TermNode, UnaryNode)
+from radis.search.utils.query_parser import BinaryNode, ParensNode, QueryNode, TermNode, UnaryNode
 
 from .models import ReportSearchVector
-from .utils.document_utils import (AnnotatedReportSearchVector,
-                                   document_from_pgsearch_response)
+from .utils.document_utils import AnnotatedReportSearchVector, document_from_pgsearch_response
 from .utils.language_utils import code_to_language
 
 logger = logging.getLogger(__name__)

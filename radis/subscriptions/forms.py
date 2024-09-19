@@ -1,10 +1,8 @@
 from typing import Any
 
 from betterforms.multiform import MultiForm
-from crispy_forms.bootstrap import Accordion, AccordionGroup
 from crispy_forms.helper import FormHelper
-from crispy_forms.layout import (HTML, Column, Div, Field, Fieldset, Layout,
-                                 Row, Submit)
+from crispy_forms.layout import HTML, Column, Div, Field, Fieldset, Layout, Row
 from django import forms
 
 from radis.core.constants import LANGUAGE_LABELS
@@ -43,7 +41,8 @@ class SubscriptionForm(forms.ModelForm):
 
         self.fields["provider"].widget = forms.Select(
             choices=sorted(
-                [("", "")] + [(provider.name, provider.name) for provider in retrieval_providers.values()]
+                [("", "")]
+                + [(provider.name, provider.name) for provider in retrieval_providers.values()]
             )
         )
         self.fields["language"].choices = [
@@ -135,9 +134,8 @@ class SubscriptionForm(forms.ModelForm):
                         css_class="col-8",
                     ),
                 ),
-            )
+            ),
         )
-
 
     def clean_age_from(self) -> int:
         age_from = self.cleaned_data["age_from"]
