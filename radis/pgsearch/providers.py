@@ -2,18 +2,17 @@ import logging
 from typing import Iterator, cast
 
 import pyparsing as pp
-from django.contrib.postgres.search import (
-    SearchHeadline,
-    SearchQuery,
-    SearchRank,
-)
+from django.contrib.postgres.search import (SearchHeadline, SearchQuery,
+                                            SearchRank)
 from django.db.models import F, Q
 
 from radis.search.site import Search, SearchFilters, SearchResult
-from radis.search.utils.query_parser import BinaryNode, ParensNode, QueryNode, TermNode, UnaryNode
+from radis.search.utils.query_parser import (BinaryNode, ParensNode, QueryNode,
+                                             TermNode, UnaryNode)
 
 from .models import ReportSearchVector
-from .utils.document_utils import AnnotatedReportSearchVector, document_from_pgsearch_response
+from .utils.document_utils import (AnnotatedReportSearchVector,
+                                   document_from_pgsearch_response)
 from .utils.language_utils import code_to_language
 
 logger = logging.getLogger(__name__)
@@ -52,7 +51,7 @@ def _build_query_string(node: QueryNode) -> str:
         raise ValueError(f"Unknown node type: {type(node)}")
 
 
-def _build_filter_query(filters: SearchFilters):
+def _build_filter_query(filters: SearchFilters) -> Q:
     fq = Q()
 
     # Apply hard filter criteria
@@ -156,4 +155,12 @@ def retrieve(search: Search) -> Iterator[str]:
         .values_list("report__document_id", flat=True)
     )
 
+    return results.iterator()
+
+
+def filter(filter: SearchFilters) -> Iterator[str]:
+    filter_query = _build_filter_query(filter)
+    results = ReportSearchVector.objects.filter(filter_query).values_list(
+        "report__document_id", flat=True
+    )
     return results.iterator()

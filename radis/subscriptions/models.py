@@ -9,6 +9,7 @@ from procrastinate.contrib.django import app
 from procrastinate.contrib.django.models import ProcrastinateJob
 
 from radis.core.models import AnalysisJob, AnalysisTask
+from radis.core.validators import validate_patient_sex
 from radis.reports.models import Language, Modality, Report
 
 
@@ -24,7 +25,7 @@ class Subscription(models.Model):
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="subscriptions"
     )
 
-    provider = models.CharField(max_length=100)
+    provider = models.CharField(max_length=100, blank=True)
     group = models.ForeignKey(Group, on_delete=models.CASCADE, related_name="+")
     patient_id = models.CharField(max_length=100, blank=True)
     query = models.CharField(max_length=200, blank=True)
@@ -34,7 +35,10 @@ class Subscription(models.Model):
     modalities = models.ManyToManyField(Modality, blank=True)
     study_description = models.CharField(max_length=200, blank=True)
     patient_sex = models.CharField(
-        max_length=1, blank=True, choices=[("", "All"), ("M", "Male"), ("F", "Female")]
+        max_length=1,
+        blank=True,
+        choices=[("", "All"), ("M", "Male"), ("F", "Female")],
+        validators=[validate_patient_sex],
     )
     age_from = models.IntegerField(null=True, blank=True)
     age_till = models.IntegerField(null=True, blank=True)

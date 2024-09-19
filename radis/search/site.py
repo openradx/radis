@@ -35,7 +35,7 @@ class SearchFilters:
     Attributes:
         - group (int): Filter reports that belong to the given group (normally the active group
           of the user)
-        - language (str): Filter reports that have the given language
+        - language (str | None): Filter reports that have the given language
         - modalities (list[str]): Filter reports that have at least one of the given modalities
         - study_date_from (date | None): Filter only reports from this date
         - study_date_till (date | None): Filter only reports until this date
@@ -47,7 +47,7 @@ class SearchFilters:
     """
 
     group: int  # TODO: Rename to group_id
-    language: str  # TODO: Rename to language_code
+    language: str = ""  # TODO: Rename to language_code
     modalities: list[str] = field(default_factory=list)
     study_date_from: date | None = None
     study_date_till: date | None = None

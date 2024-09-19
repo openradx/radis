@@ -47,7 +47,11 @@
         <i>Search Details</i>
         <dt class="col-sm-3">Search Provider</dt>
         <dd class="col-sm-9">
-            {{ subscription.provider }}
+            {% if subscription.provider %}
+                {{ subscription.provider }}
+            {% else %}
+                –
+            {% endif %}
         </dd>
         <dt class="col-sm-3">Search Query</dt>
         <dd class="col-sm-9">
@@ -57,7 +61,6 @@
                 –
             {% endif %}
         </dd>
-        <i>Filter Details</i>
         <dt class="col-sm-3">Language</dt>
         <dd class="col-sm-9">
             {% if subscription.language %}
@@ -66,6 +69,7 @@
                 –
             {% endif %}
         </dd>
+        <i>Filter Details</i>
         <dt class="col-sm-3">Modalities</dt>
         <dd class="col-sm-9">
             {% if subscription.modalities.count == 0 %}

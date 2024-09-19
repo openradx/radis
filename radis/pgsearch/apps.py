@@ -13,8 +13,9 @@ class PgSearchConfig(AppConfig):
 def register_app():
     from radis.rag.site import RetrievalProvider, register_retrieval_provider
     from radis.search.site import SearchProvider, register_search_provider
+    from radis.subscriptions.site import FilterProvider, register_filter_provider
 
-    from .providers import count, retrieve, search
+    from .providers import count, filter, retrieve, search
 
     register_search_provider(
         SearchProvider(
@@ -29,6 +30,14 @@ def register_app():
             name="PG Search",
             count=count,
             retrieve=retrieve,
+            max_results=None,
+        )
+    )
+
+    register_filter_provider(
+        FilterProvider(
+            name="PG Search",
+            filter=filter,
             max_results=None,
         )
     )
