@@ -28,6 +28,7 @@ class SubscriptionForm(forms.ModelForm):
             "age_from",
             "age_till",
             "patient_id",
+            "send_finished_mail",
         ]
         labels = {"patient_id": "Patient ID"}
         help_texts = {
@@ -82,6 +83,7 @@ class SubscriptionForm(forms.ModelForm):
             required=False,
             widget=forms.Textarea(attrs={"rows": 4}),
         )
+        self.fields["send_finished_mail"].label = "Notify me via mail on new reports"
 
         self.helper = FormHelper()
         self.helper.form_tag = False
@@ -89,8 +91,14 @@ class SubscriptionForm(forms.ModelForm):
 
     def build_layout(self):
         return Layout(
-            Row(
-                "name",
+            Fieldset(
+                "General",
+                Row(
+                    "name",
+                ),
+                Row(
+                    "send_finished_mail",
+                ),
             ),
             Fieldset(
                 "Search",

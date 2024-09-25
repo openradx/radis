@@ -49,6 +49,8 @@ class Subscription(models.Model):
     items: models.QuerySet["SubscribedItem"]
     questions: models.QuerySet["SubscriptionQuestion"]
 
+    send_finished_mail = models.BooleanField(default=False)
+
     class Meta:
         constraints = [
             UniqueConstraint(

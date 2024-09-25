@@ -124,6 +124,7 @@ def subscription_launcher(timestamp: int):
             status=SubscriptionJob.Status.PREPARING,
             owner=subscription.owner,
             owner_id=subscription.owner_id,
+            send_finished_mail=subscription.send_finished_mail,
         )
         job.save()
         transaction.on_commit(job.delay)
