@@ -29,7 +29,7 @@ class AsyncChatClient:
             logger.debug(f"\nUsing grammar: {grammar}")
 
         completion = await self._client.chat.completions.create(
-            model="unnecessary",
+            model="yes_no" if yes_no_answer else "lorem_ipsum",
             messages=messages,
             max_tokens=max_tokens,
             extra_body={"grammar": grammar},

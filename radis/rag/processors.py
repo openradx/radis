@@ -20,9 +20,13 @@ class RagTaskProcessor(AnalysisTaskProcessor):
         asyncio.run(self.process_task_async(task))
 
     async def process_task_async(self, task: RagTask) -> None:
-        language_code = task.job.language.code
         client = AsyncChatClient()
         sem = Semaphore(settings.RAG_LLM_CONCURRENCY_LIMIT)
+
+        task = await RagTask.objects.prefetch_related(
+            "job__language",
+        ).aget(pk=task.pk)
+        language_code = task.job.language.code
 
         await asyncio.gather(
             *[
