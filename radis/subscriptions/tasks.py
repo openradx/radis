@@ -3,8 +3,11 @@ from datetime import datetime
 from itertools import batched
 
 from django.conf import settings
+from django.core.mail import send_mail
 from django.db import transaction
+from django.template.loader import render_to_string
 from django.utils import timezone
+from django.utils.html import strip_tags
 from pebble import asynchronous
 from procrastinate.contrib.django import app
 
@@ -18,6 +21,36 @@ from .processors import SubscriptionTaskProcessor
 from .site import filter_providers
 
 logger = logging.getLogger(__name__)
+
+
+@app.task
+def send_summary_email(job_id: int) -> None:
+    logger.info("Summarizing subscription job %s", job_id)
+    job = SubscriptionJob.objects.prefetch_related("subscription", "subscription__items").get(
+        id=job_id
+    )
+    new_items = job.subscription.items.prefetch_related("report").filter(
+        created_at__gte=job.subscription.last_refreshed
+    )
+
+    if not new_items:
+        logger.info("No new items for job %s", job_id)
+        return
+
+    logger.info("Sending summary email for job %s", job_id)
+    html_content = render_to_string(
+        "subscriptions/mail/summary.html",
+        {"subscription": job.subscription, "new_items": new_items},
+    )
+    plain_content = strip_tags(html_content)
+
+    send_mail(
+        f"New reports for subscription {job.subscription.name}",
+        plain_content,
+        settings.DEFAULT_FROM_EMAIL,
+        [job.subscription.owner.email],
+        html_message=html_content,
+    )
 
 
 @app.task
@@ -96,6 +129,13 @@ def process_subscription_job(job_id: int) -> None:
             task.reports.add(Report.objects.get(document_id=document_id))
 
         task.delay()
+
+    if job.send_finished_mail:
+        app.configure_task(
+            "radis.subscriptions.tasks.send_summary_email",
+            allow_unknown=False,
+            priority=job.urgent_priority if job.urgent else job.default_priority,
+        ).defer(job_id=job_id)
 
     logger.debug("Starting SubscriptionTasks done.")
 
