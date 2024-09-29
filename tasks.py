@@ -4,7 +4,6 @@ from typing import Literal
 from adit_radis_shared import invoke_tasks
 from adit_radis_shared.invoke_tasks import (  # noqa: F401
     backup_db,
-    bump_version,
     format,
     init_workspace,
     lint,

@@ -13,7 +13,6 @@ https://docs.djangoproject.com/en/3.0/ref/settings/
 from pathlib import Path
 
 import environ
-import toml
 
 env = environ.Env()
 
@@ -23,14 +22,8 @@ BASE_DIR = Path(__file__).resolve(strict=True).parent.parent.parent
 # Used to monitor for autoreload
 SOURCE_FOLDERS = [BASE_DIR / "radis"]
 
-# Read pyproject.toml to fetch current version. We do this conditionally as the
-# RADIS client library uses RADIS for integration tests installed as a package
-# (where no pyproject.toml is available).
-if (BASE_DIR / "pyproject.toml").exists():
-    pyproject = toml.load(BASE_DIR / "pyproject.toml")
-    PROJECT_VERSION = pyproject["tool"]["poetry"]["version"]
-else:
-    PROJECT_VERSION = "???"
+# Fetch version from the environment which is passed through from the latest git version tag
+PROJECT_VERSION = env.str("PROJECT_VERSION", default="vX.Y.Z")  # type: ignore
 
 READ_DOT_ENV_FILE = env.bool("DJANGO_READ_DOT_ENV_FILE", default=False)  # type: ignore
 if READ_DOT_ENV_FILE:

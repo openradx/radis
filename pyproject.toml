@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "radis"
-version = "0.1.0"
+version = "0.0.0"
 description = "RADIS (Radiology Report Archive and Discovery System) is an application to archive, query and collect radiology reports."
 authors = ["medihack <kai.schlamp@gmail.com>"]
 license = "GPL-3.0-or-later"
@@ -37,7 +37,6 @@ procrastinate = { extras = ["django"], version = "^2.8.0" }
 psycopg = { extras = ["binary"], version = "^3.1.13" }
 pyparsing = "^3.1.2"
 python = ">=3.12,<4.0"
-toml = "^0.10.2"
 Twisted = { extras = ["tls", "http2"], version = "^24.3.0" }
 wait-for-it = "^2.2.2"
 watchfiles = "^0.24.0"
