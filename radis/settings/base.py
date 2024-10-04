@@ -25,11 +25,7 @@ SOURCE_FOLDERS = [BASE_DIR / "radis"]
 # Fetch version from the environment which is passed through from the latest git version tag
 PROJECT_VERSION = env.str("PROJECT_VERSION", default="vX.Y.Z")  # type: ignore
 
-READ_DOT_ENV_FILE = env.bool("DJANGO_READ_DOT_ENV_FILE", default=False)  # type: ignore
-if READ_DOT_ENV_FILE:
-    # OS environment variables take precedence over variables from .env
-    env.read_env(str(BASE_DIR / ".env"))
-
+# Needed by sites framework
 SITE_ID = 1
 
 # The following settings are stored in the Site model on startup initially (see common/apps.py).
