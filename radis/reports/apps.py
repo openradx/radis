@@ -11,10 +11,6 @@ class ReportsConfig(AppConfig):
 
 
 def init_db(**kwargs):
-    create_app_settings()
-
-
-def create_app_settings():
     from .models import ReportsAppSettings
 
     if not ReportsAppSettings.objects.exists():
