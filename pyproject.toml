@@ -3,7 +3,7 @@ name = "radis"
 version = "0.0.0"
 description = "RADIS (Radiology Report Archive and Discovery System) is an application to archive, query and collect radiology reports."
 authors = ["medihack <kai.schlamp@gmail.com>"]
-license = "GPL-3.0-or-later"
+license = "AGPL-3.0-or-later"
 
 [tool.poetry.dependencies]
 adit-radis-shared = { git = "https://github.com/openradx/adit-radis-shared.git", rev = "0.7.0" }
