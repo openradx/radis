@@ -53,7 +53,7 @@ def process_subscription_job(job_id: int) -> None:
         modalities=list(job.subscription.modalities.values_list("code", flat=True)),
         language=language_code,
         study_description=job.subscription.study_description,
-        patient_sex=job.subscription.patient_sex,  # type: ignore
+        patient_sex=job.subscription.patient_sex,
         patient_age_from=job.subscription.age_from,
         patient_age_till=job.subscription.age_till,
         created_after=job.subscription.last_refreshed,
