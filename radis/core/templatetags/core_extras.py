@@ -56,4 +56,4 @@ def url_abbreviation(url: str):
 @register.simple_tag
 def absolute_url(view_name: str, *args, **kwargs) -> str:
     url = reverse(view_name, args=args, kwargs=kwargs)
-    return f"{settings.SITE_BASE_URL}{url}"
+    return f"https://{settings.SITE_DOMAIN}{url}"

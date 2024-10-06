@@ -22,6 +22,7 @@ class RagJob(AnalysisJob):
     default_priority = settings.RAG_DEFAULT_PRIORITY
     urgent_priority = settings.RAG_URGENT_PRIORITY
     continuous_job = False
+    finished_mail_template = "rag/mail/finished_mail.html"
 
     queued_job_id: int | None
     queued_job = models.OneToOneField(

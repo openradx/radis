@@ -5,6 +5,7 @@ from adit_radis_shared.common.models import AppSettings
 from django.conf import settings
 from django.db import models
 from django.db.models.constraints import UniqueConstraint
+from django.urls import reverse
 from procrastinate.contrib.django import app
 from procrastinate.contrib.django.models import ProcrastinateJob
 
@@ -98,6 +99,7 @@ class SubscriptionJob(AnalysisJob):
     default_priority = settings.SUBSCRIPTION_DEFAULT_PRIORITY
     urgent_priority = settings.SUBSCRIPTION_URGENT_PRIORITY
     continuous_job = False
+    finished_mail_template = "subscriptions/mail/finished_mail.html"
 
     queued_job_id: int | None
     queued_job = models.OneToOneField(
@@ -107,8 +109,8 @@ class SubscriptionJob(AnalysisJob):
 
     tasks: models.QuerySet["SubscriptionTask"]
 
-    def __str__(self) -> str:
-        return f"SubscriptionJob [{self.pk}]"
+    def get_absolute_url(self) -> str:
+        return reverse("subscription_job_detail", args=[self.pk])
 
     def delay(self) -> None:
         queued_job_id = app.configure_task(
@@ -118,6 +120,12 @@ class SubscriptionJob(AnalysisJob):
         ).defer(job_id=self.pk)
         self.queued_job_id = queued_job_id
         self.save()
+
+    def get_mail_context(self) -> dict:
+        return {
+            "subscription": self.subscription,
+            "new_items": self.subscription.items.filter(created_at__gte=self.started_at),
+        }
 
 
 class SubscriptionTask(AnalysisTask):

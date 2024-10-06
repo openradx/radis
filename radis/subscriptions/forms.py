@@ -83,7 +83,7 @@ class SubscriptionForm(forms.ModelForm):
             required=False,
             widget=forms.Textarea(attrs={"rows": 4}),
         )
-        self.fields["send_finished_mail"].label = "Notify me via mail on new reports"
+        self.fields["send_finished_mail"].label = "Notify me via mail"
 
         self.helper = FormHelper()
         self.helper.form_tag = False
