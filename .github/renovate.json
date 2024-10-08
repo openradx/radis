@@ -6,17 +6,12 @@
     {
       "managers": ["docker-compose"],
       "matchPackageNames": ["postgres"],
-      "enabled": false
+      "allowedVersions": "<=16"
     },
     {
       "matchManagers": ["poetry"],
-      "matchPackageNames": ["adit-radis-shared", "pydicom"],
-      "enabled": false
-    },
-    {
-      "matchManagers": ["poetry"],
-      "matchPackageNames": ["python"],
-      "allowedVersions": "<3.13.0"
+      "matchPackageNames": ["pydicom"],
+      "allowedVersions": "<=2"
     }
   ]
 }
