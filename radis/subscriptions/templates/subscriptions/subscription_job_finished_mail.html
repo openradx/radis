@@ -1,4 +1,5 @@
 {% load core_extras %}
+{% load base_url from common_extras %}
 <h2>New reports for subscription '{{ subscription.name }}'</h2>
 <p>
     The subscription job of your subscription '{{ subscription.name }}' terminated with status {{ job.status.label }}: {{ job.message }}
@@ -8,11 +9,11 @@
     {% for subscribed_item in new_items %}
         <div>
             {% include "reports/_report_header.html" with report=subscribed_item.report %}
-            <a href="{% absolute_url 'report_detail' subscribed_item.report.id %}">View report</a>
+            <a href="{% base_url %}{% url 'report_detail' subscribed_item.report.id %}">View report</a>
         </div>
         <br>
     {% endfor %}
 {% endif %}
 <p>
-    Click <a href="{% absolute_url 'subscription_detail' subscription.id %}">here</a> to view and manage the subscription.
+    Click <a href="{% base_url %}{% url 'subscription_detail' subscription.id %}">here</a> to view and manage the subscription.
 </p>

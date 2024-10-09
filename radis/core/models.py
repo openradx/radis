@@ -127,21 +127,17 @@ class AnalysisJob(models.Model):
             # at least one of success, warnings or failures must be > 0
             raise AssertionError(f"Invalid task status of {self}.")
 
-        self.send_mail()
-
         self.ended_at = timezone.now()
         self.save()
 
+        if self.send_finished_mail:
+            self._send_job_finished_mail()
+
         return True
 
-    def send_mail(self) -> None:
-        if not self.send_finished_mail:
-            logger.debug("Skipping finished mail for job %s", self)
-            return
-
+    def _send_job_finished_mail(self) -> None:
         if not self.finished_mail_template:
-            logger.warning("No finished mail template for job %s", self)
-            return
+            raise ValueError("No finished mail template for job %s", self)
 
         logger.info("Sending finished mail for job %s", self)
         html_content = render_to_string(

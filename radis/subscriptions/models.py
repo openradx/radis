@@ -98,8 +98,7 @@ class SubscribedItem(models.Model):
 class SubscriptionJob(AnalysisJob):
     default_priority = settings.SUBSCRIPTION_DEFAULT_PRIORITY
     urgent_priority = settings.SUBSCRIPTION_URGENT_PRIORITY
-    continuous_job = False
-    finished_mail_template = "subscriptions/mail/finished_mail.html"
+    finished_mail_template = "subscriptions/subscription_job_finished_mail.html"
 
     queued_job_id: int | None
     queued_job = models.OneToOneField(
