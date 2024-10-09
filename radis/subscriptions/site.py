@@ -4,8 +4,7 @@ from radis.search.site import SearchFilters
 
 
 class FilterProvider(NamedTuple):
-    """
-    A class representing a filter provider.
+    """A class representing a filter provider.
 
     Attributes:
     - name (str): The name of the filter provider.

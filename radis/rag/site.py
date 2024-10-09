@@ -4,15 +4,14 @@ from radis.search.site import Search
 
 
 class RetrievalProvider(NamedTuple):
-    """
-    A class representing a retrieval provider.
+    """A class representing a retrieval provider.
 
     Attributes:
-    - name (str): The name of the retrieval provider.
-    - count (Callable[[RagSearch], int]): A function that counts the number of results for a search.
-    - retrieve (Callable[[RagSearch], Iterable[str]]): A function that retrieves the document IDs
+    - name: The name of the retrieval provider.
+    - count: A function that counts the number of results for a search.
+    - retrieve: A function that retrieves the document IDs
       for a search.
-    - max_results (int | None): The maximum number of results that can be retrieved by this
+    - max_results: The maximum number of results that can be retrieved by this
       provider, or None if there is no limit.
     """
 

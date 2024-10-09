@@ -43,4 +43,4 @@ RADIS is not a certified medical product. So use at your own risk.
 
 ## License
 
-- GPLv3
+- AGPLv3

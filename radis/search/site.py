@@ -33,17 +33,16 @@ class SearchFilters:
     """Search filters
 
     Attributes:
-        - group (int): Filter reports that belong to the given group (normally the active group
+        - group: Filter reports that belong to the given group (normally the active group
           of the user)
-        - language (str | None): Filter reports that have the given language
-        - modalities (list[str]): Filter reports that have at least one of the given modalities
-        - study_date_from (date | None): Filter only reports from this date
-        - study_date_till (date | None): Filter only reports until this date
-        - study_description (str): Filter only reports that have the given description
-          (partial match)
-        - patient_sex (Literal["M", "F"] | None): Filter only reports that have the given sex
-        - patient_age_from (int | None): Filter only reports where the patient is at least this age
-        - patient_age_till (int | None): Filter only reports where the patient is at most this age
+        - language: Filter reports that have the given language
+        - modalities: Filter reports that have at least one of the given modalities
+        - study_date_from: Filter only reports from this date
+        - study_date_till: Filter only reports until this date
+        - study_description: Filter only reports that have the given description (partial match)
+        - patient_sex: Filter only reports that have the given sex
+        - patient_age_from: Filter only reports where the patient is at least this age
+        - patient_age_till: Filter only reports where the patient is at most this age
     """
 
     group: int  # TODO: Rename to group_id
@@ -61,17 +60,16 @@ class SearchFilters:
 
 
 class Search(NamedTuple):
-    """
-    A class representing a search.
+    """A class representing a search.
 
     If both offset and limit are set to 0, then the search provider
     should return the most accurate total count it can calculate.
 
     Attributes:
-    - query (str): The query to search.
-    - filters (SearchFilters): The filters to apply to the search.
-    - offset (int): The offset of the search results.
-    - limit (int | None): The size limit of the search results.
+    - query: The query to search.
+    - filters: The filters to apply to the search.
+    - offset: The offset of the search results.
+    - limit: The size limit of the search results.
     """
 
     query: QueryNode
@@ -81,14 +79,13 @@ class Search(NamedTuple):
 
 
 class SearchProvider(NamedTuple):
-    """
-    A class representing a search provider.
+    """A class representing a search provider.
 
     Attributes:
-    - name (str): The name of the search provider.
-    - search (Callable[[Search], SearchResult]): The function that handles the search.
-    - max_results (int): The maximum number of results that can be fetched by a search.
-      Must be smaller than offset + limit when searching.
+    - name: The name of the search provider.
+    - search: The function that handles the search.
+    - max_results: The maximum number of results that can be fetched by a search.
+        Must be smaller than offset + limit when searching.
     """
 
     name: str
