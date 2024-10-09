@@ -2,7 +2,7 @@ from typing import Any
 
 from betterforms.multiform import MultiForm
 from crispy_forms.helper import FormHelper
-from crispy_forms.layout import HTML, Column, Div, Field, Layout, Row
+from crispy_forms.layout import HTML, Column, Div, Field, Fieldset, Layout, Row
 from django import forms
 
 from radis.core.constants import LANGUAGE_LABELS
@@ -28,6 +28,7 @@ class SubscriptionForm(forms.ModelForm):
             "age_from",
             "age_till",
             "patient_id",
+            "send_finished_mail",
         ]
         labels = {"patient_id": "Patient ID"}
         help_texts = {
@@ -41,7 +42,8 @@ class SubscriptionForm(forms.ModelForm):
 
         self.fields["provider"].widget = forms.Select(
             choices=sorted(
-                [(provider.name, provider.name) for provider in retrieval_providers.values()]
+                [("", "")]
+                + [(provider.name, provider.name) for provider in retrieval_providers.values()]
             )
         )
         self.fields["language"].choices = [  # type: ignore
@@ -77,6 +79,11 @@ class SubscriptionForm(forms.ModelForm):
                 }
             ),
         )
+        self.fields["study_description"] = forms.CharField(
+            required=False,
+            widget=forms.Textarea(attrs={"rows": 4}),
+        )
+        self.fields["send_finished_mail"].label = "Notify me via mail"
 
         self.helper = FormHelper()
         self.helper.form_tag = False
@@ -84,31 +91,59 @@ class SubscriptionForm(forms.ModelForm):
 
     def build_layout(self):
         return Layout(
-            Row(
-                Column(
+            Fieldset(
+                "General",
+                Row(
                     "name",
-                    "provider",
-                    "language",
-                    "query",
                 ),
-                Column(
-                    "patient_id",
-                    "modalities",
-                    "study_description",
-                    "patient_sex",
-                    RangeSlider("Patient age", "age_from", "age_till"),
-                    css_class="col-3",
+                Row(
+                    "send_finished_mail",
+                ),
+            ),
+            Fieldset(
+                "Search",
+                Row(
+                    "provider",
+                ),
+                Row(
+                    Column(
+                        "query",
+                        css_class="col-6",
+                    ),
+                    Column(
+                        "language",
+                        css_class="col-6",
+                    ),
+                ),
+            ),
+            Fieldset(
+                "Filters",
+                Row(
+                    Column(
+                        "patient_id",
+                        css_class="col-4",
+                    ),
+                    Column(
+                        "patient_sex",
+                        css_class="col-4",
+                    ),
+                    Column(
+                        RangeSlider("Patient age", "age_from", "age_till"),
+                        css_class="col-4",
+                    ),
+                ),
+                Row(
+                    Column(
+                        "modalities",
+                        css_class="col-4",
+                    ),
+                    Column(
+                        "study_description",
+                        css_class="col-8",
+                    ),
                 ),
             ),
         )
-
-    def clean_provider(self) -> str:
-        provider = self.cleaned_data["provider"]
-        if not provider:
-            raise forms.ValidationError(
-                "Setup of RADIS is incomplete. No retrieval providers are registered."
-            )
-        return provider
 
     def clean_age_from(self) -> int:
         age_from = self.cleaned_data["age_from"]
@@ -128,6 +163,13 @@ class SubscriptionForm(forms.ModelForm):
 
         if age_from is not None and age_till is not None and age_from >= age_till:
             raise forms.ValidationError("Age from must be less than age till")
+
+        provider = self.cleaned_data["provider"]
+        query = self.cleaned_data["query"]
+        if query != "" and not provider:
+            raise forms.ValidationError(
+                "Setup of RADIS is incomplete. No retrieval providers are registered."
+            )
 
         return super().clean()
 

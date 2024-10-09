@@ -26,7 +26,7 @@ class SubscriptionTaskProcessor(AnalysisTaskProcessor):
 
         asyncio.run(self.process_task_async(task, active_group))
 
-    async def process_task_async(self, task: SubscriptionTask, active_group: Group) -> None:
+    async def process_task_async(self, task: SubscriptionTask, active_group: Group | None) -> None:
         client = AsyncChatClient()
         sem = Semaphore(settings.RAG_LLM_CONCURRENCY_LIMIT)
 
@@ -48,19 +48,23 @@ class SubscriptionTaskProcessor(AnalysisTaskProcessor):
         sem: Semaphore,
         client: AsyncChatClient,
     ) -> None:
-        async with sem:
-            results: List[RagResult] = await asyncio.gather(
-                *[
-                    self.process_yes_or_no_question(report.body, question, client)
-                    async for question in questions
-                ]
-            )
+        num_questions = await questions.acount()
+        if num_questions > 0:
+            async with sem:
+                results: List[RagResult] = await asyncio.gather(
+                    *[
+                        self.process_yes_or_no_question(report.body, question, client)
+                        async for question in questions
+                    ]
+                )
 
-        overall_result = (
-            RagResult.ACCEPTED
-            if all([result == RagResult.ACCEPTED for result in results])
-            else RagResult.REJECTED
-        )
+            overall_result = (
+                RagResult.ACCEPTED
+                if all([result == RagResult.ACCEPTED for result in results])
+                else RagResult.REJECTED
+            )
+        else:
+            overall_result = RagResult.ACCEPTED
 
         if overall_result == RagResult.ACCEPTED:
             await SubscribedItem.objects.acreate(

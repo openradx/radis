@@ -1,11 +1,17 @@
+import logging
 from typing import Callable
 
 from django.conf import settings
+from django.core.mail import send_mail
 from django.db import models
+from django.template.loader import render_to_string
 from django.utils import timezone
+from django.utils.html import strip_tags
 from procrastinate.contrib.django.models import ProcrastinateJob
 
 from radis.core.utils.model_utils import reset_tasks
+
+logger = logging.getLogger(__name__)
 
 
 class AnalysisJob(models.Model):
@@ -34,6 +40,7 @@ class AnalysisJob(models.Model):
     )
     urgent = models.BooleanField(default=False)
     send_finished_mail = models.BooleanField(default=False)
+    finished_mail_template: str | None
     message = models.TextField(blank=True, default="")
     created_at = models.DateTimeField(auto_now_add=True)
     started_at = models.DateTimeField(null=True, blank=True)
@@ -120,10 +127,42 @@ class AnalysisJob(models.Model):
             # at least one of success, warnings or failures must be > 0
             raise AssertionError(f"Invalid task status of {self}.")
 
+        self.send_mail()
+
         self.ended_at = timezone.now()
         self.save()
 
         return True
+
+    def send_mail(self) -> None:
+        if not self.send_finished_mail:
+            logger.debug("Skipping finished mail for job %s", self)
+            return
+
+        if not self.finished_mail_template:
+            logger.warning("No finished mail template for job %s", self)
+            return
+
+        logger.info("Sending finished mail for job %s", self)
+        html_content = render_to_string(
+            self.finished_mail_template,
+            {
+                "job": self,
+                **self.get_mail_context(),
+            },
+        )
+        plain_content = strip_tags(html_content)
+        send_mail(
+            f"Job {self} finished",
+            plain_content,
+            settings.DEFAULT_FROM_EMAIL,
+            [self.owner.email],
+            html_message=html_content,
+        )
+        logger.info("Finished mail for job %s sent", self)
+
+    def get_mail_context(self) -> dict:
+        return {}
 
     @property
     def is_preparing(self) -> bool:

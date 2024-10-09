@@ -3,6 +3,7 @@ import re
 
 from django.conf import settings
 from django.template import Library
+from django.urls import reverse
 
 from ..models import AnalysisJob, AnalysisTask
 
@@ -50,3 +51,9 @@ def analysis_task_status_css_class(status: AnalysisTask.Status) -> str:
 def url_abbreviation(url: str):
     abbr = re.sub(r"^(https?://)?(www.)?", "", url)
     return abbr[:5]
+
+
+@register.simple_tag
+def absolute_url(view_name: str, *args, **kwargs) -> str:
+    url = reverse(view_name, args=args, kwargs=kwargs)
+    return f"https://{settings.SITE_DOMAIN}{url}"

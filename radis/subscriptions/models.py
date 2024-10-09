@@ -5,10 +5,12 @@ from adit_radis_shared.common.models import AppSettings
 from django.conf import settings
 from django.db import models
 from django.db.models.constraints import UniqueConstraint
+from django.urls import reverse
 from procrastinate.contrib.django import app
 from procrastinate.contrib.django.models import ProcrastinateJob
 
 from radis.core.models import AnalysisJob, AnalysisTask
+from radis.core.validators import validate_patient_sex
 from radis.reports.models import Language, Modality, Report
 
 
@@ -24,7 +26,7 @@ class Subscription(models.Model):
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="subscriptions"
     )
 
-    provider = models.CharField(max_length=100)
+    provider = models.CharField(max_length=100, blank=True)
     group = models.ForeignKey(Group, on_delete=models.CASCADE, related_name="+")
     patient_id = models.CharField(max_length=100, blank=True)
     query = models.CharField(max_length=200, blank=True)
@@ -34,7 +36,10 @@ class Subscription(models.Model):
     modalities = models.ManyToManyField(Modality, blank=True)
     study_description = models.CharField(max_length=200, blank=True)
     patient_sex = models.CharField(
-        max_length=1, blank=True, choices=[("", "All"), ("M", "Male"), ("F", "Female")]
+        max_length=1,
+        blank=True,
+        choices=[("", "All"), ("M", "Male"), ("F", "Female")],
+        validators=[validate_patient_sex],
     )
     age_from = models.IntegerField(null=True, blank=True)
     age_till = models.IntegerField(null=True, blank=True)
@@ -44,6 +49,8 @@ class Subscription(models.Model):
 
     items: models.QuerySet["SubscribedItem"]
     questions: models.QuerySet["SubscriptionQuestion"]
+
+    send_finished_mail = models.BooleanField(default=False)
 
     class Meta:
         constraints = [
@@ -92,6 +99,7 @@ class SubscriptionJob(AnalysisJob):
     default_priority = settings.SUBSCRIPTION_DEFAULT_PRIORITY
     urgent_priority = settings.SUBSCRIPTION_URGENT_PRIORITY
     continuous_job = False
+    finished_mail_template = "subscriptions/mail/finished_mail.html"
 
     queued_job_id: int | None
     queued_job = models.OneToOneField(
@@ -101,8 +109,8 @@ class SubscriptionJob(AnalysisJob):
 
     tasks: models.QuerySet["SubscriptionTask"]
 
-    def __str__(self) -> str:
-        return f"SubscriptionJob [{self.pk}]"
+    def get_absolute_url(self) -> str:
+        return reverse("subscription_job_detail", args=[self.pk])
 
     def delay(self) -> None:
         queued_job_id = app.configure_task(
@@ -112,6 +120,12 @@ class SubscriptionJob(AnalysisJob):
         ).defer(job_id=self.pk)
         self.queued_job_id = queued_job_id
         self.save()
+
+    def get_mail_context(self) -> dict:
+        return {
+            "subscription": self.subscription,
+            "new_items": self.subscription.items.filter(created_at__gte=self.started_at),
+        }
 
 
 class SubscriptionTask(AnalysisTask):

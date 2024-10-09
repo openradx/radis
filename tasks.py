@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Literal
 
 from adit_radis_shared import invoke_tasks
 from adit_radis_shared.invoke_tasks import (  # noqa: F401
@@ -29,13 +30,11 @@ def compose_up(
     ctx: Context,
     env: invoke_tasks.Environments = "dev",
     no_build: bool = False,
-    gpu: bool = False,
+    profile: Literal["cpu", "gpu", "mock"] = "cpu",
 ):
     """Start containers in specified environment"""
-    if gpu:
-        profiles = ["gpu"]
-    else:
-        profiles = ["cpu"]
+    assert profile in ["cpu", "gpu", "mock"]
+    profiles = [profile]
 
     invoke_tasks.compose_up(ctx, env=env, no_build=no_build, profile=profiles)
 
@@ -47,4 +46,4 @@ def compose_down(
     cleanup: bool = False,
 ):
     """Stop containers in specified environment"""
-    invoke_tasks.compose_down(ctx, env=env, cleanup=cleanup, profile=["cpu", "gpu"])
+    invoke_tasks.compose_down(ctx, env=env, cleanup=cleanup, profile=["cpu", "gpu", "mock"])

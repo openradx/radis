@@ -28,6 +28,7 @@ class SearchForm(forms.ModelForm):
             "patient_sex",
             "age_from",
             "age_till",
+            "send_finished_mail",
         ]
         help_texts = {
             "title": "Title of the RAG job",
@@ -77,6 +78,7 @@ class SearchForm(forms.ModelForm):
                 }
             ),
         )
+        self.fields["send_finished_mail"].label = "Notify me via mail"
 
         self.helper = FormHelper()
         self.helper.form_tag = False
@@ -87,6 +89,7 @@ class SearchForm(forms.ModelForm):
             Row(
                 Column(
                     "title",
+                    "send_finished_mail",
                     "provider",
                     "query",
                     Submit("next", "Next Step (Questions)", css_class="btn-primary"),

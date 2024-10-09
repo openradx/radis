@@ -17,23 +17,27 @@
           x-data="QuestionsForm($el)">
         {% csrf_token %}
         {% crispy form.subscription %}
-        <div class="mb-2">
-            {{ form.questions.management_form }}
-            <template>
-                {% crispy form.questions.empty_form form.questions.form.helper %}
-            </template>
-            <div id="questions-formset" class="d-flex flex-column">
-                {% for question_form in form.questions %}
-                    {% crispy question_form form.questions.form.helper %}
-                {% endfor %}
+        <fieldset>
+            <legend>RAG Questions</legend>
+            <div class="mb-2">
+                {{ form.questions.management_form }}
+                <template>
+                    {% crispy form.questions.empty_form form.questions.form.helper %}
+                </template>
+                <div id="questions-formset" class="d-flex flex-column">
+                    {% for question_form in form.questions %}
+                        {% crispy question_form form.questions.form.helper %}
+                    {% endfor %}
+                </div>
+                <button type="button"
+                        name="add-question"
+                        value="add-question"
+                        class="btn btn-success"
+                        :class="{'d-none': questionsCount >= 3}"
+                        @click="addQuestion()">Add RAG question</button>
             </div>
-            <button type="button"
-                    name="add-question"
-                    value="add-question"
-                    class="btn btn-success"
-                    :class="{'d-none': questionsCount >= 3}"
-                    @click="addQuestion()">Add RAG question</button>
-        </div>
+        </fieldset>
+        <div class="my-4"></div>
         <div class="d-flex gap-2 ">
             <button type="submit" class="btn btn-primary">Update Subscription</button>
             <a href="{% url 'subscription_list' %}" class="btn btn-secondary">Cancel</a>

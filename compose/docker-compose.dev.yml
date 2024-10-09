@@ -83,6 +83,15 @@ services:
               capabilities: [gpu]
     profiles: ["gpu"]
 
+  llamacpp_mock:
+    <<: *llamacpp
+    image: ghcr.io/hummerichsander/llm_api_server_mock:latest
+    environment:
+      - CONTEXT_SIZE=512
+      - SLEEP_TIME=0
+      - MAX_CONCURRENT_REQUESTS=8
+    profiles: ["mock"]
+
   postgres:
     environment:
       POSTGRES_PASSWORD: "postgres"
