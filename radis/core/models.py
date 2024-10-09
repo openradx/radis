@@ -28,7 +28,6 @@ class AnalysisJob(models.Model):
 
     default_priority: int
     urgent_priority: int
-    continuous_job: bool
 
     status = models.CharField(max_length=2, choices=Status.choices, default=Status.UNVERIFIED)
     get_status_display: Callable[[], str]
@@ -97,11 +96,6 @@ class AnalysisJob(models.Model):
             self.status = AnalysisJob.Status.CANCELED
             self.save()
             return False
-
-        if self.continuous_job:
-            self.status = AnalysisJob.Status.PENDING
-            self.save()
-            return True
 
         # Job is finished and we evaluate its final status
         has_success = self.tasks.filter(status=AnalysisTask.Status.SUCCESS).exists()
