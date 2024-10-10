@@ -1,5 +1,4 @@
 from pathlib import Path
-from typing import Literal
 
 from adit_radis_shared import invoke_tasks
 from adit_radis_shared.invoke_tasks import (  # noqa: F401
@@ -30,11 +29,13 @@ def compose_up(
     ctx: Context,
     env: invoke_tasks.Environments = "dev",
     no_build: bool = False,
-    profile: Literal["cpu", "gpu", "mock"] = "cpu",
+    gpu: bool = False,
 ):
     """Start containers in specified environment"""
-    assert profile in ["cpu", "gpu", "mock"]
-    profiles = [profile]
+    if gpu:
+        profiles = ["gpu"]
+    else:
+        profiles = ["cpu"]
 
     invoke_tasks.compose_up(ctx, env=env, no_build=no_build, profile=profiles)
 
