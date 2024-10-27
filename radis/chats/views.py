@@ -16,6 +16,7 @@ from django_tables2 import RequestConfig
 from openai.types.chat import ChatCompletionMessageParam
 
 from radis.chats.forms import CreateChatForm, PromptForm
+from radis.chats.grammars import FreeTextGrammar, YesNoGrammar
 from radis.chats.tables import ChatTable
 from radis.reports.models import Report
 
@@ -70,7 +71,7 @@ async def chat_create_view(request: AuthenticatedHttpRequest) -> HttpResponse:
                     {"role": "system", "content": instructions_system_prompt},
                     {"role": "user", "content": user_prompt},
                 ],
-                yes_no_answer=True if request.POST.get("yes_no_answer") else False,
+                grammar=YesNoGrammar if request.POST.get("yes_no_answer") else FreeTextGrammar,
             )
 
             # Generate a title for the chat
@@ -84,6 +85,7 @@ async def chat_create_view(request: AuthenticatedHttpRequest) -> HttpResponse:
                     {"role": "user", "content": user_prompt},
                 ],
                 max_tokens=20,
+                grammar=FreeTextGrammar,
             )
             title = title.strip().rstrip(string.punctuation)[:100]
 
@@ -174,7 +176,7 @@ async def chat_update_view(request: AuthenticatedHttpRequest, pk: int) -> HttpRe
         client = AsyncChatClient()
         response = await client.send_messages(
             messages,
-            yes_no_answer=True if request.POST.get("yes_no_answer") else False,
+            grammar=YesNoGrammar if request.POST.get("yes_no_answer") else FreeTextGrammar,
         )
 
         await ChatMessage.objects.acreate(chat=chat, role=ChatRole.USER, content=prompt)

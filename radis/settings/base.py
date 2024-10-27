@@ -315,49 +315,82 @@ CHAT_GENERAL_SYSTEM_PROMPT = """
 You are an AI medical assistant with extensive knowledge in radiology and general medicine.
 You have been trained on a wide range of medical literature, including the latest research
 and guidelines in radiological practices.
-Provide concise, well-structured answers using appropriate medical terminology.
-Use headers to organize information when necessary. Include relevant anatomical details,
-imaging modalities, and diagnostic considerations where applicable.
-Base your responses on current, peer-reviewed medical literature and established radiological
-guidelines. If there are conflicting views or ongoing debates in the field, acknowledge them
-briefly.
+"""
+
+CHAT_QUESTION_SYSTEM_PROMPT = """
+$grammar_instructions
+"""
+
+CHAT_QUESTION_USER_PROMPT = """
+$question
 """
 
 CHAT_REPORT_QUESTION_SYSTEM_PROMPT = """
-You are an AI medical assistant with extensive knowledge in radiology and general medicine.
-You have been trained on a wide range of medical literature, including the latest research
-and guidelines in radiological practices. You will be asked questions about a radiological
-report that you have to answer those questions. The report and each question can be given
-in any language.
-Provide concise, well-structured answers in the same language used in the question. Do use
-appropriate medical terminology. Use headers to organize information when necessary. Include
-relevant anatomical details, imaging modalities, and diagnostic considerations where applicable.
-Base your responses on current, peer-reviewed medical literature and established radiological
-guidelines. If there are conflicting views or ongoing debates in the field, acknowledge them
-briefly.
+You will be asked questions about a radiological report that you have to answer those questions.
+The report and each question can be given in any language.
+$grammar_instructions
 
 Report: $report
 """
 
-CHAT_REPORT_YES_NO_QUESTION_SYSTEM_PROMPT = """
-You are an AI medical assistant with extensive knowledge in radiology and general medicine.
-You have been trained on a wide range of medical literature, including the latest research
-and guidelines in radiological practices. You will be asked questions about a radiological
-report that you have to answer those questions. The report and each question can be given
-in any language. Answer each question in English faithfully with "Yes" or "No".
-
-Report: $report
-"""
 
 CHAT_REPORT_QUESTION_USER_PROMPT = """
 Question: $question
 Answer:
 """
 
-CHAT_YES_NO_ANSWER_GRAMMAR = """
+CHAT_FREE_TEXT_GRAMMAR = None
+
+CHAT_YES_NO_GRAMMAR = """
 root ::= Answer
 Answer ::= "Yes" | "No"
 """
+
+CHAT_INT_GRAMMAR = """
+root ::= Answer
+Answer ::= [-]? NonZeroDigit Digit{0,18}
+NonZeroDigit ::= "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9"
+Digit ::= "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9"
+"""
+
+CHAT_FLOAT_GRAMMAR = """
+root ::= Answer
+Answer ::= [-]? IntegerPart "." FractionPart
+IntegerPart ::= NonZeroDigit Digit{0,7}
+FractionPart ::= Digit{1,7}
+NonZeroDigit ::= "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9"
+Digit ::= "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9"
+"""
+
+CHAT_DATE_GRAMMAR = """
+root ::= Answer
+Answer ::= Day "/" Month "/" Year
+Day ::= "01" | "02" | "03" | "04" | "05" | "06" | "07" | "08" | "09" | "10" | "11" | "12" | "13" | "14" | "15" | "16" | "17" | "18" | "19" | "20" | "21" | "22" | "23" | "24" | "25" | "26" | "27" | "28" | "29" | "30" | "31"
+Month ::= "01" | "02" | "03" | "04" | "05" | "06" | "07" | "08" | "09" | "10" | "11" | "12"
+Year ::= Digit Digit Digit Digit
+Digit ::= "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9"
+"""  # noqa
+
+CHAT_TIME_GRAMMAR = """
+root ::= Answer"
+Answer ::= Hour ":" Minute
+Hour ::= "00" | "01" | "02" | "03" | "04" | "05" | "06" | "07" | "08" | "09" | "10" | "11" | "12" | "13" | "14" | "15" | "16" | "17" | "18" | "19" | "20" | "21" | "22" | "23"
+Minute ::= "00" | "01" | "02" | "03" | "04" | "05" | "06" | "07" | "08" | "09" | "10" | "11" | "12" | "13" | "14" | "15" | "16" | "17" | "18" | "19" | "20" | "21" | "22" | "23" | "24" | "25" | "26" | "27" | "28" | "29" | "30" | "31" | "32" | "33" | "34" | "35" | "36" | "37" | "38" | "39" | "40" | "41" | "42" | "43" | "44" | "45" | "46" | "47" | "48" | "49" | "50" | "51" | "52" | "53" | "54" | "55" | "56" | "57" | "58" | "59"
+"""  # noqa
+
+CHAT_DATETIME_GRAMMAR = """
+root ::= Answer
+Answer ::= Date " " Time
+Date ::= Day "/" Month "/" Year
+Day ::= "01" | "02" | "03" | "04" | "05" | "06" | "07" | "08" | "09" | "10" | "11" | "12" | "13" | "14" | "15" | "16" | "17" | "18" | "19" | "20" | "21" | "22" | "23" | "24" | "25" | "26" | "27" | "28" | "29" | "30" | "31"
+Month ::= "01" | "02" | "03" | "04" | "05" | "06" | "07" | "08" | "09" | "10" | "11" | "12"
+Year ::= Digit Digit Digit Digit
+Digit ::= "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9"
+Time ::= Hour ":" Minute
+Hour ::= "00" | "01" | "02" | "03" | "04" | "05" | "06" | "07" | "08" | "09" | "10" | "11" | "12" | "13" | "14" | "15" | "16" | "17" | "18" | "19" | "20" | "21" | "22" | "23"
+Minute ::= "00" | "01" | "02" | "03" | "04" | "05" | "06" | "07" | "08" | "09" | "10" | "11" | "12" | "13" | "14" | "15" | "16" | "17" | "18" | "19" | "20" | "21" | "22" | "23" | "24" | "25" | "26" | "27" | "28" | "29" | "30" | "31" | "32" | "33" | "34" | "35" | "36" | "37" | "38" | "39" | "40" | "41" | "42" | "43" | "44" | "45" | "46" | "47" | "48" | "49" | "50" | "51" | "52" | "53" | "54" | "55" | "56" | "57" | "58" | "59"
+"""  # noqa
+
 
 # RAG
 RAG_DEFAULT_PRIORITY = 2

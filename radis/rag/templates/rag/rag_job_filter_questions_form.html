@@ -1,0 +1,78 @@
+{% extends "rag/rag_layout.html" %}
+{% load crispy from crispy_forms_tags %}
+{% load bootstrap_icon from common_extras %}
+{% block title %}
+    New RAG Job
+{% endblock title %}
+{% block heading %}
+    <div class="d-flex justify-content-between align-items-start">
+        <h4 class="mb-3 d-flex gap-3">
+            <span>Filter Questions</span>
+            <button type="button"
+                    class="btn btn-sm btn-info align-baseline"
+                    hx-get="{% url 'rag_help' %}"
+                    hx-target="#htmx-dialog">
+                Help
+                {% bootstrap_icon "question-circle" %}
+            </button>
+        </h4>
+        <a href="{% url 'rag_job_list' %}">
+            {% bootstrap_icon "list" %}
+            Previous Jobs
+        </a>
+    </div>
+{% endblock heading %}
+{% block content %}
+    <div class="row">
+        <div class="col-8">
+            <form action="" method="post" x-data="QuestionsForm($el)">
+                {% csrf_token %}
+                {{ wizard.management_form }}
+                <template>
+                    {% crispy form.empty_form helper %}
+                </template>
+                <div id="questions-formset" class="d-flex flex-column">{% crispy form helper %}</div>
+                <div class="d-flex justify-content-between">
+                    <div class="d-flex gap-2">
+                        <button type="submit"
+                                name="wizard_goto_step"
+                                value="{{ wizard.steps.prev }}"
+                                class="btn btn-secondary">Previous Step (Search)</button>
+                        <button name="create" type="submit" class="btn btn-primary">Next Step (Analysis Questions)</button>
+                    </div>
+                    <button type="button"
+                            name="add-question"
+                            value="add-question"
+                            class="btn btn-success"
+                            :class="{'d-none': questionsCount >= 3}"
+                            @click="addQuestion()">Add question</button>
+                </div>
+            </form>
+        </div>
+        <div class="col-4">
+            {% if fixed_query %}
+                <div class="alert alert-warning" role="alert">
+                    Fixed invalid query, instead using:
+                    <br />
+                    <span class="font-monospace">{{ fixed_query }}</span>
+                </div>
+            {% endif %}
+            <p>
+                {% if provider.max_results and retrieval_count > provider.max_results %}
+                    Cave! Your search returns more results ({{ retrieval_count }}) than the RAG pipeline can process ({{ provider.max_results }}).
+                    It is recommended to adjust your query and/or filters in the previous step to retrieve a smaller result set.
+                {% else %}
+                    Your search will hit approximately <strong>{{ retrieval_count }} report{{ retrieval_count|pluralize }}</strong>.
+                    The more reports you analyze the longer it will take. If you like to refine your search you can go back to
+                    the previous step and adjust the query and/or filters.
+                {% endif %}
+            </p>
+            <p>
+                If the result count sounds reasonable then provide the questions that should be answered by a
+                large language model. You can also provide context with your question, like:
+                <br />
+                <em>GBM is an abbrevation for Glioblastoma. Does the patient have a GBM?</em>
+            </p>
+        </div>
+    </div>
+{% endblock content %}

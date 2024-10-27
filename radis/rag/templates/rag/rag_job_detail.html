@@ -98,8 +98,8 @@
             {% endif %}
         </dd>
     </dl>
-    <h5>Questions</h5>
-    {% for question in job.questions.all %}
+    <h5>Filter Questions</h5>
+    {% for question in job.filter_questions.all %}
         <dl class="row">
             <dt class="col-sm-3">Question</dt>
             <dd class="col-sm-9">
@@ -108,6 +108,15 @@
             <dt class="col-sm-3">Accepted Answer</dt>
             <dd class="col-sm-9">
                 {{ question.get_accepted_answer_display }}
+            </dd>
+        </dl>
+    {% endfor %}
+    <h5>Analysis Questions</h5>
+    {% for question in job.analysis_questions.all %}
+        <dl class="row">
+            <dt class="col-sm-3">Question</dt>
+            <dd class="col-sm-9">
+                {{ question.question }} &nbsp; &nbsp; <span class="badge bg-secondary">{{ question.get_grammar_display_name }}</span>
             </dd>
         </dl>
     {% endfor %}

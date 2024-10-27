@@ -1,10 +1,16 @@
 import logging
 from string import Template
-from typing import Iterable, Literal
+from typing import Iterable, Type
 
 import openai
 from django.conf import settings
-from openai.types.chat import ChatCompletionMessageParam
+from openai.types.chat import (
+    ChatCompletionMessageParam,
+    ChatCompletionSystemMessageParam,
+    ChatCompletionUserMessageParam,
+)
+
+from radis.chats.grammars import Grammar
 
 logger = logging.getLogger(__name__)
 
@@ -18,46 +24,63 @@ class AsyncChatClient:
     async def send_messages(
         self,
         messages: Iterable[ChatCompletionMessageParam],
+        grammar: Type[Grammar],
         max_tokens: int | None = None,
-        yes_no_answer: bool = False,
     ) -> str:
-        logger.debug(f"Sending messages to LLM:\n{messages}")
+        messages = [
+            ChatCompletionSystemMessageParam(
+                role="system", content=settings.CHAT_GENERAL_SYSTEM_PROMPT
+            ),
+            *messages,
+        ]
 
-        grammar = ""
-        if yes_no_answer:
-            grammar = settings.CHAT_YES_NO_ANSWER_GRAMMAR
-            logger.debug(f"\nUsing grammar: {grammar}")
+        logger.debug(f"Sending messages to LLM:\n{messages}")
+        logger.debug(f"Using grammar: {grammar.human_readable_name}")
 
         completion = await self._client.chat.completions.create(
             model="option_for_local_llm_not_needed",
             messages=messages,
             max_tokens=max_tokens,
-            extra_body={"grammar": grammar},
+            extra_body={"grammar": grammar.grammar},
         )
+
         answer = completion.choices[0].message.content
         assert answer is not None
+        answer = grammar.validate(answer)
         logger.debug("Received from LLM: %s", answer)
 
         return answer
 
-    async def ask_report_question(self, context: str, question: str) -> str:
-        system_prompt = Template(settings.CHAT_REPORT_QUESTION_SYSTEM_PROMPT).substitute(
-            {"report": context}
+    async def ask_question(
+        self,
+        question: str,
+        grammar: Type[Grammar],
+    ) -> str:
+        system_prompt_str = Template(settings.CHAT_QUESTION_SYSTEM_PROMPT).substitute(
+            {"grammar_instructions": grammar.llm_instruction}
         )
-        user_prompt = Template(settings.CHAT_REPORT_QUESTION_USER_PROMPT).substitute(
+        user_prompt_str = Template(settings.CHAT_QUESTION_USER_PROMPT).substitute(
             {"question": question}
         )
 
-        return await self.send_messages(
+        answer = await self.send_messages(
             [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
+                ChatCompletionSystemMessageParam(role="system", content=system_prompt_str),
+                ChatCompletionUserMessageParam(role="user", content=user_prompt_str),
             ],
+            grammar=grammar,
         )
 
-    async def ask_report_yes_no_question(self, context: str, question: str) -> Literal["yes", "no"]:
-        system_prompt = Template(settings.CHAT_REPORT_YES_NO_QUESTION_SYSTEM_PROMPT).substitute(
-            {"report": context}
+        return answer
+
+    async def ask_report_question(
+        self,
+        context: str,
+        question: str,
+        grammar: Type[Grammar],
+    ) -> str:
+        system_prompt = Template(settings.CHAT_REPORT_QUESTION_SYSTEM_PROMPT).substitute(
+            grammar_instructions=grammar.llm_instruction, report=context
         )
         user_prompt = Template(settings.CHAT_REPORT_QUESTION_USER_PROMPT).substitute(
             {"question": question}
@@ -65,15 +88,10 @@ class AsyncChatClient:
 
         answer = await self.send_messages(
             [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
+                ChatCompletionSystemMessageParam(role="system", content=system_prompt),
+                ChatCompletionUserMessageParam(role="user", content=user_prompt),
             ],
-            yes_no_answer=True,
+            grammar=grammar,
         )
 
-        if answer == "Yes":
-            return "yes"
-        elif answer == "No":
-            return "no"
-        else:
-            raise ValueError(f"Unexpected answer: {answer}")
+        return answer

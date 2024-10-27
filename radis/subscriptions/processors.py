@@ -10,6 +10,7 @@ from django import db
 from django.conf import settings
 from django.db.models import QuerySet
 
+from radis.chats.grammars import YesNoGrammar
 from radis.chats.utils.chat_client import AsyncChatClient
 from radis.core.processors import AnalysisTaskProcessor
 from radis.reports.models import Report
@@ -53,7 +54,7 @@ class SubscriptionTaskProcessor(AnalysisTaskProcessor):
             async with sem:
                 results: List[RagResult] = await asyncio.gather(
                     *[
-                        self.process_yes_or_no_question(report.body, question, client)
+                        self.process_filter_question(report.body, question, client)
                         async for question in questions
                     ]
                 )
@@ -74,20 +75,19 @@ class SubscriptionTaskProcessor(AnalysisTaskProcessor):
 
         logger.debug(f"Report {report.pk} processed with result {overall_result}")
 
-    async def process_yes_or_no_question(
+    async def process_filter_question(
         self,
         report_body: str,
         question: SubscriptionQuestion,
         client: AsyncChatClient,
     ) -> RagResult:
-        llm_answer = await client.ask_report_yes_no_question(report_body, question.question)
+        llm_answer = await client.ask_report_question(
+            context=report_body,
+            question=question.question,
+            grammar=YesNoGrammar,
+        )
 
-        if llm_answer == "yes":
-            answer = Answer.YES
-        elif llm_answer == "no":
-            answer = Answer.NO
-        else:
-            raise ValueError(f"Invalid answer from LLM: {llm_answer}")
+        answer = Answer.YES if llm_answer == "yes" else Answer.NO
 
         rag_result = (
             RagResult.ACCEPTED if answer == question.accepted_answer else RagResult.REJECTED

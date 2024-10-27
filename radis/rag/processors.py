@@ -7,10 +7,19 @@ from django import db
 from django.conf import settings
 from django.db.models import Prefetch
 
+from radis.chats.grammars import YesNoGrammar, predefined_grammars
 from radis.chats.utils.chat_client import AsyncChatClient
 from radis.core.processors import AnalysisTaskProcessor
 
-from .models import Answer, Question, QuestionResult, RagInstance, RagTask
+from .models import (
+    AnalysisQuestion,
+    AnalysisQuestionResult,
+    Answer,
+    FilterQuestion,
+    FilterQuestionResult,
+    RagInstance,
+    RagTask,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -23,14 +32,9 @@ class RagTaskProcessor(AnalysisTaskProcessor):
         client = AsyncChatClient()
         sem = Semaphore(settings.RAG_LLM_CONCURRENCY_LIMIT)
 
-        task = await RagTask.objects.prefetch_related(
-            "job__language",
-        ).aget(pk=task.pk)
-        language_code = task.job.language.code
-
         await asyncio.gather(
             *[
-                self.process_rag_instance(rag_instance, language_code, client, sem)
+                self.process_rag_instance(rag_instance, client, sem)
                 async for rag_instance in task.rag_instances.prefetch_related(
                     Prefetch("report"), Prefetch("other_reports")
                 )
@@ -39,16 +43,25 @@ class RagTaskProcessor(AnalysisTaskProcessor):
         await database_sync_to_async(db.close_old_connections)()
 
     async def process_rag_instance(
-        self, rag_instance: RagInstance, language_code: str, client: AsyncChatClient, sem: Semaphore
+        self, rag_instance: RagInstance, client: AsyncChatClient, sem: Semaphore
     ) -> None:
         rag_instance.text = await self.get_text_to_analyze(rag_instance)
         await rag_instance.asave()
 
         async with sem:
+            # Process filter questions
             results = await asyncio.gather(
                 *[
-                    self.process_yes_or_no_question(rag_instance, language_code, question, client)
-                    async for question in rag_instance.task.job.questions.all()
+                    self.process_filter_question(rag_instance, question, client)
+                    async for question in rag_instance.task.job.filter_questions.all()
+                ]
+            )
+
+            # Process analysis questions
+            await asyncio.gather(
+                *[
+                    self.process_analysis_question(rag_instance, question, client)
+                    async for question in rag_instance.task.job.analysis_questions.all()
                 ]
             )
 
@@ -77,21 +90,17 @@ class RagTaskProcessor(AnalysisTaskProcessor):
 
         return text_to_analyze
 
-    async def process_yes_or_no_question(
+    async def process_filter_question(
         self,
         rag_instance: RagInstance,
-        language: str,
-        question: Question,
+        question: FilterQuestion,
         client: AsyncChatClient,
     ) -> RagInstance.Result:
-        llm_answer = await client.ask_report_yes_no_question(rag_instance.text, question.question)
+        llm_answer = await client.ask_report_question(
+            context=rag_instance.text, question=question.question, grammar=YesNoGrammar
+        )
 
-        if llm_answer == "yes":
-            answer = Answer.YES
-        elif llm_answer == "no":
-            answer = Answer.NO
-        else:
-            raise ValueError(f"Unexpected answer: {llm_answer}")
+        answer = Answer.YES if llm_answer == "yes" else Answer.NO
 
         result = (
             RagInstance.Result.ACCEPTED
@@ -99,7 +108,7 @@ class RagTaskProcessor(AnalysisTaskProcessor):
             else RagInstance.Result.REJECTED
         )
 
-        await QuestionResult.objects.aupdate_or_create(
+        await FilterQuestionResult.objects.aupdate_or_create(
             rag_instance=rag_instance,
             question=question,
             defaults={
@@ -109,6 +118,34 @@ class RagTaskProcessor(AnalysisTaskProcessor):
             },
         )
 
-        logger.debug("RAG result for question %s: %s", question, answer)
+        logger.debug("RAG result for filter question %s: %s", question, answer)
 
         return result
+
+    async def process_analysis_question(
+        self,
+        rag_instance: RagInstance,
+        question: AnalysisQuestion,
+        client: AsyncChatClient,
+    ) -> None:
+        try:
+            grammar = predefined_grammars[question.grammar]
+        except KeyError:
+            raise ValueError(f"Unknown grammar: {question.grammar}")
+
+        llm_answer = await client.ask_report_question(
+            context=rag_instance.text,
+            question=question.question,
+            grammar=grammar,
+        )
+
+        await AnalysisQuestionResult.objects.aupdate_or_create(
+            rag_instance=rag_instance,
+            question=question,
+            defaults={
+                "original_answer": llm_answer,
+                "current_answer": llm_answer,
+            },
+        )
+
+        logger.debug("RAG result for analysis question %s: %s", question, llm_answer)
