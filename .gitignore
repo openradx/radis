@@ -150,5 +150,6 @@ bin/
 share/
 pyvenv.cfg
 
-# LLM models
+# RADIS specific
+backups/
 models/
