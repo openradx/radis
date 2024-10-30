@@ -35,8 +35,8 @@ whitenoise = "^6.0.0"
 [package.source]
 type = "git"
 url = "https://github.com/openradx/adit-radis-shared.git"
-reference = "0.8.0"
-resolved_reference = "60b7bf0fce044d04103e5f7313c8d16c85fa247a"
+reference = "0.8.1"
+resolved_reference = "907e36755110aedd5fcc6e0a9894c590c499c6d2"
 
 [[package]]
 name = "adrf"
@@ -1812,13 +1812,13 @@ files = [
 
 [[package]]
 name = "openai"
-version = "1.52.2"
+version = "1.53.0"
 description = "The official Python library for the openai API"
 optional = false
 python-versions = ">=3.7.1"
 files = [
-    {file = "openai-1.52.2-py3-none-any.whl", hash = "sha256:57e9e37bc407f39bb6ec3a27d7e8fb9728b2779936daa1fcf95df17d3edfaccc"},
-    {file = "openai-1.52.2.tar.gz", hash = "sha256:87b7d0f69d85f5641678d414b7ee3082363647a5c66a462ed7f3ccb59582da0d"},
+    {file = "openai-1.53.0-py3-none-any.whl", hash = "sha256:20f408c32fc5cb66e60c6882c994cdca580a5648e10045cd840734194f033418"},
+    {file = "openai-1.53.0.tar.gz", hash = "sha256:be2c4e77721b166cce8130e544178b7d579f751b4b074ffbaade3854b6f85ec5"},
 ]
 
 [package.dependencies]
@@ -3783,4 +3783,4 @@ testing = ["coverage[toml]", "zope.event", "zope.testing"]
 [metadata]
 lock-version = "2.0"
 python-versions = ">=3.12,<4.0"
-content-hash = "6a1c101360b5481c93ac6bc5a3bf82d41cea628152c757f5b271ac148d9fb985"
+content-hash = "ff55c043e91e2d81af1246c0de07ef4df3b75550a041dbef5d13e8b4ce49cbf0"
