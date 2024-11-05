@@ -7,22 +7,27 @@ from typing import Literal
 import openai
 from adit_radis_shared import invoke_tasks
 from adit_radis_shared.invoke_tasks import (  # noqa: F401
+    Utility,
     backup_db,
     format,
+    generate_auth_token,
+    generate_certificate_files,
+    generate_django_secret_key,
+    generate_secure_password,
     init_workspace,
     lint,
-    reset_dev,
+    randomize_env_secrets,
     restore_db,
     show_outdated,
     stack_deploy,
     stack_rm,
     test,
     try_github_actions,
-    upgrade_adit_radis_shared,
     upgrade_postgresql,
     web_shell,
 )
 from invoke.context import Context
+from invoke.exceptions import Exit
 from invoke.tasks import task
 from openai import OpenAI
 from openai.types.chat import ChatCompletion, ChatCompletionMessageParam
@@ -42,29 +47,24 @@ USER_PROMPT = {
 
 
 @task
-def compose_up(
-    ctx: Context,
-    env: invoke_tasks.Environments = "dev",
-    no_build: bool = False,
-    gpu: bool = False,
-):
-    """Start containers in specified environment"""
-    if gpu:
+def compose_up(ctx: Context, no_build: bool = False):
+    """Start development containers"""
+    config = Utility.load_config_from_env_file()
+    if str(config.get("GPU_INFERENCE_ENABLED", "")).lower() in ["yes", "true", "1"]:
         profiles = ["gpu"]
     else:
         profiles = ["cpu"]
 
-    invoke_tasks.compose_up(ctx, env=env, no_build=no_build, profile=profiles)
+    invoke_tasks.compose_up(ctx, no_build=no_build, profile=profiles)
 
 
 @task
 def compose_down(
     ctx: Context,
-    env: invoke_tasks.Environments = "dev",
     cleanup: bool = False,
 ):
-    """Stop containers in specified environment"""
-    invoke_tasks.compose_down(ctx, env=env, cleanup=cleanup, profile=["cpu", "gpu", "mock"])
+    """Stop development containers"""
+    invoke_tasks.compose_down(ctx, cleanup=cleanup, profile=["cpu", "gpu"])
 
 
 @task

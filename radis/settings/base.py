@@ -30,12 +30,18 @@ SITE_ID = 1
 
 # The following settings are stored in the Site model on startup initially (see common/apps.py).
 # Once set they are stored in the database and can be changed via the admin interface.
-SITE_DOMAIN = env.str("SITE_DOMAIN", default="localhost")  # type: ignore
-SITE_NAME = env.str("SITE_NAME", default="ADIT")  # type: ignore
-SITE_USES_HTTPS = env.bool("SITE_USES_HTTPS", default=False)  # type: ignore
+SITE_DOMAIN = env.str("SITE_DOMAIN")
+SITE_NAME = env.str("SITE_NAME")
+SITE_USES_HTTPS = env.bool("SITE_USES_HTTPS")
 SITE_META_KEYWORDS = "RADIS, Radiology, Reports, Medicine, Tool"
 SITE_META_DESCRIPTION = "RADIS is an application to archive, query and collect radiology reports"
 SITE_PROJECT_URL = "https://github.com/openradx/radis"
+
+SECRET_KEY = env.str("DJANGO_SECRET_KEY")
+
+ALLOWED_HOSTS = env.list("DJANGO_ALLOWED_HOSTS")
+
+CSRF_TRUSTED_ORIGINS = env.list("DJANGO_CSRF_TRUSTED_ORIGINS")
 
 INSTALLED_APPS = [
     "daphne",
@@ -116,26 +122,15 @@ TEMPLATES = [
 
 WSGI_APPLICATION = "radis.wsgi.application"
 
-STORAGES = {
-    "default": {
-        "BACKEND": "django.core.files.storage.FileSystemStorage",
-    },
-    "staticfiles": {
-        "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
-    },
-}
+# Loads the DB setup from the DATABASE_URL environment variable.
+DATABASES = {"default": env.db()}
 
-# env.db() loads the DB setup from the DATABASE_URL environment variable using
-# Django-environ.
-# The sqlite database is still used for pytest tests.
-DATABASES = {"default": env.db(default="sqlite:///radis-sqlite.db")}  # type: ignore
-
-# Django 3.2 switched to BigAutoField for primary keys. It must be set explicitly
-# and requires a migration.
+# Default primary key field type
+# https://docs.djangoproject.com/en/5.0/ref/settings/#default-auto-field
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
-# A custom authentication backend that supports a single currently active group.
-AUTHENTICATION_BACKENDS = ["adit_radis_shared.accounts.backends.ActiveGroupModelBackend"]
+# Custom user model
+AUTH_USER_MODEL = "accounts.User"
 
 # Password validation
 # https://docs.djangoproject.com/en/3.0/ref/settings/#auth-password-validators
@@ -154,6 +149,14 @@ AUTH_PASSWORD_VALIDATORS = [
         "NAME": "django.contrib.auth.password_validation.NumericPasswordValidator",
     },
 ]
+
+# A custom authentication backend that supports a single currently active group.
+AUTHENTICATION_BACKENDS = ["adit_radis_shared.accounts.backends.ActiveGroupModelBackend"]
+
+# Settings for django-registration-redux
+REGISTRATION_FORM = "adit_radis_shared.accounts.forms.RegistrationForm"
+ACCOUNT_ACTIVATION_DAYS = 14
+REGISTRATION_OPEN = True
 
 # See following examples:
 # https://github.com/django/django/blob/master/django/utils/log.py
@@ -219,6 +222,9 @@ USE_TZ = True
 
 TIME_ZONE = "UTC"
 
+# A timezone that is presented to the users of the web interface.
+USER_TIME_ZONE = env.str("USER_TIME_ZONE")
+
 # All REST API requests must come from authenticated clients
 REST_FRAMEWORK = {
     "DEFAULT_PERMISSION_CLASSES": [
@@ -232,23 +238,17 @@ REST_FRAMEWORK = {
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/3.0/howto/static-files/
 
+# Additional (project wide) static files
 STATICFILES_DIRS = (BASE_DIR / "radis" / "static",)
 
 STATIC_URL = "/static/"
-
-STATIC_ROOT = env.str("DJANGO_STATIC_ROOT", default=(BASE_DIR / "staticfiles"))  # type: ignore
-
-# Custom user model
-AUTH_USER_MODEL = "accounts.User"
 
 # Where to redirect to after login
 LOGIN_REDIRECT_URL = "home"
 
 # django-dbbackup
 DBBACKUP_STORAGE = "django.core.files.storage.FileSystemStorage"
-DBBACKUP_STORAGE_OPTIONS = {
-    "location": env.str("BACKUP_DIR", default=(BASE_DIR / "backups")),  # type: ignore
-}
+DBBACKUP_STORAGE_OPTIONS = {"location": env.str("BACKUP_DIR")}
 DBBACKUP_CLEANUP_KEEP = 30
 
 # For crispy forms
@@ -267,25 +267,15 @@ EMAIL_SUBJECT_PREFIX = "[RADIS] "
 
 # An Email address used by the RADIS server to notify about finished jobs and
 # management notifications.
-SERVER_EMAIL = env.str("DJANGO_SERVER_EMAIL", default="support@radis.test")  # type: ignore
+SERVER_EMAIL = env.str("DJANGO_SERVER_EMAIL")
 DEFAULT_FROM_EMAIL = SERVER_EMAIL
 
 # A support Email address that is presented to the users where
 # they can get support.
-SUPPORT_EMAIL = env.str("SUPPORT_EMAIL", default=SERVER_EMAIL)  # type: ignore
+SUPPORT_EMAIL = env.str("SUPPORT_EMAIL")
 
 # Also used by django-registration-redux to send account approval emails
-ADMINS = [
-    (
-        env.str("ADMIN_FULL_NAME", default="RADIS Admin"),  # type: ignore
-        env.str("ADMIN_EMAIL", default="admin@radis.test"),  # type: ignore
-    )
-]
-
-# Settings for django-registration-redux
-REGISTRATION_FORM = "adit_radis_shared.accounts.forms.RegistrationForm"
-ACCOUNT_ACTIVATION_DAYS = 14
-REGISTRATION_OPEN = True
+ADMINS = [(env.str("DJANGO_ADMIN_FULL_NAME"), env.str("DJANGO_ADMIN_EMAIL"))]
 
 # Channels
 ASGI_APPLICATION = "radis.asgi.application"
@@ -293,18 +283,12 @@ ASGI_APPLICATION = "radis.asgi.application"
 # Used by django-filter
 FILTERS_EMPTY_CHOICE_LABEL = "Show All"
 
-# A timezone that is used for users of the web interface.
-USER_TIME_ZONE = env.str("USER_TIME_ZONE", default="Europe/Berlin")  # type: ignore
-
 # The salt that is used for hashing new tokens in the token authentication app.
 # Cave, changing the salt after some tokens were already generated makes them all invalid!
-TOKEN_AUTHENTICATION_SALT = env.str(
-    "TOKEN_AUTHENTICATION_SALT",
-    default="Rn4YNfgAar5dYbPu",  # type: ignore
-)
+TOKEN_AUTHENTICATION_SALT = env.str("TOKEN_AUTHENTICATION_SALT")
 
 # llama.cpp
-LLAMACPP_URL = env.str("LLAMACPP_URL", default="http://localhost:8088")  # type: ignore
+LLAMACPP_URL = env.str("LLAMACPP_URL")
 
 # Chat
 CHAT_GENERATE_TITLE_SYSTEM_PROMPT = """

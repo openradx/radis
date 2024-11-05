@@ -1,0 +1,109 @@
+x-app: &default-app
+  image: radis_dev:latest
+  volumes:
+    - .:/app
+    - vscode-server:/root/.vscode-server/extensions
+    - vscode-server-insiders:/root/.vscode-server-insiders/extensions
+  environment:
+    DJANGO_INTERNAL_IPS: ${DJANGO_INTERNAL_IPS:?}
+    DJANGO_SETTINGS_MODULE: "radis.settings.development"
+    FORCE_DEBUG_TOOLBAR: ${FORCE_DEBUG_TOOLBAR:-true}
+    REMOTE_DEBUGGING_ENABLED: ${REMOTE_DEBUGGING_ENABLED:-false}
+    REMOTE_DEBUGGING_PORT: ${REMOTE_DEBUGGING_PORT:-5678}
+  pull_policy: never
+
+x-llamacpp: &llamacpp
+  environment:
+    HTTP_PROXY: ${HTTP_PROXY:-}
+    HTTPS_PROXY: ${HTTPS_PROXY:-}
+    LLAMA_CACHE: "/models"
+    NO_PROXY: ${NO_PROXY:-}
+  hostname: llamacpp.local
+  volumes:
+    - models_data:/models
+
+services:
+  init:
+    <<: *default-app
+    profiles:
+      - never
+
+  web:
+    <<: *default-app
+    build:
+      target: development
+    ports:
+      - "${WEB_DEV_PORT:-8000}:8000"
+      - "${REMOTE_DEBUGGING_PORT:-5678}:5678"
+    command: >
+      bash -c "
+        wait-for-it -s postgres.local:5432 -t 60 && 
+        ./manage.py migrate &&
+        ./manage.py create_superuser &&
+        ./manage.py create_example_users &&
+        ./manage.py create_example_groups &&
+        ./manage.py populate_example_reports --lng ${EXAMPLE_REPORTS_LANGUAGE:-en} &&
+        wait-for-it -s llamacpp.local:8080 -t 60 &&
+        ./manage.py runserver 0.0.0.0:8000
+      "
+
+  default_worker:
+    <<: *default-app
+    command: >
+      bash -c "
+        wait-for-it -s postgres.local:5432 -t 60 &&
+        ./manage.py bg_worker -l debug -q default --autoreload
+      "
+
+  llm_worker:
+    <<: *default-app
+    command: >
+      bash -c "
+        wait-for-it -s postgres.local:5432 -t 60 &&
+        ./manage.py bg_worker -l debug -q llm --autoreload
+      "
+
+  postgres:
+    environment:
+      POSTGRES_PASSWORD: "postgres"
+
+  llamacpp_cpu:
+    <<: *llamacpp
+    image: ghcr.io/ggerganov/llama.cpp:server
+    entrypoint: []
+    command: >
+      bash -c "
+        /llama-server \\
+          --model-url ${LLM_MODEL_URL} \\
+          --host 0.0.0.0 \\
+          --port 8080 \\
+          --ctx-size 4096
+      "
+    profiles: ["cpu"]
+
+  llamacpp_gpu:
+    <<: *llamacpp
+    image: ghcr.io/ggerganov/llama.cpp:server-cuda
+    entrypoint: []
+    command: >
+      bash -c "
+        /llama-server \\
+          --model-url ${LLM_MODEL_URL} \\
+          --host 0.0.0.0 \\
+          --port 8080 \\
+          --ctx-size 4096 \\
+          --gpu-layers 99
+      "
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    profiles: ["gpu"]
+
+volumes:
+  models_data:
+  vscode-server:
+  vscode-server-insiders:
