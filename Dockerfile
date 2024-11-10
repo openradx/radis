@@ -31,10 +31,13 @@ ENV PYTHONUNBUFFERED=1 \
 # prepend poetry and venv to path
 ENV PATH="$POETRY_HOME/bin:$VENV_PATH/bin:$PATH"
 
+# deps for db management commands
+# make sure to match the postgres version to the service in the compose file
 RUN apt-get update \
+    && apt-get install --no-install-recommends -y postgresql-common \
+    && /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y \
     && apt-get install --no-install-recommends -y \
-    # deps for db management commands
-    postgresql-client
+    postgresql-client-17
 
 
 # `builder-base` stage is used to build deps + create our virtual environment
