@@ -58,6 +58,8 @@ To deliver a dynamic and responsive web interface, RADIS integrates modern JavaS
 
 RADIS’s design philosophy prioritizes security, flexibility, and user-friendly deployment, making it an ideal solution for managing sensitive data in high-demand environments.
 
+<img src="https://github.com/user-attachments/assets/0e224f8f-9e15-4c69-a08c-498f42f9027c" alt="Description of image" width="600"/>
+
 ## Screenshots
 
 (Reports are synthetically generated without real patient data)
