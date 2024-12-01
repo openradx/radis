@@ -48,10 +48,6 @@ RADIS (Radiology Report Archive and Discovery System) is an innovative open-sour
 
 [RADIS Client](https://github.com/openradx/radis-client) is a Python library to search for reports on RADIS in a programmatic way. It also allows admins to feed new reports to RADIS.
 
-## Screenshots
-
-Upcoming ...
-
 ## Architectural overview
 
 RADIS employs a sophisticated multi-container architecture, optimized for local deployment using Docker Swarm mode—a feature included with all Docker installations. This local-first approach ensures compliance with the strict data security requirements inherent in hospital and research environments where sensitive patient or research data is managed. By leveraging Docker Swarm, RADIS offers seamless scalability, allowing services to be easily adjusted to meet the specific computational demands of the deployment site. To simplify the setup process, RADIS provides intuitive deployment scripts, ensuring accessibility for users with varying levels of technical expertise.
@@ -61,6 +57,16 @@ The RADIS web service is built on the robust Django Python framework, with data 
 To deliver a dynamic and responsive web interface, RADIS integrates modern JavaScript libraries HTMX and Alpine.js. For resource-intensive operations—such as batch evaluations or filtering large datasets—RADIS relies on Procrastinate, a Python-based distributed task processing library. This ensures long-running tasks are executed efficiently in the background, minimizing disruptions to user workflows while maximizing system performance.
 
 RADIS’s design philosophy prioritizes security, flexibility, and user-friendly deployment, making it an ideal solution for managing sensitive data in high-demand environments.
+
+## Screenshots
+
+(Reports are synthetically generated without real patient data)
+
+![Screenshot1](https://github.com/user-attachments/assets/f4aa2574-08af-404d-9f52-07741ec970c3)
+
+![Screenshot2](https://github.com/user-attachments/assets/285c218a-e1b2-43eb-81e6-e9385fdb64f9)
+
+![Screenshot3](https://github.com/user-attachments/assets/92ade847-d33e-4a47-ab4f-45778ef31e47)
 
 ## Disclaimer
 
