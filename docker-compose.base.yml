@@ -1,0 +1,56 @@
+x-app: &default-app
+  volumes:
+    - ${BACKUP_DIR:?}:/backups
+  depends_on:
+    - postgres
+  environment:
+    BACKUP_DIR: ${BACKUP_DIR:?}
+    DATABASE_URL: "psql://postgres:postgres@postgres.local:5432/postgres"
+    DBBACKUP_STORAGE_LOCATION: "/backups"
+    DJANGO_ADMIN_EMAIL: ${DJANGO_ADMIN_EMAIL:?}
+    DJANGO_ADMIN_FULL_NAME: ${DJANGO_ADMIN_FULL_NAME:?}
+    DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:?}
+    DJANGO_CSRF_TRUSTED_ORIGINS: ${DJANGO_CSRF_TRUSTED_ORIGINS:-}
+    DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:?}
+    DJANGO_SERVER_EMAIL: ${DJANGO_SERVER_EMAIL:?}
+    HTTP_PROXY: ${HTTP_PROXY:-}
+    HTTPS_PROXY: ${HTTPS_PROXY:-}
+    LLAMACPP_URL: "http://llamacpp.local:8080"
+    NO_PROXY: ${NO_PROXY:-}
+    PROJECT_VERSION: ${PROJECT_VERSION:-vX.Y.Z}
+    SITE_DOMAIN: ${SITE_DOMAIN:?}
+    SITE_NAME: ${SITE_NAME:?}
+    SITE_USES_HTTPS: ${SITE_USES_HTTPS:-false}
+    SUPERUSER_AUTH_TOKEN: ${SUPERUSER_AUTH_TOKEN:-}
+    SUPERUSER_EMAIL: ${SUPERUSER_EMAIL:-}
+    SUPERUSER_USERNAME: ${SUPERUSER_USERNAME:-}
+    SUPERUSER_PASSWORD: ${SUPERUSER_PASSWORD:-}
+    SUPPORT_EMAIL: ${SUPPORT_EMAIL:?}
+    TOKEN_AUTHENTICATION_SALT: ${TOKEN_AUTHENTICATION_SALT:?}
+    USER_TIME_ZONE: ${USER_TIME_ZONE:?}
+
+services:
+  init:
+    <<: *default-app
+    hostname: init.local
+
+  web:
+    <<: *default-app
+    hostname: web.local
+
+  default_worker:
+    <<: *default-app
+    hostname: default_worker.local
+
+  llm_worker:
+    <<: *default-app
+    hostname: llm_worker.local
+
+  postgres:
+    image: postgres:17
+    hostname: postgres.local
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  postgres_data:

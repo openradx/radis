@@ -142,13 +142,17 @@ dump.rdb
 # SQLite databases
 *.db
 
-#PyCharm
+# PyCharm
 .idea/
 
-#virtualenv
+# virtualenv
 bin/
 share/
 pyvenv.cfg
 
-# LLM models
+# Certificate files
+*.pem
+
+# RADIS specific
+backups/
 models/

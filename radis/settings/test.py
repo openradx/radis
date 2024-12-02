@@ -1,4 +1,6 @@
-from .development import *  # noqa: F403
+from .base import *  # noqa: F403
+
+DEBUG = False
 
 # We must force our background worker that is started while testing
 # in a subprocess to use the test database.

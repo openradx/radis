@@ -1,12 +1,14 @@
 x-app: &default-app
   image: radis_prod:latest
-  env_file:
-    - ../.env.prod
+  volumes:
+    - web_data:/var/www/web
+    - ${SSL_CERT_FILE:?}:/etc/web/ssl/cert.pem
+    - ${SSL_KEY_FILE:?}:/etc/web/ssl/key.pem
   environment:
-    ENABLE_REMOTE_DEBUGGING: 0
+    DJANGO_EMAIL_URL: ${DJANGO_EMAIL_URL:?}
     DJANGO_SETTINGS_MODULE: "radis.settings.production"
-    SSL_CERT_FILE: "/var/www/web/ssl/cert.pem"
-    SSL_KEY_FILE: "/var/www/web/ssl/key.pem"
+    DJANGO_STATIC_ROOT: "/var/www/web/static/"
+    POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?}
 
 x-deploy: &deploy
   replicas: 1
@@ -26,8 +28,8 @@ services:
         wait-for-it -s postgres.local:5432 -t 120 && 
         ./manage.py migrate &&
         ./manage.py collectstatic --no-input &&
-        ./manage.py create_admin &&
-        ./manage.py generate_cert &&
+        ./manage.py create_superuser &&
+        wait-for-it -s llamacpp.local:8080 -t 60 &&
         ./manage.py ok_server --host 0.0.0.0 --port 8000
       "
     deploy:
@@ -38,19 +40,21 @@ services:
     build:
       target: production
     ports:
-      - "${RADIS_HTTP_PORT:-80}:80"
-      - "${RADIS_HTTPS_PORT:-443}:443"
+      - "${WEB_HTTP_PORT:-80}:80"
+      - "${WEB_HTTPS_PORT:-443}:443"
     command: >
       bash -c "
         wait-for-it -s init.local:8000 -t 300 &&
-        echo 'Starting web server ...'
-        daphne -b 0.0.0.0 -p 80 -e ssl:443:privateKey=/var/www/web/ssl/key.pem:certKey=/var/www/web/ssl/cert.pem radis.asgi:application
+        echo 'Starting web server ...' &&
+        daphne -b 0.0.0.0 -p 80 \\
+          -e ssl:443:privateKey=/etc/web/ssl/key.pem:certKey=/etc/web/ssl/cert.pem \\
+          radis.asgi:application
       "
     deploy:
       <<: *deploy
       replicas: 3
 
-  worker_default:
+  default_worker:
     <<: *default-app
     command: >
       bash -c "
@@ -60,7 +64,7 @@ services:
     deploy:
       <<: *deploy
 
-  worker_llm:
+  llm_worker:
     <<: *default-app
     command: >
       bash -c "
@@ -70,20 +74,33 @@ services:
     deploy:
       <<: *deploy
 
+  postgres:
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?}
+    deploy:
+      <<: *deploy
+
   llamacpp_gpu:
     image: ghcr.io/ggerganov/llama.cpp:server-cuda
     hostname: llamacpp.local
     environment:
+      HTTP_PROXY: ${HTTP_PROXY:-}
+      HTTPS_PROXY: ${HTTPS_PROXY:-}
       LLAMA_CACHE: "/models"
-    env_file:
-      - ../.env.prod
-    ports:
-      - 9610:8080
+      NO_PROXY: ${NO_PROXY:-}
     volumes:
       - models_data:/models
-    entrypoint: "/bin/bash -c '/llama-server -mu $${LLM_MODEL_URL} -ngl 99 -cb -c 4096 --host 0.0.0.0 --port 8080'"
+    entrypoint: >
+      bash -c "
+        /llama-server \\
+          --model-url ${LLM_MODEL_URL} \\
+          --host 0.0.0.0 \\
+          --port 8080 \\
+          --ctx-size 4096 \\
+          --gpu-layers 99
+      "
     deploy:
-      # <<: *deploy
+      <<: *deploy
       resources:
         reservations:
           # https://gist.github.com/medihack/6a6d24dc6376939e1919f32409c2119f
@@ -92,11 +109,6 @@ services:
                 kind: "gpu"
                 value: 1
 
-  postgres:
-    env_file:
-      - ../.env.prod
-    deploy:
-      <<: *deploy
-
 volumes:
+  web_data:
   models_data:
