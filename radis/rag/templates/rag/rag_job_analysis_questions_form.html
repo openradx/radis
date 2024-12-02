@@ -31,7 +31,13 @@
                 <template>
                     {% crispy form.empty_form helper %}
                 </template>
-                <div id="questions-formset" class="d-flex flex-column">{% crispy form helper %}</div>
+                <div id="questions-formset" class="d-flex flex-column">
+                    {% crispy form helper %}
+                    <!--{{ form.management_form }}
+                    {% for form_elem in form %}
+                        {% include "rag/_analysis_question_form.html" with form=form_elem %}
+                    {% endfor %}-->
+                </div>
                 <div class="d-flex justify-content-between">
                     <div class="d-flex gap-2">
                         <button type="submit"

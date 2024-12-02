@@ -1,16 +1,14 @@
 import logging
 from string import Template
-from typing import Iterable, Type
+from typing import Iterable
 
 import openai
 from django.conf import settings
-from openai.types.chat import (
-    ChatCompletionMessageParam,
-    ChatCompletionSystemMessageParam,
-    ChatCompletionUserMessageParam,
-)
+from openai.types.chat import (ChatCompletionMessageParam,
+                               ChatCompletionSystemMessageParam,
+                               ChatCompletionUserMessageParam)
 
-from radis.chats.grammars import Grammar
+from radis.chats.models import Grammar
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +22,7 @@ class AsyncChatClient:
     async def send_messages(
         self,
         messages: Iterable[ChatCompletionMessageParam],
-        grammar: Type[Grammar],
+        grammar: Grammar,
         max_tokens: int | None = None,
     ) -> str:
         messages = [
@@ -46,7 +44,6 @@ class AsyncChatClient:
 
         answer = completion.choices[0].message.content
         assert answer is not None
-        answer = grammar.validate(answer)
         logger.debug("Received from LLM: %s", answer)
 
         return answer
@@ -54,7 +51,7 @@ class AsyncChatClient:
     async def ask_question(
         self,
         question: str,
-        grammar: Type[Grammar],
+        grammar: Grammar,
     ) -> str:
         system_prompt_str = Template(settings.CHAT_QUESTION_SYSTEM_PROMPT).substitute(
             {"grammar_instructions": grammar.llm_instruction}
@@ -77,7 +74,7 @@ class AsyncChatClient:
         self,
         context: str,
         question: str,
-        grammar: Type[Grammar],
+        grammar: Grammar,
     ) -> str:
         system_prompt = Template(settings.CHAT_REPORT_QUESTION_SYSTEM_PROMPT).substitute(
             grammar_instructions=grammar.llm_instruction, report=context

@@ -1,18 +1,14 @@
 from typing import Any, Type, cast
 
-from adit_radis_shared.common.mixins import (
-    HtmxOnlyMixin,
-    PageSizeSelectMixin,
-    RelatedFilterMixin,
-    RelatedPaginationMixin,
-)
+from adit_radis_shared.common.mixins import (HtmxOnlyMixin,
+                                             PageSizeSelectMixin,
+                                             RelatedFilterMixin,
+                                             RelatedPaginationMixin)
 from adit_radis_shared.common.types import AuthenticatedHttpRequest
 from django.conf import settings
-from django.contrib.auth.mixins import (
-    LoginRequiredMixin,
-    PermissionRequiredMixin,
-    UserPassesTestMixin,
-)
+from django.contrib.auth.mixins import (LoginRequiredMixin,
+                                        PermissionRequiredMixin,
+                                        UserPassesTestMixin)
 from django.core.exceptions import SuspiciousOperation
 from django.db import transaction
 from django.db.models import Prefetch, QuerySet
@@ -23,20 +19,12 @@ from django.views.generic import DetailView, View
 from django_tables2 import SingleTableMixin
 from formtools.wizard.views import SessionWizardView
 
-from radis.core.views import (
-    AnalysisJobCancelView,
-    AnalysisJobDeleteView,
-    AnalysisJobDetailView,
-    AnalysisJobListView,
-    AnalysisJobRestartView,
-    AnalysisJobResumeView,
-    AnalysisJobRetryView,
-    AnalysisJobVerifyView,
-    AnalysisTaskDeleteView,
-    AnalysisTaskDetailView,
-    AnalysisTaskResetView,
-    BaseUpdatePreferencesView,
-)
+from radis.core.views import (AnalysisJobCancelView, AnalysisJobDeleteView,
+                              AnalysisJobDetailView, AnalysisJobListView,
+                              AnalysisJobRestartView, AnalysisJobResumeView,
+                              AnalysisJobRetryView, AnalysisJobVerifyView,
+                              AnalysisTaskDeleteView, AnalysisTaskDetailView,
+                              AnalysisTaskResetView, BaseUpdatePreferencesView)
 from radis.rag.filters import RagJobFilter, RagResultFilter, RagTaskFilter
 from radis.rag.mixins import RagLockedMixin
 from radis.rag.tables import RagInstanceTable, RagJobTable, RagTaskTable
@@ -44,13 +32,9 @@ from radis.reports.models import Language, Modality
 from radis.search.site import Search, SearchFilters
 from radis.search.utils.query_parser import QueryParser
 
-from .forms import (
-    AnalysisQuestionFormSet,
-    AnalysisQuestionFormSetHelper,
-    FilterQuestionFormSet,
-    FilterQuestionFormSetHelper,
-    SearchForm,
-)
+from .forms import (AnalysisQuestionFormSet, AnalysisQuestionFormSetHelper,
+                    FilterQuestionFormSet, FilterQuestionFormSetHelper,
+                    SearchForm)
 from .models import Answer, FilterQuestionResult, RagInstance, RagJob, RagTask
 from .site import retrieval_providers
 

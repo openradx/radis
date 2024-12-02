@@ -1,4 +1,5 @@
 import logging
+from operator import is_
 from typing import Callable
 
 from adit_radis_shared.common.models import AppSettings
@@ -11,6 +12,21 @@ logger = logging.getLogger(__name__)
 class ChatsSettings(AppSettings):
     class Meta:
         verbose_name_plural = "Chats settings"
+
+
+class Grammar(models.Model):
+    name = models.CharField(max_length=100)
+    human_readable_name = models.CharField(max_length=100)
+    grammar = models.TextField()
+    llm_instruction = models.TextField()
+
+    is_default = models.BooleanField(default=False)
+
+    def __str__(self):
+        if self.is_default:
+            return f"{self.human_readable_name} (default)"
+        else:
+            return f"{self.human_readable_name}"
 
 
 class Chat(models.Model):

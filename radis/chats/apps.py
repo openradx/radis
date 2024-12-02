@@ -13,7 +13,8 @@ class ChatsConfig(AppConfig):
 
 
 def register_app():
-    from adit_radis_shared.common.site import MainMenuItem, register_main_menu_item
+    from adit_radis_shared.common.site import (MainMenuItem,
+                                               register_main_menu_item)
 
     from radis.reports.site import register_report_panel_button
 
@@ -28,7 +29,10 @@ def register_app():
 
 
 def init_db(**kwargs):
+    from .grammars import create_default_grammars
     from .models import ChatsSettings
 
     if not ChatsSettings.objects.exists():
         ChatsSettings.objects.create()
+
+    create_default_grammars()

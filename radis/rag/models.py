@@ -8,15 +8,10 @@ from django.urls import reverse
 from procrastinate.contrib.django import app
 from procrastinate.contrib.django.models import ProcrastinateJob
 
-from radis.chats.grammars import (
-    DateGrammar,
-    DateTimeGrammar,
-    FloatGrammar,
-    FreeTextGrammar,
-    IntegerGrammar,
-    TimeGrammar,
-    YesNoGrammar,
-)
+from radis.chats.grammars import (DateGrammar, DateTimeGrammar, FloatGrammar,
+                                  FreeTextGrammar, IntegerGrammar, TimeGrammar,
+                                  YesNoGrammar)
+from radis.chats.models import Grammar
 from radis.core.models import AnalysisJob, AnalysisTask
 from radis.reports.models import Language, Modality, Report
 
@@ -77,8 +72,6 @@ class Answer(models.TextChoices):
 
 
 class FilterQuestion(models.Model):
-    grammar = YesNoGrammar
-
     question = models.CharField(max_length=500)
     job = models.ForeignKey(RagJob, on_delete=models.CASCADE, related_name="filter_questions")
     accepted_answer = models.CharField(max_length=1, choices=Answer.choices, default=Answer.YES)
@@ -88,29 +81,13 @@ class FilterQuestion(models.Model):
         return f'FilterQuestion "{self.question}" [{self.pk}]'
 
 
-class QuestionGrammar(models.TextChoices):
-    FREE_TEXT = FreeTextGrammar.name, FreeTextGrammar.human_readable_name
-    YES_NO = YesNoGrammar.name, YesNoGrammar.human_readable_name
-    INTEGER = IntegerGrammar.name, IntegerGrammar.human_readable_name
-    FLOAT = FloatGrammar.name, FloatGrammar.human_readable_name
-    DATE = DateGrammar.name, DateGrammar.human_readable_name
-    TIME = TimeGrammar.name, TimeGrammar.human_readable_name
-    DATETIME = DateTimeGrammar.name, DateTimeGrammar.human_readable_name
-
-
 class AnalysisQuestion(models.Model):
-    grammar = models.CharField(max_length=500, choices=QuestionGrammar.choices)
-
+    grammar = models.ForeignKey(Grammar, on_delete=models.CASCADE)
     question = models.CharField(max_length=500)
     job = models.ForeignKey(RagJob, on_delete=models.CASCADE, related_name="analysis_questions")
 
     def __str__(self) -> str:
         return f'AnalysisQuestion "{self.question}" [{self.pk}]'
-
-    def get_grammar_display_name(self):
-        if not self.grammar:
-            return "Not set"
-        return {str(grammar[0]): grammar[1] for grammar in QuestionGrammar.choices}[self.grammar]
 
 
 class RagTask(AnalysisTask):

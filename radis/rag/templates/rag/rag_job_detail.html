@@ -116,7 +116,7 @@
         <dl class="row">
             <dt class="col-sm-3">Question</dt>
             <dd class="col-sm-9">
-                {{ question.question }} &nbsp; &nbsp; <span class="badge bg-secondary">{{ question.get_grammar_display_name }}</span>
+                {{ question.question }} &nbsp; &nbsp; <span class="badge bg-secondary">{{ question.grammar.human_readable_name }}</span>
             </dd>
         </dl>
     {% endfor %}

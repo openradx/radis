@@ -3,14 +3,17 @@ from string import Template
 
 from adit_radis_shared.common.decorators import login_required_async
 from adit_radis_shared.common.types import AuthenticatedHttpRequest
+from adit_radis_shared.common.views import LoginRequiredMixin
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import SuspiciousOperation
 from django.http import HttpResponse
-from django.shortcuts import aget_object_or_404, get_object_or_404, redirect, render
+from django.shortcuts import (aget_object_or_404, get_object_or_404, redirect,
+                              render)
 from django.urls import reverse
 from django.views.decorators.http import require_GET, require_POST
+from django.views.generic import CreateView
 from django_htmx.http import push_url
 from django_tables2 import RequestConfig
 from openai.types.chat import ChatCompletionMessageParam
@@ -20,7 +23,7 @@ from radis.chats.grammars import FreeTextGrammar, YesNoGrammar
 from radis.chats.tables import ChatTable
 from radis.reports.models import Report
 
-from .models import Chat, ChatMessage, ChatRole
+from .models import Chat, ChatMessage, ChatRole, Grammar
 from .utils.chat_client import AsyncChatClient
 
 
@@ -207,3 +210,12 @@ def chat_delete_view(request: AuthenticatedHttpRequest, pk: int) -> HttpResponse
 
     messages.add_message(request, messages.SUCCESS, "Chat deleted successfully!")
     return redirect("chat_list")
+
+
+class GrammarCreateView(LoginRequiredMixin, CreateView):
+    model = Grammar
+    fields = ["name", "human_readable_name", "grammar", "llm_instruction"]
+    template_name = "chats/_grammar_create.html"
+
+    def get_success_url(self) -> str:
+        return reverse("grammar_list")

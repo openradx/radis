@@ -1,0 +1,7 @@
+{% load crispy_forms_tags %}
+<div class="card mb-3">
+    <div class="card-body">
+        {{ form.question|as_crispy_field }}
+        {{ form.grammar|as_crispy_field }}
+    </div>
+</div>
