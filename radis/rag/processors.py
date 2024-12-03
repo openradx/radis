@@ -6,15 +6,20 @@ from channels.db import database_sync_to_async
 from django import db
 from django.conf import settings
 from django.db.models import Prefetch
-from regex import F
 
 from radis.chats.models import Grammar
 from radis.chats.utils.chat_client import AsyncChatClient
 from radis.core.processors import AnalysisTaskProcessor
 
-from .models import (AnalysisQuestion, AnalysisQuestionResult, Answer,
-                     FilterQuestion, FilterQuestionResult, RagInstance,
-                     RagTask)
+from .models import (
+    AnalysisQuestion,
+    AnalysisQuestionResult,
+    Answer,
+    FilterQuestion,
+    FilterQuestionResult,
+    RagInstance,
+    RagTask,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -100,7 +105,7 @@ class RagTaskProcessor(AnalysisTaskProcessor):
             context=rag_instance.text, question=question.question, grammar=yes_no_grammar
         )
 
-        answer = Answer.YES if llm_answer == "yes" else Answer.NO
+        answer = Answer.YES if llm_answer == "Yes" else Answer.NO
 
         result = (
             RagInstance.Result.ACCEPTED

@@ -8,9 +8,6 @@ from django.urls import reverse
 from procrastinate.contrib.django import app
 from procrastinate.contrib.django.models import ProcrastinateJob
 
-from radis.chats.grammars import (DateGrammar, DateTimeGrammar, FloatGrammar,
-                                  FreeTextGrammar, IntegerGrammar, TimeGrammar,
-                                  YesNoGrammar)
 from radis.chats.models import Grammar
 from radis.core.models import AnalysisJob, AnalysisTask
 from radis.reports.models import Language, Modality, Report
@@ -82,7 +79,7 @@ class FilterQuestion(models.Model):
 
 
 class AnalysisQuestion(models.Model):
-    grammar = models.ForeignKey(Grammar, on_delete=models.CASCADE)
+    grammar = models.ForeignKey(Grammar, on_delete=models.SET_NULL, null=True)
     question = models.CharField(max_length=500)
     job = models.ForeignKey(RagJob, on_delete=models.CASCADE, related_name="analysis_questions")
 

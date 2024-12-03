@@ -10,7 +10,7 @@ from django import db
 from django.conf import settings
 from django.db.models import QuerySet
 
-from radis.chats.grammars import YesNoGrammar
+from radis.chats.models import Grammar
 from radis.chats.utils.chat_client import AsyncChatClient
 from radis.core.processors import AnalysisTaskProcessor
 from radis.reports.models import Report
@@ -81,13 +81,14 @@ class SubscriptionTaskProcessor(AnalysisTaskProcessor):
         question: SubscriptionQuestion,
         client: AsyncChatClient,
     ) -> RagResult:
+        yes_no_grammar = await Grammar.objects.aget(name="YES_NO")
         llm_answer = await client.ask_report_question(
             context=report_body,
             question=question.question,
-            grammar=YesNoGrammar,
+            grammar=yes_no_grammar,
         )
 
-        answer = Answer.YES if llm_answer == "yes" else Answer.NO
+        answer = Answer.YES if llm_answer == "Yes" else Answer.NO
 
         rag_result = (
             RagResult.ACCEPTED if answer == question.accepted_answer else RagResult.REJECTED

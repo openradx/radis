@@ -1,5 +1,4 @@
 import logging
-from operator import is_
 from typing import Callable
 
 from adit_radis_shared.common.models import AppSettings
@@ -15,7 +14,7 @@ class ChatsSettings(AppSettings):
 
 
 class Grammar(models.Model):
-    name = models.CharField(max_length=100)
+    name = models.CharField(max_length=100, unique=True)
     human_readable_name = models.CharField(max_length=100)
     grammar = models.TextField()
     llm_instruction = models.TextField()
@@ -23,10 +22,7 @@ class Grammar(models.Model):
     is_default = models.BooleanField(default=False)
 
     def __str__(self):
-        if self.is_default:
-            return f"{self.human_readable_name} (default)"
-        else:
-            return f"{self.human_readable_name}"
+        return f"{self.human_readable_name}"
 
 
 class Chat(models.Model):

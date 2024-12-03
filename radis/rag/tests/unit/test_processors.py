@@ -8,7 +8,9 @@ from radis.rag.processors import RagTaskProcessor
 
 
 @pytest.mark.django_db(transaction=True)
-def test_rag_task_processor(create_rag_task, openai_chat_completions_mock, mocker):
+def test_rag_task_processor(
+    create_rag_task, openai_chat_completions_mock, mocker, default_grammars
+):
     num_rag_instances = 5
     num_questions = 5
     rag_task = create_rag_task(

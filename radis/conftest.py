@@ -30,3 +30,10 @@ def openai_chat_completions_mock() -> Callable[[str], ContextManager]:
         return mock_openai
 
     return _openai_chat_completions_mock
+
+
+@pytest.fixture
+def default_grammars() -> None:
+    from radis.core.management.commands.create_default_grammars import Command
+
+    Command().handle()

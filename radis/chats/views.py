@@ -3,23 +3,19 @@ from string import Template
 
 from adit_radis_shared.common.decorators import login_required_async
 from adit_radis_shared.common.types import AuthenticatedHttpRequest
-from adit_radis_shared.common.views import LoginRequiredMixin
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import SuspiciousOperation
 from django.http import HttpResponse
-from django.shortcuts import (aget_object_or_404, get_object_or_404, redirect,
-                              render)
+from django.shortcuts import aget_object_or_404, get_object_or_404, redirect, render
 from django.urls import reverse
 from django.views.decorators.http import require_GET, require_POST
-from django.views.generic import CreateView
 from django_htmx.http import push_url
 from django_tables2 import RequestConfig
 from openai.types.chat import ChatCompletionMessageParam
 
 from radis.chats.forms import CreateChatForm, PromptForm
-from radis.chats.grammars import FreeTextGrammar, YesNoGrammar
 from radis.chats.tables import ChatTable
 from radis.reports.models import Report
 
@@ -68,13 +64,18 @@ async def chat_create_view(request: AuthenticatedHttpRequest) -> HttpResponse:
 
             client = AsyncChatClient()
 
+            if request.POST.get("yes_no_answer"):
+                grammar = await Grammar.objects.aget(name="YES_NO")
+            else:
+                grammar = await Grammar.objects.aget(name="FREE_TEXT")
+
             # Generate an answer for the user prompt
             answer = await client.send_messages(
                 [
                     {"role": "system", "content": instructions_system_prompt},
                     {"role": "user", "content": user_prompt},
                 ],
-                grammar=YesNoGrammar if request.POST.get("yes_no_answer") else FreeTextGrammar,
+                grammar=grammar,
             )
 
             # Generate a title for the chat
@@ -82,13 +83,14 @@ async def chat_create_view(request: AuthenticatedHttpRequest) -> HttpResponse:
                 {"num_words": 6}
             )
 
+            free_text_grammar = await Grammar.objects.aget(name="FREE_TEXT")
             title = await client.send_messages(
                 [
                     {"role": "system", "content": title_system_prompt},
                     {"role": "user", "content": user_prompt},
                 ],
                 max_tokens=20,
-                grammar=FreeTextGrammar,
+                grammar=free_text_grammar,
             )
             title = title.strip().rstrip(string.punctuation)[:100]
 
@@ -177,10 +179,11 @@ async def chat_update_view(request: AuthenticatedHttpRequest, pk: int) -> HttpRe
         messages.append({"role": "user", "content": prompt})
 
         client = AsyncChatClient()
-        response = await client.send_messages(
-            messages,
-            grammar=YesNoGrammar if request.POST.get("yes_no_answer") else FreeTextGrammar,
-        )
+        if request.POST.get("yes_no_answer"):
+            grammar = await Grammar.objects.aget(name="YES_NO")
+        else:
+            grammar = await Grammar.objects.aget(name="FREE_TEXT")
+        response = await client.send_messages(messages, grammar=grammar)
 
         await ChatMessage.objects.acreate(chat=chat, role=ChatRole.USER, content=prompt)
         await ChatMessage.objects.acreate(chat=chat, role=ChatRole.ASSISTANT, content=response)
@@ -210,12 +213,3 @@ def chat_delete_view(request: AuthenticatedHttpRequest, pk: int) -> HttpResponse
 
     messages.add_message(request, messages.SUCCESS, "Chat deleted successfully!")
     return redirect("chat_list")
-
-
-class GrammarCreateView(LoginRequiredMixin, CreateView):
-    model = Grammar
-    fields = ["name", "human_readable_name", "grammar", "llm_instruction"]
-    template_name = "chats/_grammar_create.html"
-
-    def get_success_url(self) -> str:
-        return reverse("grammar_list")

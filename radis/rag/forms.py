@@ -190,18 +190,6 @@ class AnalysisQuestionForm(forms.ModelForm):
         ]
 
 
-add_grammar_button = """
-    {% load bootstrap_icon from common_extras %}
-    <button type="button"
-            class="btn btn-outline-success btn-sm"
-            hx-get="{% url 'grammar_create' %}"
-            hx-target="#htmx-dialog">
-        {% bootstrap_icon "plus-square" %}
-        Add new grammar
-    </button>
-"""
-
-
 class AnalysisQuestionFormSetHelper(FormHelper):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -213,7 +201,6 @@ class AnalysisQuestionFormSetHelper(FormHelper):
                 Div(
                     "question",
                     "grammar",
-                    HTML(add_grammar_button),
                     css_class="card-body",
                 ),
                 HTML(delete_button.substitute({"min_questions": "0"})),

@@ -4,9 +4,11 @@ from typing import Iterable
 
 import openai
 from django.conf import settings
-from openai.types.chat import (ChatCompletionMessageParam,
-                               ChatCompletionSystemMessageParam,
-                               ChatCompletionUserMessageParam)
+from openai.types.chat import (
+    ChatCompletionMessageParam,
+    ChatCompletionSystemMessageParam,
+    ChatCompletionUserMessageParam,
+)
 
 from radis.chats.models import Grammar
 
