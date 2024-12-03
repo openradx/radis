@@ -2,7 +2,12 @@ from typing import Callable, Literal, Optional
 
 import pytest
 
-from radis.rag.factories import QuestionFactory, RagInstanceFactory, RagJobFactory, RagTaskFactory
+from radis.rag.factories import (
+    FilterQuestionFactory,
+    RagInstanceFactory,
+    RagJobFactory,
+    RagTaskFactory,
+)
 from radis.rag.models import RagJob, RagTask
 from radis.reports.factories import LanguageFactory, ReportFactory
 
@@ -27,9 +32,11 @@ def create_rag_task(
         )
 
         if accepted_answer is not None:
-            QuestionFactory.create_batch(num_questions, job=job, accepted_answer=accepted_answer)
+            FilterQuestionFactory.create_batch(
+                num_questions, job=job, accepted_answer=accepted_answer
+            )
         else:
-            QuestionFactory.create_batch(num_questions, job=job)
+            FilterQuestionFactory.create_batch(num_questions, job=job)
 
         task = RagTaskFactory.create(job=job)
 

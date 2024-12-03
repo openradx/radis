@@ -44,8 +44,14 @@ from radis.reports.models import Language, Modality
 from radis.search.site import Search, SearchFilters
 from radis.search.utils.query_parser import QueryParser
 
-from .forms import QuestionFormSet, QuestionFormSetHelper, SearchForm
-from .models import Answer, QuestionResult, RagInstance, RagJob, RagTask
+from .forms import (
+    AnalysisQuestionFormSet,
+    AnalysisQuestionFormSetHelper,
+    FilterQuestionFormSet,
+    FilterQuestionFormSetHelper,
+    SearchForm,
+)
+from .models import Answer, FilterQuestionResult, RagInstance, RagJob, RagTask
 from .site import retrieval_providers
 
 RAG_SEARCH_PROVIDER = "rag_search_provider"
@@ -68,9 +74,10 @@ class RagJobWizardView(
     LoginRequiredMixin, PermissionRequiredMixin, UserPassesTestMixin, SessionWizardView
 ):
     SEARCH_STEP = "0"
-    QUESTIONS_STEP = "1"
+    FILTER_QUESTIONS_STEP = "1"
+    ANALYSIS_QUESTIONS_STEP = "2"
 
-    form_list = [SearchForm, QuestionFormSet]
+    form_list = [SearchForm, FilterQuestionFormSet, AnalysisQuestionFormSet]
     permission_required = "rag.add_ragjob"
     permission_denied_message = "You must be logged in and have an active group"
     request: AuthenticatedHttpRequest
@@ -87,8 +94,14 @@ class RagJobWizardView(
     def get_context_data(self, form, **kwargs):
         context = super().get_context_data(form, **kwargs)
 
-        if self.steps.current == RagJobWizardView.QUESTIONS_STEP:
-            context["helper"] = QuestionFormSetHelper()
+        if self.steps.current in [
+            RagJobWizardView.FILTER_QUESTIONS_STEP,
+            RagJobWizardView.ANALYSIS_QUESTIONS_STEP,
+        ]:
+            if self.steps.current == RagJobWizardView.FILTER_QUESTIONS_STEP:
+                context["helper"] = FilterQuestionFormSetHelper()
+            elif self.steps.current == RagJobWizardView.ANALYSIS_QUESTIONS_STEP:
+                context["helper"] = AnalysisQuestionFormSetHelper()
 
             data = self.get_cleaned_data_for_step(RagJobWizardView.SEARCH_STEP)
             assert data and isinstance(data, dict)
@@ -134,12 +147,14 @@ class RagJobWizardView(
         step = self.steps.current
         if step == RagJobWizardView.SEARCH_STEP:
             return ["rag/rag_job_search_form.html"]
-        elif step == RagJobWizardView.QUESTIONS_STEP:
-            return ["rag/rag_job_questions_form.html"]
+        elif step == RagJobWizardView.FILTER_QUESTIONS_STEP:
+            return ["rag/rag_job_filter_questions_form.html"]
+        elif step == RagJobWizardView.ANALYSIS_QUESTIONS_STEP:
+            return ["rag/rag_job_analysis_questions_form.html"]
         else:
             raise SuspiciousOperation(f"Invalid wizard step: {step}")
 
-    def done(self, form_objs: tuple[SearchForm, BaseInlineFormSet], **kwargs):
+    def done(self, form_objs: tuple[SearchForm, BaseInlineFormSet, BaseInlineFormSet], **kwargs):
         user = self.request.user
 
         with transaction.atomic():
@@ -163,6 +178,9 @@ class RagJobWizardView(
 
             form_objs[1].instance = job
             form_objs[1].save()
+
+            form_objs[2].instance = job
+            form_objs[2].save()
 
             if user.is_staff or settings.START_RAG_JOB_UNVERIFIED:
                 job.status = RagJob.Status.PREPARING
@@ -270,7 +288,7 @@ class ChangeAnswerView(LoginRequiredMixin, HtmxOnlyMixin, View):
     def post(self, request: AuthenticatedHttpRequest, result_id: int):
         user = request.user
 
-        result = QuestionResult.objects.get(id=result_id)
+        result = FilterQuestionResult.objects.get(id=result_id)
         question = result.question
         rag_instance = result.rag_instance
 
@@ -285,7 +303,7 @@ class ChangeAnswerView(LoginRequiredMixin, HtmxOnlyMixin, View):
                 result.result = RagInstance.Result.REJECTED
             result.save()
 
-            all_results = list(rag_instance.results.values_list("result", flat=True))
+            all_results = list(rag_instance.filter_results.values_list("result", flat=True))
             if all(result == RagInstance.Result.ACCEPTED for result in all_results):
                 rag_instance.overall_result = RagInstance.Result.ACCEPTED
             else:

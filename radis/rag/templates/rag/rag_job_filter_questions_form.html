@@ -7,7 +7,7 @@
 {% block heading %}
     <div class="d-flex justify-content-between align-items-start">
         <h4 class="mb-3 d-flex gap-3">
-            <span>Questions</span>
+            <span>Filter Questions</span>
             <button type="button"
                     class="btn btn-sm btn-info align-baseline"
                     hx-get="{% url 'rag_help' %}"
@@ -38,7 +38,7 @@
                                 name="wizard_goto_step"
                                 value="{{ wizard.steps.prev }}"
                                 class="btn btn-secondary">Previous Step (Search)</button>
-                        <button name="create" value="create" type="submit" class="btn btn-primary">Create RAG Job</button>
+                        <button name="create" type="submit" class="btn btn-primary">Next Step (Analysis Questions)</button>
                     </div>
                     <button type="button"
                             name="add-question"

@@ -8,6 +8,7 @@ from django.urls import reverse
 from procrastinate.contrib.django import app
 from procrastinate.contrib.django.models import ProcrastinateJob
 
+from radis.chats.models import Grammar
 from radis.core.models import AnalysisJob, AnalysisTask
 from radis.reports.models import Language, Modality, Report
 
@@ -43,7 +44,8 @@ class RagJob(AnalysisJob):
     age_till = models.IntegerField(null=True, blank=True)
 
     tasks: models.QuerySet["RagTask"]
-    questions: models.QuerySet["Question"]
+    filter_questions: models.QuerySet["FilterQuestion"]
+    analysis_questions: models.QuerySet["AnalysisQuestion"]
 
     def __str__(self) -> str:
         return f"RagJob [{self.pk}]"
@@ -66,14 +68,23 @@ class Answer(models.TextChoices):
     NO = "N", "No"
 
 
-class Question(models.Model):
+class FilterQuestion(models.Model):
     question = models.CharField(max_length=500)
-    job = models.ForeignKey(RagJob, on_delete=models.CASCADE, related_name="questions")
+    job = models.ForeignKey(RagJob, on_delete=models.CASCADE, related_name="filter_questions")
     accepted_answer = models.CharField(max_length=1, choices=Answer.choices, default=Answer.YES)
     get_accepted_answer_display: Callable[[], str]
 
     def __str__(self) -> str:
-        return f'Question "{self.question}" [{self.pk}]'
+        return f'FilterQuestion "{self.question}" [{self.pk}]'
+
+
+class AnalysisQuestion(models.Model):
+    grammar = models.ForeignKey(Grammar, on_delete=models.SET_NULL, null=True)
+    question = models.CharField(max_length=500)
+    job = models.ForeignKey(RagJob, on_delete=models.CASCADE, related_name="analysis_questions")
+
+    def __str__(self) -> str:
+        return f'AnalysisQuestion "{self.question}" [{self.pk}]'
 
 
 class RagTask(AnalysisTask):
@@ -107,7 +118,7 @@ class RagInstance(models.Model):
     get_overall_result_display: Callable[[], str]
     task = models.ForeignKey(RagTask, on_delete=models.CASCADE, related_name="rag_instances")
 
-    results: models.QuerySet["QuestionResult"]
+    filter_results: models.QuerySet["FilterQuestionResult"]
 
     def __str__(self) -> str:
         return f"RagInstance [{self.pk}]"
@@ -116,13 +127,28 @@ class RagInstance(models.Model):
         return reverse("rag_instance_detail", args=[self.task.pk, self.pk])
 
 
-class QuestionResult(models.Model):
-    rag_instance = models.ForeignKey(RagInstance, on_delete=models.CASCADE, related_name="results")
-    question = models.ForeignKey(Question, on_delete=models.CASCADE, related_name="results")
+class FilterQuestionResult(models.Model):
+    rag_instance = models.ForeignKey(
+        RagInstance, on_delete=models.CASCADE, related_name="filter_results"
+    )
+    question = models.ForeignKey(FilterQuestion, on_delete=models.CASCADE, related_name="results")
     original_answer = models.CharField(max_length=1, choices=Answer.choices)
     current_answer = models.CharField(max_length=1, choices=Answer.choices)
     get_current_answer_display: Callable[[], str]
     result = models.CharField(max_length=1, choices=RagInstance.Result.choices)
+
+    def __str__(self) -> str:
+        return f'Result of "{self.question}": {self.get_current_answer_display} [{self.pk}]'
+
+
+class AnalysisQuestionResult(models.Model):
+    rag_instance = models.ForeignKey(
+        RagInstance, on_delete=models.CASCADE, related_name="analysis_results"
+    )
+    question = models.ForeignKey(AnalysisQuestion, on_delete=models.CASCADE, related_name="results")
+    original_answer = models.CharField(max_length=500)
+    current_answer = models.CharField(max_length=500)
+    get_current_answer_display: Callable[[], str]
 
     def __str__(self) -> str:
         return f'Result of "{self.question}": {self.get_current_answer_display} [{self.pk}]'

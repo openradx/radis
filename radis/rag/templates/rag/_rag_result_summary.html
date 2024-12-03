@@ -39,13 +39,20 @@
                 </div>
             </div>
             <div x-cloak x-show="questions">
-                Questions:
-                {% for result in rag_instance.results.all %}
+                Filter Questions:
+                {% for result in rag_instance.filter_results.all %}
                     <div>
                         <span class="me-2">{{ result.question.question }}</span>
                         {% include "rag/_current_answer.html" %}
                         {% include "rag/_change_answer_button.html" %}
                         {% include "rag/_result_badge.html" %}
+                    </div>
+                {% endfor %}
+                Analysis Questions:
+                {% for result in rag_instance.analysis_results.all %}
+                    <div>
+                        <span class="me-2">{{ result.question.question }}</span>
+                        <span class"badge bg-secondary">{{ result.current_answer }}</span>
                     </div>
                 {% endfor %}
             </div>
