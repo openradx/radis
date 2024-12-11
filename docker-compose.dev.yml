@@ -37,7 +37,7 @@ services:
       - "${REMOTE_DEBUGGING_PORT:-5678}:5678"
     command: >
       bash -c "
-        wait-for-it -s postgres.local:5432 -t 60 && 
+        wait-for-it -s paradedb.local:5432 -t 60 && 
         ./manage.py migrate &&
         ./manage.py create_superuser &&
         ./manage.py create_example_users &&
@@ -51,7 +51,7 @@ services:
     <<: *default-app
     command: >
       bash -c "
-        wait-for-it -s postgres.local:5432 -t 60 &&
+        wait-for-it -s paradedb.local:5432 -t 60 &&
         ./manage.py bg_worker -l debug -q default --autoreload
       "
 
@@ -59,13 +59,15 @@ services:
     <<: *default-app
     command: >
       bash -c "
-        wait-for-it -s postgres.local:5432 -t 60 &&
+        wait-for-it -s paradedb.local:5432 -t 60 &&
         ./manage.py bg_worker -l debug -q llm --autoreload
       "
 
-  postgres:
+  paradedb:
     environment:
       POSTGRES_PASSWORD: "postgres"
+      POSTGRES_DB: "postgres"
+      POSTGRES_USER: "postgres"
 
   llamacpp_cpu:
     <<: *llamacpp
