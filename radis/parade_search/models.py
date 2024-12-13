@@ -1,26 +1,20 @@
-from django.contrib.postgres.indexes import GinIndex
-from django.contrib.postgres.search import SearchVector, SearchVectorField
 from django.db import models
 
 from radis.reports.models import Report
 
-from .utils.language_utils import code_to_language
 
+class ParadeDBReport(models.Model):
+    report = models.OneToOneField(Report, on_delete=models.CASCADE, related_name="ParadeDBReport")
 
-class ReportSearchVectorNew(models.Model):
-    report = models.OneToOneField(
-        Report, on_delete=models.CASCADE, related_name="parade_search_vector"
-    )
-    search_vector_new = SearchVectorField(null=True)
-
-    class Meta:
-        indexes = [GinIndex(fields=["search_vector_new"])]
+    body_en = models.TextField(blank=True)
+    body_de = models.TextField(blank=True)
 
     def __str__(self) -> str:
-        return f"Report {self.report.document_id} search vector"
+        return f"Report {self.report.document_id} index model"
 
     def save(self, *args, **kwargs):
-        body = self.report.body if self.report else ""
-        language = code_to_language(self.report.language.code)
-        self.search_vector_new = SearchVector(models.Value(body), config=language)
+        body_language_field = f"body_{self.report.language.code}"
+
+        if not getattr(self, body_language_field):
+            setattr(self, body_language_field, self.report.body)
         super().save(*args, **kwargs)

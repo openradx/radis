@@ -1,8 +1,8 @@
-from radis.pgsearch.models import ReportSearchVector
+from radis.parade_search.models import ParadeDBReport
 from radis.search.site import ReportDocument
 
 
-class AnnotatedReportSearchVector(ReportSearchVector):
+class AnnotatedReportSearchVector(ParadeDBReport):
     rank: float
     summary: str
 
@@ -57,16 +57,14 @@ def summarize(snippets):
 def document_from_pgsearch_response(
     record: AnnotatedReportSearchVector,
 ) -> ReportDocument:
-    report = record
-    print(report.summary)
     return ReportDocument(
         relevance=record.rank,
-        document_id=report.document_id,
-        pacs_name=report.pacs_name,
-        pacs_link=report.pacs_link,
-        patient_age=report.patient_age,
-        patient_sex=report.patient_sex,
-        study_description=report.study_description,
-        modalities=report.modality_codes,
-        summary=summarize(snippet(report.summary, "<b><u>", 30)),
+        document_id=record.report.document_id,
+        pacs_name=record.report.pacs_name,
+        pacs_link=record.report.pacs_link,
+        patient_age=record.report.patient_age,
+        patient_sex=record.report.patient_sex,
+        study_description=record.report.study_description,
+        modalities=record.report.modality_codes,
+        summary=summarize(snippet(record.summary, "<b><u>", 30)),
     )

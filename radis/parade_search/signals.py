@@ -1,15 +1,23 @@
-# from django.db.models.signals import post_save
-# from django.dispatch import receiver
+from django.db.models.signals import post_save
+from django.dispatch import receiver
 
-# from radis.reports.models import Report
+from ..reports.models import Report  # Import Report from reports app
+from .models import ParadeDBReport  # Import ParadeDBReport from current app
 
-# from .models import ReportSearchVectorNew
 
+@receiver(post_save, sender=Report)
+def create_parade_db_report(sender, instance, created, **kwargs):
+    if created:  # Only act on newly created Report instances
+        # Determine the field name based on the Report's language code
+        language_code = instance.language.code
+        body_field_name = f"body_{language_code}"
 
-# @receiver(post_save, sender=Report)
-# def create_or_update_report_search_vector(sender, instance, created, **kwargs):
-#     if created:
-#         ReportSearchVectorNew.objects.create(report=instance)
-#         return
+        # Create the ParadeDBReport instance
+        parade_db_report = ParadeDBReport(report=instance)
 
-#     instance.search_vector_new.save()
+        # Dynamically set the appropriate body field
+        if hasattr(parade_db_report, body_field_name):
+            setattr(parade_db_report, body_field_name, instance.body)
+
+        # Save the ParadeDBReport instance
+        parade_db_report.save()
