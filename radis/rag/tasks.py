@@ -26,7 +26,7 @@ async def process_rag_task(task_id: int) -> None:
         processor = RagTaskProcessor(task)
         processor.start()
 
-    await _process_tag_task(task_id)
+    await _process_tag_task(task_id) # type: ignore
 
 
 @app.task

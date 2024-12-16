@@ -28,7 +28,7 @@ async def process_subscription_task(task_id: int) -> None:
         processor = SubscriptionTaskProcessor(task)
         processor.start()
 
-    await _process_subscription_task(task_id)
+    await _process_subscription_task(task_id) # type: ignore
 
     task = await SubscriptionTask.objects.aget(id=task_id)
     task.queued_job_id = None
