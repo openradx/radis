@@ -5,6 +5,7 @@
 RADIS (Radiology Report Archive and Discovery System) is an innovative open-source web application developed by our team to enhance the management, retrieval, and analysis of radiology reports within hospital infrastructures.
 
 **Developed at**
+
 <table>
   <tr>
     <td align="center"><a href="https://ccibonn.ai/"><img src="https://github.com/user-attachments/assets/adb95263-bc24-424b-b201-c68492965ebe" width="220" alt="CCI Bonn"/><br />CCIBonn.ai</a></td>
@@ -12,6 +13,7 @@ RADIS (Radiology Report Archive and Discovery System) is an innovative open-sour
 </table>
 
 **in Partnership with**
+
 <table>
   <tr>
     
@@ -76,4 +78,4 @@ RADIS is intended for research purposes only and is not a certified medical devi
 
 ## License
 
-AGPLv3
+AGPL 3.0 or later
