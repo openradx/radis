@@ -19,7 +19,7 @@ from radis.chats.forms import CreateChatForm, PromptForm
 from radis.chats.tables import ChatTable
 from radis.reports.models import Report
 
-from .models import Chat, ChatMessage, ChatRole
+from .models import Chat, ChatMessage, ChatRole, Grammar
 from .utils.chat_client import AsyncChatClient
 
 
@@ -64,13 +64,18 @@ async def chat_create_view(request: AuthenticatedHttpRequest) -> HttpResponse:
 
             client = AsyncChatClient()
 
+            if request.POST.get("yes_no_answer"):
+                grammar = await Grammar.objects.aget(name="YES_NO")
+            else:
+                grammar = await Grammar.objects.aget(name="FREE_TEXT")
+
             # Generate an answer for the user prompt
             answer = await client.send_messages(
                 [
                     {"role": "system", "content": instructions_system_prompt},
                     {"role": "user", "content": user_prompt},
                 ],
-                yes_no_answer=True if request.POST.get("yes_no_answer") else False,
+                grammar=grammar,
             )
 
             # Generate a title for the chat
@@ -78,12 +83,14 @@ async def chat_create_view(request: AuthenticatedHttpRequest) -> HttpResponse:
                 {"num_words": 6}
             )
 
+            free_text_grammar = await Grammar.objects.aget(name="FREE_TEXT")
             title = await client.send_messages(
                 [
                     {"role": "system", "content": title_system_prompt},
                     {"role": "user", "content": user_prompt},
                 ],
                 max_tokens=20,
+                grammar=free_text_grammar,
             )
             title = title.strip().rstrip(string.punctuation)[:100]
 
@@ -172,10 +179,11 @@ async def chat_update_view(request: AuthenticatedHttpRequest, pk: int) -> HttpRe
         messages.append({"role": "user", "content": prompt})
 
         client = AsyncChatClient()
-        response = await client.send_messages(
-            messages,
-            yes_no_answer=True if request.POST.get("yes_no_answer") else False,
-        )
+        if request.POST.get("yes_no_answer"):
+            grammar = await Grammar.objects.aget(name="YES_NO")
+        else:
+            grammar = await Grammar.objects.aget(name="FREE_TEXT")
+        response = await client.send_messages(messages, grammar=grammar)
 
         await ChatMessage.objects.acreate(chat=chat, role=ChatRole.USER, content=prompt)
         await ChatMessage.objects.acreate(chat=chat, role=ChatRole.ASSISTANT, content=response)

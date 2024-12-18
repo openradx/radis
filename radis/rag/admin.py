@@ -1,11 +1,11 @@
 from django import forms
 from django.contrib import admin
 
-from .models import Question, QuestionResult, RagInstance, RagJob, RagTask
+from .models import FilterQuestion, FilterQuestionResult, RagInstance, RagJob, RagTask
 
 
 class QuestionInline(admin.StackedInline):
-    model = Question
+    model = FilterQuestion
     extra = 1
     ordering = ("id",)
 
@@ -38,7 +38,7 @@ class QuestionResultInlineFormset(forms.BaseInlineFormSet):
 
 
 class QuestionResultInline(admin.StackedInline):
-    model = QuestionResult
+    model = FilterQuestionResult
     extra = 1
     ordering = ("id",)
     formset = QuestionResultInlineFormset

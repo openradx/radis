@@ -5,7 +5,7 @@ from faker import Faker
 
 from radis.reports.factories import ModalityFactory
 
-from .models import Answer, Question, RagInstance, RagJob, RagTask
+from .models import Answer, FilterQuestion, RagInstance, RagJob, RagTask
 from .site import retrieval_providers
 
 fake = Faker()
@@ -55,9 +55,9 @@ class RagJobFactory(BaseDjangoModelFactory):
             self.modalities.add(ModalityFactory(code=modality))  # type: ignore
 
 
-class QuestionFactory(BaseDjangoModelFactory[Question]):
+class FilterQuestionFactory(BaseDjangoModelFactory[FilterQuestion]):
     class Meta:
-        model = Question
+        model = FilterQuestion
 
     job = factory.SubFactory("radis.rag.factories.RagJobFactory")
     question = factory.Faker("sentence", nb_words=10)

@@ -13,6 +13,18 @@ class ChatsSettings(AppSettings):
         verbose_name_plural = "Chats settings"
 
 
+class Grammar(models.Model):
+    name = models.CharField(max_length=100, unique=True)
+    human_readable_name = models.CharField(max_length=100)
+    grammar = models.TextField()
+    llm_instruction = models.TextField()
+
+    is_default = models.BooleanField(default=False)
+
+    def __str__(self):
+        return f"{self.human_readable_name}"
+
+
 class Chat(models.Model):
     title = models.CharField(max_length=255, default="New Chat")
     owner = models.ForeignKey(

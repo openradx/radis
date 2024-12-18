@@ -1,3 +1,5 @@
+from string import Template
+
 from adit_radis_shared.accounts.models import User
 from crispy_forms.helper import FormHelper
 from crispy_forms.layout import HTML, Column, Div, Layout, Row, Submit
@@ -9,7 +11,7 @@ from radis.search.forms import AGE_STEP, MAX_AGE, MIN_AGE
 from radis.search.layouts import RangeSlider
 from radis.search.utils.query_parser import QueryParser
 
-from .models import Question, RagJob
+from .models import AnalysisQuestion, FilterQuestion, RagJob
 from .site import retrieval_providers
 
 
@@ -92,7 +94,7 @@ class SearchForm(forms.ModelForm):
                     "send_finished_mail",
                     "provider",
                     "query",
-                    Submit("next", "Next Step (Questions)", css_class="btn-primary"),
+                    Submit("next", "Next Step (Filter Questions)", css_class="btn-primary"),
                 ),
                 Column(
                     "language",
@@ -125,30 +127,30 @@ class SearchForm(forms.ModelForm):
         return query
 
 
-class QuestionForm(forms.ModelForm):
+class FilterQuestionForm(forms.ModelForm):
     class Meta:
-        model = Question
+        model = FilterQuestion
         fields = [
             "question",
             "accepted_answer",
         ]
 
 
-delete_button = """
+delete_button = Template("""
     {% load bootstrap_icon from common_extras %}
     <button type="button"
             name="delete-question"
             value="delete-question"
             class="btn btn-sm btn-outline-danger d-none position-absolute top-0 end-0"
-            :class="{'d-none': questionsCount === 1}"
-            @click="deleteQuestion($el)"
+            :class="{'d-none': questionsCount === $min_questions}"
+            @click="deleteQuestion($$el)"
             aria-label="Delete question">
         {% bootstrap_icon 'trash' %}
     </button>
-"""
+""")
 
 
-class QuestionFormSetHelper(FormHelper):
+class FilterQuestionFormSetHelper(FormHelper):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
@@ -161,18 +163,58 @@ class QuestionFormSetHelper(FormHelper):
                     "accepted_answer",
                     css_class="card-body",
                 ),
-                HTML(delete_button),
+                HTML(delete_button.substitute({"min_questions": "1"})),
                 css_class="card mb-3",
             )
         )
 
 
-QuestionFormSet = forms.inlineformset_factory(
+FilterQuestionFormSet = forms.inlineformset_factory(
     RagJob,
-    Question,
-    form=QuestionForm,
+    FilterQuestion,
+    form=FilterQuestionForm,
     extra=0,
     min_num=1,
+    max_num=3,
+    validate_max=True,
+    can_delete=False,
+)
+
+
+class AnalysisQuestionForm(forms.ModelForm):
+    class Meta:
+        model = AnalysisQuestion
+        fields = [
+            "question",
+            "grammar",
+        ]
+
+
+class AnalysisQuestionFormSetHelper(FormHelper):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        self.form_tag = False
+        self.disable_csrf = True
+        self.layout = Layout(
+            Div(
+                Div(
+                    "question",
+                    "grammar",
+                    css_class="card-body",
+                ),
+                HTML(delete_button.substitute({"min_questions": "0"})),
+                css_class="card mb-3",
+            )
+        )
+
+
+AnalysisQuestionFormSet = forms.inlineformset_factory(
+    RagJob,
+    AnalysisQuestion,
+    form=AnalysisQuestionForm,
+    extra=1,
+    min_num=0,
     max_num=3,
     validate_max=True,
     can_delete=False,
