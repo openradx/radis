@@ -2,6 +2,7 @@ from unittest.mock import patch
 
 import pytest
 from django.db import close_old_connections
+from pytest_mock import MockerFixture
 
 from radis.chats.utils.testing_helpers import create_async_openai_client_mock
 from radis.rag.models import Answer, RagInstance
@@ -10,7 +11,7 @@ from radis.rag.utils.testing_helpers import create_rag_task
 
 
 @pytest.mark.django_db(transaction=True)
-def test_rag_task_processor(mocker):
+def test_rag_task_processor(mocker: MockerFixture):
     num_rag_instances = 5
     num_questions = 5
     rag_task = create_rag_task(

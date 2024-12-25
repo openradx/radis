@@ -1,6 +1,7 @@
 from typing import Literal
 
 from adit_radis_shared.accounts.factories import GroupFactory, UserFactory
+from adit_radis_shared.common.utils.testing_helpers import add_user_to_group
 
 from radis.rag.factories import QuestionFactory, RagInstanceFactory, RagJobFactory, RagTaskFactory
 from radis.rag.models import RagJob, RagTask
@@ -15,10 +16,9 @@ def create_rag_task(
 ) -> RagTask:
     language = LanguageFactory.create(code=language_code)
 
-    # TODO: activate group
-    group = GroupFactory()
     user = UserFactory()
-    user.groups.add(group)
+    group = GroupFactory()
+    add_user_to_group(user, group)
     job = RagJobFactory.create(
         status=RagJob.Status.PENDING,
         owner_id=user.id,
