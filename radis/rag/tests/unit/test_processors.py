@@ -3,22 +3,24 @@ from unittest.mock import patch
 import pytest
 from django.db import close_old_connections
 
+from radis.chats.utils.testing_helpers import create_async_openai_client_mock
 from radis.rag.models import Answer, RagInstance
 from radis.rag.processors import RagTaskProcessor
+from radis.rag.utils.testing_helpers import create_rag_task
 
 
 @pytest.mark.django_db(transaction=True)
-def test_rag_task_processor(create_rag_task, openai_chat_completions_mock, mocker):
+def test_rag_task_processor(mocker):
     num_rag_instances = 5
     num_questions = 5
     rag_task = create_rag_task(
         language_code="en",
         num_questions=num_questions,
-        accepted_answer=Answer.YES,
+        accepted_answer="Y",
         num_rag_instances=num_rag_instances,
     )
 
-    openai_mock = openai_chat_completions_mock("Yes")
+    openai_mock = create_async_openai_client_mock("Yes")
     process_rag_task_spy = mocker.spy(RagTaskProcessor, "process_task")
     process_rag_instance_spy = mocker.spy(RagTaskProcessor, "process_rag_instance")
     process_yes_or_no_question_spy = mocker.spy(RagTaskProcessor, "process_yes_or_no_question")
