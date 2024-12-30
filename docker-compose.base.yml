@@ -2,10 +2,10 @@ x-app: &default-app
   volumes:
     - ${BACKUP_DIR:?}:/backups
   depends_on:
-    - postgres
+    - paradedb
   environment:
     BACKUP_DIR: ${BACKUP_DIR:?}
-    DATABASE_URL: "psql://postgres:postgres@postgres.local:5432/postgres"
+    DATABASE_URL: "postgresql://postgres:postgres@paradedb.local:5432/postgres"
     DBBACKUP_STORAGE_LOCATION: "/backups"
     DJANGO_ADMIN_EMAIL: ${DJANGO_ADMIN_EMAIL:?}
     DJANGO_ADMIN_FULL_NAME: ${DJANGO_ADMIN_FULL_NAME:?}
@@ -46,11 +46,17 @@ services:
     <<: *default-app
     hostname: llm_worker.local
 
-  postgres:
-    image: postgres:17
-    hostname: postgres.local
+  # postgres:
+  #   image: postgres:17
+  #   hostname: postgres.local
+  #   volumes:
+  #     - postgres_data:/var/lib/postgresql/data
+
+  paradedb:
+    image: paradedb/paradedb:0.13.1
+    hostname: paradedb.local
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - paradedb_data:/var/lib/postgresql/data
 
 volumes:
-  postgres_data:
+  paradedb_data:

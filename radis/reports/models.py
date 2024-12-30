@@ -75,10 +75,19 @@ class Report(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    # body_en = models.TextField(blank=True)
+    # body_de = models.TextField(blank=True)
+
     metadata: models.QuerySet["Metadata"]
 
-    def __str__(self) -> str:
-        return f"Report {self.document_id} [{self.pk}]"
+    # def __str__(self) -> str:
+    #    return f"Report {self.document_id} [{self.pk}]"
+
+    # def save(self, *args, **kwargs):
+    #     body_language_field = f"body_{self.language.code}"
+    #     if not getattr(self, body_language_field):
+    #         setattr(self, body_language_field, self.body)
+    #     super().save(*args, **kwargs)
 
     @property
     def modality_codes(self) -> list[str]:
