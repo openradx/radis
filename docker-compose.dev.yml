@@ -66,10 +66,14 @@ services:
   postgres:
     environment:
       POSTGRES_PASSWORD: "postgres"
+    ports:
+      - "${POSTGRES_DEV_PORT:-5432}:5432"
 
   llamacpp_cpu:
     <<: *llamacpp
     image: ghcr.io/ggerganov/llama.cpp:server
+    ports:
+      - "${LLAMACPP_DEV_PORT:-8080}:8080"
     entrypoint: []
     command: >
       bash -c "
