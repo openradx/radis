@@ -92,11 +92,11 @@ services:
       - models_data:/models
     entrypoint: >
       bash -c "
-        /llama-server \\
+        /app/llama-server \\
           --model-url ${LLM_MODEL_URL} \\
           --host 0.0.0.0 \\
           --port 8080 \\
-          --ctx-size 4096 \\
+          --ctx-size 8192 \\
           --gpu-layers 99
       "
     deploy:
