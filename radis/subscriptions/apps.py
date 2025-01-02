@@ -24,7 +24,7 @@ def register_app():
 
 
 def init_db(**kwargs):
-    from .models import SubscriptionAppSettings
+    from .models import SubscriptionsAppSettings
 
-    if not SubscriptionAppSettings.objects.exists():
-        SubscriptionAppSettings.objects.create()
+    if not SubscriptionsAppSettings.objects.exists():
+        SubscriptionsAppSettings.objects.create()

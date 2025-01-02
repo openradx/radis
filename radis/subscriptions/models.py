@@ -14,9 +14,9 @@ from radis.core.validators import validate_patient_sex
 from radis.reports.models import Language, Modality, Report
 
 
-class SubscriptionAppSettings(AppSettings):
+class SubscriptionsAppSettings(AppSettings):
     class Meta:
-        verbose_name_plural = "Subscription app settings"
+        verbose_name_plural = "Subscriptions app settings"
 
 
 class Subscription(models.Model):

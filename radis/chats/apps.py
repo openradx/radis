@@ -28,7 +28,7 @@ def register_app():
 
 
 def init_db(**kwargs):
-    from .models import ChatsSettings
+    from .models import ChatsAppSettings
 
-    if not ChatsSettings.objects.exists():
-        ChatsSettings.objects.create()
+    if not ChatsAppSettings.objects.exists():
+        ChatsAppSettings.objects.create()

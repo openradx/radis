@@ -8,9 +8,9 @@ from django.db import models
 logger = logging.getLogger(__name__)
 
 
-class ChatsSettings(AppSettings):
+class ChatsAppSettings(AppSettings):
     class Meta:
-        verbose_name_plural = "Chats settings"
+        verbose_name_plural = "Chats app settings"
 
 
 class Chat(models.Model):

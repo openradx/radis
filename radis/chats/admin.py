@@ -1,5 +1,5 @@
 from django.contrib import admin
 
-from .models import ChatsSettings
+from .models import ChatsAppSettings
 
-admin.site.register(ChatsSettings, admin.ModelAdmin)
+admin.site.register(ChatsAppSettings, admin.ModelAdmin)
