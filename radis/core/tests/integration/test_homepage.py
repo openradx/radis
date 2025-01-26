@@ -6,6 +6,7 @@ from pytest_django.live_server_helper import LiveServer
 
 
 @pytest.mark.integration
+@pytest.mark.order("last")
 def test_homepage_has_title(live_server: LiveServer, page: Page):
     page.goto(live_server.url)
 
