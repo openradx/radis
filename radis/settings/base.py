@@ -38,7 +38,6 @@ SITE_ID = 1
 # (see common/apps.py in adit-radis-shared).
 SITE_DOMAIN = env.str("SITE_DOMAIN")
 SITE_NAME = env.str("SITE_NAME")
-SITE_USES_HTTPS = env.bool("SITE_USES_HTTPS")
 
 SECRET_KEY = env.str("DJANGO_SECRET_KEY")
 
