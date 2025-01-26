@@ -13,12 +13,19 @@ x-app: &default-app
   pull_policy: build
 
 x-llamacpp: &llamacpp
+  hostname: llamacpp.local
+  ports:
+    - "${LLAMACPP_DEV_PORT:-8080}:8080"
   environment:
     HTTP_PROXY: ${HTTP_PROXY:-}
     HTTPS_PROXY: ${HTTPS_PROXY:-}
-    LLAMA_CACHE: "/models"
+    LLAMA_ARG_MODEL_URL: ${LLM_MODEL_URL}
+    LLAMA_ARG_CTX_SIZE: 8192
+    LLAMA_ARG_N_PARALLEL: 2
+    LLAMA_ARG_ENDPOINT_METRICS: 1
+    LLAMA_ARG_PORT: 8080
+    LLAMA_ARG_N_GPU_LAYERS: 99
     NO_PROXY: ${NO_PROXY:-}
-  hostname: llamacpp.local
   volumes:
     - models_data:/models
 
@@ -71,33 +78,12 @@ services:
 
   llamacpp_cpu:
     <<: *llamacpp
-    image: ghcr.io/ggerganov/llama.cpp:server
-    ports:
-      - "${LLAMACPP_DEV_PORT:-8080}:8080"
-    entrypoint: []
-    command: >
-      bash -c "
-        /app/llama-server \\
-          --model-url ${LLM_MODEL_URL} \\
-          --host 0.0.0.0 \\
-          --port 8080 \\
-          --ctx-size 8192
-      "
+    image: ghcr.io/ggerganov/llama.cpp:server-b4231
     profiles: ["cpu"]
 
   llamacpp_gpu:
     <<: *llamacpp
-    image: ghcr.io/ggerganov/llama.cpp:server-cuda
-    entrypoint: []
-    command: >
-      bash -c "
-        /app/llama-server \\
-          --model-url ${LLM_MODEL_URL} \\
-          --host 0.0.0.0 \\
-          --port 8080 \\
-          --ctx-size 8192 \\
-          --gpu-layers 99
-      "
+    image: ghcr.io/ggerganov/llama.cpp:server-cuda-b4231
     deploy:
       resources:
         reservations:
