@@ -6,6 +6,8 @@ from .base import env
 
 DEBUG = False
 
+ENVIRONMENT = "production"
+
 DATABASES["default"]["PASSWORD"] = env.str("POSTGRES_PASSWORD")  # noqa: F405
 
 STATIC_ROOT = env.str("DJANGO_STATIC_ROOT")

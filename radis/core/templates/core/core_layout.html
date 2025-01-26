@@ -3,6 +3,10 @@
 {% block css %}
     <link rel="stylesheet" type="text/css" href="{% static 'core/core.css' %}" />
 {% endblock css %}
+{% block meta %}
+    <meta name="description"
+          content="RADIS (Radiology Report Archive and Discovery System) is an application to archive, query and collect radiology reports." />
+{% endblock meta %}
 {% block script %}
     <script src="{% static 'core/core.js' %}"></script>
 {% endblock script %}
