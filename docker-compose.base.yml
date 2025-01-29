@@ -5,18 +5,18 @@ x-app: &default-app
     - postgres
   environment:
     BACKUP_DIR: ${BACKUP_DIR:?}
-    DATABASE_URL: "postgres://postgres:postgres@postgres.local:5432/postgres"
-    DBBACKUP_STORAGE_LOCATION: "/backups"
+    DATABASE_URL: postgres://postgres:postgres@postgres.local:5432/postgres
+    DBBACKUP_STORAGE_LOCATION: /backups
     DJANGO_ADMIN_EMAIL: ${DJANGO_ADMIN_EMAIL:?}
     DJANGO_ADMIN_FULL_NAME: ${DJANGO_ADMIN_FULL_NAME:?}
     DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:?}
     DJANGO_CSRF_TRUSTED_ORIGINS: ${DJANGO_CSRF_TRUSTED_ORIGINS:-}
     DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:?}
     DJANGO_SERVER_EMAIL: ${DJANGO_SERVER_EMAIL:?}
-    IS_DOCKER_CONTAINER: "true"
+    IS_DOCKER_CONTAINER: true
     HTTP_PROXY: ${HTTP_PROXY:-}
     HTTPS_PROXY: ${HTTPS_PROXY:-}
-    LLAMACPP_URL: "http://llamacpp.local:8080"
+    LLAMACPP_URL: http://llamacpp.local:8080
     NO_PROXY: ${NO_PROXY:-}
     PROJECT_VERSION: ${PROJECT_VERSION:-vX.Y.Z}
     SITE_DOMAIN: ${SITE_DOMAIN:?}
