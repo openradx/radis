@@ -81,7 +81,7 @@ services:
       <<: *deploy
 
   llamacpp_gpu:
-    image: ghcr.io/ggerganov/llama.cpp:server-cuda-b4231
+    image: ghcr.io/ggerganov/llama.cpp:server-cuda-b4580
     hostname: llamacpp.local
     environment:
       HTTP_PROXY: ${HTTP_PROXY:-}

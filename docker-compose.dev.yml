@@ -78,12 +78,12 @@ services:
 
   llamacpp_cpu:
     <<: *llamacpp
-    image: ghcr.io/ggerganov/llama.cpp:server-b4231
+    image: ghcr.io/ggerganov/llama.cpp:server-b4580
     profiles: ["cpu"]
 
   llamacpp_gpu:
     <<: *llamacpp
-    image: ghcr.io/ggerganov/llama.cpp:server-cuda-b4231
+    image: ghcr.io/ggerganov/llama.cpp:server-cuda-b4580
     deploy:
       resources:
         reservations:
