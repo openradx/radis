@@ -1,7 +1,6 @@
 import logging
 import re
 
-from django.conf import settings
 from django.template import Library
 
 from ..models import AnalysisJob, AnalysisTask
@@ -9,12 +8,6 @@ from ..models import AnalysisJob, AnalysisTask
 logger = logging.getLogger(__name__)
 
 register = Library()
-
-
-@register.simple_tag
-def filter_modalities(modalities: list[str]) -> list[str]:
-    exclude_modalities = settings.EXCLUDED_MODALITIES
-    return [modality for modality in modalities if modality not in exclude_modalities]
 
 
 @register.filter
