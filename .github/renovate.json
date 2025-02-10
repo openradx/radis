@@ -27,11 +27,6 @@
       "managers": ["poetry"],
       "matchPackageNames": ["factory-boy"],
       "allowedVersions": "<=3.3.2"
-    },
-    {
-      "managers": ["poetry"],
-      "matchPackageNames": ["factory-boy"],
-      "allowedVersions": "<=3.3.2"
     }
   ]
 }
