@@ -22,6 +22,11 @@
       "matchManagers": ["poetry"],
       "matchPackageNames": ["pydicom"],
       "allowedVersions": "<=2"
+    },
+    {
+      "managers": ["poetry"],
+      "matchPackageNames": ["factory-boy"],
+      "allowedVersions": "<=3.3.2"
     }
   ]
 }
