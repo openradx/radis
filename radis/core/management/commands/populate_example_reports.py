@@ -50,7 +50,7 @@ class Command(BaseCommand):
         else:
             raise ValueError(f"Language {language} is not supported.")
 
-        samples_path = Path(settings.BASE_DIR / "samples" / sample_file)
+        samples_path = Path(settings.ROOT_PATH / "samples" / sample_file)
         with open(samples_path, "r") as f:
             report_bodies = json.load(f)
 
