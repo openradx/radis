@@ -43,7 +43,6 @@ app.command()(commands.try_github_actions)
 def compose_up(
     build: Annotated[bool, typer.Option(help="Do not build images")] = True,
     profile: Annotated[list[str], typer.Option(help="Docker Compose profile(s)")] = [],
-    simulate: Annotated[bool, typer.Option(help="Simulate the command")] = False,
 ):
     """Start stack with docker compose"""
 
@@ -53,14 +52,13 @@ def compose_up(
     else:
         profiles = profile + ["cpu"] if "cpu" not in profile else profile
 
-    commands.compose_up(build=build, profile=profiles, simulate=simulate)
+    commands.compose_up(build=build, profile=profiles)
 
 
 @app.command()
 def compose_down(
     cleanup: Annotated[bool, typer.Option(help="Remove orphans and volumes")] = False,
     profile: Annotated[list[str], typer.Option(help="Docker Compose profile(s)")] = [],
-    simulate: Annotated[bool, typer.Option(help="Simulate the command")] = False,
 ):
     """Stop stack with docker compose"""
 
@@ -70,7 +68,7 @@ def compose_down(
     else:
         profiles = profile + ["cpu"] if "cpu" not in profile else profile
 
-    commands.compose_down(cleanup=cleanup, profile=profiles, simulate=simulate)
+    commands.compose_down(cleanup=cleanup, profile=profiles)
 
 
 SYSTEM_PROMPT = {
