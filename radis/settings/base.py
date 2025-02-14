@@ -20,10 +20,10 @@ if not env.bool("IS_DOCKER_CONTAINER", default=False):
     env.read_env()
 
 # The base directory of the project (the root of the repository)
-BASE_DIR = Path(__file__).resolve(strict=True).parent.parent.parent
+BASE_PATH = Path(__file__).resolve(strict=True).parent.parent.parent
 
-# Used to monitor for autoreload
-SOURCE_FOLDERS = [BASE_DIR / "radis"]
+# The source paths of the project
+SOURCE_PATHS = [BASE_PATH / "radis"]
 
 # Fetch version from the environment which is passed through from the latest git version tag
 PROJECT_VERSION = env.str("PROJECT_VERSION", default="vX.Y.Z")
@@ -69,6 +69,7 @@ INSTALLED_APPS = [
     "django_htmx",
     "django_tables2",
     "formtools",
+    "betterforms",
     "rest_framework",
     "adrf",
     "radis.core.apps.CoreConfig",
@@ -83,7 +84,6 @@ INSTALLED_APPS = [
     "radis.chats.apps.ChatsConfig",
     "radis.pgsearch.apps.PgSearchConfig",
     "channels",
-    "betterforms",
 ]
 
 MIDDLEWARE = [
@@ -267,7 +267,7 @@ USER_TIME_ZONE = env.str("USER_TIME_ZONE")
 STATIC_URL = "/static/"
 
 # Additional (project wide) static files
-STATICFILES_DIRS = (BASE_DIR / "radis" / "static",)
+STATICFILES_DIRS = (BASE_PATH / "radis" / "static",)
 
 # For crispy forms
 CRISPY_ALLOWED_TEMPLATE_PACKS = "bootstrap5"
