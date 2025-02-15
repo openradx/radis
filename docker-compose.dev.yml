@@ -2,8 +2,7 @@ x-app: &default-app
   image: radis_dev:latest
   volumes:
     - .:/app
-    - vscode-server:/root/.vscode-server/extensions
-    - vscode-server-insiders:/root/.vscode-server-insiders/extensions
+    - /app/.venv
   environment:
     DJANGO_INTERNAL_IPS: ${DJANGO_INTERNAL_IPS:?}
     DJANGO_SETTINGS_MODULE: radis.settings.development
@@ -95,5 +94,3 @@ services:
 
 volumes:
   models_data:
-  vscode-server:
-  vscode-server-insiders:
