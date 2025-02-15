@@ -19,12 +19,12 @@
       "allowedVersions": "<=3.12"
     },
     {
-      "matchManagers": ["poetry"],
+      "matchManagers": ["pep621"],
       "matchPackageNames": ["pydicom"],
       "allowedVersions": "<=2"
     },
     {
-      "managers": ["poetry"],
+      "managers": ["pep621"],
       "matchPackageNames": ["factory-boy"],
       "allowedVersions": "<=3.3.2"
     }
