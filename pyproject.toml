@@ -81,6 +81,13 @@ dev = [
     "time-machine",
     "typer",
 ]
+client = ["radis-client"]
+
+[tool.uv]
+default-groups = ["dev", "client"]
+
+[tool.uv.sources]
+radis-client = { path = "radis-client" }
 
 [tool.pyright]
 ignore = ["**/migrations", "**/*.ipynb"]
@@ -90,7 +97,7 @@ reportUnnecessaryTypeIgnoreComment = true
 [tool.pytest.ini_options]
 DJANGO_SETTINGS_MODULE = "radis.settings.development"
 python_files = ["tests.py", "test_*.py", "*_tests.py"]
-testpaths = ["radis/**/tests"]
+testpaths = ["radis/**/tests", "radis-client/**/tests"]
 log_cli = 0
 log_cli_level = "INFO"
 log_cli_format = "%(asctime)s [%(levelname)8s] %(message)s (%(filename)s:%(lineno)s)"
@@ -106,7 +113,7 @@ timeout = 60
 
 [tool.coverage.run]
 branch = true
-source = ["radis"]
+source = ["radis", "radis-client"]
 
 [tool.coverage.report]
 skip_empty = true
@@ -114,7 +121,7 @@ show_missing = true
 
 [tool.ruff]
 target-version = "py312"
-exclude = ["migrations"]
+exclude = ["migrations", "notebooks"]
 line-length = 100
 lint.select = ["E", "F", "I", "DJ"]
 
