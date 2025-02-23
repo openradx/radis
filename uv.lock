@@ -1998,6 +1998,9 @@ dependencies = [
 ]
 
 [package.dev-dependencies]
+client = [
+    { name = "radis-client" },
+]
 dev = [
     { name = "debugpy" },
     { name = "django-browser-reload" },
@@ -2075,6 +2078,7 @@ requires-dist = [
 ]
 
 [package.metadata.requires-dev]
+client = [{ name = "radis-client", directory = "radis-client" }]
 dev = [
     { name = "debugpy" },
     { name = "django-browser-reload" },
@@ -2110,6 +2114,16 @@ dev = [
     { name = "time-machine" },
     { name = "typer" },
 ]
+
+[[package]]
+name = "radis-client"
+source = { directory = "radis-client" }
+dependencies = [
+    { name = "requests" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "requests" }]
 
 [[package]]
 name = "regex"
