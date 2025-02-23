@@ -2,7 +2,7 @@
 
 ## About
 
-RADIS Client is the official Python client of [RADIS (Radiology Report Archive and Discovery System)](https://github.com/openradx/adit).
+RADIS Client is the official Python client of [RADIS (Radiology Report Archive and Discovery System)](https://github.com/openradx/radis).
 
 ## Usage
 
