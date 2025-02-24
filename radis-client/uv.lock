@@ -63,7 +63,7 @@ dependencies = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "requests" }]
+requires-dist = [{ name = "requests", specifier = "~=2.32" }]
 
 [[package]]
 name = "requests"
