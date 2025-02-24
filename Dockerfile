@@ -2,6 +2,8 @@
 
 FROM python:3.12-bullseye AS builder-base
 
+ARG PROJECT_VERSION
+
 # Install dependencies for the `psql` command.
 # Must match the version of the postgres service in the compose file!
 RUN apt-get update \
@@ -42,6 +44,7 @@ ADD . /app
 RUN --mount=type=cache,target=/root/.cache/uv \
   uv sync --frozen
 
+ENV PROJECT_VERSION=${PROJECT_VERSION}
 
 # production image
 FROM builder-base AS production
@@ -55,3 +58,5 @@ ADD . /app
 
 RUN --mount=type=cache,target=/root/.cache/uv \
   uv sync --frozen --no-dev --no-group client
+
+ENV PROJECT_VERSION=${PROJECT_VERSION}

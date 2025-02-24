@@ -18,7 +18,6 @@ x-app: &default-app
     HTTPS_PROXY: ${HTTPS_PROXY:-}
     LLAMACPP_URL: http://llamacpp.local:8080
     NO_PROXY: ${NO_PROXY:-}
-    PROJECT_VERSION: ${PROJECT_VERSION:-vX.Y.Z}
     SITE_DOMAIN: ${SITE_DOMAIN:?}
     SITE_NAME: ${SITE_NAME:?}
     SUPERUSER_AUTH_TOKEN: ${SUPERUSER_AUTH_TOKEN:-}
