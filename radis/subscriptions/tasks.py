@@ -8,7 +8,7 @@ from django.utils import timezone
 from pebble import asynchronous
 from procrastinate.contrib.django import app
 
-from radis.rag.site import retrieval_providers
+from radis.extractions.site import retrieval_providers
 from radis.reports.models import Report
 from radis.search.site import Search, SearchFilters
 from radis.search.utils.query_parser import QueryParser
@@ -28,7 +28,7 @@ async def process_subscription_task(task_id: int) -> None:
         processor = SubscriptionTaskProcessor(task)
         processor.start()
 
-    await _process_subscription_task(task_id) # type: ignore
+    await _process_subscription_task(task_id)  # type: ignore
 
     task = await SubscriptionTask.objects.aget(id=task_id)
     task.queued_job_id = None

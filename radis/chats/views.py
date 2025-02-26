@@ -57,7 +57,7 @@ async def chat_create_view(request: AuthenticatedHttpRequest) -> HttpResponse:
             if report_id:
                 report = await aget_object_or_404(Report, pk=report_id)
                 instructions_system_prompt = Template(
-                    settings.CHAT_REPORT_QUESTION_SYSTEM_PROMPT
+                    settings.CHAT_REPORT_SYSTEM_PROMPT
                 ).substitute({"report": report.body})
             else:
                 instructions_system_prompt: str = settings.CHAT_GENERAL_SYSTEM_PROMPT
@@ -65,12 +65,11 @@ async def chat_create_view(request: AuthenticatedHttpRequest) -> HttpResponse:
             client = AsyncChatClient()
 
             # Generate an answer for the user prompt
-            answer = await client.send_messages(
+            answer = await client.chat(
                 [
                     {"role": "system", "content": instructions_system_prompt},
                     {"role": "user", "content": user_prompt},
                 ],
-                yes_no_answer=True if request.POST.get("yes_no_answer") else False,
             )
 
             # Generate a title for the chat
@@ -78,7 +77,7 @@ async def chat_create_view(request: AuthenticatedHttpRequest) -> HttpResponse:
                 {"num_words": 6}
             )
 
-            title = await client.send_messages(
+            title = await client.chat(
                 [
                     {"role": "system", "content": title_system_prompt},
                     {"role": "user", "content": user_prompt},
@@ -172,10 +171,7 @@ async def chat_update_view(request: AuthenticatedHttpRequest, pk: int) -> HttpRe
         messages.append({"role": "user", "content": prompt})
 
         client = AsyncChatClient()
-        response = await client.send_messages(
-            messages,
-            yes_no_answer=True if request.POST.get("yes_no_answer") else False,
-        )
+        response = await client.chat(messages)
 
         await ChatMessage.objects.acreate(chat=chat, role=ChatRole.USER, content=prompt)
         await ChatMessage.objects.acreate(chat=chat, role=ChatRole.ASSISTANT, content=response)

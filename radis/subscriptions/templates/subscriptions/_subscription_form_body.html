@@ -1,0 +1,20 @@
+{% csrf_token %}
+{% crispy form.subscription %}
+<fieldset>
+    <legend>Filter Fields</legend>
+    <div class="mb-2">
+        {{ form.filter_fields.management_form }}
+        <template>
+            {% crispy form.filter_fields.empty_form form.filter_fields.form.helper %}
+        </template>
+        <div class="formSet d-flex flex-column">
+            {% for field in form.filter_fields %}
+                {% crispy field form.filter_fields.form.helper %}
+            {% endfor %}
+        </div>
+        <button type="button"
+                class="btn btn-success"
+                :class="{'d-none': formCount >= 3}"
+                @click="addForm()">Add Field</button>
+    </div>
+</fieldset>

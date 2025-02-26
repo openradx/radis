@@ -45,3 +45,41 @@ document.addEventListener("alpine:init", () => {
     });
   });
 });
+
+/**
+ * An Alpine component that controls a Django FormSet
+ *
+ * @param {HTMLElement} rootEl - The form element that contains the formset
+ * @return {Object} An object with methods to control the formset
+ */
+function FormSet(rootEl) {
+  const template = rootEl.querySelector("template");
+  const container = rootEl.querySelector(".formSet");
+  /** @type {HTMLInputElement} */
+  const totalForms = rootEl.querySelector('[id$="TOTAL_FORMS"]');
+
+  return {
+    formCount: 0,
+    init() {
+      this.formCount = parseInt(totalForms.value);
+    },
+    addForm() {
+      const newForm = template.content.cloneNode(true);
+      const idx = totalForms.value;
+      container.append(newForm);
+      const lastForm = container.querySelector(".formItem:last-child");
+      lastForm.innerHTML = lastForm.innerHTML.replace(/__prefix__/g, idx);
+      totalForms.value = (parseInt(idx) + 1).toString();
+      this.formCount = parseInt(totalForms.value);
+    },
+    /**
+     * @param {HTMLElement} btnEl - The delete button element that was clicked
+     */
+    removeForm(btnEl) {
+      btnEl.closest(".formItem").remove();
+      const idx = totalForms.value;
+      totalForms.value = (parseInt(idx) - 1).toString();
+      this.formCount = parseInt(totalForms.value);
+    },
+  };
+}

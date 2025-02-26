@@ -1,6 +1,4 @@
-from typing import Callable
-
-from adit_radis_shared.accounts.models import Group
+from adit_radis_shared.accounts.models import Group, User
 from adit_radis_shared.common.models import AppSettings
 from django.conf import settings
 from django.db import models
@@ -10,7 +8,6 @@ from procrastinate.contrib.django import app
 from procrastinate.contrib.django.models import ProcrastinateJob
 
 from radis.core.models import AnalysisJob, AnalysisTask
-from radis.core.validators import validate_patient_sex
 from radis.reports.models import Language, Modality, Report
 
 
@@ -19,18 +16,24 @@ class SubscriptionsAppSettings(AppSettings):
         verbose_name_plural = "Subscriptions app settings"
 
 
+class PatientSexFilter(models.TextChoices):
+    ALL = "", "All"
+    MALE = "M", "Male"
+    FEMALE = "F", "Female"
+
+
 class Subscription(models.Model):
     name = models.CharField(max_length=100)
     owner_id: int
-    owner = models.ForeignKey(
+    owner = models.ForeignKey[User](
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="subscriptions"
     )
 
     provider = models.CharField(max_length=100, blank=True)
-    group = models.ForeignKey(Group, on_delete=models.CASCADE, related_name="+")
+    group = models.ForeignKey[Group](Group, on_delete=models.CASCADE, related_name="+")
     patient_id = models.CharField(max_length=100, blank=True)
     query = models.CharField(max_length=200, blank=True)
-    language = models.ForeignKey(
+    language = models.ForeignKey[Language](
         Language, on_delete=models.SET_NULL, blank=True, null=True, related_name="+"
     )
     modalities = models.ManyToManyField(Modality, blank=True)
@@ -38,8 +41,8 @@ class Subscription(models.Model):
     patient_sex = models.CharField(
         max_length=1,
         blank=True,
-        choices=[("", "All"), ("M", "Male"), ("F", "Female")],
-        validators=[validate_patient_sex],
+        choices=PatientSexFilter.choices,
+        default=PatientSexFilter.ALL,
     )
     age_from = models.IntegerField(null=True, blank=True)
     age_till = models.IntegerField(null=True, blank=True)
@@ -47,8 +50,8 @@ class Subscription(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     last_refreshed = models.DateTimeField(auto_now_add=True)
 
+    question_fields: models.QuerySet["QuestionField"]
     items: models.QuerySet["SubscribedItem"]
-    questions: models.QuerySet["SubscriptionQuestion"]
 
     send_finished_mail = models.BooleanField(default=False)
 
@@ -64,31 +67,34 @@ class Subscription(models.Model):
         return f"Subscription {self.name} [{self.pk}]"
 
 
-class Answer(models.TextChoices):
-    YES = "Y", "Yes"
-    NO = "N", "No"
-
-
-class SubscriptionQuestion(models.Model):
+class QuestionField(models.Model):
+    name = models.CharField(max_length=100)
     question = models.CharField(max_length=500)
-    subscription = models.ForeignKey(
-        Subscription, on_delete=models.CASCADE, related_name="questions"
+    subscription = models.ForeignKey[Subscription](
+        Subscription, on_delete=models.CASCADE, related_name="question_fields"
     )
-    accepted_answer = models.CharField(max_length=1, choices=Answer.choices, default=Answer.YES)
-    get_accepted_answer_display: Callable[[], str]
+
+    class Meta:
+        constraints = [
+            UniqueConstraint(
+                fields=["name", "subscription_id"],
+                name="unique_question_field_name_per_subscription",
+            )
+        ]
 
     def __str__(self) -> str:
-        return f'Question "{self.question}" [{self.pk}]'
-
-
-class RagResult(models.TextChoices):
-    ACCEPTED = "A", "Accepted"
-    REJECTED = "R", "Rejected"
+        return f'Question Field "{self.name}" [{self.pk}]'
 
 
 class SubscribedItem(models.Model):
-    subscription = models.ForeignKey(Subscription, on_delete=models.CASCADE, related_name="items")
-    report = models.ForeignKey(Report, on_delete=models.CASCADE, related_name="+")
+    subscription = models.ForeignKey[Subscription](
+        Subscription, on_delete=models.CASCADE, related_name="items"
+    )
+    job = models.ForeignKey(
+        "SubscriptionJob", null=True, on_delete=models.SET_NULL, related_name="items"
+    )
+    report = models.ForeignKey[Report](Report, on_delete=models.CASCADE, related_name="+")
+    filter_fields_result = models.JSONField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
@@ -101,12 +107,15 @@ class SubscriptionJob(AnalysisJob):
     finished_mail_template = "subscriptions/subscription_job_finished_mail.html"
 
     queued_job_id: int | None
-    queued_job = models.OneToOneField(
+    queued_job = models.OneToOneField[ProcrastinateJob](
         ProcrastinateJob, null=True, on_delete=models.SET_NULL, related_name="+"
     )
-    subscription = models.ForeignKey(Subscription, on_delete=models.CASCADE, related_name="jobs")
+    subscription = models.ForeignKey[Subscription](
+        Subscription, on_delete=models.CASCADE, related_name="jobs"
+    )
 
     tasks: models.QuerySet["SubscriptionTask"]
+    items: models.QuerySet[SubscribedItem]
 
     def get_absolute_url(self) -> str:
         return reverse("subscription_job_detail", args=[self.pk])
@@ -128,7 +137,9 @@ class SubscriptionJob(AnalysisJob):
 
 
 class SubscriptionTask(AnalysisTask):
-    job = models.ForeignKey(SubscriptionJob, on_delete=models.CASCADE, related_name="tasks")
+    job = models.ForeignKey[SubscriptionJob](
+        SubscriptionJob, on_delete=models.CASCADE, related_name="tasks"
+    )
     reports = models.ManyToManyField(Report, blank=True)
 
     def __str__(self) -> str:

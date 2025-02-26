@@ -77,7 +77,7 @@ INSTALLED_APPS = [
     "adit_radis_shared.token_authentication.apps.TokenAuthenticationConfig",
     "radis.reports.apps.ReportsConfig",
     "radis.search.apps.SearchConfig",
-    "radis.rag.apps.RagConfig",
+    "radis.extractions.apps.ExtractionsConfig",
     "radis.subscriptions.apps.SubscriptionsConfig",
     "radis.collections.apps.CollectionsConfig",
     "radis.notes.apps.NotesConfig",
@@ -304,20 +304,21 @@ CHAT_GENERAL_SYSTEM_PROMPT = """
 You are an AI medical assistant with extensive knowledge in radiology and general medicine.
 You have been trained on a wide range of medical literature, including the latest research
 and guidelines in radiological practices.
-Provide concise, well-structured answers using appropriate medical terminology.
-Use headers to organize information when necessary. Include relevant anatomical details,
-imaging modalities, and diagnostic considerations where applicable.
+You wil discuss and answer various questions about radiology and general medicine.
+Provide concise, well-structured answers in the same language used in the question. Do use 
+appropriate medical terminology. Use headers to organize information when necessary. Include
+relevant anatomical details, imaging modalities, and diagnostic considerations where applicable.
 Base your responses on current, peer-reviewed medical literature and established radiological
 guidelines. If there are conflicting views or ongoing debates in the field, acknowledge them
 briefly.
 """
 
-CHAT_REPORT_QUESTION_SYSTEM_PROMPT = """
+CHAT_REPORT_SYSTEM_PROMPT = """
 You are an AI medical assistant with extensive knowledge in radiology and general medicine.
 You have been trained on a wide range of medical literature, including the latest research
-and guidelines in radiological practices. You will be asked questions about a radiological
-report that you have to answer those questions. The report and each question can be given
-in any language.
+and guidelines in radiological practices.
+You will be asked questions about a radiology report that you have to answer. The report and
+question can be given in any language.
 Provide concise, well-structured answers in the same language used in the question. Do use
 appropriate medical terminology. Use headers to organize information when necessary. Include
 relevant anatomical details, imaging modalities, and diagnostic considerations where applicable.
@@ -325,44 +326,57 @@ Base your responses on current, peer-reviewed medical literature and established
 guidelines. If there are conflicting views or ongoing debates in the field, acknowledge them
 briefly.
 
-Report: $report
+Report:
+$report
 """
 
-CHAT_REPORT_YES_NO_QUESTION_SYSTEM_PROMPT = """
+# Subscription
+QUESTION_FIELDS_SYSTEM_PROMPT = """
 You are an AI medical assistant with extensive knowledge in radiology and general medicine.
 You have been trained on a wide range of medical literature, including the latest research
-and guidelines in radiological practices. You will be asked questions about a radiological
-report that you have to answer those questions. The report and each question can be given
-in any language. Answer each question in English faithfully with "Yes" or "No".
+and guidelines in radiological practices.
+Answer the following question from the given radiology report. The report and questions can be
+given in any language.
+Return the answer in JSON format. Answer with 'true' for 'yes' and 'false' for 'no'.
 
-Report: $report
+Radiology Report:
+$report
+
+Questions:
+$questions
 """
 
-CHAT_REPORT_QUESTION_USER_PROMPT = """
-Question: $question
-Answer:
+# Extraction
+OUTPUT_FIELDS_SYSTEM_PROMPT = """
+You are an AI medical assistant with extensive knowledge in radiology and general medicine.
+You have been trained on a wide range of medical literature, including the latest research
+and guidelines in radiological practices. 
+Extract the following information from the given radiology report by using the below field
+definitions. The report and fields can be given in any language.
+Return the extracted information in JSON format.
+
+Radiology Report:
+$report
+
+Fields:
+$fields
 """
 
-CHAT_YES_NO_ANSWER_GRAMMAR = """
-root ::= Answer
-Answer ::= "Yes" | "No"
-"""
+# The default and urgent priorities for extraction tasks.
+EXTRACTION_DEFAULT_PRIORITY = 2
+EXTRACTION_URGENT_PRIORITY = 3
 
-# RAG
-RAG_DEFAULT_PRIORITY = 2
-RAG_URGENT_PRIORITY = 3
+# The number of extraction instances that are processed within one extraction task.
+EXTRACTION_TASK_BATCH_SIZE = 64
 
-# The number of RAG report instances that are processed within one task. There are multiple
-# questions associated with each report instance via the RagJob.
-RAG_TASK_BATCH_SIZE = 64
 # The number of parallel requests the LLM can handle. This limit is enforced within each task. When
-# having multiple workers, the total number of parallel requests is
-# RAG_LLM_CONCURRENCY_LIMIT * number of workers. Either the number of HTTP Threads and number of
-# parallel computing slots of the llama.cpp should be set to match this number or the continuous
-# batching capability of the LLM or a combination of both should be used.
-RAG_LLM_CONCURRENCY_LIMIT = 6
+# having multiple workers that uses the LLM, the total number of parallel requests is
+# EXTRACTION_LLM_CONCURRENCY_LIMIT * number of workers. Either the number of HTTP Threads and
+# number of parallel computing slots of the llama.cpp should be set to match this number or the
+# continuous batching capability of the LLM or a combination of both should be used.
+EXTRACTION_LLM_CONCURRENCY_LIMIT = 6
 
-START_RAG_JOB_UNVERIFIED = False
+START_EXTRACTION_JOB_UNVERIFIED = False
 
 
 # Subscription

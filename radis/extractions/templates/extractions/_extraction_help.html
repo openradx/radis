@@ -1,0 +1,26 @@
+{% load static from static %}
+{% load bootstrap_icon from common_extras %}
+<div class="modal-content">
+    <div class="modal-header">
+        <h5 class="modal-title">Extractions Help</h5>
+        <button type="button"
+                class="btn-close"
+                data-bs-dismiss="modal"
+                aria-label="Close" />
+    </div>
+    <div class="modal-body">
+        <p>
+            Extractions assist you in fetching data from radiology reports into a tabular
+            format for detailed analysis. This process leverages both keyword-based searches
+            and a Large Language Model (LLM) to filter and extract relevant information.
+        </p>
+        <p>
+            To create a new extraction job, these three steps must be followed:
+            <ol>
+                <li>Search for reports using a keyword-based query and database filters.</li>
+                <li>Define filters that are used by a LLM to further refine the results.</li>
+                <li>Specify the data that the LLM should finally extract from the report.</li>
+            </ol>
+        </p>
+    </div>
+</div>

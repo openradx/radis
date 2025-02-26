@@ -1,0 +1,63 @@
+{% extends "extractions/extractions_layout.html" %}
+{% load bootstrap_icon from common_extras %}
+{% block title %}
+    Extraction Instance
+{% endblock title %}
+{% block heading %}
+    <div class="d-flex justify-content-between align-items-start">
+        <h4 class="mb-3">Extraction Instance</h4>
+    </div>
+{% endblock heading %}
+{% block content %}
+    <dl class="row">
+        <dt class="col-sm-3">Extraction Instance ID</dt>
+        <dd class="col-sm-9">
+            {{ instance.id }}
+        </dd>
+        <dt class="col-sm-3">Task ID</dt>
+        <dd class="col-sm-9">
+            <a href="{% url "extraction_task_detail" instance.task.id %}">
+                {{ instance.task.id }}
+                {% bootstrap_icon "box-arrow-in-down-right" %}
+            </a>
+        </dd>
+        <dt class="col-sm-3">Job ID</dt>
+        <dd class="col-sm-9">
+            <a href="{% url "extraction_job_detail" instance.task.job.id %}">
+                {{ instance.task.job.id }}
+                {% bootstrap_icon "box-arrow-in-down-right" %}
+            </a>
+        </dd>
+        <dt class="col-sm-3">Report ID</dt>
+        <dd class="col-sm-9">
+            <a href="{% url "report_detail" instance.report.id %}">
+                {{ instance.report.id }}
+                {% bootstrap_icon "box-arrow-in-down-right" %}
+            </a>
+        </dd>
+    </dl>
+    <div class="card mb-3">
+        <div class="card-body"
+             x-data="{full: false, questions: false, reports: false}">
+            <div class="d-flex flex-column gap-1">
+                <h5>Analyzed Text</h5>
+                <div class="clamp-3" :class="{'clamp-3': !full, 'pre-line': full}">{{ instance.text }}</div>
+                <div class="d-flex gap-2">
+                    <button type="button"
+                            class="btn btn-sm btn-link p-0 border-0"
+                            @click.prevent="full=true"
+                            x-show="!full">[Show full text]</button>
+                    <button type="button"
+                            class="btn btn-sm btn-link p-0 border-0"
+                            @click.prevent="full=false"
+                            x-cloak
+                            x-show="full">[Collapse text]</button>
+                </div>
+                <h5 class="mt-2">Extracted Data</h5>
+                <code>
+                    {{ instance.output | pprint }}
+                </code>
+            </div>
+        </div>
+    </div>
+{% endblock content %}

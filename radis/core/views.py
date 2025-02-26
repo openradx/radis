@@ -202,7 +202,7 @@ class AnalysisJobCancelView(LoginRequiredMixin, SingleObjectMixin, View):
             )
 
         tasks = job.tasks.filter(status=AnalysisTask.Status.PENDING)
-        for task in tasks.only("celery_task_id"):
+        for task in tasks.only("queued_job_id"):
             queued_job_id = task.queued_job_id
             if queued_job_id is not None:
                 app.job_manager.cancel_job_by_id(queued_job_id, delete_job=True)

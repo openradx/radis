@@ -6,12 +6,12 @@ from crispy_forms.layout import HTML, Column, Div, Field, Fieldset, Layout, Row
 from django import forms
 
 from radis.core.constants import LANGUAGE_LABELS
-from radis.rag.site import retrieval_providers
+from radis.extractions.site import retrieval_providers
 from radis.reports.models import Language, Modality
 from radis.search.forms import AGE_STEP, MAX_AGE, MIN_AGE
 from radis.search.layouts import RangeSlider
 
-from .models import Subscription, SubscriptionQuestion
+from .models import QuestionField, Subscription
 
 
 class SubscriptionForm(forms.ModelForm):
@@ -174,25 +174,23 @@ class SubscriptionForm(forms.ModelForm):
         return super().clean()
 
 
-class SubscriptionQuestionForm(forms.ModelForm):
+class QuestionFieldForm(forms.ModelForm):
     delete_button: str = """
         {% load bootstrap_icon from common_extras %}
         <button type="button"
-                name="delete-question"
-                value="delete-question"
                 class="btn btn-sm btn-outline-danger d-none position-absolute top-0 end-0"
-                :class="{'d-none': questionsCount === 0}"
-                @click="deleteQuestion($el)"
-                aria-label="Delete question">
+                :class="{'d-none': formCount === 0}"
+                @click="removeForm($el)"
+                aria-label="Remove Field">
             {% bootstrap_icon 'trash' %}
         </button>
     """
 
     class Meta:
-        model = SubscriptionQuestion
+        model = QuestionField
         fields = [
+            "name",
             "question",
-            "accepted_answer",
         ]
 
     def __init__(self, *args, **kwargs):
@@ -205,8 +203,8 @@ class SubscriptionQuestionForm(forms.ModelForm):
             Div(
                 Div(
                     Field("id", type="hidden"),
+                    "name",
                     "question",
-                    "accepted_answer",
                     Field("DELETE", type="hidden"),
                     css_class="card-body",
                 ),
@@ -216,10 +214,10 @@ class SubscriptionQuestionForm(forms.ModelForm):
         )
 
 
-SubscriptionQuestionFormSet = forms.inlineformset_factory(
+QuestionFieldFormSet = forms.inlineformset_factory(
     Subscription,
-    SubscriptionQuestion,
-    form=SubscriptionQuestionForm,
+    QuestionField,
+    form=QuestionFieldForm,
     extra=0,
     min_num=0,
     max_num=3,
@@ -228,7 +226,7 @@ SubscriptionQuestionFormSet = forms.inlineformset_factory(
 )
 
 
-class SubscriptionAndQuestionForm(MultiForm, forms.ModelForm):
+class SubscriptionAndQuestionFieldsForm(MultiForm, forms.ModelForm):
     def get_form_args_kwargs(self, key, args, kwargs):
         args, fkwargs = super().get_form_args_kwargs(key, args, kwargs)
 
@@ -245,6 +243,6 @@ class SubscriptionAndQuestionForm(MultiForm, forms.ModelForm):
 
     form_classes = {
         "subscription": SubscriptionForm,
-        "questions": SubscriptionQuestionFormSet,
+        "question_fields": QuestionFieldFormSet,
     }
-    form_order = ["subscription", "questions"]
+    form_order = ["subscription", "question_fields"]
