@@ -9,7 +9,8 @@ if TYPE_CHECKING:
 def reset_tasks(tasks: models.QuerySet["AnalysisTask"]) -> None:
     tasks.update(
         status=tasks.model.Status.PENDING,
-        retries=0,
+        queued_job_id=None,
+        attempts=0,
         message="",
         log="",
         started_at=None,
