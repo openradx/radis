@@ -1,79 +1,65 @@
 import logging
-from string import Template
-from typing import Iterable, Literal
+from typing import Iterable
 
 import openai
 from django.conf import settings
 from openai.types.chat import ChatCompletionMessageParam
+from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
 
 
+def _get_base_url() -> str:
+    base_url = settings.EXTERNAL_LLM_PROVIDER_URL
+    if not base_url:
+        base_url = settings.LLM_SERVICE_URL
+    return base_url
+
+
 class AsyncChatClient:
     def __init__(self):
-        self._client = openai.AsyncOpenAI(
-            base_url=f"{settings.LLAMACPP_URL}/v1", api_key="unnecessary"
-        )
+        base_url = _get_base_url()
+        api_key = settings.EXTERNAL_LLM_PROVIDER_API_KEY
+        self._client = openai.AsyncOpenAI(base_url=base_url, api_key=api_key)
+        self._model_name = settings.LLM_MODEL_NAME
 
-    async def send_messages(
+    async def chat(
         self,
         messages: Iterable[ChatCompletionMessageParam],
         max_tokens: int | None = None,
-        yes_no_answer: bool = False,
     ) -> str:
-        logger.debug(f"Sending messages to LLM:\n{messages}")
-
-        grammar = ""
-        if yes_no_answer:
-            grammar = settings.CHAT_YES_NO_ANSWER_GRAMMAR
-            logger.debug(f"\nUsing grammar: {grammar}")
+        logger.debug(f"Sending messages to LLM for chat:\n{messages}")
 
         completion = await self._client.chat.completions.create(
-            model="option_for_local_llm_not_needed",
+            model=self._model_name,
             messages=messages,
-            max_tokens=max_tokens,
-            extra_body={"grammar": grammar},
+            max_tokens=max_tokens or openai.NOT_GIVEN,
         )
         answer = completion.choices[0].message.content
         assert answer is not None
         logger.debug("Received from LLM: %s", answer)
-
         return answer
 
-    async def ask_report_question(self, context: str, question: str) -> str:
-        system_prompt = Template(settings.CHAT_REPORT_QUESTION_SYSTEM_PROMPT).substitute(
-            {"report": context}
-        )
-        user_prompt = Template(settings.CHAT_REPORT_QUESTION_USER_PROMPT).substitute(
-            {"question": question}
-        )
 
-        return await self.send_messages(
-            [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-        )
+class ChatClient:
+    def __init__(self) -> None:
+        base_url = _get_base_url()
+        api_key = settings.EXTERNAL_LLM_PROVIDER_API_KEY
 
-    async def ask_report_yes_no_question(self, context: str, question: str) -> Literal["yes", "no"]:
-        system_prompt = Template(settings.CHAT_REPORT_YES_NO_QUESTION_SYSTEM_PROMPT).substitute(
-            {"report": context}
-        )
-        user_prompt = Template(settings.CHAT_REPORT_QUESTION_USER_PROMPT).substitute(
-            {"question": question}
-        )
+        self._client = openai.OpenAI(base_url=base_url, api_key=api_key)
+        self._llm_model_name = settings.LLM_MODEL_NAME
 
-        answer = await self.send_messages(
-            [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-            yes_no_answer=True,
-        )
+    def extract_data(self, prompt: str, schema: type[BaseModel]) -> BaseModel:
+        logger.debug("Sending prompt and schema to LLM to extract data.")
+        logger.debug("Prompt:\n%s", prompt)
+        logger.debug("Schema:\n%s", schema.model_json_schema())
 
-        if answer == "Yes":
-            return "yes"
-        elif answer == "No":
-            return "no"
-        else:
-            raise ValueError(f"Unexpected answer: {answer}")
+        completion = self._client.beta.chat.completions.parse(
+            model=self._llm_model_name,
+            messages=[{"role": "system", "content": prompt}],
+            response_format=schema,
+        )
+        event = completion.choices[0].message.parsed
+        assert event
+        logger.debug("Received from LLM: %s", event)
+        return event

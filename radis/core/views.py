@@ -90,14 +90,14 @@ class AnalysisJobCreateView(LoginRequiredMixin, PermissionRequiredMixin, CreateV
         kwargs["user"] = self.request.user
         return kwargs
 
-    def form_valid(self, form: ModelForm, transfer_unverified: bool) -> HttpResponse:
+    def form_valid(self, form: ModelForm, start_unverified: bool) -> HttpResponse:
         user = self.request.user
         form.instance.owner = user
         response = super().form_valid(form)
 
-        job = self.object  # set by super().form_valid(form)
-        if user.is_staff or transfer_unverified:
-            job.status = AnalysisJob.Status.PREPARING
+        if user.is_staff or start_unverified:
+            job = self.object  # set by super().form_valid(form)
+            job.status = AnalysisJob.Status.PENDING
             job.save()
 
             transaction.on_commit(lambda: job.delay())
@@ -202,7 +202,7 @@ class AnalysisJobCancelView(LoginRequiredMixin, SingleObjectMixin, View):
             )
 
         tasks = job.tasks.filter(status=AnalysisTask.Status.PENDING)
-        for task in tasks.only("celery_task_id"):
+        for task in tasks.only("queued_job_id"):
             queued_job_id = task.queued_job_id
             if queued_job_id is not None:
                 app.job_manager.cancel_job_by_id(queued_job_id, delete_job=True)
@@ -265,12 +265,13 @@ class AnalysisJobRetryView(LoginRequiredMixin, SingleObjectMixin, View):
                 f"Job with ID {job.pk} and status {job.get_status_display()} is not retriable."
             )
 
-        job.reset_tasks(only_failed=True)
+        tasks = job.reset_tasks(only_failed=True)
 
         job.status = AnalysisJob.Status.PENDING
+        job.message = ""
         job.save()
 
-        transaction.on_commit(lambda: job.delay())
+        transaction.on_commit(lambda: [task.delay() for task in tasks])
 
         messages.success(request, self.success_message % job.__dict__)
         return redirect(job)
@@ -298,7 +299,7 @@ class AnalysisJobRestartView(LoginRequiredMixin, UserPassesTestMixin, SingleObje
 
         job.tasks.all().delete()
 
-        job.status = AnalysisJob.Status.PREPARING
+        job.status = AnalysisJob.Status.PENDING
         job.message = ""
         job.save()
 
