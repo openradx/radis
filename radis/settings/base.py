@@ -290,10 +290,12 @@ DBBACKUP_CLEANUP_KEEP = 30
 # Used by django-filter
 FILTERS_EMPTY_CHOICE_LABEL = "Show All"
 
-# llama.cpp
-llamacpp_dev_port = env.int("LLAMACPP_DEV_PORT", default=8080)
-llamacpp_url = f"http://localhost:{llamacpp_dev_port}"
-LLAMACPP_URL = env.str("LLAMACPP_URL", default=llamacpp_url)
+# LLM configuration
+LLM_MODEL_NAME = env.str("LLM_MODEL_NAME", default="unused")
+EXTERNAL_LLM_PROVIDER_URL = env.str("EXTERNAL_LLM_PROVIDER_URL", default="")
+EXTERNAL_LLM_PROVIDER_API_KEY = env.str("EXTERNAL_LLM_PROVIDER_API_KEY", default="")
+LLM_SERVICE_DEV_PORT = env.int("LLM_SERVICE_DEV_PORT", default=8080)
+LLM_SERVICE_URL = env.str("LLM_SERVICE_URL", default=f"http://localhost:{LLM_SERVICE_DEV_PORT}/v1")
 
 # Chat
 CHAT_GENERATE_TITLE_SYSTEM_PROMPT = """

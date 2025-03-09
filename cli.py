@@ -48,10 +48,16 @@ def compose_up(
     """Start stack with docker compose"""
 
     config = helpers.load_config_from_env_file()
-    if str(config.get("GPU_INFERENCE_ENABLED", "")).lower() in ["yes", "true", "1"]:
-        profiles = profile + ["gpu"] if "gpu" not in profile else profile
+    use_external_llm = bool(config.get("EXTERNAL_LLM_PROVIDER_URL", ""))
+    use_gpu = str(config.get("LLAMACPP_USE_GPU", "")).lower() in ["yes", "true", "1"]
+
+    if use_external_llm:
+        profiles = profile
     else:
-        profiles = profile + ["cpu"] if "cpu" not in profile else profile
+        if use_gpu:
+            profiles = profile + ["llamacpp_gpu"]
+        else:
+            profiles = profile + ["llamacpp_cpu"]
 
     commands.compose_up(build=build, profile=profiles)
 

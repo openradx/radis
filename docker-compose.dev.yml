@@ -11,14 +11,15 @@ x-app: &default-app
     REMOTE_DEBUGGING_PORT: ${REMOTE_DEBUGGING_PORT:-5678}
   pull_policy: build
 
-x-llamacpp: &llamacpp
-  hostname: llamacpp.local
+x-llm: &llm
+  hostname: llm.local
   ports:
-    - ${LLAMACPP_DEV_PORT:-8080}:8080
+    - ${LLM_SERVICE_DEV_PORT:-8080}:8080
   environment:
+    HF_TOKEN: ${HF_TOKEN:-}
     HTTP_PROXY: ${HTTP_PROXY:-}
     HTTPS_PROXY: ${HTTPS_PROXY:-}
-    LLAMA_ARG_MODEL_URL: ${LLM_MODEL_URL}
+    LLAMA_ARG_MODEL_URL: ${LLAMACPP_MODEL_URL}
     LLAMA_ARG_CTX_SIZE: 8192
     LLAMA_ARG_N_PARALLEL: 2
     LLAMA_ARG_ENDPOINT_METRICS: 1
@@ -49,7 +50,6 @@ services:
         ./manage.py create_example_users &&
         ./manage.py create_example_groups &&
         ./manage.py populate_example_reports --lng ${EXAMPLE_REPORTS_LANGUAGE:-en} &&
-        wait-for-it -s llamacpp.local:8080 -t 60 &&
         ./manage.py runserver 0.0.0.0:8000
       "
 
@@ -75,14 +75,14 @@ services:
     ports:
       - ${POSTGRES_DEV_PORT:-5432}:5432
 
-  llamacpp_cpu:
-    <<: *llamacpp
-    image: ghcr.io/ggerganov/llama.cpp:server-b4580
-    profiles: [cpu]
+  llm_cpu:
+    <<: *llm
+    image: ghcr.io/ggerganov/llama.cpp:server-b4231
+    profiles: [llamaccp_cpu]
 
-  llamacpp_gpu:
-    <<: *llamacpp
-    image: ghcr.io/ggerganov/llama.cpp:server-cuda-b4580
+  llm_gpu:
+    <<: *llm
+    image: ghcr.io/ggerganov/llama.cpp:server-cuda-b4231
     deploy:
       resources:
         reservations:
@@ -90,7 +90,7 @@ services:
             - driver: nvidia
               count: 1
               capabilities: [gpu]
-    profiles: [gpu]
+    profiles: [llamaccp_gpu]
 
 volumes:
   models_data:
