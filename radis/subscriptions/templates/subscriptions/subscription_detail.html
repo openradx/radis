@@ -118,11 +118,11 @@
                 –
             {% endif %}
         </dd>
-        <i>RAG Questions</i>
-        {% for question in subscription.questions.all %}
-            <dt class="col-sm-3">{{ question.question }}</dt>
+        <i>Filter Fields</i>
+        {% for field in subscription.filter_fields.all %}
+            <dt class="col-sm-3">{{ field.name }}</dt>
             <dd class="col-sm-9">
-                {{ question.accepted_answer }}
+                {{ field.description }}
             </dd>
         {% endfor %}
     </dl>

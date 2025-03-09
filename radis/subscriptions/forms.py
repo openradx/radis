@@ -1,17 +1,16 @@
 from typing import Any
 
-from betterforms.multiform import MultiForm
 from crispy_forms.helper import FormHelper
-from crispy_forms.layout import HTML, Column, Div, Field, Fieldset, Layout, Row
+from crispy_forms.layout import Column, Div, Field, Layout, Row
 from django import forms
 
 from radis.core.constants import LANGUAGE_LABELS
-from radis.rag.site import retrieval_providers
+from radis.core.layouts import Formset, RangeSlider
 from radis.reports.models import Language, Modality
 from radis.search.forms import AGE_STEP, MAX_AGE, MIN_AGE
-from radis.search.layouts import RangeSlider
 
-from .models import Subscription, SubscriptionQuestion
+from .models import Question, Subscription
+from .site import subscription_retrieval_providers
 
 
 class SubscriptionForm(forms.ModelForm):
@@ -42,8 +41,10 @@ class SubscriptionForm(forms.ModelForm):
 
         self.fields["provider"].widget = forms.Select(
             choices=sorted(
-                [("", "")]
-                + [(provider.name, provider.name) for provider in retrieval_providers.values()]
+                [
+                    (provider.name, provider.name)
+                    for provider in subscription_retrieval_providers.values()
+                ]
             )
         )
         self.fields["language"].choices = [  # type: ignore
@@ -79,11 +80,7 @@ class SubscriptionForm(forms.ModelForm):
                 }
             ),
         )
-        self.fields["study_description"] = forms.CharField(
-            required=False,
-            widget=forms.Textarea(attrs={"rows": 4}),
-        )
-        self.fields["send_finished_mail"].label = "Notify me via mail"
+        self.fields["send_finished_mail"].label = "Notify me via mail of new reports"
 
         self.helper = FormHelper()
         self.helper.form_tag = False
@@ -91,58 +88,25 @@ class SubscriptionForm(forms.ModelForm):
 
     def build_layout(self):
         return Layout(
-            Fieldset(
-                "General",
-                Row(
+            Row(
+                Column(
                     "name",
-                ),
-                Row(
-                    "send_finished_mail",
-                ),
-            ),
-            Fieldset(
-                "Search",
-                Row(
                     "provider",
+                    "query",
+                    "send_finished_mail",
+                    Formset("formset", legend="Questions", add_form_label="Add Question"),
                 ),
-                Row(
-                    Column(
-                        "query",
-                        css_class="col-6",
-                    ),
-                    Column(
-                        "language",
-                        css_class="col-6",
-                    ),
+                Column(
+                    "patient_id",
+                    "language",
+                    "modalities",
+                    "study_description",
+                    "patient_sex",
+                    RangeSlider("Age range", "age_from", "age_till"),
+                    css_class="col-4",
+                    id="filters",
                 ),
-            ),
-            Fieldset(
-                "Filters",
-                Row(
-                    Column(
-                        "patient_id",
-                        css_class="col-4",
-                    ),
-                    Column(
-                        "patient_sex",
-                        css_class="col-4",
-                    ),
-                    Column(
-                        RangeSlider("Patient age", "age_from", "age_till"),
-                        css_class="col-4",
-                    ),
-                ),
-                Row(
-                    Column(
-                        "modalities",
-                        css_class="col-4",
-                    ),
-                    Column(
-                        "study_description",
-                        css_class="col-8",
-                    ),
-                ),
-            ),
+            )
         )
 
     def clean_age_from(self) -> int:
@@ -174,77 +138,35 @@ class SubscriptionForm(forms.ModelForm):
         return super().clean()
 
 
-class SubscriptionQuestionForm(forms.ModelForm):
-    delete_button: str = """
-        {% load bootstrap_icon from common_extras %}
-        <button type="button"
-                name="delete-question"
-                value="delete-question"
-                class="btn btn-sm btn-outline-danger d-none position-absolute top-0 end-0"
-                :class="{'d-none': questionsCount === 0}"
-                @click="deleteQuestion($el)"
-                aria-label="Delete question">
-            {% bootstrap_icon 'trash' %}
-        </button>
-    """
-
+class QuestionForm(forms.ModelForm):
     class Meta:
-        model = SubscriptionQuestion
-        fields = [
-            "question",
-            "accepted_answer",
-        ]
+        model = Question
+        fields = ["question"]
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+
+        self.fields["question"].required = False
 
         self.helper = FormHelper()
         self.helper.form_tag = False
         self.helper.disable_csrf = True
         self.helper.layout = Layout(
             Div(
-                Div(
-                    Field("id", type="hidden"),
-                    "question",
-                    "accepted_answer",
-                    Field("DELETE", type="hidden"),
-                    css_class="card-body",
-                ),
-                HTML(self.delete_button),
-                css_class="card mb-3",
+                Field("id", type="hidden"),
+                Field("DELETE", type="hidden"),
+                "question",
             ),
         )
 
 
-SubscriptionQuestionFormSet = forms.inlineformset_factory(
+QuestionFormSet = forms.inlineformset_factory(
     Subscription,
-    SubscriptionQuestion,
-    form=SubscriptionQuestionForm,
-    extra=0,
+    Question,
+    form=QuestionForm,
+    extra=1,
     min_num=0,
     max_num=3,
     validate_max=True,
-    can_delete=True,
+    can_delete=False,
 )
-
-
-class SubscriptionAndQuestionForm(MultiForm, forms.ModelForm):
-    def get_form_args_kwargs(self, key, args, kwargs):
-        args, fkwargs = super().get_form_args_kwargs(key, args, kwargs)
-
-        if kwargs.get("instance", None) is not None:
-            fkwargs["instance"] = kwargs["instance"].get(key)
-
-        if kwargs.get("queryset", None) is not None:
-            if key in kwargs["queryset"]:
-                fkwargs["queryset"] = kwargs["queryset"][key]
-            else:
-                del fkwargs["queryset"]
-
-        return args, fkwargs
-
-    form_classes = {
-        "subscription": SubscriptionForm,
-        "questions": SubscriptionQuestionFormSet,
-    }
-    form_order = ["subscription", "questions"]

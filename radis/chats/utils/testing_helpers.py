@@ -3,6 +3,7 @@ from unittest.mock import MagicMock
 
 import openai
 from faker import Faker
+from pydantic import BaseModel
 
 
 def create_report_body() -> str:
@@ -21,4 +22,11 @@ def create_async_openai_client_mock(content: str) -> openai.AsyncOpenAI:
     future = asyncio.Future()
     future.set_result(mock_response)
     openai_mock.chat.completions.create.return_value = future
+    return openai_mock
+
+
+def create_openai_client_mock(content: BaseModel) -> openai.OpenAI:
+    openai_mock = MagicMock()
+    mock_response = MagicMock(choices=[MagicMock(message=MagicMock(parsed=content))])
+    openai_mock.beta.chat.completions.parse.return_value = mock_response
     return openai_mock

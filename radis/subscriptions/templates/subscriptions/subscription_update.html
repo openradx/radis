@@ -14,7 +14,7 @@
 {% block content %}
     <form action="{% url 'subscription_update' object.id %}"
           method="post"
-          x-data="QuestionsForm($el)">
+          x-data="FormSet($el)">
         {% csrf_token %}
         {% crispy form.subscription %}
         <fieldset>
@@ -30,11 +30,9 @@
                     {% endfor %}
                 </div>
                 <button type="button"
-                        name="add-question"
-                        value="add-question"
                         class="btn btn-success"
-                        :class="{'d-none': questionsCount >= 3}"
-                        @click="addQuestion()">Add RAG question</button>
+                        :class="{'d-none': formCount >= 3}"
+                        @click="addForm()">Add RAG question</button>
             </div>
         </fieldset>
         <div class="my-4"></div>
