@@ -30,7 +30,6 @@ services:
         ./manage.py migrate &&
         ./manage.py collectstatic --no-input &&
         ./manage.py create_superuser &&
-        wait-for-it -s llamacpp.local:8080 -t 60 &&
         ./manage.py ok_server --host 0.0.0.0 --port 8000
       "
     deploy:
@@ -81,21 +80,32 @@ services:
     deploy:
       <<: *deploy
 
-  llamacpp_gpu:
-    image: ghcr.io/ggerganov/llama.cpp:server-cuda-b4580
-    hostname: llamacpp.local
+  llm_gpu:
+    image: lmsysorg/sglang:latest
+    hostname: llm.local
     environment:
+      HF_TOKEN: ${HF_TOKEN:-}
       HTTP_PROXY: ${HTTP_PROXY:-}
       HTTPS_PROXY: ${HTTPS_PROXY:-}
-      LLAMA_ARG_MODEL_URL: ${LLM_MODEL_URL}
-      LLAMA_ARG_CTX_SIZE: 8192
-      LLAMA_ARG_N_PARALLEL: 2
-      LLAMA_ARG_ENDPOINT_METRICS: 1
-      LLAMA_ARG_PORT: 8080
-      LLAMA_ARG_N_GPU_LAYERS: 99
       NO_PROXY: ${NO_PROXY:-}
     volumes:
-      - models_data:/models
+      - models_data:/root/.cache/huggingface
+    restart_policy:
+      condition: on-failure
+      max_attempts: 3
+    network_mode: host
+    privileged: true
+    entrypoint: python3 -m sglang.launch_server
+    command: >
+      --model-path ${LLM_MODEL_NAME:?}
+      --host 0.0.0.0
+      --port 8080
+    ulimits:
+      memlock: -1
+      stack: 67108864
+    ipc: host
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8080/health || exit 1"]
     deploy:
       <<: *deploy
       resources:
