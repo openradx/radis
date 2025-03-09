@@ -29,22 +29,6 @@
 
 ## Features
 
-- RAG app
-  - Let the user provide study date range (from, until), age, modality, keywords, question
-  - Add the search job to the queue (similar to transfer jobs in ADIT)
-  - Let a worker process the queue in its own service
-  - Give each filtered report to an LLM and let it answer the question
-  - Constraint the output of the LLM, multiple possibilities for that:
-    - <https://github.com/outlines-dev/outlines>
-    - <https://github.com/guidance-ai/guidance>
-    - <https://github.com/ggerganov/llama.cpp/blob/master/grammars/README.md>
-    - <https://lmql.ai/>
-    - <https://github.com/stanfordnlp/dspy>
-  - LLM can be provided with GPU support or CPU only (both supported by llama.cpp)
-    - <https://docs.docker.com/compose/gpu-support/>
-  - Collect all matching reports
-  - Notify user by Email when job is finished
-  - Let user browse the results
 - Fetch favicon for pacs_link
 - Categories app
   - LLMs answers to questions abouts reports to tag them with different categories like LAE, emphysema, ...
