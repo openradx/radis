@@ -160,6 +160,23 @@ wheels = [
 ]
 
 [[package]]
+name = "bleach"
+version = "6.2.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "webencodings" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/76/9a/0e33f5054c54d349ea62c277191c020c2d6ef1d65ab2cb1993f91ec846d1/bleach-6.2.0.tar.gz", hash = "sha256:123e894118b8a599fd80d3ec1a6d4cc7ce4e5882b1317a7e1ba69b56e95f991f", size = 203083 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/fc/55/96142937f66150805c25c4d0f31ee4132fd33497753400734f9dfdcbdc66/bleach-6.2.0-py3-none-any.whl", hash = "sha256:117d9c6097a7c3d22fd578fcd8d35ff1e125df6736f554da4e432fdd63f31e5e", size = 163406 },
+]
+
+[package.optional-dependencies]
+css = [
+    { name = "tinycss2" },
+]
+
+[[package]]
 name = "certifi"
 version = "2025.1.31"
 source = { registry = "https://pypi.org/simple" }
@@ -491,15 +508,6 @@ wheels = [
 ]
 
 [[package]]
-name = "django-betterforms"
-version = "2.0.0"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "django" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/2a/e6/8219057714029d843bfbf1b55691cffeb8a3deafd563e2b115bfd463b40a/django-betterforms-2.0.0.tar.gz", hash = "sha256:43edd7a60a6b4cd838fd5e2425553b462f902d57f9f292d4e937125a87815a42", size = 15889 }
-
-[[package]]
 name = "django-browser-reload"
 version = "1.18.0"
 source = { registry = "https://pypi.org/simple" }
@@ -519,6 +527,18 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/20/28/d420aaa89028d2ec0cf17c1510d06ff6a8ed0bf1abfb7f33c999e1c5befa/django-cache-url-3.4.5.tar.gz", hash = "sha256:eb9fb194717524348c95cad9905b70b647452741c1d9e481fac6d2125f0ad917", size = 7230 }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/48/90/01755e4a42558b763f7021e9369aa6aa94c2ede7313deed56cb7483834ab/django_cache_url-3.4.5-py2.py3-none-any.whl", hash = "sha256:5f350759978483ab85dc0e3e17b3d53eed3394a28148f6bf0f53d11d0feb5b3c", size = 4760 },
+]
+
+[[package]]
+name = "django-cotton"
+version = "1.6.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "django" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/bb/0b/db7c0b308eda95922645be3e0473233d6766cff5c085e3a78e62bc20b7e0/django_cotton-1.6.0.tar.gz", hash = "sha256:1feb2ab486491f304e701fda82f37e608f0b9874473b3ec92922f3891d1a6cd7", size = 21360 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/77/7f/62ec3bb6bbbef6c082dfdda52a7fbed5cbb4831dd073a502bf2dd60d83fc/django_cotton-1.6.0-py3-none-any.whl", hash = "sha256:46452e5fc9ddfff43ac3b10925ba63151e2e9143ffa665a9519178122204b456", size = 20973 },
 ]
 
 [[package]]
@@ -624,6 +644,20 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/11/64/18c4aabda35fd2eac92385ce6802384eece22684054a07e1fcc908544dcb/django-loginas-0.3.11.tar.gz", hash = "sha256:37aec6fcd1cdb72378b69d2468d2ae39b12cd013f838a9bf9b9b5132e8341735", size = 18737 }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/10/c1/1c8d247ee39fef70e743d140b90dff006d36643603ab9ccb123abd257579/django_loginas-0.3.11-py2.py3-none-any.whl", hash = "sha256:5492eb5b4eb86c05e86cd84fb1f89c9796498643dc23d19e9c9bf83f5768ba86", size = 19602 },
+]
+
+[[package]]
+name = "django-markdownify"
+version = "0.9.5"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "bleach", extra = ["css"] },
+    { name = "django" },
+    { name = "markdown" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/6c/33/3abb966e2b238af4c9a5d3ee38a7aa7e51b644b4b20bf8533b6fd1c1bf96/django_markdownify-0.9.5.tar.gz", hash = "sha256:34c34eba4a797282a5c5bd97b13cec84d6a4c0673ad47ce1c1d000d74dd8d4ab", size = 7939 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/1b/35/c7a4bd957b279a8e7c808116bed399b73874ed3da78689993ee76f30d9f6/django_markdownify-0.9.5-py3-none-any.whl", hash = "sha256:2c4ae44e386c209453caf5e9ea1b74f64535985d338ad2d5ad5e7089cc94be86", size = 10342 },
 ]
 
 [[package]]
@@ -1343,15 +1377,6 @@ wheels = [
 ]
 
 [[package]]
-name = "pebble"
-version = "5.1.0"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/c6/b2/a83f1d951977e6392efdb21f4a901a3fd920b992450de9a464e59241d2ed/Pebble-5.1.0.tar.gz", hash = "sha256:5c30376f1827b21ecec4126ff90e7f22ad5501cac1ff2b32c86ff2601681f932", size = 35060 }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/31/69/0fa75151350a9d7b848bfde929673ad505346940ae2713f862647394f0f7/Pebble-5.1.0-py3-none-any.whl", hash = "sha256:530a398299ecd3a4ed1baf2e4b8045d8280b1e665560b0b409f8d8e58db60111", size = 36177 },
-]
-
-[[package]]
 name = "pexpect"
 version = "4.9.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1985,7 +2010,7 @@ dependencies = [
     { name = "cryptography" },
     { name = "daphne" },
     { name = "django" },
-    { name = "django-betterforms" },
+    { name = "django-cotton" },
     { name = "django-crispy-forms" },
     { name = "django-dbbackup" },
     { name = "django-extensions" },
@@ -1993,6 +2018,7 @@ dependencies = [
     { name = "django-formtools" },
     { name = "django-htmx" },
     { name = "django-loginas" },
+    { name = "django-markdownify" },
     { name = "django-registration-redux" },
     { name = "django-revproxy" },
     { name = "django-tables2" },
@@ -2003,7 +2029,6 @@ dependencies = [
     { name = "openai" },
     { name = "openpyxl" },
     { name = "pandas" },
-    { name = "pebble" },
     { name = "procrastinate", extra = ["django"] },
     { name = "psycopg", extra = ["binary"] },
     { name = "pyparsing" },
@@ -2065,7 +2090,7 @@ requires-dist = [
     { name = "cryptography", specifier = ">=44.0.1" },
     { name = "daphne", specifier = ">=4.1.2" },
     { name = "django", specifier = ">=5.1.6" },
-    { name = "django-betterforms", specifier = ">=2.0.0" },
+    { name = "django-cotton", specifier = ">=1.6.0" },
     { name = "django-crispy-forms", specifier = ">=2.3" },
     { name = "django-dbbackup", specifier = ">=4.2.1" },
     { name = "django-extensions", specifier = ">=3.2.3" },
@@ -2073,6 +2098,7 @@ requires-dist = [
     { name = "django-formtools", specifier = ">=2.5.1" },
     { name = "django-htmx", specifier = ">=1.22.0" },
     { name = "django-loginas", specifier = ">=0.3.11" },
+    { name = "django-markdownify", specifier = ">=0.9.5" },
     { name = "django-registration-redux", specifier = ">=2.13" },
     { name = "django-revproxy", specifier = ">=0.13.0" },
     { name = "django-tables2", specifier = ">=2.7.5" },
@@ -2083,7 +2109,6 @@ requires-dist = [
     { name = "openai", specifier = ">=1.64.0" },
     { name = "openpyxl", specifier = ">=3.1.5" },
     { name = "pandas", specifier = ">=2.2.3" },
-    { name = "pebble", specifier = ">=5.1.0" },
     { name = "procrastinate", extras = ["django"], specifier = ">=3.0.2" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.2.5" },
     { name = "pyparsing", specifier = ">=3.2.1" },
@@ -2140,7 +2165,7 @@ dependencies = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "requests", specifier = "~=2.32" }]
+requires-dist = [{ name = "requests", specifier = ">=2.32.3" }]
 
 [[package]]
 name = "regex"
@@ -2374,6 +2399,18 @@ wheels = [
 ]
 
 [[package]]
+name = "tinycss2"
+version = "1.4.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "webencodings" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/7a/fd/7a5ee21fd08ff70d3d33a5781c255cbe779659bd03278feb98b19ee550f4/tinycss2-1.4.0.tar.gz", hash = "sha256:10c0972f6fc0fbee87c3edb76549357415e94548c1ae10ebccdea16fb404a9b7", size = 87085 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/e6/34/ebdc18bae6aa14fbee1a08b63c015c72b64868ff7dae68808ab500c492e2/tinycss2-1.4.0-py3-none-any.whl", hash = "sha256:3a49cf47b7675da0b15d0c6e1df8df4ebd96e9394bb905a5775adb0d884c5289", size = 26610 },
+]
+
+[[package]]
 name = "tornado"
 version = "6.4.2"
 source = { registry = "https://pypi.org/simple" }
@@ -2592,6 +2629,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/6c/63/53559446a878410fc5a5974feb13d31d78d752eb18aeba59c7fef1af7598/wcwidth-0.2.13.tar.gz", hash = "sha256:72ea0c06399eb286d978fdedb6923a9eb47e1c486ce63e9b4e64fc18303972b5", size = 101301 }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/fd/84/fd2ba7aafacbad3c4201d395674fc6348826569da3c0937e75505ead3528/wcwidth-0.2.13-py2.py3-none-any.whl", hash = "sha256:3da69048e4540d84af32131829ff948f1e022c1c6bdb8d6102117aac784f6859", size = 34166 },
+]
+
+[[package]]
+name = "webencodings"
+version = "0.5.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/0b/02/ae6ceac1baeda530866a85075641cec12989bd8d31af6d5ab4a3e8c92f47/webencodings-0.5.1.tar.gz", hash = "sha256:b36a1c245f2d304965eb4e0a82848379241dc04b865afcc4aab16748587e1923", size = 9721 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/f4/24/2a3e3df732393fed8b3ebf2ec078f05546de641fe1b667ee316ec1dcf3b7/webencodings-0.5.1-py2.py3-none-any.whl", hash = "sha256:a0af1213f3c2226497a97e2b3aa01a7e4bee4f403f95be16fc9acd2947514a78", size = 11774 },
 ]
 
 [[package]]

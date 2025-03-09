@@ -1,0 +1,113 @@
+{% extends "extractions/extractions_layout.html" %}
+{% load crispy from crispy_forms_tags %}
+{% load bootstrap_icon from common_extras %}
+{% load human_readable_output_type from extractions_extras %}
+{% block title %}
+    New Extraction Job
+{% endblock title %}
+{% block heading %}
+    <c-heading title="New Extraction Job">
+    <c-slot name="left">
+    <button type="button"
+            class="btn btn-info"
+            hx-get="{% url 'extraction_help' %}"
+            hx-target="#htmx-dialog">
+        Help
+        {% bootstrap_icon "question-circle" %}
+    </button>
+    </c-slot>
+    </c-heading>
+{% endblock heading %}
+{% block content %}
+    <dl class="row">
+        <dt class="col-sm-3">Job Title</dt>
+        <dd class="col-sm-9">
+            {{ search.title }}
+        </dd>
+        <dt class="col-sm-3">Search Query</dt>
+        <dd class="col-sm-9">
+            {{ search.query }}
+        </dd>
+        <dt class="col-sm-3">Language</dt>
+        <dd class="col-sm-9">
+            {{ search.language }}
+        </dd>
+        {% if search.modalities %}
+            <dt class="col-sm-3">Modalities</dt>
+            <dd class="col-sm-9">
+                {{ search.modalities|join:", " }}
+            </dd>
+        {% endif %}
+        {% if search.study_date_from %}
+            <dt class="col-sm-3">Study Date From</dt>
+            <dd class="col-sm-9">
+                {{ search.study_date_from }}
+            </dd>
+        {% endif %}
+        {% if search.study_date_till %}
+            <dt class="col-sm-3">Study Date Till</dt>
+            <dd class="col-sm-9">
+                {{ search.study_date_till }}
+            </dd>
+        {% endif %}
+        {% if search.study_description %}
+            <dt class="col-sm-3">Study Description</dt>
+            <dd class="col-sm-9">
+                {{ search.study_description }}
+            </dd>
+        {% endif %}
+        {% if search.patient_sex %}
+            <dt class="col-sm-3">Patient Sex</dt>
+            <dd class="col-sm-9">
+                {{ search.get_patient_sex_display }}
+            </dd>
+        {% endif %}
+        {% if search.age_from > 0 or search.age_till < 120 %}
+            <dt class="col-sm-3">Age</dt>
+            <dd class="col-sm-9">
+                {{ search.age_from }} – {{ search.age_till }}
+            </dd>
+        {% endif %}
+        <dt class="col-sm-3">Number of search results</dt>
+        <dd class="col-sm-9">
+            {{ retrieval_count }}
+        </dd>
+        <dt class="mb-2">Output Fields</dt>
+        <dd class="mb-0">
+            <ul class="mb-0">
+                {% for field in output_fields %}
+                    {% if field %}
+                        <li>
+                            <dl class="row mb-0">
+                                <dt class="col-sm-3">Name</dt>
+                                <dd class="col-sm-9">
+                                    {{ field.name }}
+                                </dd>
+                                <dt class="col-sm-3">Description</dt>
+                                <dd class="col-sm-9">
+                                    {{ field.description }}
+                                </dd>
+                                <dt class="col-sm-3">Data Type</dt>
+                                <dd class="col-sm-9">
+                                    {{ field.output_type|human_readable_output_type }}
+                                </dd>
+                            </dl>
+                        </li>
+                    {% endif %}
+                {% endfor %}
+            </ul>
+        </dd>
+    </dl>
+    <form action="" method="post" class="pt-3">
+        {% csrf_token %}
+        {{ wizard.management_form }}
+        {% crispy form %}
+        <div class="d-flex gap-2">
+            <button type="submit"
+                    name="wizard_goto_step"
+                    value="{{ wizard.steps.prev }}"
+                    class="btn btn-secondary">Previous Step (Data Fields)</button>
+            <button type="submit" class="btn btn-primary">Create Extraction Job</button>
+        </div>
+    </form>
+{% endblock content %}

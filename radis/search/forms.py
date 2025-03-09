@@ -5,9 +5,10 @@ from crispy_forms.layout import Button, Div, Field
 from django import forms
 
 from radis.core.constants import LANGUAGE_LABELS
+from radis.core.layouts import RangeSlider
 from radis.reports.models import Language, Modality
 
-from .layouts import QueryInput, RangeSlider
+from .layouts import QueryInput
 from .site import search_providers
 
 MIN_AGE = 0
