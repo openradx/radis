@@ -64,13 +64,15 @@ class AnalysisJob(models.Model):
 
     def delay(self) -> None: ...
 
-    def reset_tasks(self, only_failed=False) -> None:
+    def reset_tasks(self, only_failed=False) -> models.QuerySet["AnalysisTask"]:
         if only_failed:
             tasks = self.tasks.filter(status=AnalysisTask.Status.FAILURE)
         else:
             tasks = self.tasks.all()
 
         reset_tasks(tasks)
+
+        return tasks
 
     def update_job_state(self) -> bool:
         """Evaluates all the tasks of this job and sets the job state accordingly.
@@ -247,6 +249,10 @@ class AnalysisTask(models.Model):
     def get_absolute_url(self) -> str: ...
 
     def delay(self) -> None: ...
+
+    @property
+    def is_queued(self) -> bool:
+        return self.queued_job_id is not None
 
     @property
     def is_deletable(self) -> bool:

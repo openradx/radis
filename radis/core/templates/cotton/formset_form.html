@@ -1,0 +1,11 @@
+{% load bootstrap_icon from common_extras %}
+<div class="formset-form">
+    <div class="card mb-3">
+        <div class="card-body">{{ slot }}</div>
+        <button type="button"
+                class="btn btn-sm btn-outline-danger d-none border-0 position-absolute top-0 end-0"
+                :class="{'d-none': formCount === 1}"
+                @click="removeForm($el)"
+                aria-label="Remove">{% bootstrap_icon 'trash' %}</button>
+    </div>
+</div>

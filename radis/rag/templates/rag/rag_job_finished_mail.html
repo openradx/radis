@@ -1,7 +1,0 @@
-{% load core_extras %}
-{% load base_url from common_extras %}
-<h2>Results of RAG job '{{ job.title }}'</h2>
-<p>The RAG job '{{ job.title }}'' finished with status {{ job.status.label }}: {{ job.message }}.</p>
-<p>
-    Click <a href="{% base_url %}{% url 'rag_job_detail' job.id %}">here</a> to view the details.
-</p>

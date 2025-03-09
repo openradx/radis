@@ -6,37 +6,17 @@
 {% endblock title %}
 {% block heading %}
     <div class="d-flex justify-content-between align-items-start">
-        <h4 class="mb-3 d-flex gap-3">
-            <span>Create new subscription</span>
-        </h4>
+        <h3 class="mb-3 d-flex gap-3">
+            <span>New Subscription</span>
+        </h3>
     </div>
 {% endblock heading %}
 {% block content %}
-    <form action="{% url 'subscription_create' %}"
-          method="post"
-          x-data="QuestionsForm($el)">
-        {% csrf_token %}
-        {% crispy form.subscription %}
-        <fieldset>
-            <legend>RAG Questions</legend>
-            <div class="mb-2">
-                {{ form.questions.management_form }}
-                <template>
-                    {% crispy form.questions.empty_form form.questions.form.helper %}
-                </template>
-                <div id="questions-formset" class="d-flex flex-column"></div>
-                <button type="button"
-                        name="add-question"
-                        value="add-question"
-                        class="btn btn-success"
-                        :class="{'d-none': questionsCount >= 3}"
-                        @click="addQuestion()">Add RAG question</button>
-            </div>
-        </fieldset>
-        <div class="my-4"></div>
-        <div class="d-flex gap-2 ">
-            <button type="submit" class="btn btn-primary">Create Subscription</button>
+    <form action="{% url 'subscription_create' %}" method="post">
+        {% crispy form %}
+        <div class="d-flex gap-2">
             <a href="{% url 'subscription_list' %}" class="btn btn-secondary">Cancel</a>
+            <button type="submit" class="btn btn-primary">Create Subscription</button>
         </div>
     </form>
 {% endblock content %}

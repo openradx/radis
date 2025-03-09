@@ -1,6 +1,7 @@
 #! /usr/bin/env python3
 
 import json
+import socket
 import sys
 import time
 from pathlib import Path
@@ -47,10 +48,16 @@ def compose_up(
     """Start stack with docker compose"""
 
     config = helpers.load_config_from_env_file()
-    if str(config.get("GPU_INFERENCE_ENABLED", "")).lower() in ["yes", "true", "1"]:
-        profiles = profile + ["gpu"] if "gpu" not in profile else profile
+    use_external_llm = bool(config.get("EXTERNAL_LLM_PROVIDER_URL", ""))
+    use_gpu = str(config.get("LLAMACPP_USE_GPU", "")).lower() in ["yes", "true", "1"]
+
+    if use_external_llm:
+        profiles = profile
     else:
-        profiles = profile + ["cpu"] if "cpu" not in profile else profile
+        if use_gpu:
+            profiles = profile + ["llamacpp_gpu"]
+        else:
+            profiles = profile + ["llamacpp_cpu"]
 
     commands.compose_up(build=build, profile=profiles)
 
@@ -143,6 +150,18 @@ def generate_example_reports(
 
     print(f"Done in {time.time() - start:.2f}s")
     print(f"Example reports written to '{out_path.absolute()}'")
+
+
+@app.command()
+def host_ip():
+    """Get the IP of the Docker host"""
+
+    hostname = "host.docker.internal"
+    try:
+        ip_address = socket.gethostbyname(hostname)
+        print(f"The IP address of the Docker host is: {ip_address}")
+    except Exception as e:
+        print(f"Error resolving {hostname}: {e}")
 
 
 if __name__ == "__main__":

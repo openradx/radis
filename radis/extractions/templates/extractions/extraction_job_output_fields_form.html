@@ -1,0 +1,65 @@
+{% extends "extractions/extractions_layout.html" %}
+{% load crispy from crispy_forms_tags %}
+{% load bootstrap_icon from common_extras %}
+{% block title %}
+    New Extraction Job
+{% endblock title %}
+{% block heading %}
+    <div class="d-flex justify-content-between align-items-start">
+        <h3 class="mb-3 d-flex gap-3">
+            <span>New Extraction Job - Output Fields</span>
+            <button type="button"
+                    class="btn btn-info align-baseline"
+                    hx-get="{% url 'extraction_help' %}"
+                    hx-target="#htmx-dialog">
+                Help
+                {% bootstrap_icon "question-circle" %}
+            </button>
+        </h3>
+    </div>
+{% endblock heading %}
+{% block content %}
+    <div class="row">
+        <div class="col-8">
+            <form action="" method="post" x-data="FormSet($el)">
+                {% csrf_token %}
+                {{ wizard.management_form }}
+                <c-formset add-form-label="Add Field" />
+                <div class="d-flex justify-content-between">
+                    <div class="d-flex gap-2">
+                        <button type="submit"
+                                name="wizard_goto_step"
+                                value="{{ wizard.steps.prev }}"
+                                class="btn btn-secondary">Previous Step (Search)</button>
+                        <button type="submit" class="btn btn-primary">Next Step (Overview)</button>
+                    </div>
+                </div>
+            </form>
+        </div>
+        <div class="col-4">
+            {% if fixed_query %}
+                <div class="alert alert-warning" role="alert">
+                    Fixed invalid query, instead using:
+                    <br />
+                    <span class="font-monospace">{{ fixed_query }}</span>
+                </div>
+            {% endif %}
+            <p>
+                Your search will hit approximately <strong>{{ retrieval_count }} report{{ retrieval_count|pluralize }}</strong>.
+                The more reports you analyze the longer it will take. If you like to refine your search you can go back to
+                the previous step and adjust the query and/or filters.
+            </p>
+            <p>
+                If the result count sounds reasonable then provide the fields to extract. Choose a short and concise name and more detailed description.
+                You can add up to 5 fields.
+            </p>
+            <p>
+                Example for an output field:
+                <br />
+                <em>Name:</em> lung_nodule_size
+                <br />
+                <em>Description:</em> The size of the largest found lung nodule in millimeters.
+            </p>
+        </div>
+    </div>
+{% endblock content %}
