@@ -69,7 +69,6 @@ INSTALLED_APPS = [
     "django_htmx",
     "django_tables2",
     "formtools",
-    "betterforms",
     "django_cotton",
     "rest_framework",
     "adrf",
