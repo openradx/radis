@@ -8,6 +8,7 @@ from django.core.management.base import BaseCommand, CommandParser
 from faker import Faker
 
 from radis.reports.factories import LanguageFactory, ReportFactory
+from radis.reports.models import Report
 
 fake = Faker()
 
@@ -32,6 +33,10 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
+        if Report.objects.exists():
+            print("Database already has example reports. Skipping.")
+            return
+
         if options["group"] is not None:
             try:
                 group = Group.objects.get(id=options["group"])
