@@ -4,7 +4,6 @@ from adit_radis_shared.common.mixins import PageSizeSelectMixin, RelatedFilterMi
 from adit_radis_shared.common.site import THEME_PREFERENCE_KEY
 from adit_radis_shared.common.types import AuthenticatedHttpRequest
 from adit_radis_shared.common.views import (
-    BaseBroadcastView,
     BaseHomeView,
     BaseUpdatePreferencesView,
 )
@@ -21,7 +20,6 @@ from django.db.models import QuerySet
 from django.forms import ModelForm
 from django.http import HttpRequest, HttpResponse
 from django.shortcuts import redirect, render
-from django.urls import reverse_lazy
 from django.views.generic import CreateView, DeleteView, DetailView, View
 from django.views.generic.detail import SingleObjectMixin
 from django_filters.filterset import FilterSet
@@ -32,19 +30,11 @@ from procrastinate.contrib.django import app
 from radis.core.utils.model_utils import reset_tasks
 
 from .models import AnalysisJob, AnalysisTask
-from .tasks import broadcast_mail
 
 
 @staff_member_required
 def admin_section(request: HttpRequest) -> HttpResponse:
     return render(request, "core/admin_section.html")
-
-
-class BroadcastView(BaseBroadcastView):
-    success_url = reverse_lazy("broadcast")
-
-    def send_mails(self, subject: str, message: str) -> None:
-        broadcast_mail.defer(subject, message)
 
 
 class HomeView(BaseHomeView):

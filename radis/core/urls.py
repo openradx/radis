@@ -1,7 +1,7 @@
+from adit_radis_shared.common.views import BroadcastView
 from django.urls import path
 
 from .views import (
-    BroadcastView,
     HomeView,
     UpdatePreferencesView,
     admin_section,
