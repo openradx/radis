@@ -9,4 +9,4 @@ logger = logging.getLogger(__name__)
 @app.periodic(cron="0 3 * * * ")  # every day at 3am
 @app.task
 def backup_db(*args, **kwargs):
-    call_command("backup_db")
+    call_command("backup_db", "--clean", "-v 2")
