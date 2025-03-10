@@ -5,11 +5,7 @@
     Update Subscription
 {% endblock title %}
 {% block heading %}
-    <div class="d-flex justify-content-between align-items-start">
-        <h4 class="mb-3 d-flex gap-3">
-            <span>Update subscription</span>
-        </h4>
-    </div>
+    <c-heading title="Update Subscription" />
 {% endblock heading %}
 {% block content %}
     <form action="{% url 'subscription_update' object.id %}"

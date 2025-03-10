@@ -4,26 +4,25 @@
     Subscription {{ subscription.name }}
 {% endblock title %}
 {% block heading %}
-    <div class="d-flex justify-content-between align-items-start">
-        <h4 class="mb-3">Subscription {{ subscription.name }}</h4>
-        <div class="d-flex gap-1">
-            <a href="{% url 'subscription_update' subscription.id %}"
-               class="btn btn-primary btn-sm">
-                {% bootstrap_icon "pencil" %}
-                Edit
-            </a>
-            <form action="{% url 'subscription_delete' subscription.id %}"
-                  method="post">
-                {% csrf_token %}
-                <button type="submit"
-                        class="btn btn-danger btn-sm"
-                        onclick="return confirm(`Really delete subscription '{{ subscription.name }}'?`)">
-                    {% bootstrap_icon "trash" %}
-                    Delete
-                </button>
-            </form>
-        </div>
-    </div>
+    <c-heading title="Subscription {{ subscription.name }}">
+    <c-slot name="right">
+    <a href="{% url 'subscription_update' subscription.id %}"
+       class="btn btn-primary btn-sm">
+        {% bootstrap_icon "pencil" %}
+        Edit
+    </a>
+    <form action="{% url 'subscription_delete' subscription.id %}"
+          method="post">
+        {% csrf_token %}
+        <button type="submit"
+                class="btn btn-danger btn-sm"
+                onclick="return confirm(`Really delete subscription '{{ subscription.name }}'?`)">
+            {% bootstrap_icon "trash" %}
+            Delete
+        </button>
+    </form>
+    </c-slot>
+    </c-heading>
 {% endblock heading %}
 {% block content %}
     <dl class="row">

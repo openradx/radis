@@ -98,7 +98,7 @@ class SearchForm(forms.ModelForm):
                     "title",
                     "provider",
                     "query",
-                    Submit("next", "Next Step (Filter Fields)", css_class="btn-primary"),
+                    Submit("next", "Next Step (Output Fields)", css_class="btn-primary"),
                 ),
                 Column(
                     "language",

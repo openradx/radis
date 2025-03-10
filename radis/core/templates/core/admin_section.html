@@ -3,7 +3,7 @@
     Admin Section
 {% endblock title %}
 {% block heading %}
-    <h4 class="mb-3">Admin Section</h4>
+    <c-heading title="Admin Section" />
 {% endblock heading %}
 {% block content %}
     <h5>Stats</h5>
@@ -12,7 +12,7 @@
     <h5>Admin Tools</h5>
     <ul class="list-group">
         <li class="list-group-item">
-            <a href="{% url 'broadcast' %}">Send Email to all users</a>
+            <a href="{% url 'broadcast' %}">Broadcast</a>
         </li>
         <!-- djlint:off D018 -->
         <li class="list-group-item">

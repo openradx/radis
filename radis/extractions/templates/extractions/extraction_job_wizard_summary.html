@@ -6,7 +6,7 @@
     New Extraction Job
 {% endblock title %}
 {% block heading %}
-    <c-heading title="New Extraction Job">
+    <c-heading title="New Extraction Job - Summary">
     <c-slot name="left">
     <button type="button"
             class="btn btn-info"
@@ -106,7 +106,7 @@
             <button type="submit"
                     name="wizard_goto_step"
                     value="{{ wizard.steps.prev }}"
-                    class="btn btn-secondary">Previous Step (Data Fields)</button>
+                    class="btn btn-secondary">Previous Step (Output Fields)</button>
             <button type="submit" class="btn btn-primary">Create Extraction Job</button>
         </div>
     </form>

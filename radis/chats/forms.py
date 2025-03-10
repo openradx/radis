@@ -1,28 +1,26 @@
-from crispy_forms.bootstrap import StrictButton
+from crispy_forms.bootstrap import FieldWithButtons, StrictButton
 from crispy_forms.helper import FormHelper, Layout
-from crispy_forms.layout import Field, Row
+from crispy_forms.layout import Field
 from django import forms
 
 
 def create_prompt_layout(placeholder: str) -> Layout:
     return Layout(
-        Row(
-            Field("prompt", placeholder=placeholder, wrapper_class="mb-0"),
-        ),
-        Row(
+        FieldWithButtons(
+            Field(
+                "prompt",
+                placeholder=placeholder,
+            ),
             StrictButton(
                 """
-                {% load bootstrap_icon from common_extras %}
-                {% bootstrap_icon 'send-fill' %}
-                &nbsp;
-                Send
-                """,
+                    {% load bootstrap_icon from common_extras %}
+                    {% bootstrap_icon 'send-fill' %}
+                    """,
                 type="submit",
-                name="full_answer",
+                name="send",
                 value="true",
-                css_class="btn btn-primary",
+                css_class="btn-outline-primary",
             ),
-            css_class="d-flex gap-2",
         ),
     )
 

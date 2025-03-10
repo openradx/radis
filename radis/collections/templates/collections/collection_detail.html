@@ -4,32 +4,31 @@
     Collection {{ collection.name }}
 {% endblock title %}
 {% block heading %}
-    <div class="d-flex justify-content-between align-items-start">
-        <h4 class="mb-3">Collection {{ collection.name }}</h4>
-        <div class="d-flex gap-2">
-            <button type="button"
-                    class="btn btn-primary btn-sm"
-                    hx-get="{% url 'collection_update' collection.id %}"
-                    hx-target="#htmx-dialog">
-                {% bootstrap_icon "pencil" %}
-                Rename
-            </button>
-            <a href="{% url 'collection_export' collection.id %}"
-               class="btn btn-success btn-sm">
-                {% bootstrap_icon "download" %}
-                Export
-            </a>
-            <form action="{% url 'collection_delete' collection.id %}" method="post">
-                {% csrf_token %}
-                <button type="submit"
-                        class="btn btn-danger btn-sm"
-                        onclick="return confirm(`Really delete collection '{{ collection.name }}'?`)">
-                    {% bootstrap_icon "trash" %}
-                    Delete
-                </button>
-            </form>
-        </div>
-    </div>
+    <c-heading title="Collection {{ collection.name }}">
+    <c-slot name="right">
+    <button type="button"
+            class="btn btn-primary"
+            hx-get="{% url 'collection_update' collection.id %}"
+            hx-target="#htmx-dialog">
+        {% bootstrap_icon "pencil" %}
+        Rename
+    </button>
+    <a href="{% url 'collection_export' collection.id %}"
+       class="btn btn-success">
+        {% bootstrap_icon "download" %}
+        Export
+    </a>
+    <form action="{% url 'collection_delete' collection.id %}" method="post">
+        {% csrf_token %}
+        <button type="submit"
+                class="btn btn-danger"
+                onclick="return confirm(`Really delete collection '{{ collection.name }}'?`)">
+            {% bootstrap_icon "trash" %}
+            Delete
+        </button>
+    </form>
+    </c-slot>
+    </c-heading>
 {% endblock heading %}
 {% block content %}
     {% include "collections/_collection_detail.html" %}

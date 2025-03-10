@@ -5,11 +5,7 @@
     Create Subscription
 {% endblock title %}
 {% block heading %}
-    <div class="d-flex justify-content-between align-items-start">
-        <h3 class="mb-3 d-flex gap-3">
-            <span>New Subscription</span>
-        </h3>
-    </div>
+    <c-heading title="Subscriptions" />
 {% endblock heading %}
 {% block content %}
     <form action="{% url 'subscription_create' %}" method="post">

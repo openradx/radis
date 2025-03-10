@@ -5,18 +5,17 @@
     New Extraction Job
 {% endblock title %}
 {% block heading %}
-    <div class="d-flex justify-content-between align-items-start">
-        <h3 class="mb-3 d-flex gap-3">
-            <span>New Extraction Job - Output Fields</span>
-            <button type="button"
-                    class="btn btn-info align-baseline"
-                    hx-get="{% url 'extraction_help' %}"
-                    hx-target="#htmx-dialog">
-                Help
-                {% bootstrap_icon "question-circle" %}
-            </button>
-        </h3>
-    </div>
+    <c-heading title="New Extraction Job - Output Fields">
+    <c-slot name="left">
+    <button type="button"
+            class="btn btn-info"
+            hx-get="{% url 'extraction_help' %}"
+            hx-target="#htmx-dialog">
+        Help
+        {% bootstrap_icon "question-circle" %}
+    </button>
+    </c-slot>
+    </c-heading>
 {% endblock heading %}
 {% block content %}
     <div class="row">
@@ -31,7 +30,7 @@
                                 name="wizard_goto_step"
                                 value="{{ wizard.steps.prev }}"
                                 class="btn btn-secondary">Previous Step (Search)</button>
-                        <button type="submit" class="btn btn-primary">Next Step (Overview)</button>
+                        <button type="submit" class="btn btn-primary">Next Step (Summary)</button>
                     </div>
                 </div>
             </form>

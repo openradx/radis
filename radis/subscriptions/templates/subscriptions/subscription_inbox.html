@@ -3,11 +3,7 @@
     Subscription Inbox
 {% endblock title %}
 {% block heading %}
-    <div class="d-flex justify-content-between align-items-start">
-        <h4 class="mb-3 d-flex gap-3">
-            <span>Subscription Inbox</span>
-        </h4>
-    </div>
+    <c-heading title="Subscription Inbox" />
 {% endblock heading %}
 {% block content %}
     {% for subscribed_item in object_list %}

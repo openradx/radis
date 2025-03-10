@@ -5,16 +5,17 @@
     Collections
 {% endblock title %}
 {% block heading %}
-    <div class="d-flex justify-content-between align-items-start">
-        <h4 class="mb-3">Collections</h4>
-        <button type="button"
-                class="btn btn-success btn-sm"
-                hx-get="{% url 'collection_create' %}"
-                hx-target="#htmx-dialog">
-            {% bootstrap_icon "plus" %}
-            Add new collection
-        </button>
-    </div>
+    <c-heading title="Collections">
+    <c-slot name="right">
+    <button type="button"
+            class="btn btn-primary"
+            hx-get="{% url 'collection_create' %}"
+            hx-target="#htmx-dialog">
+        {% bootstrap_icon "plus-lg" %}
+        Add new collection
+    </button>
+    </c-slot>
+    </c-heading>
 {% endblock heading %}
 {% block content %}
     {% include "collections/_collection_list.html" %}
