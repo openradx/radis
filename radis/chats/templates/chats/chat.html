@@ -1,0 +1,86 @@
+{% extends "chats/chats_layout.html" %}
+{% load crispy from crispy_forms_tags %}
+{% load markdownify %}
+{% load partialdef from partials %}
+{% load bootstrap_icon from common_extras %}
+{% block heading %}
+    {% partialdef heading inline %}
+    <div id="chat-heading" hx-swap-oob="true">
+        {% if not chat %}
+            <c-heading title="New Chat" />
+        {% else %}
+            <c-heading title="Chat: {{ chat.title }}">
+            <c-slot name="right">
+            <form action="{% url 'chat_delete' chat.id %}" method="post">
+                {% csrf_token %}
+                <button type="submit"
+                        class="btn btn-danger"
+                        onclick="return confirm(`Really delete this chat '{{ chat.pk }}'?`)">
+                    {% bootstrap_icon "trash" %}
+                    Delete
+                </button>
+            </form>
+            </c-slot>
+            </c-heading>
+        {% endif %}
+    </div>
+{% endpartialdef heading %}
+{% endblock heading %}
+{% block content %}
+    {% partialdef content inline %}
+    <div id="chat-with-form">
+        {% if report %}
+            <div class="card mb-3" x-data="{full: false}">
+                <div class="card-body">
+                    <div class="d-flex flex-column gap-1">
+                        <div class="clamp-3" :class="{'clamp-3': !full, 'pre-line': full}">{{ report.body }}</div>
+                        <div class="d-flex justify-content-between gap-2">
+                            <button type="button"
+                                    class="btn btn-sm btn-link p-0 border-0"
+                                    @click.prevent="full=true"
+                                    x-show="!full">[Show full text]</button>
+                            <button type="button"
+                                    class="btn btn-sm btn-link p-0 border-0"
+                                    @click.prevent="full=false"
+                                    x-cloak
+                                    x-show="full">[Collapse text]</button>
+                            <a href="{% url 'report_detail' report.id %}" title="Report details">{% bootstrap_icon "box-arrow-in-down-right" %}</a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        {% endif %}
+        {% if chat %}
+            <div class="d-flex flex-column gap-3 mb-3">
+                {% for message in chat_messages %}
+                    <div class="card">
+                        <div class="card-body">
+                            <h6 class="card-subtitle mb-2 text-muted">{{ message.get_role_display }}</h6>
+                            <p class="card-text">{{ message.content|markdownify }}</p>
+                        </div>
+                    </div>
+                {% endfor %}
+            </div>
+        {% endif %}
+        <div id="loader" class="my-indicator htmx-indicator">
+            <div class="mb-3 d-flex justify-content-center gap-1">
+                <div class="spinner-grow spinner-grow-sm" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+                <div class="spinner-grow spinner-grow-sm" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+                <div class="spinner-grow spinner-grow-sm" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+            </div>
+        </div>
+        <form hx-post="{% if chat %}{% url 'chat_update' chat.id %}{% else %}{% url 'chat_create' %}{% endif %}"
+              hx-target="#chat-with-form"
+              hx-indicator="#loader"
+              hx-disabled-elt="textarea, button">
+            {% crispy form %}
+        </form>
+    </div>
+{% endpartialdef content %}
+{% endblock content %}

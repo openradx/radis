@@ -98,7 +98,7 @@ async def chat_create_view(request: AuthenticatedHttpRequest) -> HttpResponse:
 
             response = render(
                 request,
-                "chats/_chat_created.html",
+                "chats/_chat.html",
                 {
                     "chat": chat,
                     "report": report,
@@ -126,7 +126,7 @@ async def chat_create_view(request: AuthenticatedHttpRequest) -> HttpResponse:
 
     return render(
         request,
-        "chats/chat_create.html",
+        "chats/chat.html",
         {"chat": None, "report": report, "chat_messages": [], "form": form},
     )
 
@@ -136,10 +136,10 @@ async def chat_create_view(request: AuthenticatedHttpRequest) -> HttpResponse:
 def chat_detail_view(request: AuthenticatedHttpRequest, pk: int) -> HttpResponse:
     chat = get_object_or_404(Chat, pk=pk, owner=request.user)
     form = PromptForm()
-    print("report", chat.report)
+
     return render(
         request,
-        "chats/chat_detail.html",
+        "chats/chat.html",
         {
             "chat": chat,
             "report": chat.report,
