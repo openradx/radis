@@ -1,10 +1,8 @@
 {% extends "chats/chats_layout.html" %}
 {% load crispy from crispy_forms_tags %}
 {% load markdownify %}
-{% load partialdef from partials %}
 {% load bootstrap_icon from common_extras %}
 {% block heading %}
-    {% partialdef heading inline %}
     <div id="chat-heading" hx-swap-oob="true">
         {% if not chat %}
             <c-heading title="New Chat" />
@@ -24,10 +22,8 @@
             </c-heading>
         {% endif %}
     </div>
-{% endpartialdef heading %}
 {% endblock heading %}
 {% block content %}
-    {% partialdef content inline %}
     <div id="chat-with-form">
         {% if report %}
             <div class="card mb-3" x-data="{full: false}">
@@ -82,5 +78,4 @@
             {% crispy form %}
         </form>
     </div>
-{% endpartialdef content %}
 {% endblock content %}

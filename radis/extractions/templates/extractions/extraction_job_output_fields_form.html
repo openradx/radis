@@ -23,7 +23,7 @@
             <form action="" method="post" x-data="FormSet($el)">
                 {% csrf_token %}
                 {{ wizard.management_form }}
-                <c-formset add-form-label="Add Field" />
+                <c-formset :formset="formset" add-form-label="Add Field" />
                 <div class="d-flex justify-content-between">
                     <div class="d-flex gap-2">
                         <button type="submit"
