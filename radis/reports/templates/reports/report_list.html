@@ -7,9 +7,6 @@
     <c-page-heading title="Reports" />
 {% endblock heading %}
 {% block content %}
-    <div class="row mb-2">
-        <div>{% crispy page_size_select %}</div>
-    </div>
     <div class="row">
         <div class="col">
             {% for report in reports %}
@@ -18,7 +15,9 @@
                 No reports found
             {% endfor %}
             <div class="d-flex justify-content-around align-items-center">
-                <div class="mt-2">{% include "common/_pagination.html" %}</div>
+                <div class="mt-2">
+                    <c-pagination :page-obj="page_obj" :page-sizes="page_sizes" />
+                </div>
             </div>
         </div>
         <div class="col col-auto">

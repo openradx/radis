@@ -20,5 +20,5 @@
     {% empty %}
         <div class="alert alert-light" role="alert">No results found</div>
     {% endfor %}
-    {% include "common/_pagination.html" %}
+    <c-pagination :page-obj="page_obj" :page-sizes="page_sizes" />
 </div>
