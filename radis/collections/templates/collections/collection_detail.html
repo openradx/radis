@@ -4,7 +4,7 @@
     Collection {{ collection.name }}
 {% endblock title %}
 {% block heading %}
-    <c-heading title="Collection {{ collection.name }}">
+    <c-page-heading title="Collection {{ collection.name }}">
     <c-slot name="right">
     <button type="button"
             class="btn btn-primary"
@@ -28,7 +28,7 @@
         </button>
     </form>
     </c-slot>
-    </c-heading>
+    </c-page-heading>
 {% endblock heading %}
 {% block content %}
     {% include "collections/_collection_detail.html" %}

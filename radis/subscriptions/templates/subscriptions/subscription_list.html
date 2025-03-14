@@ -6,7 +6,7 @@
     Subscriptions
 {% endblock title %}
 {% block heading %}
-    <c-heading title="Subscriptions">
+    <c-page-heading title="Subscriptions">
     <c-slot name="left">
     <button type="button"
             class="btn btn-info"
@@ -22,7 +22,7 @@
         Add Subscription
     </a>
     </c-slot>
-    </c-heading>
+    </c-page-heading>
 {% endblock heading %}
 {% block content %}
     <div class="list-group">{% render_table table %}</div>

@@ -5,7 +5,7 @@
     Chats
 {% endblock title %}
 {% block heading %}
-    <c-heading title="Chats">
+    <c-page-heading title="Chats">
     <c-slot name="right">
     <form action="{% url 'chat_clear_all' %}" method="post">
         {% csrf_token %}
@@ -21,7 +21,7 @@
         New chat
     </a>
     </c-slot>
-    </c-heading>
+    </c-page-heading>
 {% endblock heading %}
 {% block content %}
     {% include "chats/_chat_list.html" %}

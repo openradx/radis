@@ -5,7 +5,7 @@
     Collections
 {% endblock title %}
 {% block heading %}
-    <c-heading title="Collections">
+    <c-page-heading title="Collections">
     <c-slot name="right">
     <button type="button"
             class="btn btn-primary"
@@ -15,7 +15,7 @@
         Add new collection
     </button>
     </c-slot>
-    </c-heading>
+    </c-page-heading>
 {% endblock heading %}
 {% block content %}
     {% include "collections/_collection_list.html" %}

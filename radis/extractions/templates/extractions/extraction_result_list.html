@@ -5,7 +5,7 @@
     Extraction Results
 {% endblock title %}
 {% block heading %}
-    <c-heading title="Extraction Results">
+    <c-page-heading title="Extraction Results">
     <c-slot name="right">
     <a href="{% url 'extraction_job_detail' job.id %}"
        class="btn btn-secondary">
@@ -13,7 +13,7 @@
         View Job
     </a>
     </c-slot>
-    </c-heading>
+    </c-page-heading>
 {% endblock heading %}
 {% block content %}
     {% render_table table %}

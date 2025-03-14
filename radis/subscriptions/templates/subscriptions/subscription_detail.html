@@ -4,7 +4,7 @@
     Subscription {{ subscription.name }}
 {% endblock title %}
 {% block heading %}
-    <c-heading title="Subscription {{ subscription.name }}">
+    <c-page-heading title="Subscription {{ subscription.name }}">
     <c-slot name="right">
     <a href="{% url 'subscription_update' subscription.id %}"
        class="btn btn-primary btn-sm">
@@ -22,7 +22,7 @@
         </button>
     </form>
     </c-slot>
-    </c-heading>
+    </c-page-heading>
 {% endblock heading %}
 {% block content %}
     <dl class="row">
