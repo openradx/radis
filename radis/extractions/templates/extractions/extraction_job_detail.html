@@ -1,4 +1,5 @@
 {% extends "extractions/extractions_layout.html" %}
+{% load crispy from crispy_forms_tags %}
 {% load render_table from django_tables2 %}
 {% load bootstrap_icon from common_extras %}
 {% load analysis_job_status_css_class from core_extras %}
@@ -118,19 +119,18 @@
         {% endfor %}
     </ul>
     {% if not job.is_preparing %}
-        <div class="d-flex justify-content-between">
-            <div class="d-flex align-content-center gap-3">
-                <h5 text-nowrap>Extraction Tasks</h5>
-                <div>
-                    <a href="{% url 'extraction_result_list' job.id %}"
-                       class="btn btn-sm btn-primary">
-                        {% bootstrap_icon "eye" %}
-                        View Results
-                    </a>
-                </div>
-            </div>
-            {% include "core/_table_filters.html" %}
-        </div>
+        <c-table-heading title="Extraction Tasks">
+        <c-slot name="left">
+        <a href="{% url 'extraction_result_list' job.id %}"
+           class="btn btn-sm btn-primary">
+            {% bootstrap_icon "eye" %}
+            View Results
+        </a>
+        </c-slot>
+        <c-slot name="right">
+        {% crispy filter.form %}
+        </c-slot>
+        </c-table-heading>
         {% render_table table %}
     {% else %}
         <p class="lead">Tasks are being prepared</p>
