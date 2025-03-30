@@ -7,11 +7,7 @@
     <c-page-heading title="Notes" />
 {% endblock heading %}
 {% block content %}
-    <c-table-heading>
-    <c-slot name="right">
     {% crispy filter.form %}
-    </c-slot>
-    </c-table-heading>
     <div x-data="NoteList()">
         {% for note in notes %}
             {% include "notes/_note_list_item.html" %}
