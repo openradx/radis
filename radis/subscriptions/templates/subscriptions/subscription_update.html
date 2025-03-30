@@ -8,33 +8,13 @@
     <c-page-heading title="Update Subscription" />
 {% endblock heading %}
 {% block content %}
-    <form action="{% url 'subscription_update' object.id %}"
-          method="post"
-          x-data="FormSet($el)">
+    <form action="{% url 'subscription_update' object.id %}" method="post">
         {% csrf_token %}
-        {% crispy form.subscription %}
-        <fieldset>
-            <legend>RAG Questions</legend>
-            <div class="mb-2">
-                {{ form.questions.management_form }}
-                <template>
-                    {% crispy form.questions.empty_form form.questions.form.helper %}
-                </template>
-                <div id="questions-formset" class="d-flex flex-column">
-                    {% for question_form in form.questions %}
-                        {% crispy question_form form.questions.form.helper %}
-                    {% endfor %}
-                </div>
-                <button type="button"
-                        class="btn btn-success"
-                        :class="{'d-none': formCount >= 3}"
-                        @click="addForm()">Add RAG question</button>
-            </div>
-        </fieldset>
-        <div class="my-4"></div>
+        {% crispy form %}
         <div class="d-flex gap-2 ">
+            <a href="{% url 'subscription_detail' object.id %}"
+               class="btn btn-secondary">Cancel</a>
             <button type="submit" class="btn btn-primary">Update Subscription</button>
-            <a href="{% url 'subscription_list' %}" class="btn btn-secondary">Cancel</a>
         </div>
     </form>
 {% endblock content %}

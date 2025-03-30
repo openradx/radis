@@ -25,8 +25,8 @@
     </c-page-heading>
 {% endblock heading %}
 {% block content %}
+    <h4>General</h4>
     <dl class="row">
-        <i>General</i>
         <dt class="col-sm-3">Subscription ID</dt>
         <dd class="col-sm-9">
             {{ subscription.id }}
@@ -43,7 +43,9 @@
         <dd class="col-sm-9">
             {{ subscription.last_refreshed }}
         </dd>
-        <i>Search Details</i>
+    </dl>
+    <h4>Search Details</h4>
+    <dl class="row">
         <dt class="col-sm-3">Search Provider</dt>
         <dd class="col-sm-9">
             {% if subscription.provider %}
@@ -68,14 +70,12 @@
                 –
             {% endif %}
         </dd>
-        <i>Filter Details</i>
+    </dl>
+    <h4>Filter Details</h4>
+    <dl class="row">
         <dt class="col-sm-3">Modalities</dt>
         <dd class="col-sm-9">
-            {% if subscription.modalities.count == 0 %}
-                – 
-            {% else %}
-                {% for modality in subscription.modalities %}{{ modality.code }}{% endfor %}
-            {% endif %}
+            {{ subscription.modalities.all|join:", "|default:"–" }}
         </dd>
         <dt class="col-sm-3">Study Date Range</dt>
         <dd class="col-sm-9">
@@ -117,12 +117,9 @@
                 –
             {% endif %}
         </dd>
-        <i>Filter Fields</i>
-        {% for field in subscription.filter_fields.all %}
-            <dt class="col-sm-3">{{ field.name }}</dt>
-            <dd class="col-sm-9">
-                {{ field.description }}
-            </dd>
-        {% endfor %}
     </dl>
+    <h4>Questions</h4>
+    <ul>
+        {% for question in subscription.questions.all %}<li>{{ question.question }}</li>{% endfor %}
+    </ul>
 {% endblock content %}

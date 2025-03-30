@@ -48,12 +48,7 @@ class SubscriptionDetailView(LoginRequiredMixin, DetailView):
     template_name = "subscriptions/subscription_detail.html"
 
     def get_queryset(self):
-        return (
-            super()
-            .get_queryset()
-            .filter(owner=self.request.user)
-            .prefetch_related("question_fields")
-        )
+        return super().get_queryset().filter(owner=self.request.user).prefetch_related("questions")
 
 
 class SubscriptionCreateView(LoginRequiredMixin, CreateView):  # TODO: Add PermissionRequiredMixin
@@ -65,10 +60,8 @@ class SubscriptionCreateView(LoginRequiredMixin, CreateView):  # TODO: Add Permi
     def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
         ctx = super().get_context_data(**kwargs)
         if self.request.POST:
-            ctx["form"] = SubscriptionForm(self.request.POST)
             ctx["formset"] = QuestionFormSet(self.request.POST)
         else:
-            ctx["form"] = SubscriptionForm()
             ctx["formset"] = QuestionFormSet()
         return ctx
 
@@ -105,39 +98,36 @@ class SubscriptionUpdateView(LoginRequiredMixin, UpdateView):
     def get_success_url(self):
         return reverse("subscription_detail", kwargs={"pk": self.object.pk})
 
+    def get_queryset(self) -> QuerySet[Subscription]:
+        return super().get_queryset().filter(owner=self.request.user).prefetch_related("questions")
+
     def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
         ctx = super().get_context_data(**kwargs)
         if self.request.POST:
-            ctx["form"] = SubscriptionForm(self.request.POST)
-            ctx["formset"] = QuestionFormSet(self.request.POST)
+            ctx["formset"] = QuestionFormSet(self.request.POST, instance=self.object)
         else:
-            ctx["form"] = SubscriptionForm()
-            ctx["formset"] = QuestionFormSet()
+            ctx["formset"] = QuestionFormSet(instance=self.object)
+        ctx["formset"].extra = 0  # no additional empty form when editing
         return ctx
 
     def form_valid(self, form) -> HttpResponse:
-        user = self.request.user
-        subscription_form = cast(SubscriptionForm, form["subscription"])
-        question_fields_formset = cast(BaseInlineFormSet, form["question_fields"])
+        ctx = self.get_context_data()
+        formset: BaseInlineFormSet[Question, Subscription, QuestionForm] = ctx["formset"]
+        if formset.is_valid():
+            try:
+                self.object = form.save()
+            except IntegrityError as e:
+                if "unique_subscription_name_per_user" in str(e):
+                    form.add_error("name", "An subscription with this name already exists.")
+                    return self.form_invalid(form)
+                raise e
 
-        subscription_form.instance.owner = self.request.user
+            formset.instance = self.object
+            formset.save()
 
-        group = user.active_group
-        assert group, "User has no active group"
-        subscription_form.instance.group = group
-
-        try:
-            self.object = subscription_form.save()
-        except IntegrityError as e:
-            if "unique_subscription_name_per_user" in str(e):
-                form.add_error("name", "An subscription with this name already exists.")
-                return self.form_invalid(form)
-            raise e
-
-        question_fields_formset.instance = self.object
-        question_fields_formset.save()
-
-        return HttpResponseRedirect(self.get_success_url())
+            return super().form_valid(form)
+        else:
+            return self.form_invalid(form)
 
 
 class SubscriptionDeleteView(LoginRequiredMixin, SuccessMessageMixin, DeleteView):
