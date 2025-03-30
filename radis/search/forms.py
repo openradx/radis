@@ -80,6 +80,7 @@ class SearchForm(forms.Form):
             (modality.code, modality.code)
             for modality in Modality.objects.filter(filterable=True).order_by("code")
         ]
+        self.fields["modalities"].widget.attrs["size"] = 6
 
         self.query_helper = FormHelper()
         self.query_helper.template = "search/form_elements/form_part.html"  # type: ignore

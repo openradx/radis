@@ -56,6 +56,7 @@ class SubscriptionForm(forms.ModelForm):
             (modality.pk, modality.code)
             for modality in Modality.objects.filter(filterable=True).order_by("code")
         ]
+        self.fields["modalities"].widget.attrs["size"] = 6
         self.fields["age_from"] = forms.IntegerField(
             required=False,
             min_value=MIN_AGE,

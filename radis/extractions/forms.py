@@ -59,6 +59,7 @@ class SearchForm(forms.ModelForm):
             (modality.pk, modality.code)
             for modality in Modality.objects.filter(filterable=True).order_by("code")
         ]
+        self.fields["modalities"].widget.attrs["size"] = 6
         self.fields["study_date_from"].widget = forms.DateInput(attrs={"type": "date"})
         self.fields["study_date_till"].widget = forms.DateInput(attrs={"type": "date"})
         self.fields["age_from"] = forms.IntegerField(
