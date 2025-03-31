@@ -126,8 +126,8 @@ if __name__ == "__main__":
     root_parser = argparse.ArgumentParser()
     subparsers = root_parser.add_subparsers(dest="command")
 
-    parsers.register_compose_up(subparsers)
-    parsers.register_compose_down(subparsers)
+    parsers.register_compose_up(subparsers, func=compose_up)
+    parsers.register_compose_down(subparsers, func=compose_down)
     parsers.register_db_backup(subparsers)
     parsers.register_db_restore(subparsers)
     parsers.register_format_code(subparsers)
@@ -146,9 +146,6 @@ if __name__ == "__main__":
     parsers.register_test(subparsers)
     parsers.register_try_github_actions(subparsers)
     parsers.register_upgrade_postgres_volume(subparsers)
-
-    parsers.register_compose_up(subparsers, func=compose_up)
-    parsers.register_compose_down(subparsers, func=compose_down)
 
     info = "Get the IP of the Docker host"
     parser = subparsers.add_parser("get_host_ip", help=info, description=info)
