@@ -1,53 +1,24 @@
 #! /usr/bin/env python3
-
+# PYTHON_ARGCOMPLETE_OK
+import argparse
 import json
 import socket
 import sys
 import time
 from pathlib import Path
 from random import randint
-from typing import Annotated
 
+import argcomplete
 import openai
-import typer
-from adit_radis_shared import cli_commands as commands
-from adit_radis_shared import cli_helpers as helpers
+from adit_radis_shared.cli import commands, parsers
+from adit_radis_shared.cli import helper as cli_helper
 from openai.types.chat import ChatCompletion, ChatCompletionMessageParam
 
-helpers.PROJECT_ID = "radis"
-helpers.ROOT_PATH = Path(__file__).resolve().parent
 
-app = typer.Typer()
+def compose_up(build: bool, profile: list[str], extra_args: list[str], **kwargs):
+    helper = cli_helper.CommandHelper()
 
-extra_args = {"allow_extra_args": True, "ignore_unknown_options": True}
-
-app.command()(commands.init_workspace)
-app.command()(commands.stack_deploy)
-app.command()(commands.stack_rm)
-app.command()(commands.lint)
-app.command()(commands.format_code)
-app.command(context_settings=extra_args)(commands.test)
-app.command()(commands.show_outdated)
-app.command()(commands.backup_db)
-app.command()(commands.restore_db)
-app.command()(commands.shell)
-app.command()(commands.generate_certificate_files)
-app.command()(commands.generate_certificate_chain)
-app.command()(commands.generate_django_secret_key)
-app.command()(commands.generate_secure_password)
-app.command()(commands.generate_auth_token)
-app.command()(commands.randomize_env_secrets)
-app.command()(commands.try_github_actions)
-
-
-@app.command()
-def compose_up(
-    build: Annotated[bool, typer.Option(help="Do not build images")] = True,
-    profile: Annotated[list[str], typer.Option(help="Docker Compose profile(s)")] = [],
-):
-    """Start stack with docker compose"""
-
-    config = helpers.load_config_from_env_file()
+    config = helper.load_config_from_env_file()
     use_external_llm = bool(config.get("EXTERNAL_LLM_PROVIDER_URL", ""))
     use_gpu = str(config.get("LLAMACPP_USE_GPU", "")).lower() in ["yes", "true", "1"]
 
@@ -59,23 +30,30 @@ def compose_up(
         else:
             profiles = profile + ["llamacpp_cpu"]
 
-    commands.compose_up(build=build, profile=profiles)
+    commands.compose_up(build=build, profile=profiles, extra_args=extra_args, **kwargs)
 
 
-@app.command()
-def compose_down(
-    cleanup: Annotated[bool, typer.Option(help="Remove orphans and volumes")] = False,
-    profile: Annotated[list[str], typer.Option(help="Docker Compose profile(s)")] = [],
-):
-    """Stop stack with docker compose"""
+def compose_down(cleanup: bool, profile: list[str], **kwargs):
+    helper = cli_helper.CommandHelper()
 
-    config = helpers.load_config_from_env_file()
+    config = helper.load_config_from_env_file()
     if str(config.get("GPU_INFERENCE_ENABLED", "")).lower() in ["yes", "true", "1"]:
         profiles = profile + ["gpu"] if "gpu" not in profile else profile
     else:
         profiles = profile + ["cpu"] if "cpu" not in profile else profile
 
-    commands.compose_down(cleanup=cleanup, profile=profiles)
+    commands.compose_down(cleanup=cleanup, profile=profiles, **kwargs)
+
+
+def get_host_ip(**kwargs):
+    """Get the IP of the Docker host"""
+
+    hostname = "host.docker.internal"
+    try:
+        ip_address = socket.gethostbyname(hostname)
+        print(f"The IP address of the Docker host is: {ip_address}")
+    except Exception as e:
+        print(f"Error resolving {hostname}: {e}")
 
 
 SYSTEM_PROMPT = {
@@ -89,19 +67,11 @@ USER_PROMPT = {
 }
 
 
-@app.command()
-def generate_example_reports(
-    out: Annotated[str, typer.Option(help="Output file")] = "example_reports.json",
-    count: Annotated[int, typer.Option(help="Number of reports to generate")] = 10,
-    model: Annotated[str, typer.Option(help="OpenAI model")] = "gpt-3.5-turbo",
-    lng: Annotated[str, typer.Option(help="Language")] = "en",
-    overwrite: Annotated[bool, typer.Option(help="Overwrite existing file")] = False,
-):
-    """Generate example reports"""
-
+def generate_example_reports(out: str, count: int, model: str, lng: str, overwrite: bool):
     print(f"Generating {count} example reports...")
 
-    config = helpers.load_config_from_env_file()
+    helper = cli_helper.CommandHelper()
+    config = helper.load_config_from_env_file()
 
     openai_api_key = config.get("OPENAI_API_KEY")
     if not openai_api_key:
@@ -152,17 +122,57 @@ def generate_example_reports(
     print(f"Example reports written to '{out_path.absolute()}'")
 
 
-@app.command()
-def host_ip():
-    """Get the IP of the Docker host"""
-
-    hostname = "host.docker.internal"
-    try:
-        ip_address = socket.gethostbyname(hostname)
-        print(f"The IP address of the Docker host is: {ip_address}")
-    except Exception as e:
-        print(f"Error resolving {hostname}: {e}")
-
-
 if __name__ == "__main__":
-    app()
+    root_parser = argparse.ArgumentParser()
+    subparsers = root_parser.add_subparsers(dest="command")
+
+    parsers.register_compose_up(subparsers)
+    parsers.register_compose_down(subparsers)
+    parsers.register_db_backup(subparsers)
+    parsers.register_db_restore(subparsers)
+    parsers.register_format_code(subparsers)
+    parsers.register_generate_auth_token(subparsers)
+    parsers.register_generate_certificate_chain(subparsers)
+    parsers.register_generate_certificate_files(subparsers)
+    parsers.register_generate_django_secret_key(subparsers)
+    parsers.register_generate_secure_password(subparsers)
+    parsers.register_init_workspace(subparsers)
+    parsers.register_lint(subparsers)
+    parsers.register_randomize_env_secrets(subparsers)
+    parsers.register_shell(subparsers)
+    parsers.register_show_outdated(subparsers)
+    parsers.register_stack_deploy(subparsers)
+    parsers.register_stack_rm(subparsers)
+    parsers.register_test(subparsers)
+    parsers.register_try_github_actions(subparsers)
+    parsers.register_upgrade_postgres_volume(subparsers)
+
+    parsers.register_compose_up(subparsers, func=compose_up)
+    parsers.register_compose_down(subparsers, func=compose_down)
+
+    info = "Get the IP of the Docker host"
+    parser = subparsers.add_parser("get_host_ip", help=info, description=info)
+    parser.set_defaults(func=get_host_ip)
+
+    info = "Generate example reports"
+    parser = subparsers.add_parser("generate_example_reports", help=info, description=info)
+    parser.add_argument("--out", type=str, default="example_reports.json", help="Output file")
+    parser.add_argument("--count", type=int, default=10, help="Number of reports to generate")
+    parser.add_argument(
+        "--model", type=str, default="gpt-3.5-turbo", help="The OpenAI model to use"
+    )
+    parser.add_argument("--lng", type=str, default="en", help="Language generated rerports (de/en)")
+    parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Overwrite existing file",
+    )
+    parser.set_defaults(func=generate_example_reports)
+
+    argcomplete.autocomplete(root_parser)
+    args, extra_args = root_parser.parse_known_args()
+    if not args.command:
+        root_parser.print_help()
+        sys.exit(1)
+
+    args.func(**vars(args), extra_args=extra_args)
