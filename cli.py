@@ -15,7 +15,7 @@ from adit_radis_shared.cli import helper as cli_helper
 from openai.types.chat import ChatCompletion, ChatCompletionMessageParam
 
 
-def compose_up(build: bool, profile: list[str], extra_args: list[str], **kwargs):
+def compose_build(profile: list[str], extra_args: list[str], **kwargs):
     helper = cli_helper.CommandHelper()
 
     config = helper.load_config_from_env_file()
@@ -30,7 +30,25 @@ def compose_up(build: bool, profile: list[str], extra_args: list[str], **kwargs)
         else:
             profiles = profile + ["llamacpp_cpu"]
 
-    commands.compose_up(build=build, profile=profiles, extra_args=extra_args, **kwargs)
+    commands.compose_build(profile=profiles, extra_args=extra_args, **kwargs)
+
+
+def compose_up(profile: list[str], extra_args: list[str], **kwargs):
+    helper = cli_helper.CommandHelper()
+
+    config = helper.load_config_from_env_file()
+    use_external_llm = bool(config.get("EXTERNAL_LLM_PROVIDER_URL", ""))
+    use_gpu = str(config.get("LLAMACPP_USE_GPU", "")).lower() in ["yes", "true", "1"]
+
+    if use_external_llm:
+        profiles = profile
+    else:
+        if use_gpu:
+            profiles = profile + ["llamacpp_gpu"]
+        else:
+            profiles = profile + ["llamacpp_cpu"]
+
+    commands.compose_up(profile=profiles, extra_args=extra_args, **kwargs)
 
 
 def compose_down(cleanup: bool, profile: list[str], **kwargs):
@@ -126,6 +144,7 @@ if __name__ == "__main__":
     root_parser = argparse.ArgumentParser()
     subparsers = root_parser.add_subparsers(dest="command")
 
+    parsers.register_compose_build(subparsers, func=compose_build)
     parsers.register_compose_up(subparsers, func=compose_up)
     parsers.register_compose_down(subparsers, func=compose_down)
     parsers.register_db_backup(subparsers)
