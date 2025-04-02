@@ -5,7 +5,7 @@ requires-python = ">=3.12, <4.0"
 [[package]]
 name = "adit-radis-shared"
 version = "0.0.0"
-source = { git = "https://github.com/openradx/adit-radis-shared.git?rev=0.17.5#6c64ffababb97196483cbc95d834df42233919b3" }
+source = { git = "https://github.com/openradx/adit-radis-shared.git?rev=0.17.6#1203cc6a0b30688d5f7daabdde0b62ccf718a3c4" }
 dependencies = [
     { name = "channels" },
     { name = "crispy-bootstrap5" },
@@ -359,15 +359,15 @@ wheels = [
 
 [[package]]
 name = "crispy-bootstrap5"
-version = "2024.10"
+version = "2025.4"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "django" },
     { name = "django-crispy-forms" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/04/9f/28326c4d35062fdb4ed228c555525da482bbb408cb1c2665a932a5a19880/crispy_bootstrap5-2024.10.tar.gz", hash = "sha256:55b442fe675dd95ad280123c7fe464f454186e90b8e5642e751f436c87627c44", size = 23645 }
+sdist = { url = "https://files.pythonhosted.org/packages/59/65/d4406d4c914aedea8e2de9cf44d70bd1f6e339c87ef2d5791ff10fa223d2/crispy_bootstrap5-2025.4.tar.gz", hash = "sha256:d675ea7e245048905077dfe16bf1fa1ee16842f52fe88164ccc8a5e2d11119b3", size = 23913 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/bf/3f/bc3bdbda8a6acc1d6b89b63ddd8b82a55a27b5828742716fefca0384e3be/crispy_bootstrap5-2024.10-py3-none-any.whl", hash = "sha256:59e91dac5e45a8c954af3fbcaa6804cd5aef4402f027af2f99a352b096c4016f", size = 24454 },
+    { url = "https://files.pythonhosted.org/packages/b8/9a/4f1166cc82c9f777cf9a5bc2a75171d63301ac317c5de8f59bd44bfe2b7a/crispy_bootstrap5-2025.4-py3-none-any.whl", hash = "sha256:51efa19c7d40e339774a6fe23407e83b95b7634cad6de70fd1f1093131bea1d9", size = 24772 },
 ]
 
 [[package]]
@@ -505,16 +505,16 @@ wheels = [
 
 [[package]]
 name = "django"
-version = "5.1.7"
+version = "5.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "asgiref" },
     { name = "sqlparse" },
     { name = "tzdata", marker = "sys_platform == 'win32'" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/5f/57/11186e493ddc5a5e92cc7924a6363f7d4c2b645f7d7cb04a26a63f9bfb8b/Django-5.1.7.tar.gz", hash = "sha256:30de4ee43a98e5d3da36a9002f287ff400b43ca51791920bfb35f6917bfe041c", size = 10716510 }
+sdist = { url = "https://files.pythonhosted.org/packages/4c/1b/c6da718c65228eb3a7ff7ba6a32d8e80fa840ca9057490504e099e4dd1ef/Django-5.2.tar.gz", hash = "sha256:1a47f7a7a3d43ce64570d350e008d2949abe8c7e21737b351b6a1611277c6d89", size = 10824891 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/ba/0f/7e042df3d462d39ae01b27a09ee76653692442bc3701fbfa6cb38e12889d/Django-5.1.7-py3-none-any.whl", hash = "sha256:1323617cb624add820cb9611cdcc788312d250824f92ca6048fda8625514af2b", size = 8276912 },
+    { url = "https://files.pythonhosted.org/packages/63/e0/6a5b5ea350c5bd63fe94b05e4c146c18facb51229d9dee42aa39f9fc2214/Django-5.2-py3-none-any.whl", hash = "sha256:91ceed4e3a6db5aedced65e3c8f963118ea9ba753fc620831c77074e620e7d83", size = 8301361 },
 ]
 
 [[package]]
@@ -553,14 +553,14 @@ wheels = [
 
 [[package]]
 name = "django-cotton"
-version = "2.0.1"
+version = "2.0.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "django" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/73/e2/080a68f48734c6772b903ebae5a0d53b43b83d13f66e3089c04a0da60d7b/django_cotton-2.0.1.tar.gz", hash = "sha256:aac88b5158d192b65b2d687154ea8ad19589460ef925f581ad9bb8061e977c2c", size = 21557 }
+sdist = { url = "https://files.pythonhosted.org/packages/5b/43/49c48d880ac1461356ddd1a70c74be211db1cf499219ed4cfe54d0e02719/django_cotton-2.0.3.tar.gz", hash = "sha256:ffce33d8e680718928e67fe7e9c6bc64c9d03fea0098b313863728fc38c049bf", size = 21555 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/e7/be/470ecb257c7e7c3056bce93cdefc0547a4723b868d3ee5eabedd6eaaaf2e/django_cotton-2.0.1-py3-none-any.whl", hash = "sha256:ad121bd5d567935140f0eca467563f107f5640097d34a1792990af9505936536", size = 21206 },
+    { url = "https://files.pythonhosted.org/packages/9f/1f/c4277217d24279451901252da6b2d3e7709efe7f1be9aa1d668c99f36d80/django_cotton-2.0.3-py3-none-any.whl", hash = "sha256:53fc1d7756c3728ca9c76c1402758c6778147e0653b12cb3890a5f5e679125e4", size = 21206 },
 ]
 
 [[package]]
@@ -1172,11 +1172,11 @@ wheels = [
 
 [[package]]
 name = "json5"
-version = "0.10.0"
+version = "0.11.0"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/85/3d/bbe62f3d0c05a689c711cff57b2e3ac3d3e526380adb7c781989f075115c/json5-0.10.0.tar.gz", hash = "sha256:e66941c8f0a02026943c52c2eb34ebeb2a6f819a0be05920a6f5243cd30fd559", size = 48202 }
+sdist = { url = "https://files.pythonhosted.org/packages/f8/c5/1ac1e9f9f994cbfa40ff2a706872d017e89cda87d187709a2fd8a8b62ac2/json5-0.11.0.tar.gz", hash = "sha256:dab115459d9372760f2b568d949e069edd991f8e75458cff67328b9125750f12", size = 51014 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/aa/42/797895b952b682c3dafe23b1834507ee7f02f4d6299b65aaa61425763278/json5-0.10.0-py3-none-any.whl", hash = "sha256:19b23410220a7271e8377f81ba8aacba2fdd56947fbb137ee5977cbe1f5e8dfa", size = 34049 },
+    { url = "https://files.pythonhosted.org/packages/a9/bd/2278060147a9a14990ab6e70e0f24a3b3f13e899a15ad16f69697c09a180/json5-0.11.0-py3-none-any.whl", hash = "sha256:19b10a65c82d1aefd389f92c13aeeb3c611c79e8d4f28442dfc153dd24f6f0ff", size = 35889 },
 ]
 
 [[package]]
@@ -1300,7 +1300,7 @@ wheels = [
 
 [[package]]
 name = "openai"
-version = "1.69.0"
+version = "1.70.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
@@ -1312,9 +1312,9 @@ dependencies = [
     { name = "tqdm" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/ab/99/d164612528dfb7a9b19330623daded608e75d25823b01f81e0376eb388a4/openai-1.69.0.tar.gz", hash = "sha256:7b8a10a8ff77e1ae827e5e4c8480410af2070fb68bc973d6c994cf8218f1f98d", size = 409579 }
+sdist = { url = "https://files.pythonhosted.org/packages/87/f5/ae0f3cd226c2993b4ac1cc4b5f6ca099764689f403c14922c9356accec66/openai-1.70.0.tar.gz", hash = "sha256:e52a8d54c3efeb08cf58539b5b21a5abef25368b5432965e4de88cdf4e091b2b", size = 409640 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/b8/a4/28113be8b7bc937656aaf7b06feff7e9a5eb742ee4e405c6c48c30d879c4/openai-1.69.0-py3-none-any.whl", hash = "sha256:73c4b2ddfd050060f8d93c70367189bd891e70a5adb6d69c04c3571f4fea5627", size = 599068 },
+    { url = "https://files.pythonhosted.org/packages/e2/39/c4b38317d2c702c4bc763957735aaeaf30dfc43b5b824121c49a4ba7ba0f/openai-1.70.0-py3-none-any.whl", hash = "sha256:f6438d053fd8b2e05fd6bef70871e832d9bbdf55e119d0ac5b92726f1ae6f614", size = 599070 },
 ]
 
 [[package]]
@@ -1770,27 +1770,27 @@ wheels = [
 
 [[package]]
 name = "pytest-cov"
-version = "6.0.0"
+version = "6.1.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "coverage" },
     { name = "pytest" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/be/45/9b538de8cef30e17c7b45ef42f538a94889ed6a16f2387a6c89e73220651/pytest-cov-6.0.0.tar.gz", hash = "sha256:fde0b595ca248bb8e2d76f020b465f3b107c9632e6a1d1705f17834c89dcadc0", size = 66945 }
+sdist = { url = "https://files.pythonhosted.org/packages/34/8c/039a7793f23f5cb666c834da9e944123f498ccc0753bed5fbfb2e2c11f87/pytest_cov-6.1.0.tar.gz", hash = "sha256:ec55e828c66755e5b74a21bd7cc03c303a9f928389c0563e50ba454a6dbe71db", size = 66651 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/36/3b/48e79f2cd6a61dbbd4807b4ed46cb564b4fd50a76166b1c4ea5c1d9e2371/pytest_cov-6.0.0-py3-none-any.whl", hash = "sha256:eee6f1b9e61008bd34975a4d5bab25801eb31898b032dd55addc93e96fcaaa35", size = 22949 },
+    { url = "https://files.pythonhosted.org/packages/e1/c5/8d6ffe9fc8f7f57b3662156ae8a34f2b8e7a754c73b48e689ce43145e98c/pytest_cov-6.1.0-py3-none-any.whl", hash = "sha256:cd7e1d54981d5185ef2b8d64b50172ce97e6f357e6df5cb103e828c7f993e201", size = 23743 },
 ]
 
 [[package]]
 name = "pytest-django"
-version = "4.10.0"
+version = "4.11.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "pytest" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/a5/10/a096573b4b896f18a8390d9dafaffc054c1f613c60bf838300732e538890/pytest_django-4.10.0.tar.gz", hash = "sha256:1091b20ea1491fd04a310fc9aaff4c01b4e8450e3b157687625e16a6b5f3a366", size = 84710 }
+sdist = { url = "https://files.pythonhosted.org/packages/61/37/cd00619f8f486e53362d17c98fa90455c079bd75541ea44e812d7f49d144/pytest_django-4.11.0.tar.gz", hash = "sha256:35b339b9a231a99de226789c3e45d4d19d6c09ca9f3c236b3b5024afbf1f68b5", size = 86063 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/58/4c/a4fe18205926216e1aebe1f125cba5bce444f91b6e4de4f49fa87e322775/pytest_django-4.10.0-py3-none-any.whl", hash = "sha256:57c74ef3aa9d89cae5a5d73fbb69a720a62673ade7ff13b9491872409a3f5918", size = 23975 },
+    { url = "https://files.pythonhosted.org/packages/27/36/21537f69e37dd83d2b7a44b6978f480505ba75b9b66d49479d2ba426de8c/pytest_django-4.11.0-py3-none-any.whl", hash = "sha256:ab969cc86585a1763fd4a2fa1bc0f3015abbbcb823667af48320f1a1d2053291", size = 25277 },
 ]
 
 [[package]]
@@ -2097,7 +2097,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "adit-radis-shared", git = "https://github.com/openradx/adit-radis-shared.git?rev=0.17.5" },
+    { name = "adit-radis-shared", git = "https://github.com/openradx/adit-radis-shared.git?rev=0.17.6" },
     { name = "adrf", specifier = ">=0.1.9" },
     { name = "aiofiles", specifier = ">=24.1.0" },
     { name = "asyncinotify", specifier = ">=4.2.0" },
@@ -2484,11 +2484,11 @@ wheels = [
 
 [[package]]
 name = "types-pyyaml"
-version = "6.0.12.20250326"
+version = "6.0.12.20250402"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/9b/66/f58e386be67589d5c3c9c0a368600783ac1321b7e6ee213c8f51848dbf0c/types_pyyaml-6.0.12.20250326.tar.gz", hash = "sha256:5e2d86d8706697803f361ba0b8188eef2999e1c372cd4faee4ebb0844b8a4190", size = 17346 }
+sdist = { url = "https://files.pythonhosted.org/packages/2d/68/609eed7402f87c9874af39d35942744e39646d1ea9011765ec87b01b2a3c/types_pyyaml-6.0.12.20250402.tar.gz", hash = "sha256:d7c13c3e6d335b6af4b0122a01ff1d270aba84ab96d1a1a1063ecba3e13ec075", size = 17282 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/e9/1e/5609fea65117db83cc060342d4f6810f3cf1d3453b9f81bfe5f03f679633/types_pyyaml-6.0.12.20250326-py3-none-any.whl", hash = "sha256:961871cfbdc1ad8ae3cb6ae3f13007262bcfc168adc513119755a6e4d5d7ed65", size = 20398 },
+    { url = "https://files.pythonhosted.org/packages/ed/56/1fe61db05685fbb512c07ea9323f06ea727125951f1eb4dff110b3311da3/types_pyyaml-6.0.12.20250402-py3-none-any.whl", hash = "sha256:652348fa9e7a203d4b0d21066dfb00760d3cbd5a15ebb7cf8d33c88a49546681", size = 20329 },
 ]
 
 [[package]]
