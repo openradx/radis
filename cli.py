@@ -8,10 +8,10 @@ import time
 from pathlib import Path
 from random import randint
 
-import argcomplete
 import openai
 from adit_radis_shared.cli import commands, parsers
 from adit_radis_shared.cli import helper as cli_helper
+from adit_radis_shared.cli.setup import setup_root_parser
 from openai.types.chat import ChatCompletion, ChatCompletionMessageParam
 
 
@@ -185,10 +185,4 @@ if __name__ == "__main__":
     )
     parser.set_defaults(func=generate_example_reports)
 
-    argcomplete.autocomplete(root_parser)
-    args, extra_args = root_parser.parse_known_args()
-    if not args.command:
-        root_parser.print_help()
-        sys.exit(1)
-
-    args.func(**vars(args), extra_args=extra_args)
+    setup_root_parser(root_parser)
