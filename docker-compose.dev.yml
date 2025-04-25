@@ -78,13 +78,13 @@ services:
 
   llm_cpu:
     <<: *llm
-    image: ghcr.io/ggerganov/llama.cpp:server-b4231
+    image: ghcr.io/ggml-org/llama.cpp:server-b5170
     profiles:
       - cpu
 
   llm_gpu:
     <<: *llm
-    image: ghcr.io/ggerganov/llama.cpp:server-cuda-b4231
+    image: ghcr.io/ggml-org/llama.cpp:server-cuda-b5170
     deploy:
       resources:
         reservations:
