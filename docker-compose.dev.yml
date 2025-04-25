@@ -79,7 +79,8 @@ services:
   llm_cpu:
     <<: *llm
     image: ghcr.io/ggerganov/llama.cpp:server-b4231
-    profiles: [llamaccp_cpu]
+    profiles:
+      - cpu
 
   llm_gpu:
     <<: *llm
@@ -90,8 +91,10 @@ services:
           devices:
             - driver: nvidia
               count: 1
-              capabilities: [gpu]
-    profiles: [llamaccp_gpu]
+              capabilities:
+                - gpu
+    profiles:
+      - gpu
 
 volumes:
   models_data:

@@ -44,22 +44,17 @@ def compose_up(profile: list[str], extra_args: list[str], **kwargs):
         profiles = profile
     else:
         if use_gpu:
-            profiles = profile + ["llamacpp_gpu"]
+            profiles = profile + ["gpu"]
         else:
-            profiles = profile + ["llamacpp_cpu"]
+            profiles = profile + ["cpu"]
+
+    print(f"Using profiles: {profiles}")
 
     commands.compose_up(profile=profiles, extra_args=extra_args, **kwargs)
 
 
 def compose_down(cleanup: bool, profile: list[str], **kwargs):
-    helper = cli_helper.CommandHelper()
-
-    config = helper.load_config_from_env_file()
-    if str(config.get("GPU_INFERENCE_ENABLED", "")).lower() in ["yes", "true", "1"]:
-        profiles = profile + ["gpu"] if "gpu" not in profile else profile
-    else:
-        profiles = profile + ["cpu"] if "cpu" not in profile else profile
-
+    profiles = [*profile, "gpu", "cpu"]
     commands.compose_down(cleanup=cleanup, profile=profiles, **kwargs)
 
 
