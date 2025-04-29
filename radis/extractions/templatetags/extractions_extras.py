@@ -33,4 +33,4 @@ def task_control_panel(context: dict[str, Any]) -> dict[str, Any]:
 
 @register.filter
 def human_readable_output_type(output_type: str) -> str:
-    return OutputType(output_type).label
+    return str(OutputType(output_type).label)
