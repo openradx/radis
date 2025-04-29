@@ -1,7 +1,6 @@
 import string
 from string import Template
 
-from adit_radis_shared.common.decorators import login_required_async
 from adit_radis_shared.common.types import AuthenticatedHttpRequest
 from django.conf import settings
 from django.contrib import messages
@@ -41,7 +40,7 @@ def chat_clear_all(request: AuthenticatedHttpRequest) -> HttpResponse:
     return redirect("chat_list")
 
 
-@login_required_async
+@login_required
 async def chat_create_view(request: AuthenticatedHttpRequest) -> HttpResponse:
     if request.method == "POST":
         if not request.htmx:
@@ -152,7 +151,7 @@ def chat_detail_view(request: AuthenticatedHttpRequest, pk: int) -> HttpResponse
 
 
 @require_POST
-@login_required_async
+@login_required
 async def chat_update_view(request: AuthenticatedHttpRequest, pk: int) -> HttpResponse:
     if not request.htmx:
         raise SuspiciousOperation
