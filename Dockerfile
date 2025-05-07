@@ -42,7 +42,7 @@ ADD . /app
 
 # Install project itself
 RUN --mount=type=cache,target=/root/.cache/uv \
-  uv sync --locked
+  uv sync --frozen
 
 ARG PROJECT_VERSION
 ENV PROJECT_VERSION=${PROJECT_VERSION}
@@ -62,7 +62,7 @@ ADD . /app
 
 # Install project itself
 RUN --mount=type=cache,target=/root/.cache/uv \
-  uv sync --locked --no-dev --no-group client
+  uv sync --frozen --no-dev --no-group client
 
 ARG PROJECT_VERSION
 ENV PROJECT_VERSION=${PROJECT_VERSION}
