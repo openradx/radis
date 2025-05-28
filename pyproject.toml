@@ -88,7 +88,7 @@ client = ["radis-client"]
 default-groups = ["dev", "client"]
 
 [tool.uv.sources]
-radis-client = { path = "radis-client" }
+radis-client = { path = "./radis-client", editable = true }
 
 [tool.pyright]
 ignore = ["**/migrations", "**/*.ipynb"]

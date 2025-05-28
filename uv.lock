@@ -2149,7 +2149,7 @@ requires-dist = [
 ]
 
 [package.metadata.requires-dev]
-client = [{ name = "radis-client", directory = "radis-client" }]
+client = [{ name = "radis-client", editable = "radis-client" }]
 dev = [
     { name = "argcomplete", specifier = ">=3.6.1" },
     { name = "debugpy", specifier = ">=1.8.12" },
@@ -2188,7 +2188,7 @@ dev = [
 
 [[package]]
 name = "radis-client"
-source = { directory = "radis-client" }
+source = { editable = "radis-client" }
 dependencies = [
     { name = "requests" },
 ]
