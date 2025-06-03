@@ -143,6 +143,7 @@ if __name__ == "__main__":
     parsers.register_compose_watch(subparsers)
     parsers.register_compose_up(subparsers, func=compose_up)
     parsers.register_compose_down(subparsers, func=compose_down)
+    parsers.register_compose_pull(subparsers)
     parsers.register_db_backup(subparsers)
     parsers.register_db_restore(subparsers)
     parsers.register_format_code(subparsers)
