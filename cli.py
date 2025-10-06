@@ -135,7 +135,7 @@ def generate_example_reports(out: str, count: int, model: str, lng: str, overwri
     print(f"Example reports written to '{out_path.absolute()}'")
 
 
-if __name__ == "__main__":
+def main():
     root_parser = argparse.ArgumentParser()
     subparsers = root_parser.add_subparsers(dest="command")
 
@@ -183,3 +183,7 @@ if __name__ == "__main__":
     parser.set_defaults(func=generate_example_reports)
 
     setup_root_parser(root_parser)
+
+
+if __name__ == "__main__":
+    main()

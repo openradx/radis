@@ -84,6 +84,9 @@ dev = [
 ]
 client = ["radis-client"]
 
+[project.scripts]
+cli = "cli:main"
+
 [tool.uv]
 default-groups = ["dev", "client"]
 
