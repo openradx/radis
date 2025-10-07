@@ -1,21 +1,58 @@
 #! /usr/bin/env python3
-# PYTHON_ARGCOMPLETE_OK
-import argparse
 import json
 import socket
 import sys
 import time
 from pathlib import Path
 from random import randint
+from typing import Annotated
 
 import openai
-from adit_radis_shared.cli import commands, parsers
+import typer
+from adit_radis_shared.cli import commands
 from adit_radis_shared.cli import helper as cli_helper
-from adit_radis_shared.cli.setup import setup_root_parser
 from openai.types.chat import ChatCompletion, ChatCompletionMessageParam
 
+app = typer.Typer(
+    context_settings={"help_option_names": ["-h", "--help"]},
+    no_args_is_help=True,
+)
 
-def compose_build(profile: list[str], extra_args: list[str], **kwargs):
+app.command()(commands.init_workspace)
+app.command()(commands.randomize_env_secrets)
+app.command()(commands.compose_pull)
+app.command()(commands.stack_deploy)
+app.command()(commands.stack_rm)
+app.command()(commands.lint)
+app.command()(commands.format_code)
+app.command()(commands.test)
+app.command()(commands.shell)
+app.command()(commands.show_outdated)
+app.command()(commands.db_backup)
+app.command()(commands.db_restore)
+app.command()(commands.generate_auth_token)
+app.command()(commands.generate_secure_password)
+app.command()(commands.generate_django_secret_key)
+app.command()(commands.generate_certificate_chain)
+app.command()(commands.generate_certificate_files)
+app.command()(commands.upgrade_postgres_volume)
+app.command()(commands.try_github_actions)
+
+
+@app.command()
+def compose_build(
+    profile: Annotated[
+        list[str] | None, typer.Option(help="Docker compose profile(s) to use")
+    ] = None,
+    extra_args: Annotated[
+        list[str] | None, typer.Argument(help="Extra arguments (after '--')")
+    ] = None,
+):
+    """Build the base images with docker compose"""
+
+    profile = profile or []
+    extra_args = extra_args or []
+
     helper = cli_helper.CommandHelper()
 
     config = helper.load_config_from_env_file()
@@ -30,10 +67,23 @@ def compose_build(profile: list[str], extra_args: list[str], **kwargs):
         else:
             profiles = profile + ["llamacpp_cpu"]
 
-    commands.compose_build(profile=profiles, extra_args=extra_args, **kwargs)
+    commands.compose_build(profile=profiles, extra_args=extra_args)
 
 
-def compose_up(profile: list[str], extra_args: list[str], **kwargs):
+@app.command()
+def compose_up(
+    profile: Annotated[
+        list[str] | None, typer.Option(help="Docker compose profile(s) to use")
+    ] = None,
+    extra_args: Annotated[
+        list[str] | None, typer.Argument(help="Extra arguments (after '--')")
+    ] = None,
+):
+    """Start stack with docker compose"""
+
+    profile = profile or []
+    extra_args = extra_args or []
+
     helper = cli_helper.CommandHelper()
 
     config = helper.load_config_from_env_file()
@@ -50,15 +100,30 @@ def compose_up(profile: list[str], extra_args: list[str], **kwargs):
 
     print(f"Using profiles: {profiles}")
 
-    commands.compose_up(profile=profiles, extra_args=extra_args, **kwargs)
+    commands.compose_up(profile=profiles, extra_args=extra_args)
 
 
-def compose_down(cleanup: bool, profile: list[str], **kwargs):
+@app.command()
+def compose_down(
+    profile: Annotated[
+        list[str] | None, typer.Option(help="Docker compose profile(s) to use")
+    ] = None,
+    extra_args: Annotated[
+        list[str] | None, typer.Argument(help="Extra arguments (after '--')")
+    ] = None,
+):
+    """Stop stack with docker compose"""
+
+    profile = profile or []
+    extra_args = extra_args or []
+
     profiles = [*profile, "gpu", "cpu"]
-    commands.compose_down(cleanup=cleanup, profile=profiles, **kwargs)
+
+    commands.compose_down(profile=profiles, extra_args=extra_args)
 
 
-def get_host_ip(**kwargs):
+@app.command()
+def get_host_ip():
     """Get the IP of the Docker host"""
 
     hostname = "host.docker.internal"
@@ -80,7 +145,16 @@ USER_PROMPT = {
 }
 
 
-def generate_example_reports(out: str, count: int, model: str, lng: str, overwrite: bool):
+@app.command()
+def generate_example_reports(
+    out: Annotated[str, typer.Option(help="Output file")] = "example_reports.json",
+    count: Annotated[int, typer.Option(help="Number of reports to generate")] = 10,
+    model: Annotated[str, typer.Option(help="OpenAI model")] = "gpt-3.5-turbo",
+    lng: Annotated[str, typer.Option(help="Language")] = "en",
+    overwrite: Annotated[bool, typer.Option(help="Overwrite existing file")] = False,
+):
+    """Generate example reports"""
+
     print(f"Generating {count} example reports...")
 
     helper = cli_helper.CommandHelper()
@@ -135,54 +209,5 @@ def generate_example_reports(out: str, count: int, model: str, lng: str, overwri
     print(f"Example reports written to '{out_path.absolute()}'")
 
 
-def main():
-    root_parser = argparse.ArgumentParser()
-    subparsers = root_parser.add_subparsers(dest="command")
-
-    parsers.register_compose_build(subparsers, func=compose_build)
-    parsers.register_compose_up(subparsers, func=compose_up)
-    parsers.register_compose_down(subparsers, func=compose_down)
-    parsers.register_compose_pull(subparsers)
-    parsers.register_db_backup(subparsers)
-    parsers.register_db_restore(subparsers)
-    parsers.register_format_code(subparsers)
-    parsers.register_generate_auth_token(subparsers)
-    parsers.register_generate_certificate_chain(subparsers)
-    parsers.register_generate_certificate_files(subparsers)
-    parsers.register_generate_django_secret_key(subparsers)
-    parsers.register_generate_secure_password(subparsers)
-    parsers.register_init_workspace(subparsers)
-    parsers.register_lint(subparsers)
-    parsers.register_randomize_env_secrets(subparsers)
-    parsers.register_shell(subparsers)
-    parsers.register_show_outdated(subparsers)
-    parsers.register_stack_deploy(subparsers)
-    parsers.register_stack_rm(subparsers)
-    parsers.register_test(subparsers)
-    parsers.register_try_github_actions(subparsers)
-    parsers.register_upgrade_postgres_volume(subparsers)
-
-    info = "Get the IP of the Docker host"
-    parser = subparsers.add_parser("get_host_ip", help=info, description=info)
-    parser.set_defaults(func=get_host_ip)
-
-    info = "Generate example reports"
-    parser = subparsers.add_parser("generate_example_reports", help=info, description=info)
-    parser.add_argument("--out", type=str, default="example_reports.json", help="Output file")
-    parser.add_argument("--count", type=int, default=10, help="Number of reports to generate")
-    parser.add_argument(
-        "--model", type=str, default="gpt-3.5-turbo", help="The OpenAI model to use"
-    )
-    parser.add_argument("--lng", type=str, default="en", help="Language generated rerports (de/en)")
-    parser.add_argument(
-        "--overwrite",
-        action="store_true",
-        help="Overwrite existing file",
-    )
-    parser.set_defaults(func=generate_example_reports)
-
-    setup_root_parser(root_parser)
-
-
 if __name__ == "__main__":
-    main()
+    app()
