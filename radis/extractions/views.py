@@ -179,7 +179,7 @@ class ExtractionJobDetailView(AnalysisJobDetailView):
 
 class ExtractionJobDeleteView(ExtractionsLockedMixin, AnalysisJobDeleteView):
     model = ExtractionJob
-    success_url = reverse_lazy("extraction_job_list")
+    success_url = cast(str, reverse_lazy("extraction_job_list"))
 
 
 class ExtractionJobVerifyView(ExtractionsLockedMixin, AnalysisJobVerifyView):

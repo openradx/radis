@@ -1,4 +1,5 @@
 import django_filters
+from adit_radis_shared.common.types import with_form_helper
 from crispy_forms.helper import FormHelper
 from crispy_forms.layout import HTML, Div, Field, Layout, Submit
 from django import forms
@@ -38,11 +39,10 @@ class ReportFilter(django_filters.FilterSet):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-        self.form.helper = FormHelper()
-        self.form.helper.form_tag = False
-        self.form.helper.disable_csrf = True
-
-        self.form.helper.layout = Layout(
+        form_helper = FormHelper()
+        form_helper.form_tag = False
+        form_helper.disable_csrf = True
+        form_helper.layout = Layout(
             Field("patient_id", css_class="form-control-sm"),
             Field("modalities", css_class="form-select-sm"),
             Field("study_date_from", css_class="form-control-sm"),
@@ -56,3 +56,4 @@ class ReportFilter(django_filters.FilterSet):
                 css_class="d-flex justify-content-center gap-2",
             ),
         )
+        with_form_helper(self.form).helper = form_helper
