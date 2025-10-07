@@ -140,7 +140,6 @@ def main():
     subparsers = root_parser.add_subparsers(dest="command")
 
     parsers.register_compose_build(subparsers, func=compose_build)
-    parsers.register_compose_watch(subparsers)
     parsers.register_compose_up(subparsers, func=compose_up)
     parsers.register_compose_down(subparsers, func=compose_down)
     parsers.register_compose_pull(subparsers)

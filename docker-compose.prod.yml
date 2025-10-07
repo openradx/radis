@@ -91,9 +91,6 @@ services:
       NO_PROXY: ${NO_PROXY:-}
     volumes:
       - models_data:/root/.cache/huggingface
-    restart_policy:
-      condition: on-failure
-      max_attempts: 3
     network_mode: host
     privileged: true
     entrypoint: python3 -m sglang.launch_server
