@@ -81,7 +81,7 @@ async def chat_create_view(request: AuthenticatedHttpRequest) -> HttpResponse:
                     {"role": "system", "content": title_system_prompt},
                     {"role": "user", "content": user_prompt},
                 ],
-                max_tokens=20,
+                max_completion_tokens=20,
             )
             title = title.strip().rstrip(string.punctuation)[:100]
 
