@@ -26,15 +26,18 @@ class AsyncChatClient:
     async def chat(
         self,
         messages: Iterable[ChatCompletionMessageParam],
-        max_tokens: int | None = None,
+        max_completion_tokens: int | None = None,
     ) -> str:
         logger.debug(f"Sending messages to LLM for chat:\n{messages}")
 
-        completion = await self._client.chat.completions.create(
-            model=self._model_name,
-            messages=messages,
-            max_tokens=max_tokens or openai.NOT_GIVEN,
-        )
+        request = {
+            "model": self._model_name,
+            "messages": messages,
+        }
+        if max_completion_tokens is not None:
+            request["max_completion_tokens"] = max_completion_tokens
+
+        completion = await self._client.chat.completions.create(**request)
         answer = completion.choices[0].message.content
         assert answer is not None
         logger.debug("Received from LLM: %s", answer)

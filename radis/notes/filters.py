@@ -1,4 +1,5 @@
 import django_filters
+from adit_radis_shared.common.types import with_form_helper
 from crispy_forms.bootstrap import FieldWithButtons, StrictButton
 from crispy_forms.helper import FormHelper, Layout
 from crispy_forms.layout import Div
@@ -33,4 +34,4 @@ class NoteFilter(django_filters.FilterSet):
 
         self.form.fields["search"].label = ""
         self.form.fields["search"].widget.attrs["placeholder"] = "Search notes"
-        self.form.helper = helper
+        with_form_helper(self.form).helper = helper

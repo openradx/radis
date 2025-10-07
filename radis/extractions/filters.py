@@ -1,5 +1,6 @@
 import django_filters
 from adit_radis_shared.common.forms import SingleFilterFieldFormHelper
+from adit_radis_shared.common.types import with_form_helper
 from django.http import HttpRequest
 
 from radis.core.filters import AnalysisJobFilter, AnalysisTaskFilter
@@ -27,4 +28,6 @@ class ExtractionInstanceFilter(django_filters.FilterSet):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-        self.form.helper = SingleFilterFieldFormHelper(self.request.GET, "is_processed")
+        with_form_helper(self.form).helper = SingleFilterFieldFormHelper(
+            self.request.GET, "is_processed"
+        )
