@@ -1,6 +1,7 @@
 import logging
 from typing import Iterable
 
+import instructor
 import openai
 from django.conf import settings
 from openai.types.chat import ChatCompletionMessageParam
@@ -49,7 +50,8 @@ class ChatClient:
         base_url = _get_base_url()
         api_key = settings.EXTERNAL_LLM_PROVIDER_API_KEY
 
-        self._client = openai.OpenAI(base_url=base_url, api_key=api_key)
+        client = openai.OpenAI(base_url=base_url, api_key=api_key)
+        self._client = instructor.from_openai(client)
         self._llm_model_name = settings.LLM_MODEL_NAME
 
     def extract_data(self, prompt: str, schema: type[BaseModel]) -> BaseModel:
@@ -57,12 +59,10 @@ class ChatClient:
         logger.debug("Prompt:\n%s", prompt)
         logger.debug("Schema:\n%s", schema.model_json_schema())
 
-        completion = self._client.beta.chat.completions.parse(
+        result = self._client.chat.completions.create(
             model=self._llm_model_name,
             messages=[{"role": "system", "content": prompt}],
-            response_format=schema,
+            response_model=schema,
         )
-        event = completion.choices[0].message.parsed
-        assert event
-        logger.debug("Received from LLM: %s", event)
-        return event
+        logger.debug("Received from LLM: %s", result)
+        return result
