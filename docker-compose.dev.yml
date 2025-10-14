@@ -35,6 +35,7 @@ x-llm: &llm
     LLAMA_ARG_ENDPOINT_METRICS: 1
     LLAMA_ARG_PORT: 8080
     LLAMA_ARG_N_GPU_LAYERS: 99
+    LLAMA_ARG_JINJA: 1
     NO_PROXY: ${NO_PROXY:-}
   volumes:
     - models_data:/models
@@ -86,13 +87,13 @@ services:
 
   llm_cpu:
     <<: *llm
-    image: ghcr.io/ggml-org/llama.cpp:server-b5170
+    image: ghcr.io/ggml-org/llama.cpp:server
     profiles:
       - cpu
 
   llm_gpu:
     <<: *llm
-    image: ghcr.io/ggml-org/llama.cpp:server-cuda-b5170
+    image: ghcr.io/ggml-org/llama.cpp:server-cuda
     deploy:
       resources:
         reservations:
