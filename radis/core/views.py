@@ -325,7 +325,7 @@ class AnalysisTaskDeleteView(LoginRequiredMixin, DeleteView):
     def get_queryset(self):
         if self.request.user.is_staff:
             return self.model.objects.all()
-        return self.model.objects.filter(owner=self.request.user)
+        return self.model.objects.filter(job__owner=self.request.user)
 
     def form_valid(self, form: ModelForm) -> HttpResponse:
         task = cast(AnalysisTask, self.get_object())
@@ -355,7 +355,7 @@ class AnalysisTaskResetView(LoginRequiredMixin, SingleObjectMixin, View):
     def get_queryset(self):
         if self.request.user.is_staff:
             return self.model.objects.all()
-        return self.model.objects.filter(owner=self.request.user)
+        return self.model.objects.filter(job__owner=self.request.user)
 
     def post(self, request: AuthenticatedHttpRequest, *args, **kwargs) -> HttpResponse:
         task = cast(AnalysisTask, self.get_object())
