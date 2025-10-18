@@ -25,7 +25,7 @@ class CollectionQuerySet(models.QuerySet["Collection"]):
 
 class CollectionManager(models.Manager["Collection"]):
     def get_queryset(self) -> CollectionQuerySet:
-        return CollectionQuerySet(self.model)
+        return CollectionQuerySet(self.model).order_by("-created", "name")
 
     def with_has_report(self, report_id: int):
         return self.get_queryset().with_has_report(report_id)
@@ -54,6 +54,7 @@ class Collection(models.Model):
                 name="unique_collection_name_per_user",
             )
         ]
+        ordering = ["-created", "name"]
 
     def __str__(self):
         return f"Collection {self.name} [{self.pk}]"

@@ -77,6 +77,9 @@ class Report(models.Model):
 
     metadata: models.QuerySet["Metadata"]
 
+    class Meta:
+        ordering = ["-created_at", "document_id"]
+
     def __str__(self) -> str:
         return f"Report {self.document_id} [{self.pk}]"
 
