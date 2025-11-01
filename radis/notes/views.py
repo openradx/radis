@@ -25,7 +25,7 @@ class NoteListView(LoginRequiredMixin, PageSizeSelectMixin, FilterView):
     request: AuthenticatedHttpRequest
 
     def get_queryset(self) -> QuerySet[Note]:
-        return Note.objects.filter(owner=self.request.user)
+        return Note.objects.filter(owner=self.request.user).order_by("-pk")
 
 
 class NoteDetailView(LoginRequiredMixin, HtmxOnlyMixin, DetailView):

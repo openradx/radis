@@ -82,6 +82,13 @@ class AnalysisJob(models.Model):
         Returns: True if the job (for now) has no more pending tasks left. If it
             is a continuous job there could be added new tasks later on.
         """
+
+        if not self.tasks.exists():
+            self.status = AnalysisJob.Status.CANCELED
+            self.message = "No tasks remaining."
+            self.save()
+            return False
+
         if self.tasks.filter(status=AnalysisTask.Status.PENDING).exists():
             if self.status != AnalysisJob.Status.CANCELING:
                 self.status = AnalysisJob.Status.PENDING

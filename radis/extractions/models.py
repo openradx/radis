@@ -53,6 +53,9 @@ class ExtractionJob(AnalysisJob):
     output_fields: models.QuerySet["OutputField"]
     tasks: models.QuerySet["ExtractionTask"]
 
+    class Meta:
+        ordering = ["-created_at", "title"]
+
     def __str__(self) -> str:
         return f"ExtractionJob [{self.pk}]"
 
