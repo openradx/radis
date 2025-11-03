@@ -5,7 +5,8 @@ from crispy_forms.layout import HTML, Div, Field, Layout, Submit
 from django import forms
 from django.http import HttpRequest
 
-from radis.core.widgets import DATE_INPUT_FORMATS, DatePickerInput
+from radis.core.date_formats import DATE_INPUT_FORMATS
+from radis.core.widgets import DatePickerInput
 
 from .models import Modality, Report
 

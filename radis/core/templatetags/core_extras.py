@@ -2,7 +2,9 @@ import logging
 import re
 
 from django.template import Library
+from django.utils.formats import date_format
 
+from ..date_formats import DATETIME_TEMPLATE_FORMAT, DATE_TEMPLATE_FORMAT
 from ..models import AnalysisJob, AnalysisTask
 
 logger = logging.getLogger(__name__)
@@ -43,3 +45,17 @@ def analysis_task_status_css_class(status: AnalysisTask.Status) -> str:
 def url_abbreviation(url: str):
     abbr = re.sub(r"^(https?://)?(www.)?", "", url)
     return abbr[:5]
+
+
+@register.filter
+def display_date(value):
+    if not value:
+        return ""
+    return date_format(value, DATE_TEMPLATE_FORMAT, use_l10n=False)
+
+
+@register.filter
+def display_datetime(value):
+    if not value:
+        return ""
+    return date_format(value, DATETIME_TEMPLATE_FORMAT, use_l10n=False)

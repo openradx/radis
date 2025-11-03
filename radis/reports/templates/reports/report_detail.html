@@ -1,5 +1,6 @@
 {% extends "reports/reports_layout.html" %}
 {% load bootstrap_icon from common_extras %}
+{% load display_datetime from core_extras %}
 {% block heading %}
     <c-page-heading title="Report Details" />
 {% endblock heading %}
@@ -35,7 +36,7 @@
             </tr>
             <tr>
                 <th>Study Date and Time</th>
-                <td>{{ report.study_datetime|date:"d/m/Y H:i" }}</td>
+                <td>{{ report.study_datetime|display_datetime }}</td>
             </tr>
             <tr>
                 <th>Study Instance UID</th>

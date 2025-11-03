@@ -1,6 +1,7 @@
 {% extends "extractions/extractions_layout.html" %}
 {% load crispy from crispy_forms_tags %}
 {% load bootstrap_icon from common_extras %}
+{% load display_date from core_extras %}
 {% load human_readable_output_type from extractions_extras %}
 {% block title %}
     New Extraction Job
@@ -41,13 +42,13 @@
         {% if search.study_date_from %}
             <dt class="col-sm-3">Study Date From</dt>
             <dd class="col-sm-9">
-                {{ search.study_date_from|date:"d/m/Y" }}
+                {{ search.study_date_from|display_date }}
             </dd>
         {% endif %}
         {% if search.study_date_till %}
             <dt class="col-sm-3">Study Date Till</dt>
             <dd class="col-sm-9">
-                {{ search.study_date_till|date:"d/m/Y" }}
+                {{ search.study_date_till|display_date }}
             </dd>
         {% endif %}
         {% if search.study_description %}

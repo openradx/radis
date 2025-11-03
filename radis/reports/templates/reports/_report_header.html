@@ -1,3 +1,4 @@
+{% load display_datetime from core_extras %}
 <div class="d-flex justify-content-between">
     <div class="d-flex gap-4">
         <div class="d-flex flex-column">
@@ -8,7 +9,7 @@
         <div class="d-flex flex-column">
             <small>Modalities: {{ report.modality_codes|join:", " }}</small>
             <small>Study Description: {{ report.study_description }}</small>
-            <small>Study Date: {{ report.study_datetime|date:"d/m/Y H:i" }}</small>
+            <small>Study Date: {{ report.study_datetime|display_datetime }}</small>
         </div>
     </div>
 </div>

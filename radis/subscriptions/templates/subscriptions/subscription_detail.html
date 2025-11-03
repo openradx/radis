@@ -1,5 +1,6 @@
 {% extends "subscriptions/subscription_layout.html" %}
 {% load bootstrap_icon from common_extras %}
+{% load display_date from core_extras %}
 {% block title %}
     Subscription {{ subscription.name }}
 {% endblock title %}
@@ -79,21 +80,13 @@
         </dd>
         <dt class="col-sm-3">Study Date Range</dt>
         <dd class="col-sm-9">
-            {% if subscription.study_date_from or subscription.study_date_till %}
-                {% if subscription.study_date_from %}
-                    {{ subscription.study_date_from|date:"d/m/Y" }}
+            {% with from=subscription.study_date_from|display_date till=subscription.study_date_till|display_date %}
+                {% if from or till %}
+                    {{ from|default:"—" }} – {{ till|default:"—" }}
                 {% else %}
-                    —
+                    –
                 {% endif %}
-                –
-                {% if subscription.study_date_till %}
-                    {{ subscription.study_date_till|date:"d/m/Y" }}
-                {% else %}
-                    —
-                {% endif %}
-            {% else %}
-                –
-            {% endif %}
+            {% endwith %}
         </dd>
         <dt class="col-sm-3">Study Description</dt>
         <dd class="col-sm-9">

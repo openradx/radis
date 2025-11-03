@@ -2,7 +2,7 @@
 {% load crispy from crispy_forms_tags %}
 {% load render_table from django_tables2 %}
 {% load bootstrap_icon from common_extras %}
-{% load analysis_job_status_css_class from core_extras %}
+{% load analysis_job_status_css_class display_date display_datetime from core_extras %}
 {% load human_readable_output_type job_control_panel from extractions_extras %}
 {% block title %}
     Extraction Job
@@ -34,7 +34,7 @@
         </dd>
         <dt class="col-sm-3">Created At</dt>
         <dd class="col-sm-9">
-            {{ job.created_at|date:"d/m/Y H:i" }}
+            {{ job.created_at|display_datetime }}
         </dd>
         {% if user.is_staff %}
             <dt class="col-sm-3">Created By</dt>
@@ -70,19 +70,11 @@
         </dd>
         <dt class="col-sm-3">Study Date From</dt>
         <dd class="col-sm-9">
-            {% if job.study_date_from %}
-                {{ job.study_date_from|date:"d/m/Y" }}
-            {% else %}
-                —
-            {% endif %}
+            {{ job.study_date_from|display_date|default:"—" }}
         </dd>
         <dt class="col-sm-3">Study Date Till</dt>
         <dd class="col-sm-9">
-            {% if job.study_date_till %}
-                {{ job.study_date_till|date:"d/m/Y" }}
-            {% else %}
-                —
-            {% endif %}
+            {{ job.study_date_till|display_date|default:"—" }}
         </dd>
         <dt class="col-sm-3">Study Description</dt>
         <dd class="col-sm-9">

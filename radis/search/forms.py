@@ -6,7 +6,8 @@ from django import forms
 
 from radis.core.constants import LANGUAGE_LABELS
 from radis.core.layouts import RangeSlider
-from radis.core.widgets import DATE_INPUT_FORMATS, DatePickerInput
+from radis.core.date_formats import DATE_INPUT_FORMATS
+from radis.core.widgets import DatePickerInput
 from radis.reports.models import Language, Modality
 
 from .layouts import QueryInput
@@ -161,10 +162,22 @@ class SearchForm(forms.Form):
                 "Setup of RADIS is incomplete. No search providers are registered."
             )
 
-        age_from = self.cleaned_data["age_from"]
-        age_till = self.cleaned_data["age_till"]
+        cleaned_data = super().clean()
+        if cleaned_data is None:
+            return None
 
+        study_date_from = cleaned_data.get("study_date_from")
+        study_date_till = cleaned_data.get("study_date_till")
+        if (
+            study_date_from is not None
+            and study_date_till is not None
+            and study_date_from > study_date_till
+        ):
+            raise forms.ValidationError("Study date from must be before study date till")
+
+        age_from = cleaned_data.get("age_from")
+        age_till = cleaned_data.get("age_till")
         if age_from is not None and age_till is not None and age_from >= age_till:
             raise forms.ValidationError("Age from must be less than age till")
 
-        return super().clean()
+        return cleaned_data
