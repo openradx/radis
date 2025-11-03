@@ -4,6 +4,7 @@ from adit_radis_shared.common.models import AppSettings
 from django.conf import settings
 from django.contrib.auth.models import Group
 from django.db import models
+from django.db.models import Q
 from django.urls import reverse
 from procrastinate.contrib.django import app
 from procrastinate.contrib.django.models import ProcrastinateJob
@@ -82,16 +83,37 @@ class OutputField(models.Model):
         max_length=1, choices=OutputType.choices, default=OutputType.TEXT
     )
     get_output_type_display: Callable[[], str]
-    optional = models.BooleanField(default=False)
-    job = models.ForeignKey[ExtractionJob](
-        ExtractionJob, on_delete=models.CASCADE, related_name="output_fields"
+    job = models.ForeignKey[
+        ExtractionJob
+    ](ExtractionJob, null=True, blank=True, on_delete=models.CASCADE, related_name="output_fields")
+    subscription = models.ForeignKey[
+        "subscriptions.Subscription"
+    ](
+        "subscriptions.Subscription",
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name="extraction_fields",
     )
 
     class Meta:
         constraints = [
             models.UniqueConstraint(
                 fields=["name", "job_id"],
+                condition=Q(job__isnull=False),
                 name="unique_output_field_name_per_job",
+            ),
+            models.UniqueConstraint(
+                fields=["name", "subscription_id"],
+                condition=Q(subscription__isnull=False),
+                name="unique_output_field_name_per_subscription",
+            ),
+            models.CheckConstraint(
+                check=(
+                    Q(job__isnull=False, subscription__isnull=True)
+                    | Q(job__isnull=True, subscription__isnull=False)
+                ),
+                name="output_field_exactly_one_parent",
             )
         ]
 
