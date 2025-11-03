@@ -17,5 +17,5 @@ class CollectionFactory(BaseDjangoModelFactory[Collection]):
     class Meta:
         model = Collection
 
-    name = factory.Faker("sentence")
+    name = factory.LazyAttribute(lambda obj: fake.sentence(nb_words=3)[:60])
     owner = factory.SubFactory(UserFactory)
