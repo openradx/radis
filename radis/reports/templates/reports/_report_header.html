@@ -8,7 +8,7 @@
         <div class="d-flex flex-column">
             <small>Modalities: {{ report.modality_codes|join:", " }}</small>
             <small>Study Description: {{ report.study_description }}</small>
-            <small>Study Date: {{ report.study_datetime }}</small>
+            <small>Study Date: {{ report.study_datetime|date:"d/m/Y H:i" }}</small>
         </div>
     </div>
 </div>

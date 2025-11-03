@@ -80,7 +80,17 @@
         <dt class="col-sm-3">Study Date Range</dt>
         <dd class="col-sm-9">
             {% if subscription.study_date_from or subscription.study_date_till %}
-                {{ subscription.study_date_from }} – {{ subscription.study_date_till }}
+                {% if subscription.study_date_from %}
+                    {{ subscription.study_date_from|date:"d/m/Y" }}
+                {% else %}
+                    —
+                {% endif %}
+                –
+                {% if subscription.study_date_till %}
+                    {{ subscription.study_date_till|date:"d/m/Y" }}
+                {% else %}
+                    —
+                {% endif %}
             {% else %}
                 –
             {% endif %}

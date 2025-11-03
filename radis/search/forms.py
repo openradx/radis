@@ -6,6 +6,7 @@ from django import forms
 
 from radis.core.constants import LANGUAGE_LABELS
 from radis.core.layouts import RangeSlider
+from radis.core.widgets import DATE_INPUT_FORMATS, DatePickerInput
 from radis.reports.models import Language, Modality
 
 from .layouts import QueryInput
@@ -32,10 +33,14 @@ class SearchForm(forms.Form):
     language = forms.ChoiceField(required=False, choices=[])
     modalities = forms.MultipleChoiceField(required=False, choices=[])
     study_date_from = forms.DateField(
-        required=False, widget=forms.DateInput(attrs={"type": "date"})
+        required=False,
+        input_formats=DATE_INPUT_FORMATS,
+        widget=DatePickerInput(),
     )
     study_date_till = forms.DateField(
-        required=False, widget=forms.DateInput(attrs={"type": "date"})
+        required=False,
+        input_formats=DATE_INPUT_FORMATS,
+        widget=DatePickerInput(),
     )
     study_description = forms.CharField(required=False)
     patient_sex = forms.ChoiceField(

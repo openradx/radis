@@ -5,6 +5,8 @@ from crispy_forms.layout import HTML, Div, Field, Layout, Submit
 from django import forms
 from django.http import HttpRequest
 
+from radis.core.widgets import DATE_INPUT_FORMATS, DatePickerInput
+
 from .models import Modality, Report
 
 
@@ -19,13 +21,15 @@ class ReportFilter(django_filters.FilterSet):
         label="Study date from",
         field_name="study_datetime",
         lookup_expr="date__gte",
-        widget=forms.DateInput(attrs={"type": "date"}),
+        input_formats=DATE_INPUT_FORMATS,
+        widget=DatePickerInput(),
     )
     study_date_till = django_filters.DateFilter(
         label="Study date till",
         field_name="study_datetime",
         lookup_expr="date__lte",
-        widget=forms.DateInput(attrs={"type": "date"}),
+        input_formats=DATE_INPUT_FORMATS,
+        widget=DatePickerInput(),
     )
     study_description = django_filters.CharFilter(
         label="Study description", lookup_expr="icontains"

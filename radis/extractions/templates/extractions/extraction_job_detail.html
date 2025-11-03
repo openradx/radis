@@ -34,7 +34,7 @@
         </dd>
         <dt class="col-sm-3">Created At</dt>
         <dd class="col-sm-9">
-            {{ job.created_at }}
+            {{ job.created_at|date:"d/m/Y H:i" }}
         </dd>
         {% if user.is_staff %}
             <dt class="col-sm-3">Created By</dt>
@@ -70,11 +70,19 @@
         </dd>
         <dt class="col-sm-3">Study Date From</dt>
         <dd class="col-sm-9">
-            {{ job.study_date_from|default:"—" }}
+            {% if job.study_date_from %}
+                {{ job.study_date_from|date:"d/m/Y" }}
+            {% else %}
+                —
+            {% endif %}
         </dd>
         <dt class="col-sm-3">Study Date Till</dt>
         <dd class="col-sm-9">
-            {{ job.study_date_till|default:"—" }}
+            {% if job.study_date_till %}
+                {{ job.study_date_till|date:"d/m/Y" }}
+            {% else %}
+                —
+            {% endif %}
         </dd>
         <dt class="col-sm-3">Study Description</dt>
         <dd class="col-sm-9">

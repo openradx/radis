@@ -41,13 +41,13 @@
         {% if search.study_date_from %}
             <dt class="col-sm-3">Study Date From</dt>
             <dd class="col-sm-9">
-                {{ search.study_date_from }}
+                {{ search.study_date_from|date:"d/m/Y" }}
             </dd>
         {% endif %}
         {% if search.study_date_till %}
             <dt class="col-sm-3">Study Date Till</dt>
             <dd class="col-sm-9">
-                {{ search.study_date_till }}
+                {{ search.study_date_till|date:"d/m/Y" }}
             </dd>
         {% endif %}
         {% if search.study_description %}

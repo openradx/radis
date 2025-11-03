@@ -9,6 +9,7 @@ from django.db.models import QuerySet
 
 from radis.core.constants import LANGUAGE_LABELS
 from radis.core.layouts import RangeSlider
+from radis.core.widgets import DATE_INPUT_FORMATS, DatePickerInput
 from radis.reports.models import Language, Modality
 from radis.search.forms import AGE_STEP, MAX_AGE, MIN_AGE
 from radis.search.site import Search, SearchFilters
@@ -60,8 +61,10 @@ class SearchForm(forms.ModelForm):
             for modality in Modality.objects.filter(filterable=True).order_by("code")
         ]
         self.fields["modalities"].widget.attrs["size"] = 6
-        self.fields["study_date_from"].widget = forms.DateInput(attrs={"type": "date"})
-        self.fields["study_date_till"].widget = forms.DateInput(attrs={"type": "date"})
+        self.fields["study_date_from"].widget = DatePickerInput()
+        self.fields["study_date_till"].widget = DatePickerInput()
+        self.fields["study_date_from"].input_formats = DATE_INPUT_FORMATS  # type: ignore[assignment]
+        self.fields["study_date_till"].input_formats = DATE_INPUT_FORMATS  # type: ignore[assignment]
         self.fields["age_from"] = forms.IntegerField(
             required=False,
             min_value=MIN_AGE,
