@@ -9,7 +9,9 @@ from radis.core.layouts import Formset, RangeSlider
 from radis.reports.models import Language, Modality
 from radis.search.forms import AGE_STEP, MAX_AGE, MIN_AGE
 
-from .models import Question, Subscription
+from radis.extractions.models import OutputField
+
+from .models import FilterQuestion, Subscription
 from .site import subscription_retrieval_providers
 
 
@@ -95,7 +97,16 @@ class SubscriptionForm(forms.ModelForm):
                     "provider",
                     "query",
                     "send_finished_mail",
-                    Formset("formset", legend="Questions", add_form_label="Add Question"),
+                    Formset(
+                        "filter_formset",
+                        legend="Filter Questions",
+                        add_form_label="Add Filter Question",
+                    ),
+                    Formset(
+                        "extraction_formset",
+                        legend="Extraction Fields",
+                        add_form_label="Add Extraction Field",
+                    ),
                 ),
                 Column(
                     "patient_id",
@@ -139,15 +150,21 @@ class SubscriptionForm(forms.ModelForm):
         return super().clean()
 
 
-class QuestionForm(forms.ModelForm):
+class FilterQuestionForm(forms.ModelForm):
     class Meta:
-        model = Question
-        fields = ["question"]
+        model = FilterQuestion
+        fields = ["question", "expected_answer"]
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
         self.fields["question"].required = False
+        self.fields["expected_answer"].required = False
+        self.fields["expected_answer"].choices = [
+            ("", "Select expected answer"),
+            *FilterQuestion.ExpectedAnswer.choices,
+        ]
+        self.fields["expected_answer"].label = "Accept when answer is"
 
         self.helper = FormHelper()
         self.helper.form_tag = False
@@ -157,17 +174,73 @@ class QuestionForm(forms.ModelForm):
                 Field("id", type="hidden"),
                 Field("DELETE", type="hidden"),
                 "question",
+                "expected_answer",
             ),
         )
 
+    def clean(self) -> dict[str, Any]:
+        cleaned_data = super().clean()
+        question = cleaned_data.get("question")
+        expected_answer = cleaned_data.get("expected_answer")
 
-QuestionFormSet = forms.inlineformset_factory(
+        if not question and not expected_answer:
+            return cleaned_data
+
+        if question and not expected_answer:
+            cleaned_data["expected_answer"] = FilterQuestion.ExpectedAnswer.YES
+
+        if not question:
+            raise forms.ValidationError("Question text is required when specifying a filter.")
+
+        return cleaned_data
+
+
+class ExtractionFieldForm(forms.ModelForm):
+    class Meta:
+        model = OutputField
+        fields = ["name", "description", "output_type"]
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        self.fields["name"].required = True
+        self.fields["description"].required = False
+
+        self.helper = FormHelper()
+        self.helper.form_tag = False
+        self.helper.disable_csrf = True
+        self.helper.layout = Layout(
+            Div(
+                Field("id", type="hidden"),
+                Field("DELETE", type="hidden"),
+                Row(
+                    Column("name", css_class="col-6"),
+                    Column("output_type", css_class="col-4"),
+                ),
+                "description",
+            )
+        )
+
+
+FilterQuestionFormSet = forms.inlineformset_factory(
     Subscription,
-    Question,
-    form=QuestionForm,
+    FilterQuestion,
+    form=FilterQuestionForm,
     extra=1,
     min_num=0,
     max_num=3,
+    validate_max=True,
+    can_delete=False,
+)
+
+ExtractionFieldFormSet = forms.inlineformset_factory(
+    Subscription,
+    OutputField,
+    form=ExtractionFieldForm,
+    fk_name="subscription",
+    extra=1,
+    min_num=0,
+    max_num=10,
     validate_max=True,
     can_delete=False,
 )

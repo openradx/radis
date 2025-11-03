@@ -1,4 +1,5 @@
 import logging
+from typing import Any
 from concurrent.futures import Future, ThreadPoolExecutor
 from string import Template
 
@@ -16,8 +17,10 @@ from .models import (
     SubscriptionTask,
 )
 from .utils.processor_utils import (
-    generate_questions_for_prompt,
-    generate_questions_schema,
+    build_extraction_schema,
+    build_filter_schema,
+    generate_extraction_fields_prompt,
+    generate_filter_questions_prompt,
 )
 
 logger = logging.getLogger(__name__)
@@ -47,25 +50,58 @@ class SubscriptionTaskProcessor(AnalysisTaskProcessor):
 
     def process_report(self, report: Report, task: SubscriptionTask) -> None:
         subscription: Subscription = task.job.subscription
-        Schema = generate_questions_schema(subscription.questions)
-        prompt = Template(settings.QUESTION_SYSTEM_PROMPT).substitute(
-            {
-                "report": report.body,
-                "questions": generate_questions_for_prompt(subscription.questions),
-            }
-        )
-        result = self.client.extract_data(prompt, Schema)
+        filter_bundle = build_filter_schema(subscription.filter_questions)
 
-        is_accepted = all(
-            [getattr(result, field_name) for field_name in result.__pydantic_fields__]
-        )
-        if is_accepted:
-            SubscribedItem.objects.create(
-                subscription=task.job.subscription,
-                job=task.job,
-                report=report,
-                filter_fields_results=result.model_dump(),
+        filter_results: dict[str, bool] = {}
+        is_accepted = True
+
+        if filter_bundle.mapping:
+            filter_prompt = Template(settings.SUBSCRIPTION_FILTER_PROMPT).substitute(
+                {
+                    "report": report.body,
+                    "questions": generate_filter_questions_prompt(filter_bundle.mapping),
+                }
             )
-            logger.debug(f"Report {report.pk} was accepted by subscription {subscription.pk}")
+            filter_response = self.client.extract_data(filter_prompt, filter_bundle.schema)
+
+            for field_name, question in filter_bundle.mapping:
+                answer = bool(getattr(filter_response, field_name))
+                filter_results[str(question.pk)] = answer
+                if answer != question.expected_answer_bool:
+                    is_accepted = False
         else:
+            logger.debug(
+                "Subscription %s has no filter questions; accepting report %s by default",
+                subscription.pk,
+                report.pk,
+            )
+
+        if not is_accepted:
             logger.debug(f"Report {report.pk} was rejected by subscription {subscription.pk}")
+            return
+
+        extraction_bundle = build_extraction_schema(subscription.extraction_fields)
+        extraction_results: dict[str, Any] = {}
+
+        if extraction_bundle.mapping:
+            extraction_prompt = Template(settings.SUBSCRIPTION_EXTRACTION_PROMPT).substitute(
+                {
+                    "report": report.body,
+                    "fields": generate_extraction_fields_prompt(extraction_bundle.mapping),
+                }
+            )
+            extraction_response = self.client.extract_data(
+                extraction_prompt, extraction_bundle.schema
+            )
+
+            for field_name, field in extraction_bundle.mapping:
+                extraction_results[str(field.pk)] = getattr(extraction_response, field_name)
+
+        SubscribedItem.objects.create(
+            subscription=task.job.subscription,
+            job=task.job,
+            report=report,
+            filter_results=filter_results or None,
+            extraction_results=extraction_results or None,
+        )
+        logger.debug(f"Report {report.pk} was accepted by subscription {subscription.pk}")

@@ -8,6 +8,7 @@ from procrastinate.contrib.django import app
 from procrastinate.contrib.django.models import ProcrastinateJob
 
 from radis.core.models import AnalysisJob, AnalysisTask
+from radis.extractions.models import OutputField
 from radis.reports.models import Language, Modality, Report
 
 
@@ -50,7 +51,8 @@ class Subscription(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     last_refreshed = models.DateTimeField(auto_now_add=True)
 
-    questions: models.QuerySet["Question"]
+    filter_questions: models.QuerySet["FilterQuestion"]
+    extraction_fields: models.QuerySet[OutputField]
     items: models.QuerySet["SubscribedItem"]
 
     send_finished_mail = models.BooleanField(default=False)
@@ -67,17 +69,30 @@ class Subscription(models.Model):
         return f"Subscription {self.name} [{self.pk}]"
 
 
-class Question(models.Model):
+class FilterQuestion(models.Model):
+    class ExpectedAnswer(models.TextChoices):
+        YES = "Y", "Yes"
+        NO = "N", "No"
+
     subscription = models.ForeignKey[Subscription](
-        Subscription, on_delete=models.CASCADE, related_name="questions"
+        Subscription, on_delete=models.CASCADE, related_name="filter_questions"
     )
     question = models.CharField(max_length=300)
+    expected_answer = models.CharField(
+        max_length=1,
+        choices=ExpectedAnswer.choices,
+        default=ExpectedAnswer.YES,
+    )
 
     def __str__(self) -> str:
         max_length = 30
-        if len(self.question) > max_length:
-            return f'Question "{self.question[:max_length]}..." [{self.pk}]'
-        return f'Question "{self.question}" [{self.pk}]'
+        truncated = self.question[:max_length]
+        suffix = "..." if len(self.question) > max_length else ""
+        return f'Filter Question "{truncated}{suffix}" [{self.pk}]'
+
+    @property
+    def expected_answer_bool(self) -> bool:
+        return self.expected_answer == self.ExpectedAnswer.YES
 
 
 class SubscribedItem(models.Model):
@@ -88,11 +103,36 @@ class SubscribedItem(models.Model):
         "SubscriptionJob", null=True, on_delete=models.SET_NULL, related_name="items"
     )
     report = models.ForeignKey[Report](Report, on_delete=models.CASCADE, related_name="+")
-    answers = models.JSONField(null=True, blank=True)
+    filter_results = models.JSONField(null=True, blank=True)
+    extraction_results = models.JSONField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
         return f"SubscribedItem of {self.subscription} [{self.pk}]"
+
+    def iter_filter_results(self) -> list[tuple[FilterQuestion, bool]]:
+        if not self.filter_results:
+            return []
+
+        results: list[tuple[FilterQuestion, bool]] = []
+        subscription_questions = {str(q.pk): q for q in self.subscription.filter_questions.all()}
+        for key, value in self.filter_results.items():
+            question = subscription_questions.get(str(key))
+            if question is not None:
+                results.append((question, bool(value)))
+        return results
+
+    def iter_extraction_results(self) -> list[tuple[OutputField, object]]:
+        if not self.extraction_results:
+            return []
+
+        results: list[tuple[OutputField, object]] = []
+        subscription_fields = {str(f.pk): f for f in self.subscription.extraction_fields.all()}
+        for key, value in self.extraction_results.items():
+            field = subscription_fields.get(str(key))
+            if field is not None:
+                results.append((field, value))
+        return results
 
 
 class SubscriptionJob(AnalysisJob):

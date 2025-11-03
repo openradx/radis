@@ -118,8 +118,37 @@
             {% endif %}
         </dd>
     </dl>
-    <h4>Questions</h4>
-    <ul>
-        {% for question in subscription.questions.all %}<li>{{ question.question }}</li>{% endfor %}
-    </ul>
+    <h4>Filter Questions</h4>
+    {% with questions=subscription.filter_questions.all %}
+        {% if questions %}
+            <ul>
+                {% for question in questions %}
+                    <li>
+                        {{ question.question }} — accepts reports when answer is
+                        {{ question.get_expected_answer_display|lower }}
+                    </li>
+                {% endfor %}
+            </ul>
+        {% else %}
+            <p class="text-muted mb-0">No filter questions defined.</p>
+        {% endif %}
+    {% endwith %}
+    <h4 class="mt-4">Extraction Fields</h4>
+    {% with fields=subscription.extraction_fields.all %}
+        {% if fields %}
+            <dl class="row">
+                {% for field in fields %}
+                    <dt class="col-sm-3">{{ field.name }}</dt>
+                    <dd class="col-sm-9">
+                        {{ field.description|default:"No description provided." }}
+                        <div class="text-muted small">
+                            Type: {{ field.get_output_type_display }}
+                        </div>
+                    </dd>
+                {% endfor %}
+            </dl>
+        {% else %}
+            <p class="text-muted mb-0">No extraction fields configured.</p>
+        {% endif %}
+    {% endwith %}
 {% endblock content %}
