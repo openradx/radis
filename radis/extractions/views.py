@@ -303,21 +303,20 @@ class ExtractionResultDownloadView(ExtractionsLockedMixin, LoginRequiredMixin, V
     def get(self, request: AuthenticatedHttpRequest, pk: int, *args, **kwargs):
         job = get_object_or_404(self.get_queryset(), pk=pk)
 
-        if job.status not in {
-            ExtractionJob.Status.SUCCESS,
-            ExtractionJob.Status.WARNING,
-            ExtractionJob.Status.FAILURE,
-        }:
+        if job.status not in self.FINISHED_STATUSES:
             return HttpResponse(
-                "Extraction job is not finished yet.",
+                "Cannot download results: extraction job has not finished processing.",
                 status=409,
                 content_type="text/plain",
             )
 
         output_fields = list(job.output_fields.order_by("id"))
-        instances = ExtractionInstance.objects.filter(task__job=job).order_by("id").only(
-            "id", "output"
+        instances = (
+            ExtractionInstance.objects.filter(task__job=job)
+            .order_by("id")
+            .only("id", "output")
         )
+        chunk_size = getattr(settings, "EXTRACTION_RESULTS_EXPORT_CHUNK_SIZE", 1000)
 
         def stream_rows():
             buffer = io.StringIO()
@@ -329,7 +328,7 @@ class ExtractionResultDownloadView(ExtractionsLockedMixin, LoginRequiredMixin, V
             buffer.seek(0)
             buffer.truncate(0)
 
-            for instance in instances.iterator(chunk_size=1000):
+            for instance in instances.iterator(chunk_size=chunk_size):
                 output_data = instance.output or {}
                 row = [instance.id]
                 for field in output_fields:
@@ -341,6 +340,7 @@ class ExtractionResultDownloadView(ExtractionsLockedMixin, LoginRequiredMixin, V
                 buffer.truncate(0)
 
         response = StreamingHttpResponse(stream_rows(), content_type="text/csv")
-        filename = f"extraction-job-{job.pk}.csv"
-        response["Content-Disposition"] = f'attachment; filename=\"{filename}\"'
+        response["Content-Disposition"] = (
+            f'attachment; filename="extraction-job-{job.pk}.csv"'
+        )
         return response
