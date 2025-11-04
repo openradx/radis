@@ -3,7 +3,12 @@ import datetime
 import pytest
 
 from radis.search.forms import SearchForm
-from radis.search.site import SearchProvider, SearchResult, register_search_provider, search_providers
+from radis.search.site import (
+    SearchProvider,
+    SearchResult,
+    register_search_provider,
+    search_providers,
+)
 
 
 @pytest.fixture(autouse=True)

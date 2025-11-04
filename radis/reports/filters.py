@@ -2,7 +2,6 @@ import django_filters
 from adit_radis_shared.common.types import with_form_helper
 from crispy_forms.helper import FormHelper
 from crispy_forms.layout import HTML, Div, Field, Layout, Submit
-from django import forms
 from django.http import HttpRequest
 
 from radis.core.date_formats import DATE_INPUT_FORMATS

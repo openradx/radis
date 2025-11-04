@@ -4,7 +4,7 @@ import re
 from django.template import Library
 from django.utils.formats import date_format
 
-from ..date_formats import DATETIME_TEMPLATE_FORMAT, DATE_TEMPLATE_FORMAT
+from ..date_formats import DATE_TEMPLATE_FORMAT, DATETIME_TEMPLATE_FORMAT
 from ..models import AnalysisJob, AnalysisTask
 
 logger = logging.getLogger(__name__)

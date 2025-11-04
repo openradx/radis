@@ -5,8 +5,8 @@ from crispy_forms.layout import Button, Div, Field
 from django import forms
 
 from radis.core.constants import LANGUAGE_LABELS
-from radis.core.layouts import RangeSlider
 from radis.core.date_formats import DATE_INPUT_FORMATS
+from radis.core.layouts import RangeSlider
 from radis.core.widgets import DatePickerInput
 from radis.reports.models import Language, Modality
 
