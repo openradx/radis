@@ -112,20 +112,18 @@ class GenerateReportView(LoginRequiredMixin, UserPassesTestMixin, View):
 
                 prompt = _build_user_prompt(instruction, context_lines)
                 generator = ReportBodyGenerator()
-                count = form.cleaned_data.get("count") or 1
 
                 try:
-                    for _ in range(count):
-                        body = generator.generate(prompt)
-                        report_kwargs = form.get_report_kwargs()
-                        report_kwargs["body"] = body
-                        if language_obj is not None:
-                            report_kwargs["language"] = language_obj
-                        if modalities:
-                            report_kwargs["modalities"] = modalities
-                        report = ReportFactory.create(**report_kwargs)
-                        report.groups.set([active_group])
-                        created_reports.append(report)
+                    body = generator.generate(prompt)
+                    report_kwargs = form.get_report_kwargs()
+                    report_kwargs["body"] = body
+                    if language_obj is not None:
+                        report_kwargs["language"] = language_obj
+                    if modalities:
+                        report_kwargs["modalities"] = modalities
+                    report = ReportFactory.create(**report_kwargs)
+                    report.groups.set([active_group])
+                    created_reports.append(report)
                 except Exception as exc:  # noqa: BLE001
                     logger.exception("Failed to generate report")
                     form.add_error(
@@ -137,7 +135,7 @@ class GenerateReportView(LoginRequiredMixin, UserPassesTestMixin, View):
                 if created_reports:
                     messages.success(
                         request,
-                        f"Created {len(created_reports)} report(s) using the LLM.",
+                        "Created a report using the LLM.",
                     )
 
         context = {"form": form, "created_reports": created_reports}

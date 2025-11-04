@@ -43,13 +43,6 @@ class GenerateReportForm(forms.Form):
         widget=forms.Textarea(attrs={"rows": 4}),
         help_text="Describe the report you want the LLM to generate.",
     )
-    count = forms.IntegerField(
-        required=False,
-        min_value=1,
-        max_value=10,
-        initial=1,
-        help_text="How many reports to generate in one go (max 10).",
-    )
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
