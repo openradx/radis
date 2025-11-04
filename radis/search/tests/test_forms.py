@@ -2,6 +2,7 @@ import datetime
 
 import pytest
 
+from radis.reports.models import Language, Modality
 from radis.search.forms import SearchForm
 from radis.search.site import (
     SearchProvider,
@@ -9,7 +10,6 @@ from radis.search.site import (
     register_search_provider,
     search_providers,
 )
-from radis.reports.models import Language, Modality
 
 
 @pytest.fixture(autouse=True)

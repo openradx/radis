@@ -21,16 +21,6 @@ from .site import extraction_retrieval_providers
 
 
 class SearchForm(forms.ModelForm):
-    study_date_from = forms.DateField(
-        required=False,
-        input_formats=DATE_INPUT_FORMATS,
-        widget=DatePickerInput(),
-    )
-    study_date_till = forms.DateField(
-        required=False,
-        input_formats=DATE_INPUT_FORMATS,
-        widget=DatePickerInput(),
-    )
     class Meta:
         model = ExtractionJob
         fields = [
@@ -51,6 +41,17 @@ class SearchForm(forms.ModelForm):
             "provider": "The search provider to use for the database query",
             "query": "A query to find reports for further analysis",
         }
+
+    study_date_from = forms.DateField(
+        required=False,
+        input_formats=DATE_INPUT_FORMATS,
+        widget=DatePickerInput(),
+    )
+    study_date_till = forms.DateField(
+        required=False,
+        input_formats=DATE_INPUT_FORMATS,
+        widget=DatePickerInput(),
+    )
 
     def __init__(self, *args, **kwargs):
         self.user: User = kwargs.pop("user")
@@ -146,7 +147,11 @@ class SearchForm(forms.ModelForm):
 
         date_from = cleaned_data.get("study_date_from")
         date_till = cleaned_data.get("study_date_till")
-        if date_from and date_till and date_from > date_till:
+        if (
+            date_from is not None
+            and date_till is not None
+            and date_from > date_till
+        ):
             raise forms.ValidationError("Study date from must be before study date till")
 
         active_group = self.user.active_group
