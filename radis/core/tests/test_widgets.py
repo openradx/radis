@@ -21,6 +21,12 @@ def test_date_picker_input_preserves_custom_attributes():
     assert 'data-role="picker"' in html
 
 
+def test_date_picker_input_renders_initial_value():
+    widget = DatePickerInput()
+    html = widget.render("study_date", datetime.date(2025, 2, 14))
+    assert 'value="2025-02-14"' in html
+
+
 def test_date_picker_input_accepts_defined_formats():
     field = forms.DateField(widget=DatePickerInput(), input_formats=DATE_INPUT_FORMATS)
     assert field.clean("14/02/2025") == datetime.date(2025, 2, 14)
@@ -34,6 +40,11 @@ def test_display_date_filter_formats_value():
 
 def test_display_datetime_filter_formats_value():
     value = datetime.datetime(2025, 2, 14, 9, 30)
+    assert display_datetime(value) == "14/02/2025 09:30"
+
+
+def test_display_datetime_filter_formats_timezone_aware_value():
+    value = datetime.datetime(2025, 2, 14, 9, 30, tzinfo=datetime.timezone.utc)
     assert display_datetime(value) == "14/02/2025 09:30"
 
 
