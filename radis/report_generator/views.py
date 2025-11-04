@@ -18,7 +18,6 @@ from radis.reports.factories import ReportFactory
 from radis.reports.models import Language, Report
 
 from .forms import GenerateReportForm
-from .prompts import REPORT_SYSTEM_PROMPT
 
 logger = logging.getLogger(__name__)
 
@@ -31,11 +30,12 @@ class ReportBodyGenerator:
         self._model_name = settings.LLM_MODEL_NAME
 
     def generate(self, user_prompt: str) -> str:
+        system_prompt = getattr(settings, "REPORT_GENERATOR_SYSTEM_PROMPT")
         try:
             completion = self._client.chat.completions.create(
                 model=self._model_name,
                 messages=[
-                    {"role": "system", "content": REPORT_SYSTEM_PROMPT},
+                    {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt},
                 ],
             )
