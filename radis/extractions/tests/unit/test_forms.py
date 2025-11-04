@@ -3,6 +3,7 @@ from types import SimpleNamespace
 
 import pytest
 from django.contrib.auth.models import Group
+from django import forms
 
 from radis.core.date_formats import DATE_INPUT_FORMATS
 from radis.extractions.forms import SearchForm
@@ -31,8 +32,13 @@ def mock_extraction_provider():
 
 @pytest.mark.django_db
 def test_extraction_form_uses_shared_input_formats():
-    assert SearchForm.base_fields["study_date_from"].input_formats == DATE_INPUT_FORMATS
-    assert SearchForm.base_fields["study_date_till"].input_formats == DATE_INPUT_FORMATS
+    date_from_field = SearchForm.base_fields["study_date_from"]
+    date_till_field = SearchForm.base_fields["study_date_till"]
+
+    assert isinstance(date_from_field, forms.DateField)
+    assert isinstance(date_till_field, forms.DateField)
+    assert date_from_field.input_formats == DATE_INPUT_FORMATS
+    assert date_till_field.input_formats == DATE_INPUT_FORMATS
 
 
 @pytest.mark.django_db
