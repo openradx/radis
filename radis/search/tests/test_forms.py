@@ -14,6 +14,7 @@ from radis.search.site import (
 
 @pytest.fixture(autouse=True)
 def mock_search_provider():
+    original_providers = search_providers.copy()
     search_providers.clear()
 
     def _search(_search):
@@ -23,6 +24,7 @@ def mock_search_provider():
     register_search_provider(provider)
     yield provider
     search_providers.clear()
+    search_providers.update(original_providers)
 
 
 @pytest.mark.django_db

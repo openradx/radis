@@ -75,8 +75,9 @@ class SearchForm(forms.Form):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-        search_provider_choices = self.fields["provider"].choices  # type: ignore
+        search_provider_choices = list(self.fields["provider"].choices)  # type: ignore
         if search_provider_choices:
+            self.fields["provider"].choices = search_provider_choices  # type: ignore
             self.fields["provider"].initial = search_provider_choices[0][0]
         self.fields["language"].choices = [  # type: ignore
             (language.code, LANGUAGE_LABELS[language.code])
