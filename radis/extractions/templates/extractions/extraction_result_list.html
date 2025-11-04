@@ -12,6 +12,13 @@
         {% bootstrap_icon "arrow-return-left" %}
         View Job
     </a>
+    {% if download_available %}
+    <a href="{% url 'extraction_result_download' job.id %}"
+       class="btn btn-primary ms-2">
+        {% bootstrap_icon "download" %}
+        Download CSV
+    </a>
+    {% endif %}
     </c-slot>
     </c-page-heading>
 {% endblock heading %}

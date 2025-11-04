@@ -1,3 +1,6 @@
+import csv
+import io
+
 import pytest
 from adit_radis_shared.accounts.factories import GroupFactory, UserFactory
 from django.contrib.auth.models import Permission
@@ -8,6 +11,7 @@ from radis.extractions.factories import (
     ExtractionInstanceFactory,
     ExtractionJobFactory,
     ExtractionTaskFactory,
+    OutputFieldFactory,
 )
 from radis.extractions.models import ExtractionJob
 from radis.reports.factories import LanguageFactory, ReportFactory
@@ -27,6 +31,15 @@ def create_test_extraction_task(job=None):
         owner = UserFactory.create(is_active=True)
         job = create_test_extraction_job(owner=owner)
     return ExtractionTaskFactory.create(job=job)
+
+
+@pytest.fixture(autouse=True)
+def disable_debug_toolbar(settings):
+    settings.MIDDLEWARE = [
+        middleware
+        for middleware in settings.MIDDLEWARE
+        if middleware != "debug_toolbar.middleware.DebugToolbarMiddleware"
+    ]
 
 
 @pytest.mark.django_db
@@ -200,6 +213,7 @@ def test_extraction_result_list_view(client: Client):
     client.force_login(user)
     response = client.get(f"/extractions/jobs/{job.pk}/results/")
     assert response.status_code == 200
+    assert "Download CSV" not in response.content.decode()
 
 
 @pytest.mark.django_db
@@ -319,3 +333,131 @@ def test_extraction_instance_detail_view(client: Client):
 
     response = client.get(f"/extractions/instances/{instance.pk}/")
     assert response.status_code == 200
+
+
+@pytest.mark.django_db
+def test_extraction_result_download_csv(client: Client):
+    user = UserFactory.create(is_active=True)
+    job = create_test_extraction_job(owner=user)
+    job.status = ExtractionJob.Status.SUCCESS
+    job.save()
+
+    field_one = OutputFieldFactory.create(job=job, name="field_one")
+    field_two = OutputFieldFactory.create(job=job, name="field_two")
+
+    task = create_test_extraction_task(job=job)
+    language = LanguageFactory.create(code="en")
+    report_one = ReportFactory.create(language=language)
+    report_two = ReportFactory.create(language=language)
+    instance_one = ExtractionInstanceFactory.create(
+        task=task,
+        report=report_one,
+        output={
+            field_one.name: "value-1",
+            field_two.name: 123,
+        },
+    )
+    instance_two = ExtractionInstanceFactory.create(
+        task=task,
+        report=report_two,
+        output={
+            field_one.name: None,
+            field_two.name: "value-2",
+        },
+    )
+
+    client.force_login(user)
+    response = client.get(f"/extractions/jobs/{job.pk}/results/download/")
+
+    assert response.status_code == 200
+    assert response["Content-Type"] == "text/csv"
+    assert response.streaming
+    assert (
+        response["Content-Disposition"]
+        == f'attachment; filename="extraction-job-{job.pk}.csv"'
+    )
+
+    content = b"".join(response.streaming_content).decode("utf-8")
+    reader = csv.reader(io.StringIO(content))
+    rows = list(reader)
+
+    assert rows[0] == ["id", field_one.name, field_two.name]
+    assert rows[1] == [str(instance_one.id), "value-1", "123"]
+    assert rows[2] == [str(instance_two.id), "", "value-2"]
+
+
+@pytest.mark.django_db
+def test_extraction_result_download_large_dataset(client: Client):
+    user = UserFactory.create(is_active=True)
+    job = create_test_extraction_job(owner=user)
+    job.status = ExtractionJob.Status.SUCCESS
+    job.save()
+
+    field = OutputFieldFactory.create(job=job, name="field_one")
+    task = create_test_extraction_task(job=job)
+    language = LanguageFactory.create(code="en")
+
+    instances = []
+    for idx in range(150):
+        report = ReportFactory.create(language=language)
+        instances.append(
+            ExtractionInstanceFactory.create(
+                task=task, report=report, output={field.name: f"value-{idx}"}
+            )
+        )
+
+    client.force_login(user)
+    response = client.get(f"/extractions/jobs/{job.pk}/results/download/")
+
+    assert response.status_code == 200
+    assert response.streaming
+
+    content = b"".join(response.streaming_content).decode("utf-8")
+    rows = list(csv.reader(io.StringIO(content)))
+
+    # header + 150 rows
+    assert len(rows) == 151
+    assert rows[0] == ["id", field.name]
+    # spot check last row corresponds to last instance
+    assert rows[-1] == [str(instances[-1].id), f"value-{len(instances) - 1}"]
+
+
+@pytest.mark.django_db
+def test_extraction_result_download_requires_finished_job(client: Client):
+    user = UserFactory.create(is_active=True)
+    job = create_test_extraction_job(owner=user)
+    job.status = ExtractionJob.Status.PENDING
+    job.save()
+
+    client.force_login(user)
+    response = client.get(f"/extractions/jobs/{job.pk}/results/download/")
+
+    assert response.status_code == 409
+
+
+@pytest.mark.django_db
+def test_extraction_result_download_unauthorized(client: Client):
+    owner = UserFactory.create(is_active=True)
+    other_user = UserFactory.create(is_active=True)
+    job = create_test_extraction_job(owner=owner)
+    job.status = ExtractionJob.Status.SUCCESS
+    job.save()
+
+    client.force_login(other_user)
+    response = client.get(f"/extractions/jobs/{job.pk}/results/download/")
+
+    assert response.status_code == 404
+
+
+@pytest.mark.django_db
+def test_extraction_result_list_view_shows_download_when_finished(client: Client):
+    user = UserFactory.create(is_active=True)
+    job = create_test_extraction_job(owner=user)
+    job.status = ExtractionJob.Status.SUCCESS
+    job.save()
+
+    client.force_login(user)
+    response = client.get(f"/extractions/jobs/{job.pk}/results/")
+
+    assert response.status_code == 200
+    assert "Download CSV" in response.content.decode()

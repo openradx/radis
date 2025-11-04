@@ -1,3 +1,5 @@
+import csv
+import io
 from typing import Any, Type, cast
 
 from adit_radis_shared.common.mixins import (
@@ -14,8 +16,10 @@ from django.core.exceptions import SuspiciousOperation
 from django.db import transaction
 from django.db.models import QuerySet
 from django.forms import BaseInlineFormSet
-from django.shortcuts import redirect
+from django.http import HttpResponse, StreamingHttpResponse
+from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse_lazy
+from django.views import View
 from django.views.generic import DetailView
 from django_tables2 import SingleTableMixin, tables
 from formtools.wizard.views import SessionWizardView
@@ -272,3 +276,71 @@ class ExtractionResultListView(
     def get_table_data(self):
         job = cast(ExtractionJob, self.get_object())
         return ExtractionInstance.objects.filter(task__job=job)
+
+    def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
+        context = super().get_context_data(**kwargs)
+        job = cast(ExtractionJob, self.get_object())
+        context["download_available"] = (
+            job.status in ExtractionResultDownloadView.FINISHED_STATUSES
+        )
+        return context
+
+
+class ExtractionResultDownloadView(ExtractionsLockedMixin, LoginRequiredMixin, View):
+    FINISHED_STATUSES = {
+        ExtractionJob.Status.SUCCESS,
+        ExtractionJob.Status.WARNING,
+        ExtractionJob.Status.FAILURE,
+    }
+
+    request: AuthenticatedHttpRequest
+
+    def get_queryset(self) -> QuerySet[ExtractionJob]:
+        if self.request.user.is_staff:
+            return ExtractionJob.objects.all()
+        return ExtractionJob.objects.filter(owner=self.request.user)
+
+    def get(self, request: AuthenticatedHttpRequest, pk: int, *args, **kwargs):
+        job = get_object_or_404(self.get_queryset(), pk=pk)
+
+        if job.status not in {
+            ExtractionJob.Status.SUCCESS,
+            ExtractionJob.Status.WARNING,
+            ExtractionJob.Status.FAILURE,
+        }:
+            return HttpResponse(
+                "Extraction job is not finished yet.",
+                status=409,
+                content_type="text/plain",
+            )
+
+        output_fields = list(job.output_fields.order_by("id"))
+        instances = ExtractionInstance.objects.filter(task__job=job).order_by("id").only(
+            "id", "output"
+        )
+
+        def stream_rows():
+            buffer = io.StringIO()
+            writer = csv.writer(buffer, lineterminator="\n")
+
+            header = ["id"] + [field.name for field in output_fields]
+            writer.writerow(header)
+            yield buffer.getvalue().encode("utf-8")
+            buffer.seek(0)
+            buffer.truncate(0)
+
+            for instance in instances.iterator(chunk_size=1000):
+                output_data = instance.output or {}
+                row = [instance.id]
+                for field in output_fields:
+                    value = output_data.get(field.name)
+                    row.append("" if value is None else str(value))
+                writer.writerow(row)
+                yield buffer.getvalue().encode("utf-8")
+                buffer.seek(0)
+                buffer.truncate(0)
+
+        response = StreamingHttpResponse(stream_rows(), content_type="text/csv")
+        filename = f"extraction-job-{job.pk}.csv"
+        response["Content-Disposition"] = f'attachment; filename=\"{filename}\"'
+        return response
