@@ -35,6 +35,11 @@ urlpatterns = [
     path("subscriptions/", include("radis.subscriptions.urls")),
 ]
 
+if "radis.report_generator.apps.ReportGeneratorConfig" in settings.INSTALLED_APPS:
+    urlpatterns += [
+        path("report-generator/", include(("radis.report_generator.urls", "report_generator"), namespace="report_generator")),
+    ]
+
 # Debug Toolbar in Debug mode only
 if settings.DEBUG:
     import debug_toolbar

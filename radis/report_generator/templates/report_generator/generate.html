@@ -1,0 +1,60 @@
+{% extends "core/core_layout.html" %}
+{% block title %}Generate Reports{% endblock title %}
+{% block heading %}
+    <c-page-heading title="Generate Dummy Reports" subtitle="Development helper" />
+{% endblock heading %}
+{% block content %}
+    <p class="text-muted">
+        Use this tool in development to craft synthetic reports with help from the LLM. Leave fields blank to fall back to factory defaults.
+    </p>
+    <form method="post" class="card mb-4">
+        <div class="card-body">
+            {% csrf_token %}
+            {% if form.non_field_errors %}
+                <div class="alert alert-danger">
+                    {% for error in form.non_field_errors %}
+                        <div>{{ error }}</div>
+                    {% endfor %}
+                </div>
+            {% endif %}
+            <div class="row g-3">
+                {% for field in form %}
+                    <div class="col-md-6">
+                        <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+                        {{ field }}
+                        {% if field.help_text %}
+                            <small class="form-text text-muted">{{ field.help_text }}</small>
+                        {% endif %}
+                        {% if field.errors %}
+                            <div class="text-danger small">
+                                {% for error in field.errors %}
+                                    <div>{{ error }}</div>
+                                {% endfor %}
+                            </div>
+                        {% endif %}
+                    </div>
+                {% endfor %}
+            </div>
+            <div class="mt-4">
+                <button type="submit" class="btn btn-primary">Generate report</button>
+            </div>
+        </div>
+    </form>
+    {% if created_reports %}
+        <div class="alert alert-success">
+            Generated {{ created_reports|length }} report{{ created_reports|length|pluralize }}.
+        </div>
+        <h2 class="h5">Latest generated reports</h2>
+        <ul class="list-group">
+            {% for report in created_reports %}
+                <li class="list-group-item d-flex justify-content-between align-items-center">
+                    <span>
+                        {{ report.document_id }}
+                        <small class="text-muted">{{ report.language.code }}</small>
+                    </span>
+                    <a class="btn btn-sm btn-outline-secondary" href="{% url 'report_detail' report.pk %}">View</a>
+                </li>
+            {% endfor %}
+        </ul>
+    {% endif %}
+{% endblock content %}

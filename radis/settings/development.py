@@ -18,6 +18,12 @@ INSTALLED_APPS += [  # noqa: F405
     "django_browser_reload",
 ]
 
+if env.bool("ENABLE_REPORT_GENERATOR", default=True):
+    INSTALLED_APPS += [  # noqa: F405
+        "radis.report_generator.apps.ReportGeneratorConfig",
+    ]
+
+
 MIDDLEWARE += [  # noqa: F405
     "debug_toolbar.middleware.DebugToolbarMiddleware",
     "django_browser_reload.middleware.BrowserReloadMiddleware",
