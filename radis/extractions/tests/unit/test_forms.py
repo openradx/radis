@@ -2,8 +2,8 @@ import datetime
 from types import SimpleNamespace
 
 import pytest
-from django.contrib.auth.models import Group
 from django import forms
+from django.contrib.auth.models import Group
 
 from radis.core.date_formats import DATE_INPUT_FORMATS
 from radis.extractions.forms import SearchForm
