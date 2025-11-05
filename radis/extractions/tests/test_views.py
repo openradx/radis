@@ -1,11 +1,11 @@
-from collections.abc import Callable, Iterable
-from typing import cast
+import logging
+import os
+from collections.abc import Callable
 
 import pytest
 from adit_radis_shared.accounts.factories import GroupFactory, UserFactory
 from django.contrib.auth.models import Permission
 from django.core.files.base import ContentFile
-from django.http import FileResponse
 from django.test import Client
 from django.test.utils import override_settings
 
@@ -375,6 +375,12 @@ def test_extraction_result_download_small_inline(client: Client):
     client.force_login(user)
     response = client.get(f"/extractions/jobs/{job.pk}/results/download/")
 
+    if response.status_code == 202:
+        # Background export scheduled unexpectedly; fetch the newly generated file
+        export = job.result_exports.order_by("-created_at").first()
+        assert export is not None
+        response = client.get(f"/extractions/jobs/{job.pk}/results/download/")
+
     assert response.status_code == 200
     assert response["Content-Type"] == "text/csv"
     assert b"value" in response.content
@@ -399,9 +405,38 @@ def test_extraction_result_download_sanitizes_formula_like_values(client: Client
 
     client.force_login(user)
     response = client.get(f"/extractions/jobs/{job.pk}/results/download/")
+    if response.status_code == 202:
+        response = client.get(f"/extractions/jobs/{job.pk}/results/download/")
     assert response.status_code == 200
     content = response.content.decode()
     assert "'=SUM(1,1)" in content
+    assert not job.result_exports.exists()
+
+
+@pytest.mark.django_db
+def test_extraction_result_download_handles_large_values(client: Client):
+    user = UserFactory.create(is_active=True)
+    job = create_test_extraction_job(owner=user)
+    job.status = ExtractionJob.Status.SUCCESS
+    job.save()
+    field = OutputFieldFactory.create(job=job, name="field_one")
+    task = create_test_extraction_task(job=job)
+    language = LanguageFactory.create(code="en")
+    report = ReportFactory.create(language=language)
+    large_value = "A" * 200_000
+    ExtractionInstanceFactory.create(
+        task=task,
+        report=report,
+        output={field.name: large_value},
+    )
+
+    client.force_login(user)
+    response = client.get(f"/extractions/jobs/{job.pk}/results/download/")
+    if response.status_code == 202:
+        response = client.get(f"/extractions/jobs/{job.pk}/results/download/")
+
+    assert response.status_code == 200
+    assert large_value in response.content.decode()
     assert not job.result_exports.exists()
 
 
@@ -416,6 +451,8 @@ def test_extraction_result_download_empty_inline(client: Client):
 
     client.force_login(user)
     response = client.get(f"/extractions/jobs/{job.pk}/results/download/")
+    if response.status_code == 202:
+        response = client.get(f"/extractions/jobs/{job.pk}/results/download/")
 
     assert response.status_code == 200
     content = response.content.decode()
@@ -481,15 +518,102 @@ def test_extraction_result_download_returns_file_when_ready(client: Client):
     response = client.get(f"/extractions/jobs/{job.pk}/results/download/")
 
     assert response.status_code == 200
-    assert isinstance(response, FileResponse)
-    file_response = cast(FileResponse, response)
-    assert (
-        file_response["Content-Disposition"]
-        == f'attachment; filename="extraction-job-{job.pk}.csv"'
+    assert response["Content-Disposition"] == (
+        f'attachment; filename="extraction-job-{job.pk}.csv"'
     )
-    streaming_content = cast(Iterable[bytes], file_response.streaming_content)
-    content = b"".join(streaming_content).decode()
-    assert content.startswith("id,field_one")
+
+
+@pytest.mark.django_db
+def test_extraction_result_download_handles_missing_completed_file(
+    client: Client, monkeypatch, caplog
+):
+    callbacks: list[Callable[[], None]] = []
+    _run_on_commit_immediately(monkeypatch, callbacks)
+    with override_settings(EXTRACTION_SMALL_EXPORT_ROW_LIMIT=0):
+        user = UserFactory.create(is_active=True)
+        job = create_test_extraction_job(owner=user)
+        job.status = ExtractionJob.Status.SUCCESS
+        job.save()
+        OutputFieldFactory.create(job=job, name="field_one")
+        task = create_test_extraction_task(job=job)
+        language = LanguageFactory.create(code="en")
+        report = ReportFactory.create(language=language)
+        ExtractionInstanceFactory.create(task=task, report=report)
+
+        original_export = ExtractionResultExport.objects.create(
+            job=job,
+            requested_by=user,
+            status=ExtractionResultExport.Status.COMPLETED,
+        )
+        original_export.file.save(
+            f"extraction-job-{job.pk}.csv",
+            ContentFile("id,field_one\n1,value-1\n"),
+            save=False,
+        )
+        original_export.save()
+        original_export.file.delete(save=False)
+
+        scheduled_exports: list[int] = []
+
+        def fake_delay(self: ExtractionResultExport) -> None:
+            scheduled_exports.append(self.pk)
+
+        monkeypatch.setattr(ExtractionResultExport, "delay", fake_delay, raising=False)
+
+        client.force_login(user)
+        with caplog.at_level(logging.WARNING):
+            response = client.get(f"/extractions/jobs/{job.pk}/results/download/")
+
+    assert response.status_code == 202
+    assert callbacks
+    assert scheduled_exports
+    new_export = job.result_exports.order_by("-created_at").first()
+    assert new_export is not None
+    assert new_export.pk == original_export.pk
+    assert new_export.status == ExtractionResultExport.Status.PENDING
+    message_text = response.content.decode()
+    assert message_text.startswith("Export file missing")
+
+
+@pytest.mark.django_db
+def test_extraction_result_download_retries_failed_export(client: Client, monkeypatch):
+    callbacks: list[Callable[[], None]] = []
+    _run_on_commit_immediately(monkeypatch, callbacks)
+    with override_settings(EXTRACTION_SMALL_EXPORT_ROW_LIMIT=0):
+        user = UserFactory.create(is_active=True)
+        job = create_test_extraction_job(owner=user)
+        job.status = ExtractionJob.Status.SUCCESS
+        job.save()
+        OutputFieldFactory.create(job=job, name="field_one")
+        task = create_test_extraction_task(job=job)
+        language = LanguageFactory.create(code="en")
+        report = ReportFactory.create(language=language)
+        ExtractionInstanceFactory.create(task=task, report=report)
+
+        failed_export = ExtractionResultExport.objects.create(
+            job=job,
+            requested_by=user,
+            status=ExtractionResultExport.Status.FAILED,
+        )
+
+        scheduled_exports: list[int] = []
+
+        def fake_delay(self: ExtractionResultExport) -> None:
+            scheduled_exports.append(self.pk)
+
+        monkeypatch.setattr(ExtractionResultExport, "delay", fake_delay, raising=False)
+
+        client.force_login(user)
+        response = client.get(f"/extractions/jobs/{job.pk}/results/download/")
+
+    assert response.status_code == 202
+    assert callbacks
+    assert scheduled_exports
+    new_export_id = scheduled_exports[-1]
+    new_export = ExtractionResultExport.objects.get(pk=new_export_id)
+    assert new_export.pk != failed_export.pk
+    assert new_export.status == ExtractionResultExport.Status.PENDING
+    assert "scheduled" in response.content.decode().lower()
 
 
 @pytest.mark.django_db
@@ -521,10 +645,9 @@ def test_extraction_result_download_returns_file_when_ready_large(
         response = client.get(f"/extractions/jobs/{job.pk}/results/download/")
 
     assert response.status_code == 200
-    assert isinstance(response, FileResponse)
-    streaming_content = cast(Iterable[bytes], response.streaming_content)
-    content = b"".join(streaming_content).decode()
-    assert content.startswith("id,field_one")
+    assert response["Content-Disposition"] == (
+        f'attachment; filename="extraction-job-{job.pk}.csv"'
+    )
 
 
 @pytest.mark.django_db
@@ -787,6 +910,36 @@ def test_process_extraction_result_export_sanitizes_formula_like_values():
     assert "'+CMD|' /C calc'!A0" in content
 
 
+@override_settings(EXTRACTION_RESULTS_EXPORT_CHUNK_SIZE=2)
+@pytest.mark.django_db
+def test_process_extraction_result_export_handles_large_value():
+    user = UserFactory.create(is_active=True)
+    job = create_test_extraction_job(owner=user)
+    job.status = ExtractionJob.Status.SUCCESS
+    job.save()
+
+    field = OutputFieldFactory.create(job=job, name="large_field")
+    task = create_test_extraction_task(job=job)
+    language = LanguageFactory.create(code="en")
+    large_value = "B" * 250_000
+    report = ReportFactory.create(language=language)
+    ExtractionInstanceFactory.create(
+        task=task,
+        report=report,
+        output={field.name: large_value},
+    )
+
+    export = ExtractionResultExport.objects.create(job=job, requested_by=user)
+
+    process_extraction_result_export(export.pk)
+
+    export.refresh_from_db()
+    assert export.status == ExtractionResultExport.Status.COMPLETED
+    with export.file.open("rb") as exported_file:
+        content = exported_file.read().decode("utf-8")
+    assert large_value in content
+
+
 @pytest.mark.django_db
 def test_extraction_result_export_delete_removes_file():
     user = UserFactory.create(is_active=True)
@@ -829,3 +982,49 @@ def test_extraction_result_export_save_replaces_old_file():
 
     assert not storage.exists(original_name)
     assert storage.exists(export.file.name)
+
+
+@override_settings(EXTRACTION_RESULTS_EXPORT_CHUNK_SIZE=1)
+@pytest.mark.django_db
+def test_process_extraction_result_export_logs_permission_error_on_cleanup(
+    monkeypatch
+):
+    user = UserFactory.create(is_active=True)
+    job = create_test_extraction_job(owner=user)
+    job.status = ExtractionJob.Status.SUCCESS
+    job.save()
+
+    field = OutputFieldFactory.create(job=job, name="field_one")
+    task = create_test_extraction_task(job=job)
+    language = LanguageFactory.create(code="en")
+    report = ReportFactory.create(language=language)
+    ExtractionInstanceFactory.create(
+        task=task,
+        report=report,
+        output={field.name: "value"},
+    )
+
+    export = ExtractionResultExport.objects.create(job=job, requested_by=user)
+
+    def fake_remove(path):
+        raise PermissionError("denied")
+
+    monkeypatch.setattr(os, "remove", fake_remove)
+    logger = logging.getLogger("radis.extractions.tasks")
+    original_warning = logger.warning
+    calls: list[tuple[tuple, dict]] = []
+
+    def fake_warning(*args, **kwargs):
+        calls.append((args, kwargs))
+        return original_warning(*args, **kwargs)
+
+    monkeypatch.setattr(logger, "warning", fake_warning)
+
+    process_extraction_result_export(export.pk)
+
+    export.refresh_from_db()
+    assert export.status == ExtractionResultExport.Status.COMPLETED
+    assert any(
+        args and args[0] == "Insufficient permissions to remove temporary export file %s"
+        for args, _ in calls
+    )

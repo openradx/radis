@@ -353,14 +353,15 @@ class ExtractionResultDownloadView(ExtractionsLockedMixin, LoginRequiredMixin, V
         force_refresh = request.GET.get("refresh") == "1"
 
         small_limit = settings.EXTRACTION_SMALL_EXPORT_ROW_LIMIT
-        if row_count <= small_limit:
-            response = self._build_inline_response(
+        if row_count <= small_limit and not force_refresh:
+            return self._build_inline_response(
                 job, output_fields, instances_qs, chunk_size
             )
-            return response
 
+        inline_requested = row_count <= small_limit
         message = "Extraction results are being prepared. Please check back in a moment."
         status_code = 202
+        inline_ready = False
 
         with transaction.atomic():
             latest_export = job.result_exports.select_for_update().first()
@@ -375,11 +376,12 @@ class ExtractionResultDownloadView(ExtractionsLockedMixin, LoginRequiredMixin, V
                 try:
                     file_handle = latest_export.file.open("rb")
                 except FileNotFoundError:
-                    latest_export.status = ExtractionResultExport.Status.FAILED
+                    latest_export.status = ExtractionResultExport.Status.PENDING
                     latest_export.error_message = "Export file missing. Regenerating."
                     latest_export.save(update_fields=["status", "error_message"])
                     should_enqueue = True
                     message = "Export file missing. Regenerating."
+                    inline_requested = False
                 else:
                     return FileResponse(
                         file_handle,
@@ -409,14 +411,27 @@ class ExtractionResultDownloadView(ExtractionsLockedMixin, LoginRequiredMixin, V
                 should_enqueue = True
 
             if should_enqueue:
+                inline_requested = False
                 transaction.on_commit(export.delay)
-                message = "Extraction export has been scheduled. Please check back shortly."
+                if (
+                    message
+                    == "Extraction results are being prepared. Please check back in a moment."
+                ):
+                    message = "Extraction export has been scheduled. Please check back shortly."
+            elif inline_requested:
+                status_code = 200
+                inline_ready = True
             elif export.status == ExtractionResultExport.Status.PROCESSING:
                 message = "An export is currently in progress. Please try again later."
             elif export.status == ExtractionResultExport.Status.PENDING:
                 message = "An export request is pending. Please try again later."
             else:
                 message = "An export request already exists. Please try again later."
+
+        if inline_ready:
+            return self._build_inline_response(
+                job, output_fields, instances_qs, chunk_size
+            )
 
         return HttpResponse(message, status=status_code, content_type="text/plain")
 
