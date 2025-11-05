@@ -13,15 +13,45 @@
         View Job
     </a>
     {% if download_available %}
-    <a href="{% url 'extraction_result_download' job.id %}"
-       class="btn btn-primary ms-2">
-        {% bootstrap_icon "download" %}
-        Download CSV
-    </a>
+        {% if small_export_available %}
+            <a href="{% url 'extraction_result_download' job.id %}"
+               class="btn btn-primary ms-2">
+                {% bootstrap_icon "download" %}
+                Download CSV
+            </a>
+        {% elif export_ready %}
+            <a href="{% url 'extraction_result_download' job.id %}"
+               class="btn btn-primary ms-2">
+                {% bootstrap_icon "download" %}
+                Download CSV
+            </a>
+            <a href="{% url 'extraction_result_download' job.id %}?refresh=1"
+               class="btn btn-outline-secondary ms-2">
+                {% bootstrap_icon "arrow-clockwise" %}
+                Refresh Export
+            </a>
+        {% elif export_in_progress %}
+            <button type="button" class="btn btn-outline-secondary ms-2" disabled>
+                {% bootstrap_icon "hourglass-split" %}
+                Preparing Export…
+            </button>
+        {% else %}
+            <a href="{% url 'extraction_result_download' job.id %}"
+               class="btn btn-primary ms-2">
+                {% bootstrap_icon "download" %}
+                Prepare Export
+            </a>
+        {% endif %}
     {% endif %}
     </c-slot>
     </c-page-heading>
 {% endblock heading %}
 {% block content %}
+    {% if export_failed and not small_export_available %}
+        <div class="alert alert-danger" role="status">
+            {% bootstrap_icon "exclamation-triangle-fill" %}
+            The last export attempt failed. Please start a new export.
+        </div>
+    {% endif %}
     {% render_table table %}
 {% endblock content %}

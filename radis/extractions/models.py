@@ -52,6 +52,7 @@ class ExtractionJob(AnalysisJob):
 
     output_fields: models.QuerySet["OutputField"]
     tasks: models.QuerySet["ExtractionTask"]
+    result_exports: models.QuerySet["ExtractionResultExport"]
 
     class Meta:
         ordering = ["-created_at", "title"]
@@ -135,3 +136,48 @@ class ExtractionInstance(models.Model):
 
     def get_absolute_url(self) -> str:
         return reverse("extraction_instance_detail", args=[self.task.pk, self.pk])
+
+
+class ExtractionResultExport(models.Model):
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        PROCESSING = "processing", "Processing"
+        COMPLETED = "completed", "Completed"
+        FAILED = "failed", "Failed"
+
+    job = models.ForeignKey[ExtractionJob](
+        ExtractionJob, on_delete=models.CASCADE, related_name="result_exports"
+    )
+    requested_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="+"
+    )
+    status = models.CharField(
+        max_length=20, choices=Status.choices, default=Status.PENDING
+    )
+    file = models.FileField(upload_to="extraction_exports/", null=True, blank=True)
+    row_count = models.PositiveIntegerField(null=True, blank=True)
+    error_message = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    started_at = models.DateTimeField(null=True, blank=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+    queued_job_id: int | None
+    queued_job = models.OneToOneField(
+        ProcrastinateJob, null=True, on_delete=models.SET_NULL, related_name="+"
+    )
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self) -> str:
+        return f"Extraction Result Export [{self.pk}]"
+
+    def delay(self) -> None:
+        queued_job_id = app.configure_task(
+            "radis.extractions.tasks.process_extraction_result_export",
+            allow_unknown=False,
+            priority=self.job.urgent_priority
+            if self.job.urgent
+            else self.job.default_priority,
+        ).defer(export_id=self.pk)
+        self.queued_job_id = queued_job_id
+        self.save(update_fields=["queued_job_id"])

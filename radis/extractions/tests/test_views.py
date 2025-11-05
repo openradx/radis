@@ -1,13 +1,13 @@
-import csv
-import io
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from typing import cast
 
 import pytest
 from adit_radis_shared.accounts.factories import GroupFactory, UserFactory
 from django.contrib.auth.models import Permission
+from django.db import transaction
+from django.core.files.base import ContentFile
 from django.test import Client
-from django.http import StreamingHttpResponse
+from django.http import FileResponse
 
 from radis.core.models import AnalysisTask
 from radis.extractions.factories import (
@@ -16,7 +16,7 @@ from radis.extractions.factories import (
     ExtractionTaskFactory,
     OutputFieldFactory,
 )
-from radis.extractions.models import ExtractionJob
+from radis.extractions.models import ExtractionJob, ExtractionResultExport
 from radis.reports.factories import LanguageFactory, ReportFactory
 
 
@@ -339,94 +339,233 @@ def test_extraction_instance_detail_view(client: Client):
 
 
 @pytest.mark.django_db
-def test_extraction_result_download_csv(client: Client):
+def test_extraction_result_download_small_inline(client: Client):
     user = UserFactory.create(is_active=True)
     job = create_test_extraction_job(owner=user)
     job.status = ExtractionJob.Status.SUCCESS
     job.save()
-
-    field_one = OutputFieldFactory.create(job=job, name="field_one")
-    field_two = OutputFieldFactory.create(job=job, name="field_two")
-
-    task = create_test_extraction_task(job=job)
-    language = LanguageFactory.create(code="en")
-    report_one = ReportFactory.create(language=language)
-    report_two = ReportFactory.create(language=language)
-    instance_one = ExtractionInstanceFactory.create(
-        task=task,
-        report=report_one,
-        output={
-            field_one.name: "value-1",
-            field_two.name: 123,
-        },
-    )
-    instance_two = ExtractionInstanceFactory.create(
-        task=task,
-        report=report_two,
-        output={
-            field_one.name: None,
-            field_two.name: "value-2",
-        },
-    )
-
-    client.force_login(user)
-    response = client.get(f"/extractions/jobs/{job.pk}/results/download/")
-
-    assert response.status_code == 200
-    assert isinstance(response, StreamingHttpResponse)
-    assert response["Content-Type"] == "text/csv"
-    assert response.streaming
-    assert (
-        response["Content-Disposition"]
-        == f'attachment; filename="extraction-job-{job.pk}.csv"'
-    )
-
-    streaming_content = cast(Iterable[bytes], response.streaming_content)
-    content = b"".join(streaming_content).decode("utf-8")
-    reader = csv.reader(io.StringIO(content))
-    rows = list(reader)
-
-    assert rows[0] == ["id", field_one.name, field_two.name]
-    assert rows[1] == [str(instance_one.pk), "value-1", "123"]
-    assert rows[2] == [str(instance_two.pk), "", "value-2"]
-
-
-@pytest.mark.django_db
-def test_extraction_result_download_large_dataset(client: Client):
-    user = UserFactory.create(is_active=True)
-    job = create_test_extraction_job(owner=user)
-    job.status = ExtractionJob.Status.SUCCESS
-    job.save()
-
     field = OutputFieldFactory.create(job=job, name="field_one")
     task = create_test_extraction_task(job=job)
     language = LanguageFactory.create(code="en")
-
-    instances = []
-    for idx in range(150):
-        report = ReportFactory.create(language=language)
-        instances.append(
-            ExtractionInstanceFactory.create(
-                task=task, report=report, output={field.name: f"value-{idx}"}
-            )
-        )
+    report = ReportFactory.create(language=language)
+    ExtractionInstanceFactory.create(
+        task=task,
+        report=report,
+        output={field.name: "value"},
+    )
 
     client.force_login(user)
     response = client.get(f"/extractions/jobs/{job.pk}/results/download/")
 
     assert response.status_code == 200
-    assert isinstance(response, StreamingHttpResponse)
-    assert response.streaming
+    assert response["Content-Type"] == "text/csv"
+    assert b"value" in response.content
+    assert job.result_exports.count() == 0
 
+
+@pytest.mark.django_db
+def test_extraction_result_download_queues_export(client: Client, monkeypatch):
+    monkeypatch.setattr(
+        "radis.extractions.views.SMALL_EXPORT_ROW_LIMIT", 0, raising=False
+    )
+    callbacks: list[Callable[[], None]] = []
+
+    def immediate_on_commit(func: Callable[[], None]) -> None:
+        callbacks.append(func)
+        func()
+
+    monkeypatch.setattr(
+        "radis.extractions.views.transaction.on_commit", immediate_on_commit, raising=False
+    )
+    user = UserFactory.create(is_active=True)
+    job = create_test_extraction_job(owner=user)
+    job.status = ExtractionJob.Status.SUCCESS
+    job.save()
+    OutputFieldFactory.create(job=job, name="field_one")
+    task = create_test_extraction_task(job=job)
+    language = LanguageFactory.create(code="en")
+    report = ReportFactory.create(language=language)
+    ExtractionInstanceFactory.create(task=task, report=report)
+
+    scheduled_exports: list[int] = []
+
+    def fake_delay(self: ExtractionResultExport) -> None:
+        scheduled_exports.append(self.pk)
+
+    monkeypatch.setattr(ExtractionResultExport, "delay", fake_delay, raising=False)
+
+    client.force_login(user)
+    response = client.get(f"/extractions/jobs/{job.pk}/results/download/")
+
+    assert response.status_code == 202
+    assert callbacks
+    export = job.result_exports.get()
+    assert export.status == ExtractionResultExport.Status.PENDING
+    assert scheduled_exports == [export.pk]
+
+
+@pytest.mark.django_db
+def test_extraction_result_download_returns_file_when_ready(client: Client):
+    user = UserFactory.create(is_active=True)
+    job = create_test_extraction_job(owner=user)
+    job.status = ExtractionJob.Status.SUCCESS
+    job.save()
+    OutputFieldFactory.create(job=job, name="field_one")
+    create_test_extraction_task(job=job)
+
+    export = ExtractionResultExport.objects.create(
+        job=job,
+        requested_by=user,
+        status=ExtractionResultExport.Status.PENDING,
+    )
+    export.file.save(
+        f"extraction-job-{job.pk}.csv",
+        ContentFile("id,field_one\n1,value-1\n"),
+        save=False,
+    )
+    export.status = ExtractionResultExport.Status.COMPLETED
+    export.save()
+
+    client.force_login(user)
+    response = client.get(f"/extractions/jobs/{job.pk}/results/download/")
+
+    assert response.status_code == 200
+    assert isinstance(response, FileResponse)
+    file_response = cast(FileResponse, response)
+    assert file_response["Content-Disposition"] == f'attachment; filename="extraction-job-{job.pk}.csv"'
+    streaming_content = cast(Iterable[bytes], file_response.streaming_content)
+    content = b"".join(streaming_content).decode()
+    assert content.startswith("id,field_one")
+
+
+@pytest.mark.django_db
+def test_extraction_result_download_returns_file_when_ready_large(
+    client: Client, monkeypatch
+):
+    monkeypatch.setattr(
+        "radis.extractions.views.SMALL_EXPORT_ROW_LIMIT", 0, raising=False
+    )
+    user = UserFactory.create(is_active=True)
+    job = create_test_extraction_job(owner=user)
+    job.status = ExtractionJob.Status.SUCCESS
+    job.save()
+    OutputFieldFactory.create(job=job, name="field_one")
+    create_test_extraction_task(job=job)
+
+    export = ExtractionResultExport.objects.create(
+        job=job,
+        requested_by=user,
+        status=ExtractionResultExport.Status.PENDING,
+    )
+    export.file.save(
+        f"extraction-job-{job.pk}.csv",
+        ContentFile("id,field_one\n1,value-1\n"),
+        save=False,
+    )
+    export.status = ExtractionResultExport.Status.COMPLETED
+    export.save()
+
+    client.force_login(user)
+    response = client.get(f"/extractions/jobs/{job.pk}/results/download/")
+
+    assert response.status_code == 200
+    assert isinstance(response, FileResponse)
     streaming_content = cast(Iterable[bytes], response.streaming_content)
-    content = b"".join(streaming_content).decode("utf-8")
-    rows = list(csv.reader(io.StringIO(content)))
+    content = b"".join(streaming_content).decode()
+    assert content.startswith("id,field_one")
 
-    # header + 150 rows
-    assert len(rows) == 151
-    assert rows[0] == ["id", field.name]
-    # spot check last row corresponds to last instance
-    assert rows[-1] == [str(instances[-1].pk), f"value-{len(instances) - 1}"]
+
+@pytest.mark.django_db
+def test_extraction_result_download_refresh_triggers_new_export(client: Client, monkeypatch):
+    monkeypatch.setattr(
+        "radis.extractions.views.SMALL_EXPORT_ROW_LIMIT", 0, raising=False
+    )
+    callbacks: list[Callable[[], None]] = []
+
+    def immediate_on_commit(func: Callable[[], None]) -> None:
+        callbacks.append(func)
+        func()
+
+    monkeypatch.setattr(
+        "radis.extractions.views.transaction.on_commit", immediate_on_commit, raising=False
+    )
+    user = UserFactory.create(is_active=True)
+    job = create_test_extraction_job(owner=user)
+    job.status = ExtractionJob.Status.SUCCESS
+    job.save()
+    OutputFieldFactory.create(job=job, name="field_one")
+    task = create_test_extraction_task(job=job)
+    language = LanguageFactory.create(code="en")
+    report = ReportFactory.create(language=language)
+    ExtractionInstanceFactory.create(task=task, report=report)
+
+    existing_export = ExtractionResultExport.objects.create(
+        job=job,
+        requested_by=user,
+        status=ExtractionResultExport.Status.PENDING,
+    )
+    existing_export.file.save(
+        f"extraction-job-{job.pk}.csv",
+        ContentFile("id,field_one\n1,value-1\n"),
+        save=False,
+    )
+    existing_export.status = ExtractionResultExport.Status.COMPLETED
+    existing_export.save()
+
+    scheduled_exports: list[int] = []
+
+    def fake_delay(self: ExtractionResultExport) -> None:
+        scheduled_exports.append(self.pk)
+
+    monkeypatch.setattr(ExtractionResultExport, "delay", fake_delay, raising=False)
+
+    client.force_login(user)
+    response = client.get(f"/extractions/jobs/{job.pk}/results/download/?refresh=1")
+
+    assert response.status_code == 202
+    assert callbacks
+    assert job.result_exports.count() == 2
+    new_export = job.result_exports.first()
+    assert new_export is not None
+    assert new_export.status == ExtractionResultExport.Status.PENDING
+    assert scheduled_exports == [new_export.pk]
+
+
+@pytest.mark.django_db
+def test_extraction_result_download_in_progress(client: Client, monkeypatch):
+    monkeypatch.setattr(
+        "radis.extractions.views.SMALL_EXPORT_ROW_LIMIT", 0, raising=False
+    )
+    callbacks: list[Callable[[], None]] = []
+
+    def immediate_on_commit(func: Callable[[], None]) -> None:
+        callbacks.append(func)
+        func()
+
+    monkeypatch.setattr(
+        "radis.extractions.views.transaction.on_commit", immediate_on_commit, raising=False
+    )
+    user = UserFactory.create(is_active=True)
+    job = create_test_extraction_job(owner=user)
+    job.status = ExtractionJob.Status.SUCCESS
+    job.save()
+    OutputFieldFactory.create(job=job, name="field_one")
+    task = create_test_extraction_task(job=job)
+    language = LanguageFactory.create(code="en")
+    report = ReportFactory.create(language=language)
+    ExtractionInstanceFactory.create(task=task, report=report)
+
+    ExtractionResultExport.objects.create(
+        job=job,
+        requested_by=user,
+        status=ExtractionResultExport.Status.PROCESSING,
+    )
+
+    client.force_login(user)
+    response = client.get(f"/extractions/jobs/{job.pk}/results/download/")
+
+    assert response.status_code == 202
+    assert b"in progress" in response.content
 
 
 @pytest.mark.django_db
@@ -467,4 +606,73 @@ def test_extraction_result_list_view_shows_download_when_finished(client: Client
     response = client.get(f"/extractions/jobs/{job.pk}/results/")
 
     assert response.status_code == 200
-    assert "Download CSV" in response.content.decode()
+    content = response.content.decode()
+    assert "Download CSV" in content
+
+
+@pytest.mark.django_db
+def test_extraction_result_list_view_shows_ready_download(
+    client: Client, monkeypatch
+):
+    monkeypatch.setattr(
+        "radis.extractions.views.SMALL_EXPORT_ROW_LIMIT", 0, raising=False
+    )
+    user = UserFactory.create(is_active=True)
+    job = create_test_extraction_job(owner=user)
+    job.status = ExtractionJob.Status.SUCCESS
+    job.save()
+    task = create_test_extraction_task(job=job)
+    language = LanguageFactory.create(code="en")
+    report = ReportFactory.create(language=language)
+    ExtractionInstanceFactory.create(task=task, report=report)
+
+    export = ExtractionResultExport.objects.create(
+        job=job,
+        requested_by=user,
+        status=ExtractionResultExport.Status.COMPLETED,
+    )
+    export.file.save(
+        f"extraction-job-{job.pk}.csv",
+        ContentFile("id,field\n1,value\n"),
+        save=False,
+    )
+    export.save()
+
+    client.force_login(user)
+    response = client.get(f"/extractions/jobs/{job.pk}/results/")
+
+    assert response.status_code == 200
+    content = response.content.decode()
+    assert "Download CSV" in content
+    assert "Refresh Export" in content
+
+
+@pytest.mark.django_db
+def test_extraction_result_list_view_shows_failure_alert(
+    client: Client, monkeypatch
+):
+    monkeypatch.setattr(
+        "radis.extractions.views.SMALL_EXPORT_ROW_LIMIT", 0, raising=False
+    )
+    user = UserFactory.create(is_active=True)
+    job = create_test_extraction_job(owner=user)
+    job.status = ExtractionJob.Status.SUCCESS
+    job.save()
+    task = create_test_extraction_task(job=job)
+    language = LanguageFactory.create(code="en")
+    report = ReportFactory.create(language=language)
+    ExtractionInstanceFactory.create(task=task, report=report)
+
+    ExtractionResultExport.objects.create(
+        job=job,
+        requested_by=user,
+        status=ExtractionResultExport.Status.FAILED,
+        error_message="Boom",
+    )
+
+    client.force_login(user)
+    response = client.get(f"/extractions/jobs/{job.pk}/results/")
+
+    assert response.status_code == 200
+    content = response.content.decode()
+    assert "failed" in content.lower()
