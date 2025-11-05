@@ -1,6 +1,9 @@
 from io import BytesIO
+from typing import cast
 
 import pandas as pd
+from pandas._typing import WriteExcelBuffer
+from pandas.io.excel import ExcelWriter
 from django.utils import formats
 
 from ..models import Collection
@@ -39,12 +42,13 @@ def export_collection(collection: Collection) -> BytesIO:
         rows.append(row)
 
     file = BytesIO()
-    with pd.ExcelWriter(
-        file,  # type: ignore
+    buffer = cast(WriteExcelBuffer, file)
+    with ExcelWriter(
+        buffer,
         date_format=formats.get_format("SHORT_DATE_FORMAT"),
         engine="openpyxl",
     ) as writer:
-        df = pd.DataFrame(rows, columns=header)  # type: ignore
+        df = pd.DataFrame(rows, columns=header)
         df.to_excel(writer, index=False)
 
     return file

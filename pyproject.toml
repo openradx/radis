@@ -53,6 +53,7 @@ dev = [
     "django-debug-permissions>=1.0.0",
     "django-debug-toolbar>=5.0.1",
     "django-stubs>=5.2.0",
+    "pandas-stubs>=2.2.3",
     "django-test-migrations>=1.4.0",
     "djangorestframework-stubs>=3.15.3",
     "djlint>=1.36.4",
@@ -96,6 +97,9 @@ radis-client = { path = "./radis-client", editable = true }
 ignore = ["**/migrations", "**/*.ipynb"]
 typeCheckingMode = "basic"
 reportUnnecessaryTypeIgnoreComment = true
+venvPath = "."
+venv = ".venv"
+pythonVersion = "3.12"
 
 [tool.pytest.ini_options]
 DJANGO_SETTINGS_MODULE = "radis.settings.development"

@@ -330,7 +330,7 @@ class ExtractionResultDownloadView(ExtractionsLockedMixin, LoginRequiredMixin, V
 
             for instance in instances.iterator(chunk_size=chunk_size):
                 output_data = instance.output or {}
-                row = [instance.id]
+                row = [instance.pk]
                 for field in output_fields:
                     value = output_data.get(field.name)
                     row.append("" if value is None else str(value))

@@ -1,10 +1,13 @@
 import csv
 import io
+from collections.abc import Iterable
+from typing import cast
 
 import pytest
 from adit_radis_shared.accounts.factories import GroupFactory, UserFactory
 from django.contrib.auth.models import Permission
 from django.test import Client
+from django.http import StreamingHttpResponse
 
 from radis.core.models import AnalysisTask
 from radis.extractions.factories import (
@@ -370,6 +373,7 @@ def test_extraction_result_download_csv(client: Client):
     response = client.get(f"/extractions/jobs/{job.pk}/results/download/")
 
     assert response.status_code == 200
+    assert isinstance(response, StreamingHttpResponse)
     assert response["Content-Type"] == "text/csv"
     assert response.streaming
     assert (
@@ -377,13 +381,14 @@ def test_extraction_result_download_csv(client: Client):
         == f'attachment; filename="extraction-job-{job.pk}.csv"'
     )
 
-    content = b"".join(response.streaming_content).decode("utf-8")
+    streaming_content = cast(Iterable[bytes], response.streaming_content)
+    content = b"".join(streaming_content).decode("utf-8")
     reader = csv.reader(io.StringIO(content))
     rows = list(reader)
 
     assert rows[0] == ["id", field_one.name, field_two.name]
-    assert rows[1] == [str(instance_one.id), "value-1", "123"]
-    assert rows[2] == [str(instance_two.id), "", "value-2"]
+    assert rows[1] == [str(instance_one.pk), "value-1", "123"]
+    assert rows[2] == [str(instance_two.pk), "", "value-2"]
 
 
 @pytest.mark.django_db
@@ -410,16 +415,18 @@ def test_extraction_result_download_large_dataset(client: Client):
     response = client.get(f"/extractions/jobs/{job.pk}/results/download/")
 
     assert response.status_code == 200
+    assert isinstance(response, StreamingHttpResponse)
     assert response.streaming
 
-    content = b"".join(response.streaming_content).decode("utf-8")
+    streaming_content = cast(Iterable[bytes], response.streaming_content)
+    content = b"".join(streaming_content).decode("utf-8")
     rows = list(csv.reader(io.StringIO(content)))
 
     # header + 150 rows
     assert len(rows) == 151
     assert rows[0] == ["id", field.name]
     # spot check last row corresponds to last instance
-    assert rows[-1] == [str(instances[-1].id), f"value-{len(instances) - 1}"]
+    assert rows[-1] == [str(instances[-1].pk), f"value-{len(instances) - 1}"]
 
 
 @pytest.mark.django_db
