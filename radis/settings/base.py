@@ -160,6 +160,11 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 # Custom user model
 AUTH_USER_MODEL = "accounts.User"
 
+# Extraction exports
+EXTRACTION_SMALL_EXPORT_ROW_LIMIT = env.int(
+    "EXTRACTION_SMALL_EXPORT_ROW_LIMIT", default=10_000
+)
+
 # Password validation
 # https://docs.djangoproject.com/en/3.0/ref/settings/#auth-password-validators
 

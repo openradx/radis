@@ -2,9 +2,9 @@ from io import BytesIO
 from typing import cast
 
 import pandas as pd
+from django.utils import formats
 from pandas._typing import WriteExcelBuffer
 from pandas.io.excel import ExcelWriter
-from django.utils import formats
 
 from ..models import Collection
 

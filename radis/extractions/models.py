@@ -167,20 +167,12 @@ class ExtractionResultExport(models.Model):
 
     class Meta:
         ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["job", "status", "-created_at"]),
+        ]
 
     def __str__(self) -> str:
         return f"Extraction Result Export [{self.pk}]"
-
-    def delay(self) -> None:
-        queued_job_id = app.configure_task(
-            "radis.extractions.tasks.process_extraction_result_export",
-            allow_unknown=False,
-            priority=self.job.urgent_priority
-            if self.job.urgent
-            else self.job.default_priority,
-        ).defer(export_id=self.pk)
-        self.queued_job_id = queued_job_id
-        self.save(update_fields=["queued_job_id"])
 
     def save(self, *args, **kwargs):
         if self.pk:
@@ -199,3 +191,14 @@ class ExtractionResultExport(models.Model):
         if storage and file_name:
             storage.delete(file_name)
         return response
+
+    def delay(self) -> None:
+        queued_job_id = app.configure_task(
+            "radis.extractions.tasks.process_extraction_result_export",
+            allow_unknown=False,
+            priority=self.job.urgent_priority
+            if self.job.urgent
+            else self.job.default_priority,
+        ).defer(export_id=self.pk)
+        self.queued_job_id = queued_job_id
+        self.save(update_fields=["queued_job_id"])

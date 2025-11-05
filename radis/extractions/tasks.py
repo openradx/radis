@@ -21,6 +21,7 @@ from .models import (
 )
 from .processors import ExtractionTaskProcessor
 from .site import extraction_retrieval_providers
+from .utils.csv import sanitize_csv_value
 
 logger = logging.getLogger(__name__)
 
@@ -126,7 +127,9 @@ def process_extraction_result_export(export_id: int) -> None:
     row_count = 0
 
     try:
-        with tempfile.NamedTemporaryFile(delete=False, mode="w", encoding="utf-8", newline="") as tmp:
+        with tempfile.NamedTemporaryFile(
+            delete=False, mode="w", encoding="utf-8", newline=""
+        ) as tmp:
             temp_file_path = tmp.name
             writer = csv.writer(tmp, lineterminator="\n")
 
@@ -135,10 +138,10 @@ def process_extraction_result_export(export_id: int) -> None:
 
             for instance in instances.iterator(chunk_size=chunk_size):
                 output_data = instance.output or {}
-                row = [instance.pk]
+                row = [sanitize_csv_value(instance.pk)]
                 for field in output_fields:
                     value = output_data.get(field.name)
-                    row.append("" if value is None else str(value))
+                    row.append(sanitize_csv_value(value))
                 writer.writerow(row)
                 row_count += 1
 
@@ -161,5 +164,13 @@ def process_extraction_result_export(export_id: int) -> None:
         if temp_file_path and os.path.exists(temp_file_path):
             try:
                 os.remove(temp_file_path)
-            except OSError:
-                logger.warning("Could not remove temporary export file %s", temp_file_path)
+            except FileNotFoundError:
+                logger.warning(
+                    "Temporary export file %s already removed before cleanup",
+                    temp_file_path,
+                )
+            except PermissionError:
+                logger.warning(
+                    "Insufficient permissions to remove temporary export file %s",
+                    temp_file_path,
+                )

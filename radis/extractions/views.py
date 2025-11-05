@@ -59,10 +59,9 @@ from .tables import (
     ExtractionResultsTable,
     ExtractionTaskTable,
 )
+from .utils.csv import sanitize_csv_value
 
 EXTRACTIONS_SEARCH_PROVIDER = "extractions_search_provider"
-SMALL_EXPORT_ROW_LIMIT = 10_000
-
 
 class ExtractionUpdatePreferencesView(ExtractionsLockedMixin, BaseUpdatePreferencesView):
     allowed_keys = [
@@ -309,8 +308,9 @@ class ExtractionResultListView(
             ExtractionInstance.objects.filter(task__job=job).only("id").count()
         )
         context["export_row_count"] = row_count
+        small_limit = settings.EXTRACTION_SMALL_EXPORT_ROW_LIMIT
         context["small_export_available"] = (
-            context["download_available"] and row_count <= SMALL_EXPORT_ROW_LIMIT
+            context["download_available"] and row_count <= small_limit
         )
         if context["small_export_available"]:
             context["export_in_progress"] = False
@@ -352,7 +352,8 @@ class ExtractionResultDownloadView(ExtractionsLockedMixin, LoginRequiredMixin, V
         row_count = instances_qs.count()
         force_refresh = request.GET.get("refresh") == "1"
 
-        if row_count <= SMALL_EXPORT_ROW_LIMIT:
+        small_limit = settings.EXTRACTION_SMALL_EXPORT_ROW_LIMIT
+        if row_count <= small_limit:
             response = self._build_inline_response(
                 job, output_fields, instances_qs, chunk_size
             )
@@ -434,10 +435,10 @@ class ExtractionResultDownloadView(ExtractionsLockedMixin, LoginRequiredMixin, V
 
         for instance in instances_qs.iterator(chunk_size=chunk_size):
             output_data = instance.output or {}
-            row = [instance.pk]
+            row = [sanitize_csv_value(instance.pk)]
             for field in output_fields:
                 value = output_data.get(field.name)
-                row.append("" if value is None else str(value))
+                row.append(sanitize_csv_value(value))
             writer.writerow(row)
 
         content = buffer.getvalue().encode("utf-8")
