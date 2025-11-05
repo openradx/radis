@@ -7,6 +7,7 @@ from django.contrib.auth.models import Permission
 from django.db import transaction
 from django.core.files.base import ContentFile
 from django.test import Client
+from django.test.utils import override_settings
 from django.http import FileResponse
 
 from radis.core.models import AnalysisTask
@@ -16,8 +17,25 @@ from radis.extractions.factories import (
     ExtractionTaskFactory,
     OutputFieldFactory,
 )
-from radis.extractions.models import ExtractionJob, ExtractionResultExport
+from radis.extractions.models import (
+    ExtractionInstance,
+    ExtractionJob,
+    ExtractionResultExport,
+)
+from radis.extractions.tasks import process_extraction_result_export
 from radis.reports.factories import LanguageFactory, ReportFactory
+
+
+def _run_on_commit_immediately(monkeypatch, callbacks: list[Callable[[], None]]) -> None:
+    """Execute on_commit callbacks right away during tests."""
+
+    def immediate(func: Callable[[], None]) -> None:
+        callbacks.append(func)
+        func()
+
+    monkeypatch.setattr(
+        "radis.extractions.views.transaction.on_commit", immediate, raising=False
+    )
 
 
 def create_test_extraction_job(owner=None, group=None):
@@ -364,19 +382,30 @@ def test_extraction_result_download_small_inline(client: Client):
 
 
 @pytest.mark.django_db
+def test_extraction_result_download_empty_inline(client: Client):
+    user = UserFactory.create(is_active=True)
+    job = create_test_extraction_job(owner=user)
+    job.status = ExtractionJob.Status.SUCCESS
+    job.save()
+    field = OutputFieldFactory.create(job=job, name="field_one")
+    create_test_extraction_task(job=job)
+
+    client.force_login(user)
+    response = client.get(f"/extractions/jobs/{job.pk}/results/download/")
+
+    assert response.status_code == 200
+    content = response.content.decode()
+    assert content == f"id,{field.name}\n"
+    assert job.result_exports.count() == 0
+
+
+@pytest.mark.django_db
 def test_extraction_result_download_queues_export(client: Client, monkeypatch):
     monkeypatch.setattr(
         "radis.extractions.views.SMALL_EXPORT_ROW_LIMIT", 0, raising=False
     )
     callbacks: list[Callable[[], None]] = []
-
-    def immediate_on_commit(func: Callable[[], None]) -> None:
-        callbacks.append(func)
-        func()
-
-    monkeypatch.setattr(
-        "radis.extractions.views.transaction.on_commit", immediate_on_commit, raising=False
-    )
+    _run_on_commit_immediately(monkeypatch, callbacks)
     user = UserFactory.create(is_active=True)
     job = create_test_extraction_job(owner=user)
     job.status = ExtractionJob.Status.SUCCESS
@@ -481,14 +510,7 @@ def test_extraction_result_download_refresh_triggers_new_export(client: Client, 
         "radis.extractions.views.SMALL_EXPORT_ROW_LIMIT", 0, raising=False
     )
     callbacks: list[Callable[[], None]] = []
-
-    def immediate_on_commit(func: Callable[[], None]) -> None:
-        callbacks.append(func)
-        func()
-
-    monkeypatch.setattr(
-        "radis.extractions.views.transaction.on_commit", immediate_on_commit, raising=False
-    )
+    _run_on_commit_immediately(monkeypatch, callbacks)
     user = UserFactory.create(is_active=True)
     job = create_test_extraction_job(owner=user)
     job.status = ExtractionJob.Status.SUCCESS
@@ -537,14 +559,7 @@ def test_extraction_result_download_in_progress(client: Client, monkeypatch):
         "radis.extractions.views.SMALL_EXPORT_ROW_LIMIT", 0, raising=False
     )
     callbacks: list[Callable[[], None]] = []
-
-    def immediate_on_commit(func: Callable[[], None]) -> None:
-        callbacks.append(func)
-        func()
-
-    monkeypatch.setattr(
-        "radis.extractions.views.transaction.on_commit", immediate_on_commit, raising=False
-    )
+    _run_on_commit_immediately(monkeypatch, callbacks)
     user = UserFactory.create(is_active=True)
     job = create_test_extraction_job(owner=user)
     job.status = ExtractionJob.Status.SUCCESS
@@ -676,3 +691,96 @@ def test_extraction_result_list_view_shows_failure_alert(
     assert response.status_code == 200
     content = response.content.decode()
     assert "failed" in content.lower()
+
+
+@override_settings(EXTRACTION_RESULTS_EXPORT_CHUNK_SIZE=2)
+@pytest.mark.django_db
+def test_process_extraction_result_export_writes_expected_csv():
+    user = UserFactory.create(is_active=True)
+    job = create_test_extraction_job(owner=user)
+    job.status = ExtractionJob.Status.SUCCESS
+    job.save()
+
+    fields = [
+        OutputFieldFactory.create(job=job, name=f"field_{idx}") for idx in range(5)
+    ]
+    task = create_test_extraction_task(job=job)
+    language = LanguageFactory.create(code="en")
+
+    instances = []
+    for idx in range(5):
+        report = ReportFactory.create(language=language)
+        output = {field.name: f"value-{idx}-{field.name}" for field in fields}
+        instance = ExtractionInstanceFactory.create(
+            task=task,
+            report=report,
+            output=output,
+        )
+        instances.append(instance)
+
+    export = ExtractionResultExport.objects.create(job=job, requested_by=user)
+
+    process_extraction_result_export(export.pk)
+
+    export.refresh_from_db()
+    assert export.status == ExtractionResultExport.Status.COMPLETED
+    assert export.row_count == len(instances)
+    assert export.file
+
+    with export.file.open("rb") as exported_file:
+        content = exported_file.read().decode("utf-8")
+
+    header = ",".join(["id"] + [field.name for field in fields])
+    expected_rows = [header]
+    for instance in ExtractionInstance.objects.filter(task__job=job).order_by("id"):
+        row = [str(instance.pk)]
+        for field in fields:
+            row.append(instance.output.get(field.name, ""))
+        expected_rows.append(",".join(row))
+    expected_csv = "\n".join(expected_rows) + "\n"
+
+    assert content == expected_csv
+
+
+@pytest.mark.django_db
+def test_extraction_result_export_delete_removes_file():
+    user = UserFactory.create(is_active=True)
+    job = create_test_extraction_job(owner=user)
+    job.status = ExtractionJob.Status.SUCCESS
+    job.save()
+
+    export = ExtractionResultExport.objects.create(job=job, requested_by=user)
+    export.file.save(
+        f"extraction-job-{job.pk}.csv", ContentFile("id,field\n"), save=True
+    )
+    file_name = export.file.name
+    storage = export.file.storage
+    assert storage.exists(file_name)
+
+    export.delete()
+
+    assert not storage.exists(file_name)
+
+
+@pytest.mark.django_db
+def test_extraction_result_export_save_replaces_old_file():
+    user = UserFactory.create(is_active=True)
+    job = create_test_extraction_job(owner=user)
+    job.status = ExtractionJob.Status.SUCCESS
+    job.save()
+
+    export = ExtractionResultExport.objects.create(job=job, requested_by=user)
+    export.file.save(
+        f"extraction-job-{job.pk}.csv", ContentFile("id,field\n"), save=True
+    )
+    original_name = export.file.name
+    storage = export.file.storage
+    assert storage.exists(original_name)
+
+    export.file.save(
+        f"extraction-job-{job.pk}-updated.csv", ContentFile("id,field\n1,value\n"), save=True
+    )
+    export.save()
+
+    assert not storage.exists(original_name)
+    assert storage.exists(export.file.name)

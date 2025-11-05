@@ -352,19 +352,6 @@ class ExtractionResultDownloadView(ExtractionsLockedMixin, LoginRequiredMixin, V
         row_count = instances_qs.count()
         force_refresh = request.GET.get("refresh") == "1"
 
-        if not force_refresh:
-            ready_export = job.result_exports.filter(
-                status=ExtractionResultExport.Status.COMPLETED,
-                file__isnull=False,
-            ).order_by("-created_at").first()
-            if ready_export and ready_export.file:
-                return FileResponse(
-                    ready_export.file.open("rb"),
-                    as_attachment=True,
-                    filename=f"extraction-job-{job.pk}.csv",
-                    content_type="text/csv",
-                )
-
         if row_count <= SMALL_EXPORT_ROW_LIMIT:
             response = self._build_inline_response(
                 job, output_fields, instances_qs, chunk_size
@@ -376,6 +363,7 @@ class ExtractionResultDownloadView(ExtractionsLockedMixin, LoginRequiredMixin, V
 
         with transaction.atomic():
             latest_export = job.result_exports.select_for_update().first()
+            should_enqueue = False
 
             if (
                 latest_export
@@ -383,13 +371,21 @@ class ExtractionResultDownloadView(ExtractionsLockedMixin, LoginRequiredMixin, V
                 and latest_export.file
                 and not force_refresh
             ):
-                response = FileResponse(
-                    latest_export.file.open("rb"),
-                    as_attachment=True,
-                    filename=f"extraction-job-{job.pk}.csv",
-                    content_type="text/csv",
-                )
-                return response
+                try:
+                    file_handle = latest_export.file.open("rb")
+                except FileNotFoundError:
+                    latest_export.status = ExtractionResultExport.Status.FAILED
+                    latest_export.error_message = "Export file missing. Regenerating."
+                    latest_export.save(update_fields=["status", "error_message"])
+                    should_enqueue = True
+                    message = "Export file missing. Regenerating."
+                else:
+                    return FileResponse(
+                        file_handle,
+                        as_attachment=True,
+                        filename=f"extraction-job-{job.pk}.csv",
+                        content_type="text/csv",
+                    )
 
             export: ExtractionResultExport
             created = False
@@ -403,7 +399,7 @@ class ExtractionResultDownloadView(ExtractionsLockedMixin, LoginRequiredMixin, V
             else:
                 export = latest_export
 
-            should_enqueue = created
+            should_enqueue = should_enqueue or created
 
             if not created and export.status == ExtractionResultExport.Status.FAILED:
                 export.status = ExtractionResultExport.Status.PENDING

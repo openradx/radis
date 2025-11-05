@@ -181,3 +181,21 @@ class ExtractionResultExport(models.Model):
         ).defer(export_id=self.pk)
         self.queued_job_id = queued_job_id
         self.save(update_fields=["queued_job_id"])
+
+    def save(self, *args, **kwargs):
+        if self.pk:
+            old = ExtractionResultExport.objects.filter(pk=self.pk).only("file").first()
+        else:
+            old = None
+        response = super().save(*args, **kwargs)
+        if old and old.file and old.file.name != self.file.name:
+            old.file.storage.delete(old.file.name)
+        return response
+
+    def delete(self, using=None, keep_parents=False):
+        file_name = self.file.name if self.file else None
+        storage = self.file.storage if self.file else None
+        response = super().delete(using=using, keep_parents=keep_parents)
+        if storage and file_name:
+            storage.delete(file_name)
+        return response
