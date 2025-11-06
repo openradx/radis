@@ -1,3 +1,5 @@
+import csv
+from collections.abc import Generator
 from typing import Any, Type, cast
 
 from adit_radis_shared.common.mixins import (
@@ -14,8 +16,10 @@ from django.core.exceptions import SuspiciousOperation
 from django.db import transaction
 from django.db.models import QuerySet
 from django.forms import BaseInlineFormSet
+from django.http import StreamingHttpResponse
 from django.shortcuts import redirect
 from django.urls import reverse_lazy
+from django.utils.text import slugify
 from django.views.generic import DetailView
 from django_tables2 import SingleTableMixin, tables
 from formtools.wizard.views import SessionWizardView
@@ -50,6 +54,7 @@ from .tables import (
     ExtractionResultsTable,
     ExtractionTaskTable,
 )
+from .utils.csv_export import iter_extraction_result_rows
 
 EXTRACTIONS_SEARCH_PROVIDER = "extractions_search_provider"
 
@@ -272,3 +277,50 @@ class ExtractionResultListView(
     def get_table_data(self):
         job = cast(ExtractionJob, self.get_object())
         return ExtractionInstance.objects.filter(task__job=job)
+
+
+class _Echo:
+    """Lightweight write-only buffer for csv.writer."""
+
+    def write(self, value: str) -> str:
+        return value
+
+
+class ExtractionResultDownloadView(ExtractionsLockedMixin, LoginRequiredMixin, DetailView):
+    """Stream extraction results as a CSV download."""
+
+    model = ExtractionJob
+    request: AuthenticatedHttpRequest
+
+    def get_queryset(self) -> QuerySet[ExtractionJob]:
+        """Return the accessible extraction jobs for the current user."""
+        assert self.model
+        model = cast(Type[ExtractionJob], self.model)
+        if self.request.user.is_staff:
+            return model.objects.all()
+        return model.objects.filter(owner=self.request.user)
+
+    def get(self, request: AuthenticatedHttpRequest, *args, **kwargs) -> StreamingHttpResponse:
+        """Stream the CSV file response."""
+        job = cast(ExtractionJob, self.get_object())
+        filename = self._build_filename(job)
+
+        response = StreamingHttpResponse(
+            self._stream_rows(job),
+            content_type="text/csv",
+        )
+        response["Content-Disposition"] = f'attachment; filename="{filename}"'
+        return response
+
+    def _stream_rows(self, job: ExtractionJob) -> Generator[str, None, None]:
+        """Yield serialized CSV rows for the response."""
+        pseudo_buffer = _Echo()
+        writer = csv.writer(pseudo_buffer)
+        yield "\ufeff"
+        for row in iter_extraction_result_rows(job):
+            yield writer.writerow(row)
+
+    def _build_filename(self, job: ExtractionJob) -> str:
+        """Generate a descriptive CSV filename for the extraction job."""
+        slug = slugify(job.title) or "results"
+        return f"extraction_job_{job.pk}_{slug}.csv"
