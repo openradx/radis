@@ -5,13 +5,15 @@ import sys
 import time
 from pathlib import Path
 from random import randint
-from typing import Annotated
+from typing import Annotated, Any, Literal
 
 import openai
+import requests
 import typer
 from adit_radis_shared.cli import commands
 from adit_radis_shared.cli import helper as cli_helper
 from openai.types.chat import ChatCompletion, ChatCompletionMessageParam
+from radis_client.utils.dev_helpers import upload_reports
 
 app = typer.Typer(
     context_settings={"help_option_names": ["-h", "--help"]},
@@ -134,45 +136,103 @@ def get_host_ip():
         print(f"Error resolving {hostname}: {e}")
 
 
-SYSTEM_PROMPT = {
-    "de": "Du bist ein Radiologe.",
-    "en": "You are a radiologist.",
-}
-
-USER_PROMPT = {
-    "de": "Schreibe einen radiologischen Befund.",
-    "en": "Write a radiology report.",
-}
-
-
 @app.command()
 def generate_example_reports(
-    out: Annotated[str, typer.Option(help="Output file")] = "example_reports.json",
-    count: Annotated[int, typer.Option(help="Number of reports to generate")] = 10,
-    model: Annotated[str, typer.Option(help="OpenAI model")] = "gpt-3.5-turbo",
-    lng: Annotated[str, typer.Option(help="Language")] = "en",
+    ctx: typer.Context,
+    group_id: Annotated[
+        int,
+        typer.Option(help="Group ID of the newly generated reports", show_default=False),
+    ] = 1,
+    out: Annotated[
+        str | None,
+        typer.Option(help="Write reports to this file instead of uploading", show_default=False),
+    ] = None,
     overwrite: Annotated[bool, typer.Option(help="Overwrite existing file")] = False,
+    count: Annotated[int, typer.Option(help="Number of reports to generate")] = 1,
+    patient_id: Annotated[str | None, typer.Option(help="Patient ID")] = None,
+    patient_birthdate: Annotated[
+        str | None, typer.Option(help="Patient Birthdate (ddmmyyyy)")
+    ] = None,
+    patient_sex: Annotated[
+        Literal["M", "F", "O"] | None, typer.Option(help="Patient Sex (M, F, or O)")
+    ] = None,
+    modality: Annotated[str | None, typer.Option(help="Modality")] = None,
+    study_description: Annotated[str | None, typer.Option(help="Study Description")] = None,
+    study_date: Annotated[str | None, typer.Option(help="Study Date (ddmmyyyy)")] = None,
+    lng: Annotated[str, typer.Option(help="Language")] = "en",
+    content: Annotated[
+        str | None, typer.Option(help="Generates the report with the desired content")
+    ] = None,
 ):
-    """Generate example reports"""
-
-    print(f"Generating {count} example reports...")
+    """Generate example reports and either write them to disk or upload them via the API."""
 
     helper = cli_helper.CommandHelper()
     config = helper.load_config_from_env_file()
 
-    openai_api_key = config.get("OPENAI_API_KEY")
-    if not openai_api_key:
-        sys.exit("Missing OPENAI_API_KEY setting in .env file")
+    base_url = config.get("EXTERNAL_LLM_PROVIDER_URL")
+    if not base_url:
+        sys.exit("Missing EXTERNAL_LLM_PROVIDER_URL setting in .env file")
 
-    out_path = Path(out)
-    if out_path.exists() and not overwrite:
+    api_key = config.get("EXTERNAL_LLM_PROVIDER_API_KEY")
+    if not api_key:
+        sys.exit("Missing EXTERNAL_LLM_PROVIDER_API_KEY setting in .env file")
+
+    out_path = Path(out) if out else None
+    if out_path and out_path.exists() and not overwrite:
         sys.exit(f"File '{out_path.absolute()}' already exists.")
 
-    client = openai.OpenAI(api_key=openai_api_key)
+    auth_token = config.get("SUPERUSER_AUTH_TOKEN")
+    if not auth_token:
+        sys.exit("Missing SUPERUSER_AUTH_TOKEN setting in .env file.")
+
+    model = config.get("LLM_MODEL_NAME")
+    if not model:
+        sys.exit("Missing LLM_MODEL_NAME setting in .env file")
+
+    # Check if API is online
+    port = config.get("WEB_DEV_PORT")
+    api_url = f"http://localhost:{port}"
+
+    api_online = False
+    try:
+        resp = requests.get(f"{api_url}/health", timeout=2)
+        if resp.status_code == 200:
+            api_online = True
+    except Exception:
+        sys.exit("API is not reachable.")
+        print("API is not reachable.")
+
+    client = openai.OpenAI(base_url=base_url, api_key=api_key)
+
+    # Build the user prompt
+    command = ctx.command
+    assert command is not None
+    params: dict[str, Any] = ctx.params
+    context_lines = []
+    exclude = {"ctx", "group_id", "out", "overwrite", "count"}
+
+    for meta_param in command.params:
+        param_name = str(meta_param.name)
+        param_help = getattr(meta_param, "help", None)
+        param_value = params.get(param_name)
+        if param_name not in exclude and param_value not in (None, "", False):
+            context_lines.append(f"{param_help}: {str(param_value)}")
+
+    system_prompt = """You are a radiologist. Write a radiology report. 
+    If context is provided, follow all context variables when generating your report. 
+    Output only the report text."""
+    user_prompt = "Write the radiology report."
+    context_block = "\n".join(context_lines)
+
+    if context_block:
+        user_prompt = f"{user_prompt}\n\nContext:\n{context_block}"
+
     messages: list[ChatCompletionMessageParam] = [
-        {"role": "system", "content": SYSTEM_PROMPT[lng]},
-        {"role": "user", "content": USER_PROMPT[lng]},
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_prompt},
     ]
+
+    print(f"Generating {count} example reports...")
 
     start = time.time()
     report_bodies: list[str] = []
@@ -201,12 +261,18 @@ def generate_example_reports(
         print(".", end="", flush=True)
     print("")
 
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(out_path, "w") as f:
-        json.dump(report_bodies, f, indent=4)
-
-    print(f"Done in {time.time() - start:.2f}s")
-    print(f"Example reports written to '{out_path.absolute()}'")
+    if out_path:
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(out_path, "w") as f:
+            json.dump(report_bodies, f, indent=4)
+        duration = time.time() - start
+        print(f"Done in {duration:.2f}s")
+        print(f"Example report(s) written to '{out_path.absolute()}'")
+    elif api_online:
+        reports_url = upload_reports(report_bodies, params, api_url, auth_token)
+        duration = time.time() - start
+        print(f"Done in {duration:.2f}s")
+        print(f"Uploaded {len(report_bodies)} example report(s) to '{reports_url}'")
 
 
 if __name__ == "__main__":

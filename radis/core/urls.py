@@ -5,6 +5,7 @@ from .views import (
     HomeView,
     UpdatePreferencesView,
     admin_section,
+    health,
 )
 
 urlpatterns = [
@@ -26,5 +27,10 @@ urlpatterns = [
         "",
         HomeView.as_view(),
         name="home",
+    ),
+    path(
+        "health/",
+        health,
+        name="health",
     ),
 ]

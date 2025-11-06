@@ -28,3 +28,11 @@ def test_report_data_post(live_server: LiveServer, mocker: MockerFixture):
     response = client.create_report(report_data)
 
     assert response
+
+
+@pytest.mark.django_db
+def test_health_check(live_server: LiveServer):
+    _, _, token = create_admin_with_group_and_token()
+    client = RadisClient(live_server.url, token)
+
+    assert client.health() == {"status": "ok"}
