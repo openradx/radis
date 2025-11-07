@@ -200,7 +200,6 @@ def generate_example_reports(
             api_online = True
     except Exception:
         sys.exit("API is not reachable.")
-        print("API is not reachable.")
 
     client = openai.OpenAI(base_url=base_url, api_key=api_key)
 
