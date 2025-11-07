@@ -1,13 +1,14 @@
 import pytest
 from adit_radis_shared.accounts.factories import GroupFactory, UserFactory
 from django.contrib.auth.models import Permission
-from django.test import Client
+from django.test import Client, override_settings
 
 from radis.core.models import AnalysisTask
 from radis.extractions.factories import (
     ExtractionInstanceFactory,
     ExtractionJobFactory,
     ExtractionTaskFactory,
+    OutputFieldFactory,
 )
 from radis.extractions.models import ExtractionJob
 from radis.reports.factories import LanguageFactory, ReportFactory
@@ -27,6 +28,10 @@ def create_test_extraction_task(job=None):
         owner = UserFactory.create(is_active=True)
         job = create_test_extraction_job(owner=owner)
     return ExtractionTaskFactory.create(job=job)
+
+
+def _hide_toolbar(_request):
+    return False
 
 
 @pytest.mark.django_db
@@ -200,6 +205,56 @@ def test_extraction_result_list_view(client: Client):
     client.force_login(user)
     response = client.get(f"/extractions/jobs/{job.pk}/results/")
     assert response.status_code == 200
+
+
+@override_settings(DEBUG_TOOLBAR_CONFIG={"SHOW_TOOLBAR_CALLBACK": _hide_toolbar})
+@pytest.mark.django_db
+def test_extraction_result_download_view(client: Client):
+    user = UserFactory.create(is_active=True)
+    job = create_test_extraction_job(owner=user)
+
+    OutputFieldFactory.create(job=job, name="field_one")
+    OutputFieldFactory.create(job=job, name="field_two")
+
+    task = create_test_extraction_task(job=job)
+    language = LanguageFactory.create(code="en")
+    report = ReportFactory.create(language=language)
+    instance = ExtractionInstanceFactory.create(
+        task=task,
+        report=report,
+        is_processed=True,
+        output={"field_one": "value", "field_two": 42},
+    )
+
+    client.force_login(user)
+    response = client.get(f"/extractions/jobs/{job.pk}/results/download/")
+    assert response.status_code == 200
+    assert response["Content-Type"].startswith("text/csv")
+    assert f"extraction_job_{job.pk}" in response["Content-Disposition"]
+
+    chunks: list[bytes] = []
+    for chunk in response.streaming_content:
+        if isinstance(chunk, bytes):
+            chunks.append(chunk)
+        else:
+            chunks.append(chunk.encode("utf-8"))
+    csv_bytes = b"".join(chunks)
+    csv_text = csv_bytes.decode("utf-8-sig")
+
+    lines = [line.strip() for line in csv_text.strip().splitlines()]
+    assert lines[0] == "instance_id,report_id,is_processed,field_one,field_two"
+    assert lines[1] == f"{instance.pk},{instance.report_id},yes,value,42"
+
+
+@override_settings(DEBUG_TOOLBAR_CONFIG={"SHOW_TOOLBAR_CALLBACK": _hide_toolbar})
+@pytest.mark.django_db
+def test_extraction_result_download_view_unauthorized(client: Client):
+    owner = UserFactory.create(is_active=True)
+    other_user = UserFactory.create(is_active=True)
+    job = create_test_extraction_job(owner=owner)
+    client.force_login(other_user)
+    response = client.get(f"/extractions/jobs/{job.pk}/results/download/")
+    assert response.status_code == 404
 
 
 @pytest.mark.django_db
