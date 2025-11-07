@@ -5,8 +5,6 @@ from __future__ import annotations
 from collections.abc import Iterable, Sequence
 from typing import Any
 
-from django.db.models import QuerySet
-
 from radis.extractions.models import ExtractionInstance, ExtractionJob
 
 
@@ -28,20 +26,22 @@ def iter_extraction_result_rows(job: ExtractionJob) -> Iterable[Sequence[str]]:
     header.extend(field_names)
     yield header
 
-    instances: QuerySet[ExtractionInstance] = ExtractionInstance.objects.filter(
-        task__job=job
-    ).order_by("pk")
+    instances = (
+        ExtractionInstance.objects.filter(task__job=job)
+        .order_by("pk")
+        .values_list("pk", "report_id", "is_processed", "output")
+    )
 
-    for instance in instances.iterator():
+    for instance_id, report_id, is_processed, output in instances.iterator():
         row: list[str] = [
-            str(instance.pk),
-            str(instance.report_id) if instance.report_id else "",
-            "yes" if instance.is_processed else "no",
+            str(instance_id),
+            str(report_id) if report_id else "",
+            "yes" if is_processed else "no",
         ]
 
-        output: dict[str, Any] = instance.output or {}
+        output_dict: dict[str, Any] = output or {}
         for field_name in field_names:
-            value = output.get(field_name)
+            value = output_dict.get(field_name)
             row.append("" if value is None else str(value))
 
         yield row
