@@ -34,6 +34,17 @@ def _hide_toolbar(_request):
     return False
 
 
+def _collect_csv(response) -> str:
+    chunks: list[bytes] = []
+    for chunk in response.streaming_content:
+        if isinstance(chunk, bytes):
+            chunks.append(chunk)
+        else:
+            chunks.append(chunk.encode("utf-8"))
+    csv_bytes = b"".join(chunks)
+    return csv_bytes.decode("utf-8-sig")
+
+
 @pytest.mark.django_db
 def test_extraction_job_list_view(client: Client):
     user = UserFactory.create(is_active=True)
@@ -232,15 +243,7 @@ def test_extraction_result_download_view(client: Client):
     assert response["Content-Type"].startswith("text/csv")
     assert f"extraction_job_{job.pk}" in response["Content-Disposition"]
 
-    chunks: list[bytes] = []
-    for chunk in response.streaming_content:
-        if isinstance(chunk, bytes):
-            chunks.append(chunk)
-        else:
-            chunks.append(chunk.encode("utf-8"))
-    csv_bytes = b"".join(chunks)
-    csv_text = csv_bytes.decode("utf-8-sig")
-
+    csv_text = _collect_csv(response)
     lines = [line.strip() for line in csv_text.strip().splitlines()]
     assert lines[0] == "instance_id,report_id,is_processed,field_one,field_two"
     assert lines[1] == f"{instance.pk},{instance.report_id},yes,value,42"
@@ -255,6 +258,46 @@ def test_extraction_result_download_view_unauthorized(client: Client):
     client.force_login(other_user)
     response = client.get(f"/extractions/jobs/{job.pk}/results/download/")
     assert response.status_code == 404
+
+
+@override_settings(DEBUG_TOOLBAR_CONFIG={"SHOW_TOOLBAR_CALLBACK": _hide_toolbar})
+@pytest.mark.django_db
+def test_extraction_result_download_view_no_instances(client: Client):
+    user = UserFactory.create(is_active=True)
+    job = create_test_extraction_job(owner=user)
+    OutputFieldFactory.create(job=job, name="field_one")
+
+    client.force_login(user)
+    response = client.get(f"/extractions/jobs/{job.pk}/results/download/")
+    assert response.status_code == 200
+
+    csv_text = _collect_csv(response)
+    assert csv_text.strip() == "instance_id,report_id,is_processed,field_one"
+
+
+@override_settings(DEBUG_TOOLBAR_CONFIG={"SHOW_TOOLBAR_CALLBACK": _hide_toolbar})
+@pytest.mark.django_db
+def test_extraction_result_download_view_no_output_fields(client: Client):
+    user = UserFactory.create(is_active=True)
+    job = create_test_extraction_job(owner=user)
+    task = create_test_extraction_task(job=job)
+    language = LanguageFactory.create(code="en")
+    report = ReportFactory.create(language=language)
+    instance = ExtractionInstanceFactory.create(
+        task=task,
+        report=report,
+        is_processed=False,
+        output={},
+    )
+
+    client.force_login(user)
+    response = client.get(f"/extractions/jobs/{job.pk}/results/download/")
+    assert response.status_code == 200
+
+    csv_text = _collect_csv(response)
+    lines = csv_text.strip().splitlines()
+    assert lines[0] == "instance_id,report_id,is_processed"
+    assert lines[1] == f"{instance.pk},{instance.report_id},no"
 
 
 @pytest.mark.django_db
