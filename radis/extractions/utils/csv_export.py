@@ -8,6 +8,15 @@ from typing import Any
 from radis.extractions.models import ExtractionInstance, ExtractionJob
 
 
+def _format_cell(value: Any) -> str:
+    """Format a single output value for CSV export."""
+    if value is None:
+        return ""
+    if isinstance(value, bool):
+        return "yes" if value else "no"
+    return str(value)
+
+
 def iter_extraction_result_rows(job: ExtractionJob) -> Iterable[Sequence[str]]:
     """Yield rows for the extraction results CSV.
 
@@ -42,6 +51,6 @@ def iter_extraction_result_rows(job: ExtractionJob) -> Iterable[Sequence[str]]:
         output_dict: dict[str, Any] = output or {}
         for field_name in field_names:
             value = output_dict.get(field_name)
-            row.append("" if value is None else str(value))
+            row.append(_format_cell(value))
 
         yield row

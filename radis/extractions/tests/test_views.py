@@ -226,6 +226,7 @@ def test_extraction_result_download_view(client: Client):
 
     OutputFieldFactory.create(job=job, name="field_one")
     OutputFieldFactory.create(job=job, name="field_two")
+    OutputFieldFactory.create(job=job, name="field_bool")
 
     task = create_test_extraction_task(job=job)
     language = LanguageFactory.create(code="en")
@@ -234,7 +235,7 @@ def test_extraction_result_download_view(client: Client):
         task=task,
         report=report,
         is_processed=True,
-        output={"field_one": "value", "field_two": 42},
+        output={"field_one": "value", "field_two": 42, "field_bool": False},
     )
 
     client.force_login(user)
@@ -245,8 +246,8 @@ def test_extraction_result_download_view(client: Client):
 
     csv_text = _collect_csv(response)
     lines = [line.strip() for line in csv_text.strip().splitlines()]
-    assert lines[0] == "instance_id,report_id,is_processed,field_one,field_two"
-    assert lines[1] == f"{instance.pk},{instance.report_id},yes,value,42"
+    assert lines[0] == "instance_id,report_id,is_processed,field_one,field_two,field_bool"
+    assert lines[1] == f"{instance.pk},{instance.report.pk},yes,value,42,no"
 
 
 @override_settings(DEBUG_TOOLBAR_CONFIG={"SHOW_TOOLBAR_CALLBACK": _hide_toolbar})
@@ -297,7 +298,7 @@ def test_extraction_result_download_view_no_output_fields(client: Client):
     csv_text = _collect_csv(response)
     lines = csv_text.strip().splitlines()
     assert lines[0] == "instance_id,report_id,is_processed"
-    assert lines[1] == f"{instance.pk},{instance.report_id},no"
+    assert lines[1] == f"{instance.pk},{instance.report.pk},no"
 
 
 @pytest.mark.django_db
