@@ -14,6 +14,7 @@ import typer
 from adit_radis_shared.cli import commands
 from adit_radis_shared.cli import helper as cli_helper
 from openai.types.chat import ChatCompletion, ChatCompletionMessageParam
+from radis_client.client import RadisClient
 from radis_client.utils.dev_helpers import upload_reports
 
 app = typer.Typer(
@@ -179,10 +180,6 @@ def generate_example_reports(
     if not api_key:
         sys.exit("Missing EXTERNAL_LLM_PROVIDER_API_KEY setting in .env file")
 
-    auth_token = config.get("SUPERUSER_AUTH_TOKEN")
-    if not auth_token:
-        sys.exit("Missing SUPERUSER_AUTH_TOKEN setting in .env file.")
-
     model = config.get("LLM_MODEL_NAME")
     if not model:
         sys.exit("Missing LLM_MODEL_NAME setting in .env file")
@@ -191,16 +188,24 @@ def generate_example_reports(
     if out_path and out_path.exists() and not overwrite:
         sys.exit(f"File '{out_path.absolute()}' already exists.")
 
+    auth_token = ""
     api_online = False
     # Check if API is online if no output path is provided
     if not out_path:
         try:
+            auth_token = config.get("SUPERUSER_AUTH_TOKEN")
+            if not auth_token:
+                sys.exit("Missing SUPERUSER_AUTH_TOKEN setting in .env file.")
+
             port = config.get("WEB_DEV_PORT")
             api_url = f"http://localhost:{port}"
-            resp = requests.get(f"{api_url}/health", timeout=2)
-            if resp.status_code == 200:
-                api_online = True
-        except requests.RequestException:
+
+            client = RadisClient(api_url, auth_token)
+            client.health()
+
+            api_online = True
+        except requests.HTTPError:
+            api_online = False
             sys.exit("API is not reachable.")
 
     client = openai.OpenAI(base_url=base_url, api_key=api_key)
