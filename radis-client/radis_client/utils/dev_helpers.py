@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime, time, timezone
+from datetime import timezone
 from typing import Any, Literal, cast
 
 from faker import Faker
@@ -19,25 +19,6 @@ def create_report_data(
         "sop_instance_uid": str(generate_uid()),
     }
 
-    def parse_ddmmyyyy_date(value: str | None):
-        """Parse ddmmyyyy → date, or None if invalid."""
-        if not value:
-            return None
-        try:
-            return datetime.strptime(value, "%d%m%Y").date()
-        except ValueError:
-            return None
-
-    def parse_ddmmyyyy_datetime(value: str | None):
-        """Parse ddmmyyyy → datetime at 12:00 UTC, or None if invalid."""
-        if not value:
-            return None
-        try:
-            d = datetime.strptime(value, "%d%m%Y").date()
-            return datetime.combine(d, time(12, 0, tzinfo=timezone.utc))
-        except ValueError:
-            return None
-
     return ReportData(
         document_id=str(uuid.uuid4()),
         language=params.get("lng") or "en",
@@ -46,14 +27,14 @@ def create_report_data(
         pacs_name=faker.company(),
         pacs_link=faker.url(),
         patient_id=params.get("patient_id") or faker.numerify("##########"),
-        patient_birth_date=parse_ddmmyyyy_date(params.get("patient_birthdate"))
+        patient_birth_date=params.get("patient_birthdate")
         or faker.date_of_birth(minimum_age=25, maximum_age=90),
         patient_sex=cast(
             Literal["M", "F", "O"],
             params.get("patient_sex") or faker.random_element(elements=("M", "F", "O")),
         ),
         study_description=params.get("study_description") or faker.text(max_nb_chars=64),
-        study_datetime=parse_ddmmyyyy_datetime(params.get("study_date"))
+        study_datetime=params.get("study_date")
         or faker.date_time_between(start_date="-5y", end_date="now", tzinfo=timezone.utc),
         study_instance_uid=generate_uid(),
         accession_number=faker.numerify("############"),

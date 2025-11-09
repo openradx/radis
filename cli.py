@@ -2,7 +2,8 @@
 import json
 import socket
 import sys
-import time
+import time as time_module
+from datetime import datetime, time, timezone
 from pathlib import Path
 from random import randint
 from typing import Annotated, Any, Literal
@@ -169,6 +170,7 @@ def generate_example_reports(
     helper = cli_helper.CommandHelper()
     config = helper.load_config_from_env_file()
 
+    # Check config values
     base_url = config.get("EXTERNAL_LLM_PROVIDER_URL")
     if not base_url:
         sys.exit("Missing EXTERNAL_LLM_PROVIDER_URL setting in .env file")
@@ -177,10 +179,6 @@ def generate_example_reports(
     if not api_key:
         sys.exit("Missing EXTERNAL_LLM_PROVIDER_API_KEY setting in .env file")
 
-    out_path = Path(out) if out else None
-    if out_path and out_path.exists() and not overwrite:
-        sys.exit(f"File '{out_path.absolute()}' already exists.")
-
     auth_token = config.get("SUPERUSER_AUTH_TOKEN")
     if not auth_token:
         sys.exit("Missing SUPERUSER_AUTH_TOKEN setting in .env file.")
@@ -188,6 +186,10 @@ def generate_example_reports(
     model = config.get("LLM_MODEL_NAME")
     if not model:
         sys.exit("Missing LLM_MODEL_NAME setting in .env file")
+
+    out_path = Path(out) if out else None
+    if out_path and out_path.exists() and not overwrite:
+        sys.exit(f"File '{out_path.absolute()}' already exists.")
 
     # Check if API is online if no output path is provided
     port = config.get("WEB_DEV_PORT")
@@ -210,6 +212,28 @@ def generate_example_reports(
     params: dict[str, Any] = ctx.params
     context_lines = []
     exclude = {"ctx", "group_id", "out", "overwrite", "count"}
+
+    # Validate date time parameters
+    patient_birthdate_str = params.get("patient_birthdate")
+    study_date_str = params.get("study_date")
+    if patient_birthdate_str:
+        try:
+            params["patient_birthdate"] = datetime.strptime(patient_birthdate_str, "%d%m%Y").date()
+        except ValueError:
+            sys.exit(
+                f"Patient birthdate parameter '{patient_birthdate_str}' incorrectly formatted."
+            )
+    else:
+        params["patient_birthdate"] = None
+
+    if study_date_str:
+        try:
+            d = datetime.strptime(study_date_str, "%d%m%Y").date()
+            params["study_date"] = datetime.combine(d, time(12, 0, tzinfo=timezone.utc))
+        except ValueError:
+            sys.exit(f"Study date parameter '{study_date_str}' incorrectly formatted.")
+    else:
+        params["study_date"] = None
 
     for meta_param in command.params:
         param_name = str(meta_param.name)
@@ -234,7 +258,7 @@ def generate_example_reports(
 
     print(f"Generating {count} example reports...")
 
-    start = time.time()
+    start = time_module.time()
     report_bodies: list[str] = []
     for _ in range(count):
         response: ChatCompletion | None = None
@@ -253,7 +277,7 @@ def generate_example_reports(
                     raise err
 
                 # maybe use rate limiter like https://github.com/tomasbasham/ratelimit
-                time.sleep(randint(1, 5))
+                time_module.sleep(randint(1, 5))
 
         content = response.choices[0].message.content
         assert content
@@ -265,14 +289,16 @@ def generate_example_reports(
         out_path.parent.mkdir(parents=True, exist_ok=True)
         with open(out_path, "w") as f:
             json.dump(report_bodies, f, indent=4)
-        duration = time.time() - start
+        duration = time_module.time() - start
         print(f"Done in {duration:.2f}s")
         print(f"Example report(s) written to '{out_path.absolute()}'")
     elif api_online:
         reports_url = upload_reports(report_bodies, params, api_url, auth_token)
-        duration = time.time() - start
+        duration = time_module.time() - start
         print(f"Done in {duration:.2f}s")
         print(f"Uploaded {len(report_bodies)} example report(s) to '{reports_url}'")
+    else:
+        sys.exit("No output path specified and API is not reachable.")
 
 
 if __name__ == "__main__":
