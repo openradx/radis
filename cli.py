@@ -189,17 +189,18 @@ def generate_example_reports(
     if not model:
         sys.exit("Missing LLM_MODEL_NAME setting in .env file")
 
-    # Check if API is online
+    # Check if API is online if no output path is provided
     port = config.get("WEB_DEV_PORT")
     api_url = f"http://localhost:{port}"
 
     api_online = False
-    try:
-        resp = requests.get(f"{api_url}/health", timeout=2)
-        if resp.status_code == 200:
-            api_online = True
-    except Exception:
-        sys.exit("API is not reachable.")
+    if not out_path:
+        try:
+            resp = requests.get(f"{api_url}/health", timeout=2)
+            if resp.status_code == 200:
+                api_online = True
+        except Exception:
+            sys.exit("API is not reachable.")
 
     client = openai.OpenAI(base_url=base_url, api_key=api_key)
 

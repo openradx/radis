@@ -6,7 +6,7 @@ license = "AGPL-3.0-or-later"
 readme = "README.md"
 requires-python = ">=3.12,<4.0"
 dynamic = ["version"]
-dependencies = ["requests>=2.32.3"]
+dependencies = ["requests>=2.32.3", "faker", "pydicom"]
 packages = ["radis_client"]
 
 [build-system]

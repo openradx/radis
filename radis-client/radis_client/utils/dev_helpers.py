@@ -40,13 +40,13 @@ def create_report_data(
 
     return ReportData(
         document_id=str(uuid.uuid4()),
-        language=params.get("language") or "en",
+        language=params.get("lng") or "en",
         groups=[params.get("group_id") or 1],
         pacs_aet=faker.bothify("AE####").upper(),
         pacs_name=faker.company(),
         pacs_link=faker.url(),
         patient_id=params.get("patient_id") or faker.numerify("##########"),
-        patient_birth_date=parse_ddmmyyyy_date(params.get("patient_birth_date"))
+        patient_birth_date=parse_ddmmyyyy_date(params.get("patient_birthdate"))
         or faker.date_of_birth(minimum_age=25, maximum_age=90),
         patient_sex=cast(
             Literal["M", "F", "O"],
