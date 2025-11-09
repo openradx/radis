@@ -292,10 +292,11 @@ def generate_example_reports(
         print(f"Done in {duration:.2f}s")
         print(f"Example report(s) written to '{out_path.absolute()}'")
     elif api_online:
-        reports_url = upload_reports(report_bodies, params, api_url, auth_token)
+        reports_url, succeeded, failed = upload_reports(report_bodies, params, api_url, auth_token)
         duration = time_module.time() - start
         print(f"Done in {duration:.2f}s")
-        print(f"Uploaded {len(report_bodies)} example report(s) to '{reports_url}'")
+        print(f"Successfully Uploaded {succeeded} example report(s) to '{reports_url}'")
+        print(f"Failed Uploading {failed} example report(s) to '{reports_url}'")
     else:
         sys.exit("No output path specified and API is not reachable.")
 

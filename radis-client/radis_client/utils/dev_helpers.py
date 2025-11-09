@@ -44,14 +44,21 @@ def create_report_data(
     )
 
 
-def upload_reports(bodies: list[str], params: dict[str, Any], api_url: str, auth_token: str) -> str:
+def upload_reports(bodies: list[str], params: dict[str, Any], api_url: str, auth_token: str):
     client = RadisClient(api_url, auth_token)
 
     reports_url = f"{api_url}/api/reports/"
     print(f"Uploading example report(s) to {reports_url}...")
+    succeeded = 0
+    failed = 0
     for body in bodies:
         report_data = create_report_data(body, params)
-        client.create_report(report_data)
-        print(".", end="", flush=True)
+        try:
+            client.create_report(report_data)
+            succeeded+=1
+            print(".", end="", flush=True)
+        except Exception:
+            failed+=1
+            print("x", end="", flush=True)
     print("")
-    return reports_url
+    return reports_url, succeeded, failed
