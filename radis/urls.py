@@ -35,7 +35,6 @@ urlpatterns = [
     path("subscriptions/", include("radis.subscriptions.urls")),
 ]
 
-
 # Debug Toolbar in Debug mode only
 if settings.DEBUG:
     import debug_toolbar
