@@ -2412,17 +2412,11 @@ dev = [
 name = "radis-client"
 source = { editable = "radis-client" }
 dependencies = [
-    { name = "faker" },
-    { name = "pydicom" },
     { name = "requests" },
 ]
 
 [package.metadata]
-requires-dist = [
-    { name = "faker", specifier = ">=36.1.1" },
-    { name = "pydicom", specifier = ">=2.4.4" },
-    { name = "requests", specifier = ">=2.32.3" },
-]
+requires-dist = [{ name = "requests", specifier = ">=2.32.3" }]
 
 [[package]]
 name = "regex"
