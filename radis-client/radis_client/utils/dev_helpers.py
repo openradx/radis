@@ -60,9 +60,8 @@ def upload_reports(
             client.create_report(report_data)
             succeeded += 1
             print(".", end="", flush=True)
-        except HTTPError as e:
+        except HTTPError:
             failed += 1
             print("x", end="", flush=True)
-            print(f"Error creating report: {e}")
     print("")
     return reports_url, succeeded, failed

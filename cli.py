@@ -188,15 +188,13 @@ def generate_example_reports(
     if out_path and out_path.exists() and not overwrite:
         sys.exit(f"File '{out_path.absolute()}' already exists.")
 
-    auth_token = ""
+    auth_token = config.get("SUPERUSER_AUTH_TOKEN")
+    if not auth_token:
+        sys.exit("Missing SUPERUSER_AUTH_TOKEN setting in .env file.")
     api_online = False
     # Check if API is online if no output path is provided
     if not out_path:
         try:
-            auth_token = config.get("SUPERUSER_AUTH_TOKEN")
-            if not auth_token:
-                sys.exit("Missing SUPERUSER_AUTH_TOKEN setting in .env file.")
-
             port = config.get("WEB_DEV_PORT")
             api_url = f"http://localhost:{port}"
 
