@@ -209,7 +209,7 @@ def generate_example_reports(
     command = ctx.command
     assert command is not None
     params: dict[str, Any] = ctx.params
-    context_lines = []
+    context_lines = [] # All parameter values are given as context to the LLM except for below
     exclude = {"ctx", "group_id", "out", "overwrite", "count"}
 
     # Validate date time parameters

@@ -7,12 +7,12 @@ from pydicom.uid import generate_uid
 
 from radis_client.client import RadisClient, ReportData
 
+faker = Faker()
 
 def create_report_data(
     body: str,
     params: dict[str, Any],
 ) -> ReportData:
-    faker = Faker()
 
     metadata = {
         "series_instance_uid": str(generate_uid()),

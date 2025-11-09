@@ -2419,8 +2419,8 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "faker" },
-    { name = "pydicom" },
+    { name = "faker", specifier = ">=36.1.1" },
+    { name = "pydicom", specifier = ">=2.4.4" },
     { name = "requests", specifier = ">=2.32.3" },
 ]
 
