@@ -191,13 +191,12 @@ def generate_example_reports(
     if out_path and out_path.exists() and not overwrite:
         sys.exit(f"File '{out_path.absolute()}' already exists.")
 
-    # Check if API is online if no output path is provided
-    port = config.get("WEB_DEV_PORT")
-    api_url = f"http://localhost:{port}"
-
     api_online = False
+    # Check if API is online if no output path is provided
     if not out_path:
         try:
+            port = config.get("WEB_DEV_PORT")
+            api_url = f"http://localhost:{port}"
             resp = requests.get(f"{api_url}/health", timeout=2)
             if resp.status_code == 200:
                 api_online = True
