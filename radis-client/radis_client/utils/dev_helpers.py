@@ -3,8 +3,8 @@ from datetime import timezone
 from typing import Any, Literal, cast
 
 from faker import Faker
-from httpx import HTTPError
 from pydicom.uid import generate_uid
+from requests import HTTPError
 
 from radis_client.client import RadisClient, ReportData
 
@@ -45,7 +45,9 @@ def create_report_data(
     )
 
 
-def upload_reports(bodies: list[str], params: dict[str, Any], api_url: str, auth_token: str):
+def upload_reports(
+    bodies: list[str], params: dict[str, Any], api_url: str, auth_token: str
+) -> tuple[str, int, int]:
     client = RadisClient(api_url, auth_token)
 
     reports_url = f"{api_url}/api/reports/"
@@ -58,8 +60,9 @@ def upload_reports(bodies: list[str], params: dict[str, Any], api_url: str, auth
             client.create_report(report_data)
             succeeded += 1
             print(".", end="", flush=True)
-        except HTTPError:
+        except HTTPError as e:
             failed += 1
             print("x", end="", flush=True)
+            print(f"Error creating report: {e}")
     print("")
     return reports_url, succeeded, failed
