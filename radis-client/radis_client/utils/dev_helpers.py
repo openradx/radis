@@ -63,10 +63,10 @@ def upload_reports(
         except HTTPError as e:
             failed += 1
             print("x", end="", flush=True)
-            logger.error(f"Failed to upload report: HTTP {e.response.status_code} - {e.response.text}")
+            print(f"Failed to upload report: HTTP {e.response.status_code} - {e.response.text}")
         except Exception as e:
             failed += 1
             print("x", end="", flush=True)
-            logger.error(f"Failed to upload report: {type(e).__name__}: {e}")
+            print(f"Failed to upload report: {type(e).__name__}: {e}")
     print("")
     return reports_url, succeeded, failed
