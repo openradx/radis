@@ -110,7 +110,7 @@ class OutputField(models.Model):
                 name="unique_output_field_name_per_subscription",
             ),
             models.CheckConstraint(
-                check=(
+                condition=(
                     Q(job__isnull=False, subscription__isnull=True)
                     | Q(job__isnull=True, subscription__isnull=False)
                 ),

@@ -168,14 +168,11 @@ class FilterQuestionForm(forms.ModelForm):
         self.helper = FormHelper()
         self.helper.form_tag = False
         self.helper.disable_csrf = True
-        self.helper.layout = Layout(
-            Div(
-                Field("id", type="hidden"),
-                Field("DELETE", type="hidden"),
-                "question",
-                "expected_answer",
-            ),
-        )
+        fields = [Field("id", type="hidden"), "question", "expected_answer"]
+        if "DELETE" in self.fields:
+            fields.insert(1, Field("DELETE", type="hidden"))
+        self.helper.layout = Layout(Div(*fields))
+
 
     def clean(self) -> dict[str, Any]:
         cleaned_data = super().clean()
@@ -206,17 +203,20 @@ class ExtractionFieldForm(forms.ModelForm):
         self.helper = FormHelper()
         self.helper.form_tag = False
         self.helper.disable_csrf = True
-        self.helper.layout = Layout(
-            Div(
-                Field("id", type="hidden"),
-                Field("DELETE", type="hidden"),
-                Row(
-                    Column("name", css_class="col-6"),
-                    Column("output_type", css_class="col-4"),
-                ),
-                "description",
-            )
-        )
+        
+        fields = [
+            Field("id", type="hidden"),
+            Row(
+                Column("name", css_class="col-6"),
+                Column("output_type", css_class="col-4"),
+            ),
+            "description",
+        ]
+
+        if "DELETE" in self.fields:
+            fields.insert(1, Field("DELETE", type="hidden"))
+
+        self.helper.layout = Layout(Div(*fields))
 
 
 FilterQuestionFormSet = forms.inlineformset_factory(
