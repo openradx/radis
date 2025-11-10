@@ -42,8 +42,10 @@ class SubscriptionListView(LoginRequiredMixin, SingleTableView):
         return context
 
     def get_queryset(self) -> QuerySet[Subscription]:
-        return Subscription.objects.filter(owner=self.request.user).annotate(
-            num_reports=Count("items")
+        return (
+            Subscription.objects.filter(owner=self.request.user)
+            .annotate(num_reports=Count("items"))
+            .order_by("-created_at")
         )
 
 

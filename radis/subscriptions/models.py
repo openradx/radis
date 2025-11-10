@@ -58,6 +58,7 @@ class Subscription(models.Model):
     send_finished_mail = models.BooleanField(default=False)
 
     class Meta:
+        ordering = ["-created_at"]  # Most recent first
         constraints = [
             UniqueConstraint(
                 fields=["name", "owner_id"],
@@ -106,6 +107,9 @@ class SubscribedItem(models.Model):
     filter_results = models.JSONField(null=True, blank=True)
     extraction_results = models.JSONField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]  # Most recent first
 
     def __str__(self):
         return f"SubscribedItem of {self.subscription} [{self.pk}]"
