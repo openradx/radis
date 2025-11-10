@@ -114,7 +114,7 @@ class AnalysisJob(models.Model):
         if has_success and not has_warning and not has_failure:
             self.status = AnalysisJob.Status.SUCCESS
             self.message = "All tasks succeeded."
-        elif has_success and has_failure or has_warning and has_failure:
+        elif (has_success and has_failure) or (has_warning and has_failure):
             self.status = AnalysisJob.Status.FAILURE
             self.message = "Some tasks failed."
         elif has_success and has_warning:
