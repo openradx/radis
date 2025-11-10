@@ -89,9 +89,7 @@ class OutputField(models.Model):
     job = models.ForeignKey[
         ExtractionJob
     ](ExtractionJob, null=True, blank=True, on_delete=models.CASCADE, related_name="output_fields")
-    subscription = models.ForeignKey[
-        "subscriptions.Subscription"
-    ](
+    subscription = models.ForeignKey(
         "subscriptions.Subscription",
         null=True,
         blank=True,
