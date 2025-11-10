@@ -5,7 +5,7 @@ from django.test import Client
 from radis.reports.factories import LanguageFactory
 from radis.reports.models import Modality
 from radis.subscriptions.factories import (
-    QuestionFactory,
+    FilterQuestionFactory,
     SubscriptionFactory,
 )
 from radis.subscriptions.models import Subscription
@@ -190,7 +190,7 @@ def test_subscription_update_view_unauthorized(client: Client):
 def test_subscription_update_view_post_valid(client: Client):
     user = UserFactory.create(is_active=True)
     subscription = create_test_subscription(owner=user, name="Original Name")
-    question = QuestionFactory.create(subscription=subscription)
+    question = FilterQuestionFactory.create(subscription=subscription)
 
     client.force_login(user)
 

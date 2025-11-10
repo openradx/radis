@@ -9,11 +9,7 @@
                     <div>
                         <div class="fw-semibold small text-uppercase text-secondary">Filter results</div>
                         <ul class="mb-2 small">
-                            {% for question, value in filter_results %}
-                                <li>
-                                    {{ question.question }} → {{ value|yesno:"Yes,No" }}
-                                </li>
-                            {% endfor %}
+                            {% for question, value in filter_results %}<li>{{ question.question }} → {{ value|yesno:"Yes,No" }}</li>{% endfor %}
                         </ul>
                     </div>
                 {% endif %}
@@ -23,11 +19,7 @@
                     <div>
                         <div class="fw-semibold small text-uppercase text-secondary">Extraction results</div>
                         <ul class="mb-2 small">
-                            {% for field, value in extraction_results %}
-                                <li>
-                                    {{ field.name }} → {{ value|default_if_none:"—" }}
-                                </li>
-                            {% endfor %}
+                            {% for field, value in extraction_results %}<li>{{ field.name }} → {{ value|default_if_none:"—" }}</li>{% endfor %}
                         </ul>
                     </div>
                 {% endif %}

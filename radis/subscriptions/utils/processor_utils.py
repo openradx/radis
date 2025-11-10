@@ -35,7 +35,11 @@ def build_filter_schema(questions: QuerySet[FilterQuestion]) -> FilterSchemaBund
         mapping.append((field_name, question))
 
     model_name = "SubscriptionFilterResultsModel"
-    schema = create_model(model_name, **field_definitions) if field_definitions else create_model(model_name)
+    schema = (
+        create_model(model_name, **field_definitions)
+        if field_definitions
+        else create_model(model_name)
+    )
     return FilterSchemaBundle(schema, mapping)
 
 
@@ -59,7 +63,11 @@ def build_extraction_schema(fields: QuerySet[OutputField]) -> ExtractionSchemaBu
         mapping.append((field_name, field))
 
     model_name = "SubscriptionExtractionResultsModel"
-    schema = create_model(model_name, **field_definitions) if field_definitions else create_model(model_name)
+    schema = (
+        create_model(model_name, **field_definitions)
+        if field_definitions
+        else create_model(model_name)
+    )
     return ExtractionSchemaBundle(schema, mapping)
 
 
@@ -81,7 +89,6 @@ def generate_extraction_fields_prompt(mapping: list[tuple[str, OutputField]]) ->
     for field_name, field in mapping:
         description = field.description or "No description provided."
         lines.append(
-            f"{field_name}: {field.name} — {description} "
-            f"[type: {field.get_output_type_display()}]"
+            f"{field_name}: {field.name} — {description} [type: {field.get_output_type_display()}]"
         )
     return "\n".join(lines)

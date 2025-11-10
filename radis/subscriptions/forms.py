@@ -6,10 +6,9 @@ from django import forms
 
 from radis.core.constants import LANGUAGE_LABELS
 from radis.core.layouts import Formset, RangeSlider
+from radis.extractions.models import OutputField
 from radis.reports.models import Language, Modality
 from radis.search.forms import AGE_STEP, MAX_AGE, MIN_AGE
-
-from radis.extractions.models import OutputField
 
 from .models import FilterQuestion, Subscription
 from .site import subscription_retrieval_providers
@@ -160,7 +159,7 @@ class FilterQuestionForm(forms.ModelForm):
 
         self.fields["question"].required = False
         self.fields["expected_answer"].required = False
-        self.fields["expected_answer"].choices = [
+        self.fields["expected_answer"].choices = [  # type: ignore[attr-defined]
             ("", "Select expected answer"),
             *FilterQuestion.ExpectedAnswer.choices,
         ]
@@ -180,17 +179,15 @@ class FilterQuestionForm(forms.ModelForm):
 
     def clean(self) -> dict[str, Any]:
         cleaned_data = super().clean()
-        question = cleaned_data.get("question")
-        expected_answer = cleaned_data.get("expected_answer")
+        assert cleaned_data
+
+        question = cleaned_data["question"]
+        expected_answer = cleaned_data["expected_answer"]
 
         if not question and not expected_answer:
-            return cleaned_data
-
-        if question and not expected_answer:
-            cleaned_data["expected_answer"] = FilterQuestion.ExpectedAnswer.YES
-
-        if not question:
-            raise forms.ValidationError("Question text is required when specifying a filter.")
+            raise forms.ValidationError(
+                "Question and Expected Answer text is required when specifying a filter."
+            )
 
         return cleaned_data
 

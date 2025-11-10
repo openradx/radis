@@ -1,7 +1,7 @@
 import logging
-from typing import Any
 from concurrent.futures import Future, ThreadPoolExecutor
 from string import Template
+from typing import Any
 
 from adit_radis_shared.common.types import User
 from django import db

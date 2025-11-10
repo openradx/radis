@@ -86,9 +86,9 @@ class OutputField(models.Model):
         max_length=1, choices=OutputType.choices, default=OutputType.TEXT
     )
     get_output_type_display: Callable[[], str]
-    job = models.ForeignKey[
-        ExtractionJob
-    ](ExtractionJob, null=True, blank=True, on_delete=models.CASCADE, related_name="output_fields")
+    job = models.ForeignKey[ExtractionJob](
+        ExtractionJob, null=True, blank=True, on_delete=models.CASCADE, related_name="output_fields"
+    )
     subscription = models.ForeignKey(
         "subscriptions.Subscription",
         null=True,
@@ -115,7 +115,7 @@ class OutputField(models.Model):
                     | Q(job__isnull=True, subscription__isnull=False)
                 ),
                 name="output_field_exactly_one_parent",
-            )
+            ),
         ]
 
     def __str__(self) -> str:

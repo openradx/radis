@@ -126,9 +126,7 @@ class SubscriptionUpdateView(LoginRequiredMixin, UpdateView):
     def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
         ctx = super().get_context_data(**kwargs)
         if self.request.POST:
-            ctx["filter_formset"] = FilterQuestionFormSet(
-                self.request.POST, instance=self.object
-            )
+            ctx["filter_formset"] = FilterQuestionFormSet(self.request.POST, instance=self.object)
             ctx["extraction_formset"] = ExtractionFieldFormSet(
                 self.request.POST, instance=self.object
             )

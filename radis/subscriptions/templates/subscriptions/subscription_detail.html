@@ -141,9 +141,7 @@
                     <dt class="col-sm-3">{{ field.name }}</dt>
                     <dd class="col-sm-9">
                         {{ field.description|default:"No description provided." }}
-                        <div class="text-muted small">
-                            Type: {{ field.get_output_type_display }}
-                        </div>
+                        <div class="text-muted small">Type: {{ field.get_output_type_display }}</div>
                     </dd>
                 {% endfor %}
             </dl>
