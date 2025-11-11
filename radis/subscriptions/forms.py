@@ -173,7 +173,6 @@ class FilterQuestionForm(forms.ModelForm):
             fields.insert(1, Field("DELETE", type="hidden"))
         self.helper.layout = Layout(Div(*fields))
 
-
     def clean(self) -> dict[str, Any]:
         cleaned_data = super().clean()
         assert cleaned_data
@@ -181,9 +180,9 @@ class FilterQuestionForm(forms.ModelForm):
         question = cleaned_data["question"]
         expected_answer = cleaned_data["expected_answer"]
 
-        if not question and not expected_answer:
+        if bool(question) != bool(expected_answer):
             raise forms.ValidationError(
-                "Question and Expected Answer text is required when specifying a filter."
+                "Both question and expected answer are required when specifying a filter."
             )
 
         return cleaned_data
@@ -203,7 +202,7 @@ class ExtractionFieldForm(forms.ModelForm):
         self.helper = FormHelper()
         self.helper.form_tag = False
         self.helper.disable_csrf = True
-        
+
         fields = [
             Field("id", type="hidden"),
             Row(
