@@ -4,9 +4,8 @@ from typing import Any, Literal, cast
 
 from faker import Faker
 from pydicom.uid import generate_uid
-from requests import HTTPError
 
-from radis_client.client import RadisClient, ReportData
+from radis_client.client import ReportData
 
 faker = Faker()
 
@@ -43,30 +42,3 @@ def create_report_data(
         metadata=metadata,
         body=body,
     )
-
-
-def upload_reports(
-    bodies: list[str], params: dict[str, Any], api_url: str, auth_token: str
-) -> tuple[str, int, int]:
-    client = RadisClient(api_url, auth_token)
-
-    reports_url = f"{api_url}/api/reports/"
-    print(f"Uploading example report(s) to {reports_url}...")
-    succeeded = 0
-    failed = 0
-    for body in bodies:
-        report_data = create_report_data(body, params)
-        try:
-            client.create_report(report_data)
-            succeeded += 1
-            print(".", end="", flush=True)
-        except HTTPError as e:
-            failed += 1
-            print("x", end="", flush=True)
-            print(f"Failed to upload report: HTTP {e.response.status_code} - {e.response.text}")
-        except Exception as e:
-            failed += 1
-            print("x", end="", flush=True)
-            print(f"Failed to upload report: {type(e).__name__}: {e}")
-    print("")
-    return reports_url, succeeded, failed

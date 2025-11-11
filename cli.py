@@ -6,7 +6,7 @@ import time as time_module
 from datetime import datetime, time, timezone
 from pathlib import Path
 from random import randint
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, TextIO
 
 import openai
 import requests
@@ -15,7 +15,7 @@ from adit_radis_shared.cli import commands
 from adit_radis_shared.cli import helper as cli_helper
 from openai.types.chat import ChatCompletion, ChatCompletionMessageParam
 from radis_client.client import RadisClient
-from radis_client.utils.dev_helpers import upload_reports
+from radis_client.utils.dev_helpers import create_report_data
 
 app = typer.Typer(
     context_settings={"help_option_names": ["-h", "--help"]},
@@ -192,21 +192,23 @@ def generate_example_reports(
     if not auth_token:
         sys.exit("Missing SUPERUSER_AUTH_TOKEN setting in .env file.")
     api_online = False
+    api_url: str | None = None
+    radis_client: RadisClient | None = None
     # Check if API is online if no output path is provided
     if not out_path:
         try:
             port = config.get("WEB_DEV_PORT")
             api_url = f"http://localhost:{port}"
 
-            client = RadisClient(api_url, auth_token)
-            client.health()
+            radis_client = RadisClient(api_url, auth_token)
+            radis_client.health()
 
             api_online = True
         except requests.HTTPError:
             api_online = False
             sys.exit("API is not reachable.")
 
-    client = openai.OpenAI(base_url=base_url, api_key=api_key)
+    llm_client = openai.OpenAI(base_url=base_url, api_key=api_key)
 
     # Build the user prompt
     command = ctx.command
@@ -261,45 +263,91 @@ def generate_example_reports(
     print(f"Generating {count} example reports...")
 
     start = time_module.time()
-    report_bodies: list[str] = []
-    for _ in range(count):
-        response: ChatCompletion | None = None
-        retries = 0
-        while not response:
-            try:
-                response = client.chat.completions.create(
-                    messages=messages,
-                    model=model,
-                )
-            # For available errors see https://github.com/openai/openai-python#handling-errors
-            except openai.APIStatusError as err:
-                retries += 1
-                if retries == 3:
-                    print(f"Error! Service unavailable even after 3 retries: {err}")
-                    raise err
-
-                # maybe use rate limiter like https://github.com/tomasbasham/ratelimit
-                time_module.sleep(randint(1, 5))
-
-        content = response.choices[0].message.content
-        assert content
-        report_bodies.append(content)
-        print(".", end="", flush=True)
-    print("")
+    file_handle: TextIO | None = None
+    written_reports = 0
+    upload_succeeded = 0
+    upload_failed = 0
+    reports_url: str | None = f"{api_url}/api/reports/" if api_url else None
+    upload_message_printed = False
 
     if out_path:
         out_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(out_path, "w") as f:
-            json.dump(report_bodies, f, indent=4)
-        duration = time_module.time() - start
+        file_handle = open(out_path, "w")
+        file_handle.write("[\n")
+    else:
+        assert radis_client is not None
+        assert reports_url is not None
+
+    try:
+        for _ in range(count):
+            response: ChatCompletion | None = None
+            retries = 0
+            while not response:
+                try:
+                    response = llm_client.chat.completions.create(
+                        messages=messages,
+                        model=model,
+                    )
+                # For available errors see https://github.com/openai/openai-python#handling-errors
+                except openai.APIStatusError as err:
+                    retries += 1
+                    if retries == 3:
+                        print(f"Error! Service unavailable even after 3 retries: {err}")
+                        raise err
+
+                    # maybe use rate limiter like https://github.com/tomasbasham/ratelimit
+                    time_module.sleep(randint(1, 5))
+
+            content = response.choices[0].message.content
+            assert content
+            print(".", end="", flush=True)
+
+            if file_handle is not None:
+                if written_reports:
+                    file_handle.write(",\n")
+                file_handle.write("    ")
+                json.dump(content, file_handle, ensure_ascii=False)
+                file_handle.flush()
+                written_reports += 1
+            elif radis_client is not None:
+                if not upload_message_printed:
+                    print("")
+                    print(f"Uploading example report(s) to {reports_url}...")
+                    upload_message_printed = True
+
+                report_data = create_report_data(content, params)
+                try:
+                    radis_client.create_report(report_data)
+                    upload_succeeded += 1
+                except requests.HTTPError as err:
+                    upload_failed += 1
+                    print("x", end="", flush=True)
+                    upload_response = err.response
+                    status_code = upload_response.status_code if upload_response else "?"
+                    response_text = upload_response.text if upload_response else str(err)
+                    print(f"\nFailed to upload report: HTTP {status_code} - {response_text}")
+                except Exception as err:  # pragma: no cover - defensive logging
+                    upload_failed += 1
+                    print("x", end="", flush=True)
+                    print(f"\nFailed to upload report: {type(err).__name__}: {err}")
+        print("")
+    finally:
+        if file_handle is not None:
+            if written_reports:
+                file_handle.write("\n]\n")
+            else:
+                file_handle.write("]\n")
+            file_handle.close()
+
+    duration = time_module.time() - start
+    if out_path:
         print(f"Done in {duration:.2f}s")
         print(f"Example report(s) written to '{out_path.absolute()}'")
     elif api_online:
-        reports_url, succeeded, failed = upload_reports(report_bodies, params, api_url, auth_token)
-        duration = time_module.time() - start
+        assert reports_url is not None
         print(f"Done in {duration:.2f}s")
-        print(f"Successfully Uploaded {succeeded} example report(s) to '{reports_url}'")
-        print(f"Failed Uploading {failed} example report(s) to '{reports_url}'")
+        print(f"Successfully Uploaded {upload_succeeded} example report(s) to '{reports_url}'")
+        print(f"Failed Uploading {upload_failed} example report(s) to '{reports_url}'")
     else:
         sys.exit("No output path specified and API is not reachable.")
 
