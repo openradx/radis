@@ -200,6 +200,10 @@ def generate_example_reports(
         if not helper.check_compose_up():
             sys.exit("Uploading reports via the API requires the dev containers running.")
         else:
+            port = config.get("WEB_DEV_PORT")
+            api_url = f"http://localhost:{port}"
+
+            radis_client = RadisClient(api_url, auth_token)
             api_online = True
 
     llm_client = openai.OpenAI(base_url=base_url, api_key=api_key)
