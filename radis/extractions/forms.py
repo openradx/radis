@@ -1,8 +1,9 @@
+import json
 from typing import Any, cast
 
 from adit_radis_shared.accounts.models import User
 from crispy_forms.helper import FormHelper
-from crispy_forms.layout import Column, Layout, Row, Submit
+from crispy_forms.layout import Column, Div, HTML, Layout, Row, Submit
 from django import forms
 from django.conf import settings
 from django.db.models import QuerySet
@@ -14,7 +15,7 @@ from radis.search.forms import AGE_STEP, MAX_AGE, MIN_AGE
 from radis.search.site import Search, SearchFilters
 from radis.search.utils.query_parser import QueryParser
 
-from .models import ExtractionJob, OutputField
+from .models import ExtractionJob, OutputField, OutputType
 from .site import extraction_retrieval_providers
 
 
@@ -185,13 +186,100 @@ class SearchForm(forms.ModelForm):
 
 
 class OutputFieldForm(forms.ModelForm):
+    selection_options = forms.CharField(
+        required=False,
+        widget=forms.HiddenInput(),
+    )
+
     class Meta:
         model = OutputField
         fields = [
             "name",
             "description",
             "output_type",
+            "selection_options",
         ]
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        self.fields["description"].widget = forms.Textarea(attrs={"rows": 3})
+        self.fields["selection_options"].widget.attrs.update(
+            {
+                "data-selection-input": "true",
+            }
+        )
+
+        initial_options = self.instance.selection_options if self.instance.pk else []
+        self.initial["selection_options"] = json.dumps(initial_options)
+
+        self.helper = FormHelper()
+        self.helper.form_tag = False
+        self.helper.disable_csrf = True
+        self.helper.layout = Layout(
+            Row(
+                Column("name", css_class="col-8"),
+                Column("output_type", css_class="col-4"),
+                css_class="g-3",
+            ),
+            "description",
+            Div(
+                HTML('{% include "extractions/_selection_options_field.html" %}'),
+                css_class="selection-options-wrapper",
+            ),
+        )
+
+    def clean_selection_options(self) -> list[str]:
+        raw_value = self.cleaned_data.get("selection_options") or ""
+        raw_value = raw_value.strip()
+        if raw_value == "":
+            return []
+
+        try:
+            parsed = json.loads(raw_value)
+        except json.JSONDecodeError as exc:
+            raise forms.ValidationError("Invalid selection data.") from exc
+
+        if not isinstance(parsed, list):
+            raise forms.ValidationError("Selection data must be a list.")
+
+        cleaned: list[str] = []
+        for item in parsed:
+            if not isinstance(item, str):
+                raise forms.ValidationError("Selection options must be text.")
+            value = item.strip()
+            if not value:
+                raise forms.ValidationError("Selection options cannot be empty.")
+            cleaned.append(value)
+
+        if len(cleaned) > 7:
+            raise forms.ValidationError("Provide at most 7 selection options.")
+
+        return cleaned
+
+    def clean(self):
+        cleaned_data = super().clean()
+        if not cleaned_data:
+            return cleaned_data
+
+        output_type = cleaned_data.get("output_type")
+        selection_options: list[str] = cleaned_data.get("selection_options") or []
+
+        if output_type == OutputType.SELECTION:
+            if not selection_options:
+                self.add_error(
+                    "selection_options",
+                    "Add at least one selection to use the Selection type.",
+                )
+        else:
+            if selection_options:
+                self.add_error(
+                    "selection_options",
+                    "Selections are only allowed when Output Type is Selection.",
+                )
+                cleaned_data["selection_options"] = []
+
+        return cleaned_data
 
 
 OutputFieldFormSet = forms.inlineformset_factory(
