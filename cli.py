@@ -172,17 +172,17 @@ def generate_example_reports(
     config = helper.load_config_from_env_file()
 
     # Check config values
-    base_url = config.get("EXTERNAL_LLM_PROVIDER_URL")
+    base_url = config.get("REPORT_LLM_PROVIDER_URL")
     if not base_url:
-        sys.exit("Missing EXTERNAL_LLM_PROVIDER_URL setting in .env file")
+        sys.exit("Missing REPORT_LLM_PROVIDER_URL setting in .env file")
 
-    api_key = config.get("EXTERNAL_LLM_PROVIDER_API_KEY")
+    api_key = config.get("REPORT_LLM_PROVIDER_API_KEY")
     if not api_key:
-        sys.exit("Missing EXTERNAL_LLM_PROVIDER_API_KEY setting in .env file")
+        sys.exit("Missing REPORT_LLM_PROVIDER_API_KEY setting in .env file")
 
-    model = config.get("LLM_MODEL_NAME")
+    model = config.get("REPORT_LLM_MODEL_NAME")
     if not model:
-        sys.exit("Missing LLM_MODEL_NAME setting in .env file")
+        sys.exit("Missing REPORT_LLM_MODEL_NAME setting in .env file")
 
     out_path = Path(out) if out else None
     if out_path and out_path.exists() and not overwrite:
@@ -194,19 +194,13 @@ def generate_example_reports(
     api_online = False
     api_url: str | None = None
     radis_client: RadisClient | None = None
+
     # Check if API is online if no output path is provided
     if not out_path:
-        try:
-            port = config.get("WEB_DEV_PORT")
-            api_url = f"http://localhost:{port}"
-
-            radis_client = RadisClient(api_url, auth_token)
-            radis_client.health()
-
+        if not helper.check_compose_up():
+            sys.exit("Uploading reports via the API requires the dev containers running.")
+        else:
             api_online = True
-        except requests.HTTPError:
-            api_online = False
-            sys.exit("API is not reachable.")
 
     llm_client = openai.OpenAI(base_url=base_url, api_key=api_key)
 
