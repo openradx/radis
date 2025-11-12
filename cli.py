@@ -188,9 +188,7 @@ def generate_example_reports(
     if out_path and out_path.exists() and not overwrite:
         sys.exit(f"File '{out_path.absolute()}' already exists.")
 
-    auth_token = config.get("SUPERUSER_AUTH_TOKEN")
-    if not auth_token:
-        sys.exit("Missing SUPERUSER_AUTH_TOKEN setting in .env file.")
+    auth_token: str | None
     api_online = False
     api_url: str | None = None
     radis_client: RadisClient | None = None
@@ -200,6 +198,9 @@ def generate_example_reports(
         if not helper.check_compose_up():
             sys.exit("Uploading reports via the API requires the dev containers running.")
         else:
+            auth_token = config.get("SUPERUSER_AUTH_TOKEN")
+            if not auth_token:
+                sys.exit("Missing SUPERUSER_AUTH_TOKEN setting in .env file.")
             port = config.get("WEB_DEV_PORT")
             api_url = f"http://localhost:{port}"
 
@@ -300,6 +301,7 @@ def generate_example_reports(
             assert content
             print(".", end="", flush=True)
 
+            # Write the generated report to file
             if file_handle is not None:
                 if written_reports:
                     file_handle.write(",\n")
@@ -307,6 +309,7 @@ def generate_example_reports(
                 json.dump(content, file_handle, ensure_ascii=False)
                 file_handle.flush()
                 written_reports += 1
+            # Upload the generated report via the API
             elif radis_client is not None:
                 if not upload_message_printed:
                     print("")
