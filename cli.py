@@ -194,7 +194,7 @@ def generate_example_reports(
     api_online = False
     api_url: str | None = None
     radis_client: RadisClient | None = None
-    faker: Faker | None
+    faker: Faker = Faker()
 
     # Check if API is online if no output path is provided
     if not out_path:
@@ -209,7 +209,6 @@ def generate_example_reports(
 
             radis_client = RadisClient(api_url, auth_token)
             api_online = True
-            faker = Faker()
 
     llm_client = openai.OpenAI(base_url=base_url, api_key=api_key)
 
@@ -273,15 +272,15 @@ def generate_example_reports(
     reports_url: str | None = f"{api_url}/api/reports/" if api_url else None
     upload_message_printed = False
 
-    if out_path:
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-        file_handle = open(out_path, "w")
-        file_handle.write("[\n")
-    else:
-        assert radis_client is not None
-        assert reports_url is not None
-
     try:
+        if out_path:
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            file_handle = open(out_path, "w")
+            file_handle.write("[\n")
+        else:
+            assert radis_client is not None
+            assert reports_url is not None
+
         for _ in range(count):
             response: ChatCompletion | None = None
             retries = 0
