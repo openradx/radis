@@ -41,7 +41,6 @@ class RadisClient:
         self.auth_token = auth_token
 
         self._reports_url = f"{self.server_url}/api/reports/"
-        self._health_url = f"{self.server_url}/health/"
         self._headers = {"Authorization": f"Token {self.auth_token}"}
 
     def create_report(self, report_data: ReportData) -> dict[str, Any]:
@@ -111,13 +110,3 @@ class RadisClient:
         """
         response = requests.delete(f"{self._reports_url}{document_id}/", headers=self._headers)
         response.raise_for_status()
-
-    def health(self) -> dict[str, Any]:
-        """Check whether the RADIS API is reachable.
-
-        Returns:
-            Parsed JSON payload returned by the health endpoint.
-        """
-        response = requests.get(self._health_url, headers=self._headers)
-        response.raise_for_status()
-        return response.json()

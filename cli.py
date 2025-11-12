@@ -3,19 +3,21 @@ import json
 import socket
 import sys
 import time as time_module
+import uuid
 from datetime import datetime, time, timezone
 from pathlib import Path
 from random import randint
-from typing import Annotated, Any, Literal, TextIO
+from typing import Annotated, Any, Literal, TextIO, cast
 
 import openai
 import requests
 import typer
 from adit_radis_shared.cli import commands
 from adit_radis_shared.cli import helper as cli_helper
+from faker import Faker
 from openai.types.chat import ChatCompletion, ChatCompletionMessageParam
-from radis_client.client import RadisClient
-from radis_client.utils.dev_helpers import create_report_data
+from pydicom.uid import generate_uid
+from radis_client.client import RadisClient, ReportData
 
 app = typer.Typer(
     context_settings={"help_option_names": ["-h", "--help"]},
@@ -192,6 +194,7 @@ def generate_example_reports(
     api_online = False
     api_url: str | None = None
     radis_client: RadisClient | None = None
+    faker: Faker | None
 
     # Check if API is online if no output path is provided
     if not out_path:
@@ -206,6 +209,7 @@ def generate_example_reports(
 
             radis_client = RadisClient(api_url, auth_token)
             api_online = True
+            faker = Faker()
 
     llm_client = openai.OpenAI(base_url=base_url, api_key=api_key)
 
@@ -316,7 +320,7 @@ def generate_example_reports(
                     print(f"Uploading example report(s) to {reports_url}...")
                     upload_message_printed = True
 
-                report_data = create_report_data(content, params)
+                report_data = _create_report_data(content, params, faker)
                 try:
                     radis_client.create_report(report_data)
                     upload_succeeded += 1
@@ -351,6 +355,41 @@ def generate_example_reports(
         print(f"Failed Uploading {upload_failed} example report(s) to '{reports_url}'")
     else:
         sys.exit("No output path specified and API is not reachable.")
+
+
+def _create_report_data(
+    body: str,
+    params: dict[str, Any],
+    faker: Faker,
+) -> ReportData:
+    metadata = {
+        "series_instance_uid": str(generate_uid()),
+        "sop_instance_uid": str(generate_uid()),
+    }
+
+    return ReportData(
+        document_id=str(uuid.uuid4()),
+        language=params.get("lng") or "en",
+        groups=[params.get("group_id") or 1],
+        pacs_aet=faker.bothify("AE####").upper(),
+        pacs_name=faker.company(),
+        pacs_link=faker.url(),
+        patient_id=params.get("patient_id") or faker.numerify("##########"),
+        patient_birth_date=params.get("patient_birthdate")
+        or faker.date_of_birth(minimum_age=25, maximum_age=90),
+        patient_sex=cast(
+            Literal["M", "F", "O"],
+            params.get("patient_sex") or faker.random_element(elements=("M", "F", "O")),
+        ),
+        study_description=params.get("study_description") or faker.text(max_nb_chars=64),
+        study_datetime=params.get("study_date")
+        or faker.date_time_between(start_date="-5y", end_date="now", tzinfo=timezone.utc),
+        study_instance_uid=generate_uid(),
+        accession_number=faker.numerify("############"),
+        modalities=[params.get("modality") or "CT"],
+        metadata=metadata,
+        body=body,
+    )
 
 
 if __name__ == "__main__":

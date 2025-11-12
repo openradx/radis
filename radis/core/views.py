@@ -18,7 +18,7 @@ from django.core.exceptions import SuspiciousOperation
 from django.db import transaction
 from django.db.models import QuerySet
 from django.forms import ModelForm
-from django.http import HttpRequest, HttpResponse
+from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import redirect, render
 from django.views.generic import CreateView, DeleteView, DetailView, View
 from django.views.generic.detail import SingleObjectMixin
@@ -26,20 +26,14 @@ from django_filters.filterset import FilterSet
 from django_filters.views import FilterView
 from django_tables2 import SingleTableMixin, Table
 from procrastinate.contrib.django import app
-from rest_framework.decorators import api_view
-from rest_framework.request import Request
-from rest_framework.response import Response
 
 from radis.core.utils.model_utils import reset_tasks
 
 from .models import AnalysisJob, AnalysisTask
 
 
-@api_view(["GET"])
-def health(_request: Request) -> Response:
-    """Return a simple response so external systems can verify the service is up."""
-
-    return Response({"status": "ok"})
+def health(request):
+    return JsonResponse({"status": "ok"})
 
 
 @staff_member_required
