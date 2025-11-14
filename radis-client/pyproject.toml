@@ -7,7 +7,6 @@ readme = "README.md"
 requires-python = ">=3.12,<4.0"
 dynamic = ["version"]
 dependencies = ["requests>=2.32.3"]
-packages = ["radis_client"]
 
 [build-system]
 requires = ["hatchling", "uv-dynamic-versioning"]
