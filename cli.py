@@ -7,7 +7,7 @@ import uuid
 from datetime import datetime, time, timezone
 from pathlib import Path
 from random import randint
-from typing import Annotated, Any, Literal, TextIO, cast
+from typing import Annotated, Any, Literal, TextIO
 
 import openai
 import requests
@@ -163,7 +163,7 @@ def generate_example_reports(
     modality: Annotated[str | None, typer.Option(help="Modality")] = None,
     study_description: Annotated[str | None, typer.Option(help="Study Description")] = None,
     study_date: Annotated[str | None, typer.Option(help="Study Date (ddmmyyyy)")] = None,
-    lng: Annotated[str, typer.Option(help="Language")] = "en",
+    lng: Annotated[Literal["en", "de"] | None, typer.Option(help="Language (en or de)")] = "en",
     content: Annotated[
         str | None, typer.Option(help="Generates the report with the desired content")
     ] = None,
@@ -212,12 +212,10 @@ def generate_example_reports(
 
     llm_client = openai.OpenAI(base_url=base_url, api_key=api_key)
 
-    # Build the user prompt
+    # Get the provided command parameters
     command = ctx.command
     assert command is not None
     params: dict[str, Any] = ctx.params
-    context_lines = []  # All parameter values are given as context to the LLM except for below
-    exclude = {"ctx", "group_id", "out", "overwrite", "count"}
 
     # Validate date time parameters
     patient_birthdate_str = params.get("patient_birthdate")
@@ -240,6 +238,10 @@ def generate_example_reports(
             sys.exit(f"Study date parameter '{study_date_str}' incorrectly formatted.")
     else:
         params["study_date"] = None
+
+    # Build prompt context from the command parameters
+    context_lines = []  # All parameter values are given as context to the LLM except for below
+    exclude = {"ctx", "group_id", "out", "overwrite", "count"}
 
     for meta_param in command.params:
         param_name = str(meta_param.name)
@@ -376,10 +378,7 @@ def _create_report_data(
         patient_id=params.get("patient_id") or faker.numerify("##########"),
         patient_birth_date=params.get("patient_birthdate")
         or faker.date_of_birth(minimum_age=25, maximum_age=90),
-        patient_sex=cast(
-            Literal["M", "F", "O"],
-            params.get("patient_sex") or faker.random_element(elements=("M", "F", "O")),
-        ),
+        patient_sex=params.get("patient_sex") or faker.random_element(elements=("M", "F", "O")),
         study_description=params.get("study_description") or faker.text(max_nb_chars=64),
         study_datetime=params.get("study_date")
         or faker.date_time_between(start_date="-5y", end_date="now", tzinfo=timezone.utc),
