@@ -32,7 +32,7 @@ from radis.core.utils.model_utils import reset_tasks
 from .models import AnalysisJob, AnalysisTask
 
 
-def health(request):
+def health(request: HttpRequest) -> JsonResponse:
     return JsonResponse({"status": "ok"})
 
 

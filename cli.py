@@ -2,7 +2,7 @@
 import json
 import socket
 import sys
-import time as time_module
+import time as time_module  # necessary due to naming conflict with datetime.time
 import uuid
 from datetime import datetime, time, timezone
 from pathlib import Path
