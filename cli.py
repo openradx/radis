@@ -4,10 +4,11 @@ import socket
 import sys
 import time as time_module  # necessary due to naming conflict with datetime.time
 import uuid
+from contextlib import nullcontext
 from datetime import datetime, time, timezone
 from pathlib import Path
 from random import randint
-from typing import Annotated, Any, Literal, TextIO
+from typing import Annotated, Any, Literal
 
 import openai
 import requests
@@ -214,7 +215,8 @@ def generate_example_reports(
 
     # Get the provided command parameters
     command = ctx.command
-    assert command is not None
+    if command is None:
+        sys.exit("Unable to access command context")
     params: dict[str, Any] = ctx.params
 
     # Validate date time parameters
@@ -267,17 +269,20 @@ def generate_example_reports(
     print(f"Generating {count} example reports...")
 
     start = time_module.time()
-    file_handle: TextIO | None = None
     written_reports = 0
     upload_succeeded = 0
     upload_failed = 0
     reports_url: str | None = f"{api_url}/api/reports/" if api_url else None
     upload_message_printed = False
 
-    try:
-        if out_path:
-            out_path.parent.mkdir(parents=True, exist_ok=True)
-            file_handle = open(out_path, "w")
+    if out_path:
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        file_context = open(out_path, "w")
+    else:
+        file_context = nullcontext(None)
+
+    with file_context as file_handle:
+        if file_handle is not None:
             file_handle.write("[\n")
         else:
             assert radis_client is not None
@@ -314,6 +319,7 @@ def generate_example_reports(
                 json.dump(content, file_handle, ensure_ascii=False)
                 file_handle.flush()
                 written_reports += 1
+
             # Upload the generated report via the API
             elif radis_client is not None:
                 if not upload_message_printed:
@@ -337,13 +343,12 @@ def generate_example_reports(
                     print("x", end="", flush=True)
                     print(f"\nFailed to upload report: {type(err).__name__}: {err}")
         print("")
-    finally:
+
         if file_handle is not None:
             if written_reports:
                 file_handle.write("\n]\n")
             else:
                 file_handle.write("]\n")
-            file_handle.close()
 
     duration = time_module.time() - start
     if out_path:
