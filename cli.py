@@ -142,6 +142,13 @@ def get_host_ip():
         print(f"Error resolving {hostname}: {e}")
 
 
+def parse_ddmmyyyy(value: str) -> datetime:
+    try:
+        return datetime.strptime(value, "%d%m%Y")
+    except ValueError:
+        raise typer.BadParameter("Date must be in format ddmmyyyy (e.g., 14022025).")
+
+
 @app.command()
 def generate_example_reports(
     ctx: typer.Context,
@@ -157,14 +164,25 @@ def generate_example_reports(
     count: Annotated[int, typer.Option(help="Number of reports to generate")] = 1,
     patient_id: Annotated[str | None, typer.Option(help="Patient ID")] = None,
     patient_birthdate: Annotated[
-        str | None, typer.Option(help="Patient Birthdate (ddmmyyyy)")
+        datetime | None,
+        typer.Option(
+            help="Patient Birthdate (ddmmyyyy)",
+            parser=parse_ddmmyyyy,
+        ),
     ] = None,
     patient_sex: Annotated[
-        Literal["M", "F", "O"] | None, typer.Option(help="Patient Sex (M, F, or O)")
+        Literal["M", "F", "O"] | None,
+        typer.Option(help="Patient Sex (M, F, or O)"),
     ] = None,
     modality: Annotated[str | None, typer.Option(help="Modality")] = None,
     study_description: Annotated[str | None, typer.Option(help="Study Description")] = None,
-    study_date: Annotated[str | None, typer.Option(help="Study Date (ddmmyyyy)")] = None,
+    study_date: Annotated[
+        datetime | None,
+        typer.Option(
+            help="Study Date (ddmmyyyy)",
+            parser=parse_ddmmyyyy,
+        ),
+    ] = None,
     lng: Annotated[Literal["en", "de"] | None, typer.Option(help="Language (en or de)")] = "en",
     content: Annotated[
         str | None, typer.Option(help="Generates the report with the desired content")
@@ -220,27 +238,8 @@ def generate_example_reports(
         sys.exit("Unable to access command context")
     params: dict[str, Any] = ctx.params
 
-    # Validate date time parameters
-    patient_birthdate_str = params.get("patient_birthdate")
-    study_date_str = params.get("study_date")
-    if patient_birthdate_str:
-        try:
-            params["patient_birthdate"] = datetime.strptime(patient_birthdate_str, "%d%m%Y").date()
-        except ValueError:
-            sys.exit(
-                f"Patient birthdate parameter '{patient_birthdate_str}' incorrectly formatted."
-            )
-    else:
-        params["patient_birthdate"] = None
-
-    if study_date_str:
-        try:
-            d = datetime.strptime(study_date_str, "%d%m%Y").date()
-            params["study_date"] = datetime.combine(d, time_of_day(12, 0, tzinfo=timezone.utc))
-        except ValueError:
-            sys.exit(f"Study date parameter '{study_date_str}' incorrectly formatted.")
-    else:
-        params["study_date"] = None
+    if study_date:
+        params["study_date"] = datetime.combine(study_date, time_of_day(12, 0, tzinfo=timezone.utc))
 
     # Build prompt context from the command parameters
     context_lines = []  # All parameter values are given as context to the LLM except for below
