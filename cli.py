@@ -214,7 +214,7 @@ def generate_example_reports(
     api_online = False
     api_url: str | None = None
     radis_client: RadisClient | None = None
-    faker: Faker = Faker()
+    faker: Faker
 
     # Check if API is online if no output path is provided
     if not out_path:
@@ -225,6 +225,8 @@ def generate_example_reports(
             if not auth_token:
                 sys.exit("Missing SUPERUSER_AUTH_TOKEN setting in .env file.")
             port = config.get("WEB_DEV_PORT")
+            if not port:
+                sys.exit("Missing WEB_DEV_PORT setting in .env file")
             api_url = f"http://localhost:{port}"
 
             radis_client = RadisClient(api_url, auth_token)
@@ -284,6 +286,7 @@ def generate_example_reports(
         else:
             assert radis_client is not None
             assert reports_url is not None
+            faker = Faker()
 
         for _ in range(count):
             response: ChatCompletion | None = None
