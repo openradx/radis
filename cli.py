@@ -2,10 +2,11 @@
 import json
 import socket
 import sys
-import time as time_module  # necessary due to naming conflict with datetime.time
+import time
 import uuid
 from contextlib import nullcontext
-from datetime import datetime, time, timezone
+from datetime import datetime, timezone
+from datetime import time as time_of_day
 from pathlib import Path
 from random import randint
 from typing import Annotated, Any, Literal
@@ -235,7 +236,7 @@ def generate_example_reports(
     if study_date_str:
         try:
             d = datetime.strptime(study_date_str, "%d%m%Y").date()
-            params["study_date"] = datetime.combine(d, time(12, 0, tzinfo=timezone.utc))
+            params["study_date"] = datetime.combine(d, time_of_day(12, 0, tzinfo=timezone.utc))
         except ValueError:
             sys.exit(f"Study date parameter '{study_date_str}' incorrectly formatted.")
     else:
@@ -268,7 +269,7 @@ def generate_example_reports(
 
     print(f"Generating {count} example reports...")
 
-    start = time_module.time()
+    start = time.time()
     written_reports = 0
     upload_succeeded = 0
     upload_failed = 0
@@ -277,11 +278,8 @@ def generate_example_reports(
 
     if out_path:
         out_path.parent.mkdir(parents=True, exist_ok=True)
-        file_context = open(out_path, "w")
-    else:
-        file_context = nullcontext(None)
 
-    with file_context as file_handle:
+    with open(out_path, "w") if out_path else nullcontext(None) as file_handle:
         if file_handle is not None:
             file_handle.write("[\n")
         else:
@@ -305,7 +303,7 @@ def generate_example_reports(
                         raise err
 
                     # maybe use rate limiter like https://github.com/tomasbasham/ratelimit
-                    time_module.sleep(randint(1, 5))
+                    time.sleep(randint(1, 5))
 
             content = response.choices[0].message.content
             assert content
@@ -350,7 +348,7 @@ def generate_example_reports(
             else:
                 file_handle.write("]\n")
 
-    duration = time_module.time() - start
+    duration = time.time() - start
     if out_path:
         print(f"Done in {duration:.2f}s")
         print(f"Example report(s) written to '{out_path.absolute()}'")
