@@ -356,20 +356,34 @@ $report
 """
 
 # Subscription
-QUESTIONS_SYSTEM_PROMPT = """
+SUBSCRIPTION_FILTER_PROMPT = """
 You are an AI medical assistant with extensive knowledge in radiology and general medicine.
 You have been trained on a wide range of medical literature, including the latest research
 and guidelines in radiological practices.
-Answer the following questions from the given radiology report. The report and questions can
-be given in any language.
-Base your answers only on the information provided in the report. Don't hallucinate.
-Return the answer in JSON format. Answer with 'true' for 'yes' and 'false' for 'no'.
+Answer the following filter questions about the radiology report. The questions can be in any
+language. Base your answers strictly on the contents of the report. Return the answers in JSON
+format using the provided field identifiers. Answer with `true` for "yes" and `false` for "no".
 
 Radiology Report:
 $report
 
 Questions:
 $questions
+
+"""
+
+SUBSCRIPTION_EXTRACTION_PROMPT = """
+You are an AI medical assistant with extensive knowledge in radiology and general medicine.
+Extract the requested information from the radiology report. Only provide data that is explicitly
+mentioned in the report and respect the expected data type. If the report does not contain the
+requested information, respond with null. Return the extracted information in JSON format using
+the provided field identifiers.
+
+Radiology Report:
+$report
+
+Fields to extract:
+$fields
 """
 
 # Extraction
