@@ -160,6 +160,11 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 # Custom user model
 AUTH_USER_MODEL = "accounts.User"
 
+# Extraction exports
+EXTRACTION_SMALL_EXPORT_ROW_LIMIT = env.int(
+    "EXTRACTION_SMALL_EXPORT_ROW_LIMIT", default=10_000
+)
+
 # Password validation
 # https://docs.djangoproject.com/en/3.0/ref/settings/#auth-password-validators
 
@@ -398,6 +403,11 @@ EXTRACTION_URGENT_PRIORITY = 3
 
 # The number of extraction instances that are processed within one extraction task.
 EXTRACTION_TASK_BATCH_SIZE = 100
+
+# The number of extraction results streamed per chunk when exporting CSV downloads.
+EXTRACTION_RESULTS_EXPORT_CHUNK_SIZE = env.int(
+    "EXTRACTION_RESULTS_EXPORT_CHUNK_SIZE", default=1000
+)
 
 # The number of parallel requests the LLM can handle. This limit is enforced within each task. When
 # having multiple workers that uses the LLM, the total number of parallel requests is
