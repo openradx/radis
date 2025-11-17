@@ -141,7 +141,7 @@ class FilterQuestionForm(forms.ModelForm):
         self.fields["question"].required = False
         self.fields["expected_answer"].required = False
         self.fields["expected_answer"].choices = [  # type: ignore[attr-defined]
-            ("", "Select expected answer"),
+            ("", "Select the expected answer"),
             *FilterQuestion.ExpectedAnswer.choices,
         ]
         self.fields["expected_answer"].label = "Accept when answer is"
@@ -154,17 +154,27 @@ class FilterQuestionForm(forms.ModelForm):
             fields.insert(1, Field("DELETE", type="hidden"))
         self.helper.layout = Layout(Div(*fields))
 
+    def has_changed(self) -> bool:
+        if not self.is_bound:
+            return super().has_changed()
+
+        question = (self.data.get(self.add_prefix("question")) or "").strip()
+        expected_answer = self.data.get(self.add_prefix("expected_answer")) or ""
+
+        if not question and not expected_answer:
+            return False
+
+        return super().has_changed()
+
     def clean(self) -> dict[str, Any]:
         cleaned_data = super().clean()
         assert cleaned_data
 
-        question = cleaned_data["question"]
-        expected_answer = cleaned_data["expected_answer"]
+        question = cleaned_data.get("question")
+        expected_answer = cleaned_data.get("expected_answer")
 
-        if bool(question) != bool(expected_answer):
-            raise forms.ValidationError(
-                "Both question and expected answer are required when specifying a filter."
-            )
+        if bool(question) ^ bool(expected_answer):
+            raise forms.ValidationError("You must provide both a question and an expected answer.")
 
         return cleaned_data
 

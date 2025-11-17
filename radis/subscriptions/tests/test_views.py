@@ -120,6 +120,42 @@ def test_subscription_create_view_post_valid(client: Client):
 
 
 @pytest.mark.django_db
+def test_subscription_create_view_ignores_empty_filter_question(client: Client):
+    user = UserFactory.create(is_active=True)
+    group = GroupFactory.create()
+    user.groups.add(group)
+    user.active_group = group
+    user.save()
+
+    language = LanguageFactory.create(code="en")
+
+    client.force_login(user)
+
+    data = {
+        "name": "Subscription Without Filter",
+        "provider": "test_provider",
+        "language": language.pk,
+        "query": "",
+        "filter_questions-TOTAL_FORMS": "1",
+        "filter_questions-INITIAL_FORMS": "0",
+        "filter_questions-MIN_NUM_FORMS": "0",
+        "filter_questions-MAX_NUM_FORMS": "3",
+        "filter_questions-0-question": "",
+        "filter_questions-0-expected_answer": "",
+        "extraction_fields-TOTAL_FORMS": "0",
+        "extraction_fields-INITIAL_FORMS": "0",
+        "extraction_fields-MIN_NUM_FORMS": "0",
+        "extraction_fields-MAX_NUM_FORMS": "10",
+    }
+
+    response = client.post("/subscriptions/create/", data)
+    assert response.status_code == 302
+
+    subscription = Subscription.objects.get(name="Subscription Without Filter")
+    assert subscription.filter_questions.count() == 0
+
+
+@pytest.mark.django_db
 def test_subscription_create_view_post_duplicate_name(client: Client):
     user = UserFactory.create(is_active=True)
     group = GroupFactory.create()
