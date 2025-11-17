@@ -52,7 +52,7 @@ class Subscription(models.Model):
     last_refreshed = models.DateTimeField(auto_now_add=True)
 
     filter_questions: models.QuerySet["FilterQuestion"]
-    extraction_fields: models.QuerySet[OutputField]
+    output_fields: models.QuerySet[OutputField]
     items: models.QuerySet["SubscribedItem"]
 
     send_finished_mail = models.BooleanField(default=False)
@@ -131,7 +131,7 @@ class SubscribedItem(models.Model):
             return []
 
         results: list[tuple[OutputField, object]] = []
-        subscription_fields = {str(f.pk): f for f in self.subscription.extraction_fields.all()}
+        subscription_fields = {str(f.pk): f for f in self.subscription.output_fields.all()}
         for key, value in self.extraction_results.items():
             field = subscription_fields.get(str(key))
             if field is not None:

@@ -19,8 +19,8 @@ from .models import (
 from .utils.processor_utils import (
     build_extraction_schema,
     build_filter_schema,
-    generate_extraction_fields_prompt,
     generate_filter_questions_prompt,
+    generate_output_fields_prompt,
 )
 
 logger = logging.getLogger(__name__)
@@ -80,14 +80,14 @@ class SubscriptionTaskProcessor(AnalysisTaskProcessor):
             logger.debug(f"Report {report.pk} was rejected by subscription {subscription.pk}")
             return
 
-        extraction_bundle = build_extraction_schema(subscription.extraction_fields)
+        extraction_bundle = build_extraction_schema(subscription.output_fields)
         extraction_results: dict[str, Any] = {}
 
         if extraction_bundle.mapping:
             extraction_prompt = Template(settings.SUBSCRIPTION_EXTRACTION_PROMPT).substitute(
                 {
                     "report": report.body,
-                    "fields": generate_extraction_fields_prompt(extraction_bundle.mapping),
+                    "fields": generate_output_fields_prompt(extraction_bundle.mapping),
                 }
             )
             extraction_response = self.client.extract_data(

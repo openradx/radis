@@ -81,7 +81,7 @@ def generate_filter_questions_prompt(mapping: list[tuple[str, FilterQuestion]]) 
     return "\n".join(lines)
 
 
-def generate_extraction_fields_prompt(mapping: list[tuple[str, OutputField]]) -> str:
+def generate_output_fields_prompt(mapping: list[tuple[str, OutputField]]) -> str:
     if not mapping:
         return "None"
 

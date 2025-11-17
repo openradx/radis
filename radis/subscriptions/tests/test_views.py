@@ -104,13 +104,13 @@ def test_subscription_create_view_post_valid(client: Client):
         "filter_questions-MAX_NUM_FORMS": "3",
         "filter_questions-0-question": "Does the report contain pneumothorax?",
         "filter_questions-0-expected_answer": "Y",
-        "extraction_fields-TOTAL_FORMS": "1",
-        "extraction_fields-INITIAL_FORMS": "0",
-        "extraction_fields-MIN_NUM_FORMS": "0",
-        "extraction_fields-MAX_NUM_FORMS": "10",
-        "extraction_fields-0-name": "Pneumothorax status",
-        "extraction_fields-0-description": "Extract pneumothorax related findings",
-        "extraction_fields-0-output_type": "T",
+        "output_fields-TOTAL_FORMS": "1",
+        "output_fields-INITIAL_FORMS": "0",
+        "output_fields-MIN_NUM_FORMS": "0",
+        "output_fields-MAX_NUM_FORMS": "10",
+        "output_fields-0-name": "Pneumothorax status",
+        "output_fields-0-description": "Extract pneumothorax related findings",
+        "output_fields-0-output_type": "T",
     }
 
     response = client.post("/subscriptions/create/", data)
@@ -142,10 +142,10 @@ def test_subscription_create_view_ignores_empty_filter_question(client: Client):
         "filter_questions-MAX_NUM_FORMS": "3",
         "filter_questions-0-question": "",
         "filter_questions-0-expected_answer": "",
-        "extraction_fields-TOTAL_FORMS": "0",
-        "extraction_fields-INITIAL_FORMS": "0",
-        "extraction_fields-MIN_NUM_FORMS": "0",
-        "extraction_fields-MAX_NUM_FORMS": "10",
+        "output_fields-TOTAL_FORMS": "0",
+        "output_fields-INITIAL_FORMS": "0",
+        "output_fields-MIN_NUM_FORMS": "0",
+        "output_fields-MAX_NUM_FORMS": "10",
     }
 
     response = client.post("/subscriptions/create/", data)
@@ -178,10 +178,10 @@ def test_subscription_create_view_post_duplicate_name(client: Client):
         "filter_questions-INITIAL_FORMS": "0",
         "filter_questions-MIN_NUM_FORMS": "0",
         "filter_questions-MAX_NUM_FORMS": "3",
-        "extraction_fields-TOTAL_FORMS": "0",
-        "extraction_fields-INITIAL_FORMS": "0",
-        "extraction_fields-MIN_NUM_FORMS": "0",
-        "extraction_fields-MAX_NUM_FORMS": "10",
+        "output_fields-TOTAL_FORMS": "0",
+        "output_fields-INITIAL_FORMS": "0",
+        "output_fields-MIN_NUM_FORMS": "0",
+        "output_fields-MAX_NUM_FORMS": "10",
     }
 
     response = client.post("/subscriptions/create/", data)
@@ -259,14 +259,14 @@ def test_subscription_update_view_post_valid(client: Client):
         "filter_questions-0-id": question.pk,
         "filter_questions-0-question": "Updated question?",
         "filter_questions-0-expected_answer": "N",
-        "extraction_fields-TOTAL_FORMS": "1",
-        "extraction_fields-INITIAL_FORMS": "1",
-        "extraction_fields-MIN_NUM_FORMS": "0",
-        "extraction_fields-MAX_NUM_FORMS": "10",
-        "extraction_fields-0-id": output_field.pk,
-        "extraction_fields-0-name": "Volume",
-        "extraction_fields-0-description": "Volume description",
-        "extraction_fields-0-output_type": "N",
+        "output_fields-TOTAL_FORMS": "1",
+        "output_fields-INITIAL_FORMS": "1",
+        "output_fields-MIN_NUM_FORMS": "0",
+        "output_fields-MAX_NUM_FORMS": "10",
+        "output_fields-0-id": output_field.pk,
+        "output_fields-0-name": "Volume",
+        "output_fields-0-description": "Volume description",
+        "output_fields-0-output_type": "N",
     }
 
     response = client.post(f"/subscriptions/{subscription.pk}/update/", data)
