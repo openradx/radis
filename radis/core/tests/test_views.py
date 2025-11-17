@@ -11,6 +11,15 @@ from radis.core.models import AnalysisJob, AnalysisTask
 from radis.extractions.factories import ExtractionJobFactory, ExtractionTaskFactory
 
 
+class TestHealthView:
+    @pytest.mark.django_db
+    def test_health_endpoint_returns_ok(self, client: Client):
+        response = client.get(reverse("health"))
+
+        assert response.status_code == 200
+        assert response.json() == {"status": "ok"}
+
+
 @pytest.mark.django_db
 def test_admin_section_access_control(client: Client):
     url = reverse("admin_section")

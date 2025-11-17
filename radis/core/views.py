@@ -18,7 +18,7 @@ from django.core.exceptions import SuspiciousOperation
 from django.db import transaction
 from django.db.models import QuerySet
 from django.forms import ModelForm
-from django.http import HttpRequest, HttpResponse
+from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import redirect, render
 from django.views.generic import CreateView, DeleteView, DetailView, View
 from django.views.generic.detail import SingleObjectMixin
@@ -30,6 +30,10 @@ from procrastinate.contrib.django import app
 from radis.core.utils.model_utils import reset_tasks
 
 from .models import AnalysisJob, AnalysisTask
+
+
+def health(request: HttpRequest) -> JsonResponse:
+    return JsonResponse({"status": "ok"})
 
 
 @staff_member_required
