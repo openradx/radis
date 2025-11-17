@@ -94,7 +94,7 @@ class OutputField(models.Model):
         null=True,
         blank=True,
         on_delete=models.CASCADE,
-        related_name="extraction_fields",
+        related_name="output_fields",
     )
 
     class Meta:
