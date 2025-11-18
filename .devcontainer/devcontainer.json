@@ -15,6 +15,7 @@
     "UV_CACHE_DIR": "${containerWorkspaceFolder}/.cache/uv"
   },
   "postCreateCommand": "bash .devcontainer/post-create.sh",
+  "postStartCommand": "bash .devcontainer/enable-venv-in-vscode.sh",
   "customizations": {
     "vscode": {
       "extensions": [
