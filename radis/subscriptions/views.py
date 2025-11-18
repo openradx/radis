@@ -21,8 +21,8 @@ from radis.subscriptions.filters import SubscriptionFilter
 from radis.subscriptions.tables import SubscriptionTable
 
 from .forms import (
-    ExtractionFieldFormSet,
     FilterQuestionFormSet,
+    OutputFieldFormSet,
     SubscriptionForm,
 )
 from .models import SubscribedItem, Subscription
@@ -58,7 +58,7 @@ class SubscriptionDetailView(LoginRequiredMixin, DetailView):
             super()
             .get_queryset()
             .filter(owner=self.request.user)
-            .prefetch_related("filter_questions", "extraction_fields")
+            .prefetch_related("filter_questions", "output_fields")
         )
 
 
@@ -72,17 +72,17 @@ class SubscriptionCreateView(LoginRequiredMixin, CreateView):  # TODO: Add Permi
         ctx = super().get_context_data(**kwargs)
         if self.request.POST:
             ctx["filter_formset"] = FilterQuestionFormSet(self.request.POST)
-            ctx["extraction_formset"] = ExtractionFieldFormSet(self.request.POST)
+            ctx["output_formset"] = OutputFieldFormSet(self.request.POST)
         else:
             ctx["filter_formset"] = FilterQuestionFormSet()
-            ctx["extraction_formset"] = ExtractionFieldFormSet()
+            ctx["output_formset"] = OutputFieldFormSet()
         return ctx
 
     def form_valid(self, form) -> HttpResponse:
         ctx = self.get_context_data()
         filter_formset: BaseInlineFormSet = ctx["filter_formset"]
-        extraction_formset: BaseInlineFormSet = ctx["extraction_formset"]
-        if filter_formset.is_valid() and extraction_formset.is_valid():
+        output_formset: BaseInlineFormSet = ctx["output_formset"]
+        if filter_formset.is_valid() and output_formset.is_valid():
             user = self.request.user
             form.instance.owner = user
             active_group = user.active_group
@@ -99,8 +99,8 @@ class SubscriptionCreateView(LoginRequiredMixin, CreateView):  # TODO: Add Permi
             filter_formset.instance = self.object
             filter_formset.save()
 
-            extraction_formset.instance = self.object
-            extraction_formset.save()
+            output_formset.instance = self.object
+            output_formset.save()
             return HttpResponseRedirect(self.get_success_url())
         else:
             return self.form_invalid(form)
@@ -120,28 +120,26 @@ class SubscriptionUpdateView(LoginRequiredMixin, UpdateView):
             super()
             .get_queryset()
             .filter(owner=self.request.user)
-            .prefetch_related("filter_questions", "extraction_fields")
+            .prefetch_related("filter_questions", "output_fields")
         )
 
     def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
         ctx = super().get_context_data(**kwargs)
         if self.request.POST:
             ctx["filter_formset"] = FilterQuestionFormSet(self.request.POST, instance=self.object)
-            ctx["extraction_formset"] = ExtractionFieldFormSet(
-                self.request.POST, instance=self.object
-            )
+            ctx["output_formset"] = OutputFieldFormSet(self.request.POST, instance=self.object)
         else:
             ctx["filter_formset"] = FilterQuestionFormSet(instance=self.object)
-            ctx["extraction_formset"] = ExtractionFieldFormSet(instance=self.object)
+            ctx["output_formset"] = OutputFieldFormSet(instance=self.object)
         ctx["filter_formset"].extra = 0  # no additional empty form when editing
-        ctx["extraction_formset"].extra = 0
+        ctx["output_formset"].extra = 0
         return ctx
 
     def form_valid(self, form) -> HttpResponse:
         ctx = self.get_context_data()
         filter_formset = ctx["filter_formset"]
-        extraction_formset = ctx["extraction_formset"]
-        if filter_formset.is_valid() and extraction_formset.is_valid():
+        output_formset = ctx["output_formset"]
+        if filter_formset.is_valid() and output_formset.is_valid():
             try:
                 self.object = form.save()
             except IntegrityError as e:
@@ -153,8 +151,8 @@ class SubscriptionUpdateView(LoginRequiredMixin, UpdateView):
             filter_formset.instance = self.object
             filter_formset.save()
 
-            extraction_formset.instance = self.object
-            extraction_formset.save()
+            output_formset.instance = self.object
+            output_formset.save()
 
             return super().form_valid(form)
         else:
@@ -196,7 +194,7 @@ class SubscriptionInboxView(
             .prefetch_related(
                 "report",
                 "subscription__filter_questions",
-                "subscription__extraction_fields",
+                "subscription__output_fields",
             )
         )
 

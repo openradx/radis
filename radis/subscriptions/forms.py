@@ -90,7 +90,7 @@ class SubscriptionForm(forms.ModelForm):
                         add_form_label="Add Filter Question",
                     ),
                     Formset(
-                        "extraction_formset",
+                        "output_formset",
                         legend="Extraction Fields",
                         add_form_label="Add Extraction Field",
                     ),
@@ -179,7 +179,7 @@ class FilterQuestionForm(forms.ModelForm):
         return cleaned_data
 
 
-class ExtractionFieldForm(forms.ModelForm):
+class OutputFieldForm(forms.ModelForm):
     class Meta:
         model = OutputField
         fields = ["name", "description", "output_type"]
@@ -220,10 +220,10 @@ FilterQuestionFormSet = forms.inlineformset_factory(
     can_delete=False,
 )
 
-ExtractionFieldFormSet = forms.inlineformset_factory(
+OutputFieldFormSet = forms.inlineformset_factory(
     Subscription,
     OutputField,
-    form=ExtractionFieldForm,
+    form=OutputFieldForm,
     fk_name="subscription",
     extra=1,
     min_num=0,

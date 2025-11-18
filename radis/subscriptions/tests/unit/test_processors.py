@@ -19,7 +19,7 @@ class ExtractionOutput(BaseModel):
 
 @pytest.mark.django_db(transaction=True)
 def test_subscription_task_processor_filters_and_extracts():
-    task, filter_question, extraction_field, report = create_subscription_task()
+    task, filter_question, output_field, report = create_subscription_task()
 
     filter_output = FilterOutput(filter_0=True)
     extraction_output = ExtractionOutput(extraction_0="Pneumothorax status confirmed")
@@ -39,5 +39,5 @@ def test_subscription_task_processor_filters_and_extracts():
     subscribed_item = SubscribedItem.objects.get(subscription=task.job.subscription, report=report)
     assert subscribed_item.filter_results == {str(filter_question.pk): True}
     assert subscribed_item.extraction_results == {
-        str(extraction_field.pk): "Pneumothorax status confirmed"
+        str(output_field.pk): "Pneumothorax status confirmed"
     }

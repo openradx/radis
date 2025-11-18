@@ -22,7 +22,7 @@ def create_subscription_task():
     filter_question = FilterQuestionFactory.create(
         subscription=subscription, expected_answer=FilterQuestion.ExpectedAnswer.YES
     )
-    extraction_field = OutputFieldFactory.create(
+    output_field = OutputFieldFactory.create(
         subscription=subscription,
         job=None,
         output_type=OutputType.TEXT,
@@ -40,4 +40,4 @@ def create_subscription_task():
     report.groups.add(group)
     task.reports.add(report)
 
-    return task, filter_question, extraction_field, report
+    return task, filter_question, output_field, report
