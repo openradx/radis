@@ -114,30 +114,6 @@ class SubscribedItem(models.Model):
     def __str__(self):
         return f"SubscribedItem of {self.subscription} [{self.pk}]"
 
-    def iter_filter_results(self) -> list[tuple[FilterQuestion, bool]]:
-        if not self.filter_results:
-            return []
-
-        results: list[tuple[FilterQuestion, bool]] = []
-        subscription_questions = {str(q.pk): q for q in self.subscription.filter_questions.all()}
-        for key, value in self.filter_results.items():
-            question = subscription_questions.get(str(key))
-            if question is not None:
-                results.append((question, bool(value)))
-        return results
-
-    def iter_extraction_results(self) -> list[tuple[OutputField, object]]:
-        if not self.extraction_results:
-            return []
-
-        results: list[tuple[OutputField, object]] = []
-        subscription_fields = {str(f.pk): f for f in self.subscription.output_fields.all()}
-        for key, value in self.extraction_results.items():
-            field = subscription_fields.get(str(key))
-            if field is not None:
-                results.append((field, value))
-        return results
-
 
 class SubscriptionJob(AnalysisJob):
     default_priority = settings.SUBSCRIPTION_DEFAULT_PRIORITY

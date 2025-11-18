@@ -4,26 +4,6 @@
             <div class="d-flex justify-content-between">
                 {% include "reports/_report_header.html" with report=subscribed_item.report %}
             </div>
-            {% with filter_results=subscribed_item.iter_filter_results %}
-                {% if filter_results %}
-                    <div>
-                        <div class="fw-semibold small text-uppercase text-secondary">Filter results</div>
-                        <ul class="mb-2 small">
-                            {% for question, value in filter_results %}<li>{{ question.question }} → {{ value|yesno:"Yes,No" }}</li>{% endfor %}
-                        </ul>
-                    </div>
-                {% endif %}
-            {% endwith %}
-            {% with extraction_results=subscribed_item.iter_extraction_results %}
-                {% if extraction_results %}
-                    <div>
-                        <div class="fw-semibold small text-uppercase text-secondary">Extraction results</div>
-                        <ul class="mb-2 small">
-                            {% for field, value in extraction_results %}<li>{{ field.name }} → {{ value|default_if_none:"—" }}</li>{% endfor %}
-                        </ul>
-                    </div>
-                {% endif %}
-            {% endwith %}
             <div class="d-flex flex-column gap-1">
                 <div class="clamp-3" :class="{'clamp-3': !full, 'pre-line': full}">{{ subscribed_item.report.body }}</div>
                 <div class="d-flex gap-2">
