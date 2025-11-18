@@ -134,7 +134,7 @@
         {% endif %}
     {% endwith %}
     <h4 class="mt-4">Extraction Fields</h4>
-    {% with fields=subscription.extraction_fields.all %}
+    {% with fields=subscription.output_fields.all %}
         {% if fields %}
             <dl class="row">
                 {% for field in fields %}
