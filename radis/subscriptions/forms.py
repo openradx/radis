@@ -139,6 +139,13 @@ class SubscriptionForm(forms.ModelForm):
         if age_from is not None and age_till is not None and age_from >= age_till:
             raise forms.ValidationError("Age from must be less than age till")
 
+        provider = self.cleaned_data["provider"]
+        query = self.cleaned_data["query"]
+        if query != "" and not provider:
+            raise forms.ValidationError(
+                "Setup of RADIS is incomplete. No retrieval providers are registered."
+            )
+
         return super().clean()
 
 
