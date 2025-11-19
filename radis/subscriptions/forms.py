@@ -11,6 +11,7 @@ from radis.reports.models import Language, Modality
 from radis.search.forms import AGE_STEP, MAX_AGE, MIN_AGE
 
 from .models import FilterQuestion, Subscription
+from .site import subscription_retrieval_providers
 
 
 class SubscriptionForm(forms.ModelForm):
@@ -18,6 +19,7 @@ class SubscriptionForm(forms.ModelForm):
         model = Subscription
         fields = [
             "name",
+            "provider",
             "query",
             "language",
             "modalities",
@@ -31,12 +33,21 @@ class SubscriptionForm(forms.ModelForm):
         labels = {"patient_id": "Patient ID"}
         help_texts = {
             "name": "Name of the Subscription",
+            "provider": "The search provider to use for the database query",
             "query": "A query to filter reports",
         }
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
+        self.fields["provider"].widget = forms.Select(
+            choices=sorted(
+                [
+                    (provider.name, provider.name)
+                    for provider in subscription_retrieval_providers.values()
+                ]
+            )
+        )
         self.fields["language"].choices = [  # type: ignore
             (language.pk, LANGUAGE_LABELS[language.code])
             for language in Language.objects.order_by("code")
@@ -82,6 +93,7 @@ class SubscriptionForm(forms.ModelForm):
             Row(
                 Column(
                     "name",
+                    "provider",
                     "query",
                     "send_finished_mail",
                     Formset(
