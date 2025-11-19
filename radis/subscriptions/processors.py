@@ -66,10 +66,13 @@ class SubscriptionTaskProcessor(AnalysisTaskProcessor):
 
             for field_name, question in filter_bundle.mapping:
                 answer = getattr(filter_response, field_name, None)
-                answer_bool = False if answer is None else bool(answer)
-                filter_results[str(question.pk)] = answer_bool
-                if answer_bool != question.expected_answer_bool:
+                if answer is None:
                     is_accepted = False
+                else:
+                    answer_bool = bool(answer)
+                    filter_results[str(question.pk)] = answer_bool
+                    if answer_bool != question.expected_answer_bool:
+                        is_accepted = False
         else:
             logger.debug(
                 "Subscription %s has no filter questions; accepting report %s by default",
@@ -96,7 +99,7 @@ class SubscriptionTaskProcessor(AnalysisTaskProcessor):
             )
 
             for field_name, field in extraction_bundle.mapping:
-                extraction_results[str(field.pk)] = getattr(extraction_response, field_name)
+                extraction_results[str(field.pk)] = getattr(extraction_response, field_name, None)
 
         SubscribedItem.objects.create(
             subscription=task.job.subscription,
