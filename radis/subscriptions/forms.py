@@ -178,6 +178,12 @@ class FilterQuestionForm(forms.ModelForm):
 
         return super().has_changed()
 
+    def clean_question(self):
+        question = self.cleaned_data["question"]
+        if len(question) > 300:  # already enforced by model
+            raise forms.ValidationError("Question too long")
+        return question
+
     def clean(self) -> dict[str, Any]:
         cleaned_data = super().clean()
         assert cleaned_data
@@ -185,7 +191,7 @@ class FilterQuestionForm(forms.ModelForm):
         question = cleaned_data.get("question")
         expected_answer = cleaned_data.get("expected_answer")
 
-        if bool(question) ^ bool(expected_answer):
+        if (question and not expected_answer) or (expected_answer and not question):
             raise forms.ValidationError("You must provide both a question and an expected answer.")
 
         return cleaned_data
