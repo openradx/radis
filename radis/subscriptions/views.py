@@ -92,7 +92,7 @@ class SubscriptionCreateView(LoginRequiredMixin, CreateView):  # TODO: Add Permi
                 self.object: Subscription = form.save()
             except IntegrityError as e:
                 if "unique_subscription_name_per_user" in str(e):
-                    form.add_error("name", "An subscription with this name already exists.")
+                    form.add_error("name", "A subscription with this name already exists.")
                     return self.form_invalid(form)
                 raise e
 
@@ -144,7 +144,7 @@ class SubscriptionUpdateView(LoginRequiredMixin, UpdateView):
                 self.object = form.save()
             except IntegrityError as e:
                 if "unique_subscription_name_per_user" in str(e):
-                    form.add_error("name", "An subscription with this name already exists.")
+                    form.add_error("name", "A subscription with this name already exists.")
                     return self.form_invalid(form)
                 raise e
 

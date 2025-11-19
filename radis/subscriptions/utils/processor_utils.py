@@ -29,7 +29,7 @@ def build_filter_schema(questions: QuerySet[FilterQuestion]) -> FilterSchemaBund
     field_definitions: dict[str, Any] = {}
     mapping: list[tuple[str, FilterQuestion]] = []
 
-    for index, question in enumerate(questions.all()):
+    for index, question in enumerate(questions.order_by("pk")):
         field_name = f"filter_{index}"
         field_definitions[field_name] = (bool, ...)
         mapping.append((field_name, question))
@@ -47,7 +47,7 @@ def build_extraction_schema(fields: QuerySet[OutputField]) -> ExtractionSchemaBu
     field_definitions: dict[str, Any] = {}
     mapping: list[tuple[str, OutputField]] = []
 
-    for index, field in enumerate(fields.all()):
+    for index, field in enumerate(fields.order_by("pk")):
         field_name = f"extraction_{index}"
         if field.output_type == OutputType.TEXT:
             output_type = str

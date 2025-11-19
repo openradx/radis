@@ -65,9 +65,10 @@ class SubscriptionTaskProcessor(AnalysisTaskProcessor):
             filter_response = self.client.extract_data(filter_prompt, filter_bundle.schema)
 
             for field_name, question in filter_bundle.mapping:
-                answer = bool(getattr(filter_response, field_name))
-                filter_results[str(question.pk)] = answer
-                if answer != question.expected_answer_bool:
+                answer = getattr(filter_response, field_name, None)
+                answer_bool = False if answer is None else bool(answer)
+                filter_results[str(question.pk)] = answer_bool
+                if answer_bool != question.expected_answer_bool:
                     is_accepted = False
         else:
             logger.debug(

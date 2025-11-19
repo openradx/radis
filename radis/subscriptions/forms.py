@@ -200,7 +200,7 @@ class OutputFieldForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
 
         self.fields["name"].required = True
-        self.fields["description"].required = False
+        self.fields["description"].required = True
 
         self.helper = FormHelper()
         self.helper.form_tag = False
