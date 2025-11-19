@@ -1,28 +1,35 @@
 from unittest.mock import MagicMock, patch
 
 import pytest
-from pydantic import BaseModel
+from pydantic import create_model
 
 from radis.chats.utils.testing_helpers import create_openai_client_mock
 from radis.subscriptions.models import SubscribedItem
 from radis.subscriptions.processors import SubscriptionTaskProcessor
+from radis.subscriptions.utils.processor_utils import (
+    get_filter_question_field_name,
+    get_output_field_name,
+)
 from radis.subscriptions.utils.testing_helpers import create_subscription_task
-
-
-class FilterOutput(BaseModel):
-    filter_0: bool
-
-
-class ExtractionOutput(BaseModel):
-    extraction_0: str
 
 
 @pytest.mark.django_db(transaction=True)
 def test_subscription_task_processor_filters_and_extracts():
     task, filter_question, output_field, report = create_subscription_task()
 
-    filter_output = FilterOutput(filter_0=True)
-    extraction_output = ExtractionOutput(extraction_0="Pneumothorax status confirmed")
+    filter_field_name = get_filter_question_field_name(filter_question)
+    extraction_field_name = get_output_field_name(output_field)
+    filter_field_definitions = {}
+    filter_field_definitions[filter_field_name] = (bool, ...)
+
+    extraction_field_definitions = {}
+    extraction_field_definitions[extraction_field_name] = (str, ...)
+
+    FilterOutput = create_model("FilterOutput", **filter_field_definitions)
+    ExtractionOutput = create_model("ExtractionOutput", **extraction_field_definitions)
+
+    filter_output = FilterOutput(**{filter_field_name: True})
+    extraction_output = ExtractionOutput(**{extraction_field_name: "Pneumothorax status confirmed"})
 
     filter_response = MagicMock(choices=[MagicMock(message=MagicMock(parsed=filter_output))])
     extraction_response = MagicMock(
