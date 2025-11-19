@@ -70,7 +70,7 @@ class SubscriptionTaskProcessor(AnalysisTaskProcessor):
             filter_schema = generate_filter_questions_schema(filter_questions)
             filter_response = self.client.extract_data(filter_prompt, filter_schema)
 
-            for question in filter_questions.all():
+            for question in filter_questions:
                 field_name = get_filter_question_field_name(question)
                 answer = getattr(filter_response, field_name, None)
                 if answer is None:
@@ -104,7 +104,7 @@ class SubscriptionTaskProcessor(AnalysisTaskProcessor):
             extraction_schema = generate_output_fields_schema(output_fields)
             extraction_response = self.client.extract_data(extraction_prompt, extraction_schema)
 
-            for field in output_fields.all():
+            for field in output_fields:
                 extraction_results[str(field.pk)] = getattr(
                     extraction_response, get_output_field_name(field), None
                 )
