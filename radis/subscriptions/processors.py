@@ -78,11 +78,13 @@ class SubscriptionTaskProcessor(AnalysisTaskProcessor):
                         f"LLM returned None for question {question.pk} on report {report.pk}"
                     )
                     is_accepted = False
+                    break
                 else:
                     answer_bool = bool(answer)
                     filter_results[str(question.pk)] = answer_bool
                     if answer_bool != question.expected_answer_bool:
                         is_accepted = False
+                        break
         else:
             logger.debug(
                 "Subscription %s has no filter questions; accepting report %s by default",
