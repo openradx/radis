@@ -1,3 +1,4 @@
+{% load subscriptions_extras %}
 <div class="card mb-3">
     <div class="card-body" x-data="{full: false, questions: false}">
         <div class="d-flex flex-column gap-1">
@@ -6,6 +7,21 @@
             </div>
             <div class="d-flex flex-column gap-1">
                 <div class="clamp-3" :class="{'clamp-3': !full, 'pre-line': full}">{{ subscribed_item.report.body }}</div>
+                {% if subscribed_item.extraction_results %}
+                    <div class="border-top pt-2 mt-1">
+                        <div class="fw-semibold small text-muted mb-1">Extracted Fields</div>
+                        <dl class="row mb-0 small">
+                            {% for field in subscribed_item.subscription.output_fields.all %}
+                                {% with field_key=field.pk|stringformat:"s" %}
+                                    <dt class="col-sm-4">{{ field.name }}</dt>
+                                    <dd class="col-sm-8">
+                                        {{ subscribed_item.extraction_results|get_item:field_key|default_if_none:"—" }}
+                                    </dd>
+                                {% endwith %}
+                            {% endfor %}
+                        </dl>
+                    </div>
+                {% endif %}
                 <div class="d-flex gap-2">
                     <button type="button"
                             class="btn btn-sm btn-link p-0 border-0"

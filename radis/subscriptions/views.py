@@ -193,7 +193,6 @@ class SubscriptionInboxView(
             .select_related("subscription")
             .prefetch_related(
                 "report",
-                "subscription__filter_questions",
                 "subscription__output_fields",
             )
         )
