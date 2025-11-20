@@ -173,18 +173,6 @@ class FilterQuestionForm(forms.ModelForm):
             fields.insert(1, Field("DELETE", type="hidden"))
         self.helper.layout = Layout(Div(*fields))
 
-    def has_changed(self) -> bool:
-        if not self.is_bound:
-            return super().has_changed()
-
-        question = (self.data.get(self.add_prefix("question")) or "").strip()
-        expected_answer = self.data.get(self.add_prefix("expected_answer")) or ""
-
-        if not question and not expected_answer:
-            return False
-
-        return super().has_changed()
-
     def clean(self) -> dict[str, Any]:
         cleaned_data = super().clean()
         assert cleaned_data

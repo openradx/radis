@@ -74,6 +74,9 @@ class SubscriptionTaskProcessor(AnalysisTaskProcessor):
                 field_name = get_filter_question_field_name(question)
                 answer = getattr(filter_response, field_name, None)
                 if answer is None:
+                    logger.debug(
+                        f"LLM returned None for question {question.pk} on report {report.pk}"
+                    )
                     is_accepted = False
                 else:
                     answer_bool = bool(answer)
