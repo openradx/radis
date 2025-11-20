@@ -9,12 +9,8 @@ from radis.extractions.models import OutputField
 from ..models import FilterQuestion
 
 
-def _filter_question_field_name(question: FilterQuestion) -> str:
-    return f"question_{question.pk}"
-
-
 def get_filter_question_field_name(question: FilterQuestion) -> str:
-    return _filter_question_field_name(question)
+    return f"question_{question.pk}"
 
 
 def get_output_field_name(field: OutputField) -> str:
@@ -25,7 +21,7 @@ def generate_filter_questions_schema(questions: Iterable[FilterQuestion]) -> typ
     field_definitions: dict[str, Any] = {}
 
     for question in questions:
-        field_name = _filter_question_field_name(question)
+        field_name = get_filter_question_field_name(question)
         field_definitions[field_name] = (bool, ...)
 
     model_name = "SubscriptionFilterResultsModel"
@@ -35,5 +31,5 @@ def generate_filter_questions_schema(questions: Iterable[FilterQuestion]) -> typ
 def generate_filter_questions_prompt(questions: Iterable[FilterQuestion]) -> str:
     prompt = ""
     for question in questions:
-        prompt += f"{_filter_question_field_name(question)}: {question.question}\n"
+        prompt += f"{get_filter_question_field_name(question)}: {question.question}\n"
     return prompt
