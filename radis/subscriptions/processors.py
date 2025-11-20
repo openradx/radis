@@ -58,9 +58,9 @@ class SubscriptionTaskProcessor(AnalysisTaskProcessor):
         filter_results: dict[str, bool] = {}
         is_accepted = True
 
-        filter_questions = subscription.filter_questions.order_by("pk")
+        filter_questions = list(subscription.filter_questions.order_by("pk"))
 
-        if filter_questions.first():
+        if filter_questions:
             filter_prompt = Template(settings.SUBSCRIPTION_FILTER_PROMPT).substitute(
                 {
                     "report": report.body,
