@@ -60,7 +60,7 @@ class SubscriptionTaskProcessor(AnalysisTaskProcessor):
 
         filter_questions = subscription.filter_questions.order_by("pk")
 
-        if filter_questions.exists():
+        if filter_questions.first():
             filter_prompt = Template(settings.SUBSCRIPTION_FILTER_PROMPT).substitute(
                 {
                     "report": report.body,
@@ -97,7 +97,7 @@ class SubscriptionTaskProcessor(AnalysisTaskProcessor):
         extraction_results: dict[str, Any] = {}
         output_fields = subscription.output_fields.order_by("pk")
 
-        if output_fields.exists():
+        if output_fields.first():
             extraction_prompt = Template(settings.SUBSCRIPTION_EXTRACTION_PROMPT).substitute(
                 {
                     "report": report.body,
