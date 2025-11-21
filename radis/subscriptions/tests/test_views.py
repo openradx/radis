@@ -2,12 +2,10 @@ import pytest
 from adit_radis_shared.accounts.factories import GroupFactory, UserFactory
 from django.test import Client
 
+from radis.extractions.factories import OutputFieldFactory
 from radis.reports.factories import LanguageFactory
 from radis.reports.models import Modality
-from radis.subscriptions.factories import (
-    QuestionFactory,
-    SubscriptionFactory,
-)
+from radis.subscriptions.factories import FilterQuestionFactory, SubscriptionFactory
 from radis.subscriptions.models import Subscription
 
 
@@ -100,17 +98,61 @@ def test_subscription_create_view_post_valid(client: Client):
         "age_till": 60,
         "patient_id": "12345",
         "send_finished_mail": True,
-        "questions-TOTAL_FORMS": "1",
-        "questions-INITIAL_FORMS": "0",
-        "questions-MIN_NUM_FORMS": "0",
-        "questions-MAX_NUM_FORMS": "3",
-        "questions-0-question": "What is the diagnosis?",
+        "filter_questions-TOTAL_FORMS": "1",
+        "filter_questions-INITIAL_FORMS": "0",
+        "filter_questions-MIN_NUM_FORMS": "0",
+        "filter_questions-MAX_NUM_FORMS": "3",
+        "filter_questions-0-question": "Does the report contain pneumothorax?",
+        "filter_questions-0-expected_answer": "Y",
+        "output_fields-TOTAL_FORMS": "1",
+        "output_fields-INITIAL_FORMS": "0",
+        "output_fields-MIN_NUM_FORMS": "0",
+        "output_fields-MAX_NUM_FORMS": "10",
+        "output_fields-0-name": "Pneumothorax status",
+        "output_fields-0-description": "Extract pneumothorax related findings",
+        "output_fields-0-output_type": "T",
     }
 
     response = client.post("/subscriptions/create/", data)
     assert response.status_code == 302
 
     assert Subscription.objects.filter(name="Test Subscription").exists()
+
+
+@pytest.mark.django_db
+def test_subscription_create_view_ignores_empty_filter_question(client: Client):
+    user = UserFactory.create(is_active=True)
+    group = GroupFactory.create()
+    user.groups.add(group)
+    user.active_group = group
+    user.save()
+
+    language = LanguageFactory.create(code="en")
+
+    client.force_login(user)
+
+    data = {
+        "name": "Subscription Without Filter",
+        "provider": "test_provider",
+        "language": language.pk,
+        "query": "",
+        "filter_questions-TOTAL_FORMS": "1",
+        "filter_questions-INITIAL_FORMS": "0",
+        "filter_questions-MIN_NUM_FORMS": "0",
+        "filter_questions-MAX_NUM_FORMS": "3",
+        "filter_questions-0-question": "",
+        "filter_questions-0-expected_answer": "",
+        "output_fields-TOTAL_FORMS": "0",
+        "output_fields-INITIAL_FORMS": "0",
+        "output_fields-MIN_NUM_FORMS": "0",
+        "output_fields-MAX_NUM_FORMS": "10",
+    }
+
+    response = client.post("/subscriptions/create/", data)
+    assert response.status_code == 302
+
+    subscription = Subscription.objects.get(name="Subscription Without Filter")
+    assert subscription.filter_questions.count() == 0
 
 
 @pytest.mark.django_db
@@ -125,13 +167,21 @@ def test_subscription_create_view_post_duplicate_name(client: Client):
 
     client.force_login(user)
 
+    language = LanguageFactory.create(code="en")
+
     data = {
         "name": "Duplicate Name",
         "provider": "test_provider",
-        "questions-TOTAL_FORMS": "0",
-        "questions-INITIAL_FORMS": "0",
-        "questions-MIN_NUM_FORMS": "0",
-        "questions-MAX_NUM_FORMS": "3",
+        "language": language.pk,
+        "query": "",
+        "filter_questions-TOTAL_FORMS": "0",
+        "filter_questions-INITIAL_FORMS": "0",
+        "filter_questions-MIN_NUM_FORMS": "0",
+        "filter_questions-MAX_NUM_FORMS": "3",
+        "output_fields-TOTAL_FORMS": "0",
+        "output_fields-INITIAL_FORMS": "0",
+        "output_fields-MIN_NUM_FORMS": "0",
+        "output_fields-MAX_NUM_FORMS": "10",
     }
 
     response = client.post("/subscriptions/create/", data)
@@ -190,7 +240,8 @@ def test_subscription_update_view_unauthorized(client: Client):
 def test_subscription_update_view_post_valid(client: Client):
     user = UserFactory.create(is_active=True)
     subscription = create_test_subscription(owner=user, name="Original Name")
-    question = QuestionFactory.create(subscription=subscription)
+    question = FilterQuestionFactory.create(subscription=subscription)
+    output_field = OutputFieldFactory.create(subscription=subscription, job=None)
 
     client.force_login(user)
 
@@ -201,12 +252,21 @@ def test_subscription_update_view_post_valid(client: Client):
         "study_description": "Updated study",
         "patient_sex": "F",
         "send_finished_mail": False,
-        "questions-TOTAL_FORMS": "1",
-        "questions-INITIAL_FORMS": "1",
-        "questions-MIN_NUM_FORMS": "0",
-        "questions-MAX_NUM_FORMS": "3",
-        "questions-0-id": question.pk,
-        "questions-0-question": "Updated question?",
+        "filter_questions-TOTAL_FORMS": "1",
+        "filter_questions-INITIAL_FORMS": "1",
+        "filter_questions-MIN_NUM_FORMS": "0",
+        "filter_questions-MAX_NUM_FORMS": "3",
+        "filter_questions-0-id": question.pk,
+        "filter_questions-0-question": "Updated question?",
+        "filter_questions-0-expected_answer": "N",
+        "output_fields-TOTAL_FORMS": "1",
+        "output_fields-INITIAL_FORMS": "1",
+        "output_fields-MIN_NUM_FORMS": "0",
+        "output_fields-MAX_NUM_FORMS": "10",
+        "output_fields-0-id": output_field.pk,
+        "output_fields-0-name": "Volume",
+        "output_fields-0-description": "Volume description",
+        "output_fields-0-output_type": "N",
     }
 
     response = client.post(f"/subscriptions/{subscription.pk}/update/", data)
