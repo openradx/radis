@@ -17,3 +17,11 @@ There are different things that can be upgraded:
 - Dependent services in `docker-compose.base.yml`, like PostgreSQL
 - Github Codespaces development container dependencies in `.devcontainer/devcontainer.json` and `.devcontainer/Dockerfile`
 - Github actions `.github/workflows/ci.yml` dependencies
+
+## Extraction export tuning
+
+Extraction result downloads stream rows in chunks to keep memory usage low. The chunk size
+defaults to 1,000 rows but can be adjusted through the
+`EXTRACTION_RESULTS_EXPORT_CHUNK_SIZE` setting (environment variable). Increase the value for
+fewer, larger writes or reduce it if exports might contain very large rows and you prefer smaller
+chunks.
