@@ -726,7 +726,6 @@ def test_task_delete_updates_job_state(client: Client):
     assert response.status_code == 302
 
 
-# AnalysisTaskResetView tests
 @pytest.mark.django_db
 def test_task_reset_owner_can_reset(client: Client):
     """Test that task owner can reset their own resettable task."""
@@ -747,7 +746,6 @@ def test_task_reset_owner_can_reset(client: Client):
 
 @pytest.mark.django_db
 def test_task_reset_non_resettable_task(client: Client):
-    """Test that non-resettable tasks cannot be reset."""
     user = UserFactory()
     job = ExtractionJobFactory(owner=user)
     task = ExtractionTaskFactory(job=job, status=AnalysisTask.Status.PENDING)
@@ -762,7 +760,6 @@ def test_task_reset_non_resettable_task(client: Client):
 
 @pytest.mark.django_db
 def test_task_reset_permission_denied(client: Client):
-    """Test that other users cannot reset tasks they don't own."""
     owner = UserFactory()
     other = UserFactory()
     job = ExtractionJobFactory(owner=owner)
@@ -778,7 +775,6 @@ def test_task_reset_permission_denied(client: Client):
 
 @pytest.mark.django_db
 def test_task_reset_staff_can_reset_any_task(client: Client):
-    """Test that staff can reset any resettable task."""
     staff = UserFactory(is_staff=True)
     user = UserFactory()
     job = ExtractionJobFactory(owner=user)
@@ -797,7 +793,6 @@ def test_task_reset_staff_can_reset_any_task(client: Client):
 
 @pytest.mark.django_db
 def test_task_reset_shows_success_message(client: Client):
-    """Test that success message is displayed after task reset."""
     user = UserFactory()
     job = ExtractionJobFactory(owner=user)
     task = ExtractionTaskFactory(job=job, status=AnalysisTask.Status.FAILURE)
@@ -816,7 +811,6 @@ def test_task_reset_shows_success_message(client: Client):
 
 @pytest.mark.django_db
 def test_task_reset_updates_job_state(client: Client):
-    """Test that job state is updated after task reset."""
     user = UserFactory()
     job = ExtractionJobFactory(owner=user)
     task = ExtractionTaskFactory(job=job, status=AnalysisTask.Status.FAILURE)
