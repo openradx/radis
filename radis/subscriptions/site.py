@@ -18,11 +18,12 @@ class SubscriptionFilterProvider(NamedTuple):
     filter: Callable[[SearchFilters], Iterable[str]]
 
 
-subscription_filter_providers: dict[str, SubscriptionFilterProvider] = {}
+subscription_filter_provider: SubscriptionFilterProvider | None = None
 
 
-def register_subscription_filter_provider(filter_provider: SubscriptionFilterProvider):
-    subscription_filter_providers[filter_provider.name] = filter_provider
+def register_subscription_filter_provider(provider: SubscriptionFilterProvider):
+    global subscription_filter_provider
+    subscription_filter_provider = provider
 
 
 class SubscriptionRetrievalProvider(NamedTuple):
@@ -37,8 +38,9 @@ class SubscriptionRetrievalProvider(NamedTuple):
     retrieve: Callable[[Search], Iterable[str]]
 
 
-subscription_retrieval_providers: dict[str, SubscriptionRetrievalProvider] = {}
+subscription_retrieval_provider: SubscriptionRetrievalProvider | None = None
 
 
-def register_subscription_retrieval_provider(retrieval_provider: SubscriptionRetrievalProvider):
-    subscription_retrieval_providers[retrieval_provider.name] = retrieval_provider
+def register_subscription_retrieval_provider(provider: SubscriptionRetrievalProvider):
+    global subscription_retrieval_provider
+    subscription_retrieval_provider = provider

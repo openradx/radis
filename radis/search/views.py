@@ -10,7 +10,7 @@ from django.views import View
 from radis.search.forms import SearchForm
 from radis.search.utils.query_parser import QueryParser
 
-from .site import Search, SearchFilters, search_providers
+from .site import Search, SearchFilters, search_provider
 
 
 class SearchView(LoginRequiredMixin, UserPassesTestMixin, View):
@@ -28,7 +28,6 @@ class SearchView(LoginRequiredMixin, UserPassesTestMixin, View):
             return render(request, "search/search.html", context)
 
         query = form.cleaned_data["query"]
-        provider = form.cleaned_data["provider"]
         language = form.cleaned_data["language"]
         modalities = form.cleaned_data["modalities"]
         study_date_from = form.cleaned_data["study_date_from"]
@@ -38,8 +37,7 @@ class SearchView(LoginRequiredMixin, UserPassesTestMixin, View):
         age_from = form.cleaned_data["age_from"]
         age_till = form.cleaned_data["age_till"]
 
-        search_provider = search_providers[provider]
-        context["selected_provider"] = search_provider.name
+        assert search_provider is not None
 
         page_number = self.get_page_number(request)
         page_size: int = self.get_page_size(request)
@@ -78,6 +76,7 @@ class SearchView(LoginRequiredMixin, UserPassesTestMixin, View):
                 offset=offset,
                 limit=page_size,
             )
+            assert search_provider is not None
             result = search_provider.search(search)
             total_count = result.total_count
 

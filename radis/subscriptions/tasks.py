@@ -13,7 +13,7 @@ from radis.search.utils.query_parser import QueryParser
 
 from .models import Subscription, SubscriptionJob, SubscriptionTask
 from .processors import SubscriptionTaskProcessor
-from .site import subscription_filter_providers, subscription_retrieval_providers
+from .site import subscription_filter_provider, subscription_retrieval_provider
 
 logger = logging.getLogger(__name__)
 
@@ -56,8 +56,8 @@ def process_subscription_job(job_id: int) -> None:
     if job.subscription.query != "":
         logger.debug("Searching new reports with query and filters for job %s", job)
 
-        provider = job.subscription.provider
-        retrieval_provider = subscription_retrieval_providers[provider]
+        assert subscription_retrieval_provider is not None
+        retrieval_provider = subscription_retrieval_provider
 
         query_node, fixes = QueryParser().parse(job.subscription.query)
 
@@ -78,8 +78,8 @@ def process_subscription_job(job_id: int) -> None:
     else:
         logger.debug("Searching new reports with filters for job %s", job)
 
-        provider = job.subscription.provider
-        filter_provider = subscription_filter_providers[provider]
+        assert subscription_filter_provider is not None
+        filter_provider = subscription_filter_provider
         new_document_ids = filter_provider.filter(filters)
 
     for document_ids in batched(new_document_ids, settings.SUBSCRIPTION_REFRESH_TASK_BATCH_SIZE):

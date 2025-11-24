@@ -14,7 +14,6 @@ class SubscriptionFactory(BaseDjangoModelFactory[Subscription]):
     name = factory.Faker("word")
     owner = factory.SubFactory(UserFactory)
     group = factory.SubFactory(GroupFactory)
-    provider = factory.Faker("company")
     patient_id = factory.Faker("numerify", text="##########")
     query = factory.Faker("sentence", nb_words=3)
     language = factory.SubFactory(LanguageFactory, code="en")

@@ -15,7 +15,7 @@ from radis.search.site import Search, SearchFilters
 from radis.search.utils.query_parser import QueryParser
 
 from .models import ExtractionJob, OutputField
-from .site import extraction_retrieval_providers
+from .site import extraction_retrieval_provider
 
 
 class SearchForm(forms.ModelForm):
@@ -23,7 +23,6 @@ class SearchForm(forms.ModelForm):
         model = ExtractionJob
         fields = [
             "title",
-            "provider",
             "query",
             "language",
             "modalities",
@@ -36,7 +35,6 @@ class SearchForm(forms.ModelForm):
         ]
         help_texts = {
             "title": "Title of the extraction job",
-            "provider": "The search provider to use for the database query",
             "query": "A query to find reports for further analysis",
         }
 
@@ -45,12 +43,6 @@ class SearchForm(forms.ModelForm):
 
         super().__init__(*args, **kwargs)
 
-        self.fields["provider"].widget = forms.Select(
-            choices=[
-                (provider.name, provider.name)
-                for provider in extraction_retrieval_providers.values()
-            ]
-        )
         self.fields["language"].choices = [  # type: ignore
             (language.pk, LANGUAGE_LABELS[language.code])
             for language in Language.objects.order_by("code")
@@ -97,7 +89,6 @@ class SearchForm(forms.ModelForm):
             Row(
                 Column(
                     "title",
-                    "provider",
                     "query",
                     Submit("next", "Next Step (Output Fields)", css_class="btn-primary"),
                 ),
@@ -114,14 +105,6 @@ class SearchForm(forms.ModelForm):
                 ),
             )
         )
-
-    def clean_provider(self) -> str:
-        provider = self.cleaned_data["provider"]
-        if not provider:
-            raise forms.ValidationError(
-                "Setup of RADIS is incomplete. No retrieval providers are registered."
-            )
-        return provider
 
     def clean_query(self) -> str:
         query = self.cleaned_data["query"]
@@ -162,10 +145,8 @@ class SearchForm(forms.ModelForm):
             ),
         )
 
-        provider = cleaned_data["provider"]
-        assert isinstance(provider, str)
-        retrieval_provider = extraction_retrieval_providers[provider]
-        retrieval_count = retrieval_provider.count(search)
+        assert extraction_retrieval_provider is not None
+        retrieval_count = extraction_retrieval_provider.count(search)
         cleaned_data["retrieval_count"] = retrieval_count
 
         if retrieval_count > settings.EXTRACTION_MAXIMUM_REPORTS_COUNT:
@@ -175,7 +156,7 @@ class SearchForm(forms.ModelForm):
                 "Please refine your search."
             )
 
-        if retrieval_provider.max_results and retrieval_count > retrieval_provider.max_results:
+        if extraction_retrieval_provider.max_results and retrieval_count > extraction_retrieval_provider.max_results:
             raise forms.ValidationError(
                 f"Your search returned more results ({retrieval_count}) than the extraction "
                 "provider can handle. Please refine your search."

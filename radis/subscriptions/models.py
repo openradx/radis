@@ -29,7 +29,6 @@ class Subscription(models.Model):
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="subscriptions"
     )
 
-    provider = models.CharField(max_length=100, blank=True)
     group = models.ForeignKey[Group](Group, on_delete=models.CASCADE, related_name="+")
     patient_id = models.CharField(max_length=100, blank=True)
     query = models.CharField(max_length=200, blank=True)

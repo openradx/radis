@@ -76,22 +76,16 @@ def test_search_view_no_active_group(client: Client):
 
 
 @pytest.mark.django_db
-@patch("radis.search.views.search_providers")
-def test_search_view_valid_query(mock_providers, client: Client):
+@patch("radis.search.views.search_provider", new=create_test_search_provider())
+def test_search_view_valid_query(client: Client):
     user = create_test_user_with_active_group()
     client.force_login(user)
-
-    test_provider = create_test_search_provider()
-    mock_providers.__getitem__.return_value = test_provider
-    mock_providers.values.return_value = [test_provider]
-    mock_providers.__contains__.return_value = True
 
     language = LanguageFactory.create(code="en")
     modality = ModalityFactory.create(code="CT", filterable=True)
 
     search_params = {
         "query": "test query",
-        "provider": "Test Provider",
         "language": language.code,
         "modalities": [modality.code],
         "study_description": "test study",
@@ -106,18 +100,13 @@ def test_search_view_valid_query(mock_providers, client: Client):
 
 
 @pytest.mark.django_db
-@patch("radis.search.views.search_providers")
-def test_search_view_pagination(mock_providers, client: Client):
+@patch("radis.search.views.search_provider", new=create_test_search_provider())
+def test_search_view_pagination(client: Client):
     user = create_test_user_with_active_group()
     client.force_login(user)
-    test_provider = create_test_search_provider()
-    mock_providers.__getitem__.return_value = test_provider
-    mock_providers.values.return_value = [test_provider]
-    mock_providers.__contains__.return_value = True
 
     search_params = {
         "query": "test query",
-        "provider": "Test Provider",
         "page": "1",
         "per_page": "10",
     }
@@ -128,27 +117,20 @@ def test_search_view_pagination(mock_providers, client: Client):
 
 
 @pytest.mark.django_db
-@patch("radis.search.views.search_providers")
-def test_search_view_invalid_page(mock_providers, client: Client):
+@patch(
+    "radis.search.views.search_provider",
+    new=SearchProvider(
+        name="Test Provider",
+        search=lambda search: SearchResult(total_count=10, total_relation="exact", documents=[]),
+        max_results=100,
+    ),
+)
+def test_search_view_invalid_page(client: Client):
     user = create_test_user_with_active_group()
     client.force_login(user)
 
-    # Mock search providers with low max_results
-    def mock_search(search):
-        return SearchResult(total_count=10, total_relation="exact", documents=[])
-
-    test_provider = SearchProvider(
-        name="Test Provider",
-        search=mock_search,
-        max_results=100,
-    )
-    mock_providers.__getitem__.return_value = test_provider
-    mock_providers.values.return_value = [test_provider]
-    mock_providers.__contains__.return_value = True
-
     search_params = {
         "query": "test query",
-        "provider": "Test Provider",
         "page": "1000",  # Very high page number
         "per_page": "25",
     }
@@ -160,22 +142,16 @@ def test_search_view_invalid_page(mock_providers, client: Client):
 
 
 @pytest.mark.django_db
-@patch("radis.search.views.search_providers")
-def test_search_view_with_filters(mock_providers, client: Client):
+@patch("radis.search.views.search_provider", new=create_test_search_provider())
+def test_search_view_with_filters(client: Client):
     user = create_test_user_with_active_group()
     client.force_login(user)
-
-    test_provider = create_test_search_provider()
-    mock_providers.__getitem__.return_value = test_provider
-    mock_providers.values.return_value = [test_provider]
-    mock_providers.__contains__.return_value = True
 
     language = LanguageFactory.create(code="en")
     modality = ModalityFactory.create(code="MR", filterable=True)
 
     search_params = {
         "query": "test query",
-        "provider": "Test Provider",
         "language": language.code,
         "modalities": [modality.code],
         "study_date_from": "2023-01-01",
@@ -192,17 +168,13 @@ def test_search_view_with_filters(mock_providers, client: Client):
 
 
 @pytest.mark.django_db
-@patch("radis.search.views.search_providers")
-def test_search_view_empty_query(mock_providers, client: Client):
+@patch("radis.search.views.search_provider", new=create_test_search_provider())
+def test_search_view_empty_query(client: Client):
     user = create_test_user_with_active_group()
     client.force_login(user)
 
-    test_provider = create_test_search_provider()
-    mock_providers.values.return_value = [test_provider]
-
     search_params = {
         "query": "",
-        "provider": "Test Provider",
     }
 
     response = client.get("/search/", search_params)
@@ -210,23 +182,18 @@ def test_search_view_empty_query(mock_providers, client: Client):
 
 
 @pytest.mark.django_db
-@patch("radis.search.views.search_providers")
-@patch("radis.search.forms.search_providers")
-def test_search_view_query_with_fixes(mock_form_providers, mock_view_providers, client: Client):
+@patch(
+    "radis.search.views.search_provider",
+    new=SearchProvider(
+        name="Test Provider",
+        search=lambda search: SearchResult(total_count=0, total_relation="exact", documents=[]),
+        max_results=1000,
+    ),
+)
+def test_search_view_query_with_fixes(client: Client):
     """Test search view when query parser applies fixes."""
     user = create_test_user_with_active_group()
     client.force_login(user)
-
-    def mock_search(search):
-        return SearchResult(total_count=0, total_relation="exact", documents=[])
-
-    test_provider = SearchProvider(name="Test Provider", search=mock_search, max_results=1000)
-
-    mock_view_providers.__getitem__.return_value = test_provider
-    mock_view_providers.values.return_value = [test_provider]
-    mock_view_providers.__contains__.return_value = True
-
-    mock_form_providers.values.return_value = [test_provider]
 
     with patch("radis.search.views.QueryParser") as mock_parser:
         mock_parser_instance = Mock()
@@ -238,7 +205,6 @@ def test_search_view_query_with_fixes(mock_form_providers, mock_view_providers, 
 
         search_params = {
             "query": "teh brain",
-            "provider": "Test Provider",
         }
 
         response = client.get("/search/", search_params)
@@ -256,15 +222,10 @@ def test_search_view_query_with_fixes(mock_form_providers, mock_view_providers, 
 
 
 @pytest.mark.django_db
-@patch("radis.search.views.search_providers")
-def test_search_view_with_modalities_filter(mock_providers, client: Client):
+@patch("radis.search.views.search_provider", new=create_test_search_provider())
+def test_search_view_with_modalities_filter(client: Client):
     user = create_test_user_with_active_group()
     client.force_login(user)
-
-    test_provider = create_test_search_provider()
-    mock_providers.__getitem__.return_value = test_provider
-    mock_providers.values.return_value = [test_provider]
-    mock_providers.__contains__.return_value = True
 
     # Create test modalities
     ct_modality = ModalityFactory.create(code="CT", filterable=True)
@@ -272,7 +233,6 @@ def test_search_view_with_modalities_filter(mock_providers, client: Client):
 
     search_params = {
         "query": "test query",
-        "provider": "Test Provider",
         "modalities": [ct_modality.code, mr_modality.code],
     }
 
@@ -282,21 +242,14 @@ def test_search_view_with_modalities_filter(mock_providers, client: Client):
 
 
 @pytest.mark.django_db
-@patch("radis.search.views.search_providers")
-def test_search_view_boundary_ages(mock_providers, client: Client):
+@patch("radis.search.views.search_provider", new=create_test_search_provider())
+def test_search_view_boundary_ages(client: Client):
     """Test search view with boundary age values."""
     user = create_test_user_with_active_group()
     client.force_login(user)
 
-    # Mock search providers
-    test_provider = create_test_search_provider()
-    mock_providers.__getitem__.return_value = test_provider
-    mock_providers.values.return_value = [test_provider]
-    mock_providers.__contains__.return_value = True
-
     search_params = {
         "query": "test query",
-        "provider": "Test Provider",
         "age_from": 0,  # Minimum age
         "age_till": 120,  # Maximum age
     }
@@ -314,18 +267,13 @@ def test_unauthenticated_access_redirects_to_login(client: Client):
 
 
 @pytest.mark.django_db
-@patch("radis.search.views.search_providers")
-def test_search_view_provider_not_found(mock_providers, client: Client):
+@patch("radis.search.views.search_provider", new=None)
+def test_search_view_provider_not_found(client: Client):
     user = create_test_user_with_active_group()
     client.force_login(user)
 
-    test_provider = create_test_search_provider()
-    mock_providers.values.return_value = [test_provider]
-    mock_providers.__contains__.return_value = False
-
     search_params = {
         "query": "test query",
-        "provider": "Nonexistent Provider",
     }
 
     response = client.get("/search/", search_params)
@@ -334,14 +282,11 @@ def test_search_view_provider_not_found(mock_providers, client: Client):
 
 
 @pytest.mark.django_db
-@patch("radis.search.views.search_providers")
-def test_search_view_form_validation_errors(mock_providers, client: Client):
+@patch("radis.search.views.search_provider", new=create_test_search_provider())
+def test_search_view_form_validation_errors(client: Client):
     """Test search view with form validation errors."""
     user = create_test_user_with_active_group()
     client.force_login(user)
-
-    test_provider = create_test_search_provider()
-    mock_providers.values.return_value = [test_provider]
 
     search_params = {
         "query": "test query",

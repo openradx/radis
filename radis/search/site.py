@@ -93,9 +93,10 @@ class SearchProvider(NamedTuple):
     max_results: int
 
 
-search_providers: dict[str, SearchProvider] = {}
+search_provider: SearchProvider | None = None
 
 
-def register_search_provider(search_provider: SearchProvider) -> None:
+def register_search_provider(provider: SearchProvider) -> None:
     """Register a search provider."""
-    search_providers[search_provider.name] = search_provider
+    global search_provider
+    search_provider = provider
