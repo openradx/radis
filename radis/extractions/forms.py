@@ -156,7 +156,10 @@ class SearchForm(forms.ModelForm):
                 "Please refine your search."
             )
 
-        if extraction_retrieval_provider.max_results and retrieval_count > extraction_retrieval_provider.max_results:
+        if (
+            extraction_retrieval_provider.max_results
+            and retrieval_count > extraction_retrieval_provider.max_results
+        ):
             raise forms.ValidationError(
                 f"Your search returned more results ({retrieval_count}) than the extraction "
                 "provider can handle. Please refine your search."
