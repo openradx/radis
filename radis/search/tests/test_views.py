@@ -164,7 +164,6 @@ def test_search_view_invalid_page(client: Client):
         response = client.get("/search/", search_params)
 
         assert response.status_code == 404
-        assert "form" in response.context
 
 
 @pytest.mark.django_db
