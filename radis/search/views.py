@@ -78,8 +78,6 @@ class SearchView(LoginRequiredMixin, UserPassesTestMixin, View):
                 offset=offset,
                 limit=page_size,
             )
-            if search_provider is None:
-                raise ImproperlyConfigured("Search provider is not configured.")
             result = search_provider.search(search)
             total_count = result.total_count
 
