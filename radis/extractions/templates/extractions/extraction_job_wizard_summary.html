@@ -91,6 +91,12 @@
                                 <dd class="col-sm-9">
                                     {{ field.output_type|human_readable_output_type }}
                                 </dd>
+                                {% if field.is_array %}
+                                    <dt class="col-sm-3">Array Output</dt>
+                                    <dd class="col-sm-9">
+                                        Yes — return multiple {{ field.output_type|human_readable_output_type|lower }} values
+                                    </dd>
+                                {% endif %}
                                 {% if field.selection_options %}
                                     <dt class="col-sm-3">Selections</dt>
                                     <dd class="col-sm-9">

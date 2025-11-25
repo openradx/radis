@@ -1,19 +1,22 @@
 {% load bootstrap_icon from common_extras %}
 <div class="mt-3"
      x-data="SelectionOptions($el)"
-     x-effect="syncOptions()"
+     x-effect="syncState()"
      data-selection-wrapper="true">
-    <div class="d-flex align-items-center gap-2">
-        {{ form.selection_options }}
-        <button type="button"
-                class="btn btn-outline-secondary btn-sm"
-                @click.prevent="addOption()"
-                :disabled="!supportsSelection || options.length >= maxOptions">
-            {% bootstrap_icon "plus-lg" %}
-            Enter a selection
-        </button>
-        <small class="text-muted" x-show="supportsSelection"
-               x-text="`${options.length} / ${maxOptions}`"></small>
+    {{ form.selection_options }}
+    {{ form.is_array }}
+    <div class="d-flex align-items-center flex-wrap selection-options-controls">
+        <div class="d-flex align-items-center gap-2 flex-wrap selection-options-actions">
+            <button type="button"
+                    class="btn btn-outline-secondary btn-sm"
+                    @click.prevent="addOption()"
+                    :disabled="!supportsSelection || options.length >= maxOptions">
+                {% bootstrap_icon "plus-lg" %}
+                Enter a selection
+            </button>
+            <small class="text-muted" x-show="supportsSelection"
+                   x-text="`${options.length} / ${maxOptions}`"></small>
+        </div>
     </div>
     <div class="mt-2" x-show="supportsSelection">
         <template x-for="(option, index) in options" :key="index">

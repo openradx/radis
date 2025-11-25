@@ -17,6 +17,7 @@ def test_output_field_form_accepts_selection_options():
             "description": "Classified tumor grade.",
             "output_type": OutputType.SELECTION,
             "selection_options": json.dumps(["Grade 1", "Grade 2"]),
+            "is_array": "false",
         },
         instance=OutputField(job=job),
     )
@@ -36,6 +37,7 @@ def test_output_field_form_requires_options_for_selection():
             "description": "Classified tumor grade.",
             "output_type": OutputType.SELECTION,
             "selection_options": json.dumps([]),
+            "is_array": "false",
         },
         instance=OutputField(job=job),
     )
@@ -53,6 +55,7 @@ def test_output_field_form_rejects_options_for_non_selection():
             "description": "Classified tumor grade.",
             "output_type": OutputType.TEXT,
             "selection_options": json.dumps(["Grade 1"]),
+            "is_array": "false",
         },
         instance=OutputField(job=job),
     )
@@ -90,3 +93,22 @@ def test_output_field_clean_rejects_selection_options_for_other_types():
 
     with pytest.raises(ValidationError):
         field.full_clean()
+
+
+@pytest.mark.django_db
+def test_output_field_form_handles_array_toggle():
+    job = ExtractionJobFactory.create()
+    form = OutputFieldForm(
+        data={
+            "name": "measurements",
+            "description": "Multiple numeric values.",
+            "output_type": OutputType.NUMERIC,
+            "selection_options": json.dumps([]),
+            "is_array": "true",
+        },
+        instance=OutputField(job=job),
+    )
+
+    assert form.is_valid()
+    instance = form.save(commit=False)
+    assert instance.is_array is True

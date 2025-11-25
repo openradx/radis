@@ -88,6 +88,7 @@ class OutputField(models.Model):
     get_output_type_display: Callable[[], str]
     optional = models.BooleanField(default=False)
     selection_options = models.JSONField(default=list, blank=True)
+    is_array = models.BooleanField(default=False)
     job = models.ForeignKey[ExtractionJob](
         ExtractionJob, on_delete=models.CASCADE, related_name="output_fields"
     )

@@ -98,19 +98,38 @@ function FormSet(rootEl) {
  */
 function SelectionOptions(rootEl) {
   const hiddenInput = rootEl.querySelector("[data-selection-input]");
+  const arrayInput = rootEl.querySelector("[data-array-input]");
   const formContainer =
     rootEl.closest(".formset-form") ?? rootEl.closest("form") ?? rootEl;
   const outputTypeField =
     formContainer.querySelector('select[name$="-output_type"]') ??
     formContainer.querySelector('select[name="output_type"]');
+  const arrayToggleButton =
+    formContainer.querySelector("[data-array-toggle]") ?? null;
+  const parseArrayValue = (value) => {
+    if (!value) {
+      return false;
+    }
+    const normalized = value.trim().toLowerCase();
+    return normalized === "true" || normalized === "1" || normalized === "on";
+  };
 
   return {
     options: [],
     maxOptions: 7,
     supportsSelection: false,
+    isArray: parseArrayValue(arrayInput?.value),
     init() {
       this.options = this.parseOptions(hiddenInput?.value);
+      this.isArray = parseArrayValue(arrayInput?.value);
       this.updateSupports();
+      if (arrayToggleButton) {
+        arrayToggleButton.addEventListener("click", (event) => {
+          event.preventDefault();
+          this.toggleArray();
+        });
+        this.updateArrayButton();
+      }
       if (outputTypeField) {
         outputTypeField.addEventListener("change", () => {
           const wasSelection = this.supportsSelection;
@@ -153,6 +172,17 @@ function SelectionOptions(rootEl) {
         .filter((opt) => opt !== "");
       hiddenInput.value = JSON.stringify(sanitized);
     },
+    syncArray() {
+      if (!arrayInput) {
+        return;
+      }
+      arrayInput.value = this.isArray ? "true" : "false";
+    },
+    syncState() {
+      this.syncOptions();
+      this.syncArray();
+      this.updateArrayButton();
+    },
     addOption() {
       if (!this.supportsSelection || this.options.length >= this.maxOptions) {
         return;
@@ -168,6 +198,16 @@ function SelectionOptions(rootEl) {
     },
     removeOption(index) {
       this.options.splice(index, 1);
+    },
+    toggleArray() {
+      this.isArray = !this.isArray;
+    },
+    updateArrayButton() {
+      if (!arrayToggleButton) {
+        return;
+      }
+      arrayToggleButton.classList.toggle("active", this.isArray);
+      arrayToggleButton.setAttribute("aria-pressed", this.isArray ? "true" : "false");
     },
   };
 }

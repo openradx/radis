@@ -26,6 +26,9 @@ def generate_output_fields_schema(fields: QuerySet[OutputField]) -> type[BaseMod
         else:
             raise ValueError(f"Unknown data type: {field.output_type}")
 
+        if field.is_array:
+            output_type = list[output_type]
+
         field_definitions[field.name] = (output_type, ...)
 
     return create_model("OutputFieldsModel", **field_definitions)
@@ -38,6 +41,11 @@ def generate_output_fields_prompt(fields: QuerySet[OutputField]) -> str:
         if OutputType(field.output_type) == OutputType.SELECTION and field.selection_options:
             description = (
                 f"{description} (Allowed selections: {', '.join(field.selection_options)})"
+            )
+        if field.is_array:
+            description = (
+                f"{description} (Return an array of "
+                f"{field.get_output_type_display().lower()} values.)"
             )
         prompt += f"{field.name}: {description}\n"
 

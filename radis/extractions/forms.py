@@ -190,6 +190,10 @@ class OutputFieldForm(forms.ModelForm):
         required=False,
         widget=forms.HiddenInput(),
     )
+    is_array = forms.CharField(
+        required=False,
+        widget=forms.HiddenInput(),
+    )
 
     class Meta:
         model = OutputField
@@ -198,6 +202,7 @@ class OutputFieldForm(forms.ModelForm):
             "description",
             "output_type",
             "selection_options",
+            "is_array",
         ]
 
     def __init__(self, *args, **kwargs):
@@ -209,18 +214,34 @@ class OutputFieldForm(forms.ModelForm):
                 "data-selection-input": "true",
             }
         )
+        self.fields["is_array"].widget.attrs.update(
+            {
+                "data-array-input": "true",
+            }
+        )
 
         initial_options = self.instance.selection_options if self.instance.pk else []
         self.initial["selection_options"] = json.dumps(initial_options)
+        self.initial["is_array"] = "true" if self.instance.is_array else "false"
 
         self.helper = FormHelper()
         self.helper.form_tag = False
         self.helper.disable_csrf = True
         self.helper.layout = Layout(
             Row(
-                Column("name", css_class="col-8"),
-                Column("output_type", css_class="col-4"),
-                css_class="g-3",
+                Column("name", css_class="col-md-7 col-12"),
+                Column("output_type", css_class="col-md-4 col-10"),
+                Column(
+                    HTML(
+                        '<button type="button" '
+                        'class="btn btn-outline-secondary btn-sm array-toggle-btn form-array-toggle" '
+                        'data-array-toggle="true" '
+                        'aria-pressed="false" '
+                        'title="Toggle array output">[ ]</button>'
+                    ),
+                    css_class="col-md-1 col-2 d-flex align-items-center justify-content-end array-toggle-field",
+                ),
+                css_class="g-3 align-items-center",
             ),
             "description",
             Div(
@@ -256,6 +277,12 @@ class OutputFieldForm(forms.ModelForm):
             raise forms.ValidationError("Provide at most 7 selection options.")
 
         return cleaned
+
+    def clean_is_array(self) -> bool:
+        raw_value = (self.cleaned_data.get("is_array") or "").strip().lower()
+        if raw_value in {"1", "true", "on"}:
+            return True
+        return False
 
     def clean(self):
         cleaned_data = super().clean()
