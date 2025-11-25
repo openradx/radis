@@ -46,6 +46,23 @@ document.addEventListener("alpine:init", () => {
   });
 });
 
+document.addEventListener("DOMContentLoaded", () => {
+  const preventAttr = "[data-prevent-enter-submit]";
+  document.querySelectorAll(preventAttr).forEach((formEl) => {
+    formEl.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter") {
+        return;
+      }
+      const target = event.target;
+      const isTextInput =
+        target instanceof HTMLInputElement &&
+        !["submit", "button"].includes(target.type);
+      if (isTextInput) {
+        event.preventDefault();
+      }
+    });
+  });
+});
 /**
  * An Alpine component that controls a Django FormSet
  *
