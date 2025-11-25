@@ -117,7 +117,9 @@ class OutputField(models.Model):
             cleaned_options = []
             for option in self.selection_options:
                 if not isinstance(option, str):
-                    raise ValidationError({"selection_options": "All selection options must be text."})
+                    raise ValidationError(
+                        {"selection_options": "All selection options must be text."}
+                    )
                 stripped = option.strip()
                 if not stripped:
                     raise ValidationError(

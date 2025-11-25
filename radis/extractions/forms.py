@@ -3,7 +3,7 @@ from typing import Any, cast
 
 from adit_radis_shared.accounts.models import User
 from crispy_forms.helper import FormHelper
-from crispy_forms.layout import Column, Div, HTML, Layout, Row, Submit
+from crispy_forms.layout import HTML, Column, Div, Layout, Row, Submit
 from django import forms
 from django.conf import settings
 from django.db.models import QuerySet
@@ -233,13 +233,19 @@ class OutputFieldForm(forms.ModelForm):
                 Column("output_type", css_class="col-md-4 col-10"),
                 Column(
                     HTML(
-                        '<button type="button" '
-                        'class="btn btn-outline-secondary btn-sm array-toggle-btn form-array-toggle" '
-                        'data-array-toggle="true" '
-                        'aria-pressed="false" '
-                        'title="Toggle array output">[ ]</button>'
+                        (
+                            '<button type="button" '
+                            'class="btn btn-outline-secondary btn-sm array-toggle-btn '
+                            'form-array-toggle" '
+                            'data-array-toggle="true" '
+                            'aria-pressed="false" '
+                            'title="Toggle array output">[ ]</button>'
+                        )
                     ),
-                    css_class="col-md-1 col-2 d-flex align-items-center justify-content-end array-toggle-field",
+                    css_class=(
+                        "col-md-1 col-2 d-flex align-items-center "
+                        "justify-content-end array-toggle-field"
+                    ),
                 ),
                 css_class="g-3 align-items-center",
             ),
