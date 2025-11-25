@@ -151,7 +151,7 @@ class SearchForm(forms.ModelForm):
 
         if retrieval_count > settings.EXTRACTION_MAXIMUM_REPORTS_COUNT:
             raise forms.ValidationError(
-                f"Your search returned more results ({retrieval_count}) then the extraction "
+                f"Your search returned more results ({retrieval_count}) than the extraction "
                 f"pipeline can handle (max. {settings.EXTRACTION_MAXIMUM_REPORTS_COUNT}). "
                 "Please refine your search."
             )
