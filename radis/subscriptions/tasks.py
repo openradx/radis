@@ -3,6 +3,7 @@ from datetime import datetime
 from itertools import batched
 
 from django.conf import settings
+from django.core.exceptions import ImproperlyConfigured
 from django.db import transaction
 from django.utils import timezone
 from procrastinate.contrib.django import app
@@ -56,7 +57,9 @@ def process_subscription_job(job_id: int) -> None:
     if job.subscription.query != "":
         logger.debug("Searching new reports with query and filters for job %s", job)
 
-        assert subscription_retrieval_provider is not None
+        if subscription_retrieval_provider is None:
+            logger.error("Subscription retrieval provider is not configured for job %s", job)
+            raise ImproperlyConfigured("Subscription retrieval provider is not configured.")
         retrieval_provider = subscription_retrieval_provider
 
         query_node, fixes = QueryParser().parse(job.subscription.query)
@@ -78,7 +81,9 @@ def process_subscription_job(job_id: int) -> None:
     else:
         logger.debug("Searching new reports with filters for job %s", job)
 
-        assert subscription_filter_provider is not None
+        if subscription_filter_provider is None:
+            logger.error("Subscription filter provider is not configured for job %s", job)
+            raise ImproperlyConfigured("Subscription filter provider is not configured.")
         filter_provider = subscription_filter_provider
         new_document_ids = filter_provider.filter(filters)
 

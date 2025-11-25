@@ -145,7 +145,8 @@ class SearchForm(forms.ModelForm):
             ),
         )
 
-        assert extraction_retrieval_provider is not None
+        if extraction_retrieval_provider is None:
+            raise forms.ValidationError("Extraction retrieval provider is not configured.")
         retrieval_count = extraction_retrieval_provider.count(search)
         cleaned_data["retrieval_count"] = retrieval_count
 

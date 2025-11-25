@@ -2,6 +2,7 @@ import logging
 from itertools import batched
 
 from django.conf import settings
+from django.core.exceptions import ImproperlyConfigured
 from procrastinate.contrib.django import app
 
 from radis.reports.models import Report
@@ -41,7 +42,9 @@ def process_extraction_job(job_id: int) -> None:
                 task.delay()
     else:
         # This is a newly created job or a job that has been restarted.
-        assert extraction_retrieval_provider is not None
+        if extraction_retrieval_provider is None:
+            logger.error("Extraction retrieval provider is not configured for job %s", job)
+            raise ImproperlyConfigured("Extraction retrieval provider is not configured.")
         retrieval_provider = extraction_retrieval_provider
 
         logger.debug("Collecting tasks for job %s", job)

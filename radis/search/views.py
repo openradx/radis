@@ -2,6 +2,7 @@ from typing import Any
 
 from adit_radis_shared.common.types import AuthenticatedHttpRequest
 from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
+from django.core.exceptions import ImproperlyConfigured
 from django.core.paginator import Paginator
 from django.http import Http404, HttpRequest
 from django.shortcuts import render
@@ -37,7 +38,8 @@ class SearchView(LoginRequiredMixin, UserPassesTestMixin, View):
         age_from = form.cleaned_data["age_from"]
         age_till = form.cleaned_data["age_till"]
 
-        assert search_provider is not None
+        if search_provider is None:
+            raise ImproperlyConfigured("Search provider is not configured.")
 
         page_number = self.get_page_number(request)
         page_size: int = self.get_page_size(request)
@@ -76,7 +78,8 @@ class SearchView(LoginRequiredMixin, UserPassesTestMixin, View):
                 offset=offset,
                 limit=page_size,
             )
-            assert search_provider is not None
+            if search_provider is None:
+                raise ImproperlyConfigured("Search provider is not configured.")
             result = search_provider.search(search)
             total_count = result.total_count
 
