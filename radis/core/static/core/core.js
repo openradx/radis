@@ -136,9 +136,11 @@ function SelectionOptions(rootEl) {
     maxOptions: 7,
     supportsSelection: false,
     isArray: parseArrayValue(arrayInput?.value),
+    lastSelectionOptions: [],
     init() {
       this.options = this.parseOptions(hiddenInput?.value);
       this.isArray = parseArrayValue(arrayInput?.value);
+      this.lastSelectionOptions = [...this.options];
       this.updateSupports();
       if (arrayToggleButton) {
         arrayToggleButton.addEventListener("click", (event) => {
@@ -152,9 +154,14 @@ function SelectionOptions(rootEl) {
           const wasSelection = this.supportsSelection;
           this.updateSupports();
           if (!this.supportsSelection) {
+            this.lastSelectionOptions = [...this.options];
             this.options = [];
           } else if (!wasSelection && this.options.length === 0) {
-            this.options = this.parseOptions(hiddenInput?.value);
+            if (this.lastSelectionOptions.length > 0) {
+              this.options = [...this.lastSelectionOptions];
+            } else {
+              this.options = this.parseOptions(hiddenInput?.value);
+            }
           }
         });
       }
@@ -188,6 +195,7 @@ function SelectionOptions(rootEl) {
         .map((opt) => (typeof opt === "string" ? opt.trim() : ""))
         .filter((opt) => opt !== "");
       hiddenInput.value = JSON.stringify(sanitized);
+      this.lastSelectionOptions = [...sanitized];
     },
     syncArray() {
       if (!arrayInput) {

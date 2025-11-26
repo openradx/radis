@@ -126,6 +126,10 @@ class OutputField(models.Model):
                         {"selection_options": "Selection options cannot be empty strings."}
                     )
                 cleaned_options.append(stripped)
+            if len(set(cleaned_options)) != len(cleaned_options):
+                raise ValidationError(
+                    {"selection_options": "Selection options must be unique."}
+                )
             self.selection_options = cleaned_options
         else:
             if self.selection_options:

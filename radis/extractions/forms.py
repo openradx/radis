@@ -281,6 +281,8 @@ class OutputFieldForm(forms.ModelForm):
 
         if len(cleaned) > 7:
             raise forms.ValidationError("Provide at most 7 selection options.")
+        if len(set(cleaned)) != len(cleaned):
+            raise forms.ValidationError("Selection options must be unique.")
 
         return cleaned
 

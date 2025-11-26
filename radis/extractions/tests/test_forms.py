@@ -112,3 +112,75 @@ def test_output_field_form_handles_array_toggle():
     assert form.is_valid()
     instance = form.save(commit=False)
     assert instance.is_array is True
+
+
+@pytest.mark.django_db
+def test_output_field_form_rejects_duplicate_selection_options():
+    job = ExtractionJobFactory.create()
+    form = OutputFieldForm(
+        data={
+            "name": "tumor_grade",
+            "description": "Classified tumor grade.",
+            "output_type": OutputType.SELECTION,
+            "selection_options": json.dumps(["Grade 1", "Grade 1"]),
+            "is_array": "false",
+        },
+        instance=OutputField(job=job),
+    )
+
+    assert not form.is_valid()
+    assert "selection_options" in form.errors
+
+
+@pytest.mark.django_db
+def test_output_field_clean_rejects_duplicate_selection_options():
+    job = ExtractionJobFactory.create()
+    field = OutputField(
+        job=job,
+        name="tumor_grade",
+        description="Classified tumor grade.",
+        output_type=OutputType.SELECTION,
+        selection_options=["Grade 1", "Grade 1"],
+    )
+
+    with pytest.raises(ValidationError):
+        field.full_clean()
+
+
+@pytest.mark.django_db
+def test_output_field_form_rejects_whitespace_only_selection_option():
+    job = ExtractionJobFactory.create()
+    form = OutputFieldForm(
+        data={
+            "name": "tumor_grade",
+            "description": "Classified tumor grade.",
+            "output_type": OutputType.SELECTION,
+            "selection_options": json.dumps(["Grade 1", "   "]),
+            "is_array": "false",
+        },
+        instance=OutputField(job=job),
+    )
+
+    assert not form.is_valid()
+    assert "selection_options" in form.errors
+
+
+@pytest.mark.django_db
+def test_output_field_form_accepts_unicode_and_long_selection_options():
+    job = ExtractionJobFactory.create()
+    unicode_option = "Grädé αβγ測試"
+    long_option = "Grade " + ("X" * 150)
+    form = OutputFieldForm(
+        data={
+            "name": "tumor_grade",
+            "description": "Classified tumor grade.",
+            "output_type": OutputType.SELECTION,
+            "selection_options": json.dumps([unicode_option, long_option]),
+            "is_array": "false",
+        },
+        instance=OutputField(job=job),
+    )
+
+    assert form.is_valid()
+    instance = form.save(commit=False)
+    assert instance.selection_options == [unicode_option.strip(), long_option.strip()]
