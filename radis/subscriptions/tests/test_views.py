@@ -581,6 +581,7 @@ def test_subscription_inbox_filtering_by_date_range(client: Client):
     items = list(response.context["object_list"])
     assert len(items) == 1
     assert item2 in items
+    assert item1 and item3 not in items
 
 
 @pytest.mark.django_db
