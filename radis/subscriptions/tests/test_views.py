@@ -1,11 +1,17 @@
+from datetime import datetime, timedelta, timezone
+
 import pytest
 from adit_radis_shared.accounts.factories import GroupFactory, UserFactory
 from django.test import Client
 
 from radis.extractions.factories import OutputFieldFactory
-from radis.reports.factories import LanguageFactory
+from radis.reports.factories import LanguageFactory, ReportFactory
 from radis.reports.models import Modality
-from radis.subscriptions.factories import FilterQuestionFactory, SubscriptionFactory
+from radis.subscriptions.factories import (
+    FilterQuestionFactory,
+    SubscribedItemFactory,
+    SubscriptionFactory,
+)
 from radis.subscriptions.models import Subscription
 
 
@@ -363,3 +369,251 @@ def test_unauthenticated_access_redirects_to_login(client: Client):
         response = client.get(endpoint)
         assert response.status_code == 302
         assert "/accounts/login/" in response["Location"]
+
+
+# Subscription Inbox Pagination and Sorting Tests
+
+
+@pytest.mark.django_db
+def test_subscription_inbox_pagination(client: Client):
+    """Test that pagination works correctly in subscription inbox."""
+
+    user = UserFactory.create(is_active=True)
+    subscription = create_test_subscription(owner=user)
+    language = LanguageFactory.create(code="en")
+
+    # Create 25 subscribed items
+    base_time = datetime.now(timezone.utc)
+    for i in range(25):
+        item = SubscribedItemFactory.create(
+            subscription=subscription, report=ReportFactory.create(language=language)
+        )
+        # Set created_at to ensure consistent ordering
+        item.created_at = base_time - timedelta(hours=i)
+        item.save()
+
+    client.force_login(user)
+
+    # Test first page with default page size (10)
+    response = client.get(f"/subscriptions/{subscription.pk}/inbox/")
+    assert response.status_code == 200
+    assert len(response.context["object_list"]) == 10
+    assert response.context["page_obj"].number == 1
+    assert response.context["page_obj"].paginator.num_pages == 3
+
+    # Test second page
+    response = client.get(f"/subscriptions/{subscription.pk}/inbox/?page=2")
+    assert response.status_code == 200
+    assert response.context["page_obj"].number == 2
+
+    # Test custom page size
+    response = client.get(f"/subscriptions/{subscription.pk}/inbox/?per_page=25")
+    assert len(response.context["object_list"]) == 25
+    assert response.context["page_obj"].paginator.num_pages == 1
+
+
+@pytest.mark.django_db
+def test_subscription_inbox_sorting_by_created_date(client: Client):
+    """Test sorting by created_at date."""
+
+    user = UserFactory.create(is_active=True)
+    subscription = create_test_subscription(owner=user)
+    language = LanguageFactory.create(code="en")
+
+    # Create items with different created_at times
+    item1 = SubscribedItemFactory.create(
+        subscription=subscription, report=ReportFactory.create(language=language)
+    )
+    item2 = SubscribedItemFactory.create(
+        subscription=subscription, report=ReportFactory.create(language=language)
+    )
+    item3 = SubscribedItemFactory.create(
+        subscription=subscription, report=ReportFactory.create(language=language)
+    )
+
+    # Manually set created_at to ensure order
+    base_time = datetime.now(timezone.utc)
+    item1.created_at = base_time - timedelta(days=2)
+    item1.save()
+    item2.created_at = base_time - timedelta(days=1)
+    item2.save()
+    item3.created_at = base_time
+    item3.save()
+
+    client.force_login(user)
+
+    # Test descending (newest first - default)
+    response = client.get(f"/subscriptions/{subscription.pk}/inbox/?sort_by=created_at&order=desc")
+    assert response.status_code == 200
+    items = list(response.context["object_list"])
+    assert items[0].pk == item3.pk
+    assert items[1].pk == item2.pk
+    assert items[2].pk == item1.pk
+
+    # Test ascending (oldest first)
+    response = client.get(f"/subscriptions/{subscription.pk}/inbox/?sort_by=created_at&order=asc")
+    assert response.status_code == 200
+    items = list(response.context["object_list"])
+    assert items[0].pk == item1.pk
+    assert items[1].pk == item2.pk
+    assert items[2].pk == item3.pk
+
+
+@pytest.mark.django_db
+def test_subscription_inbox_sorting_by_study_date(client: Client):
+    """Test sorting by study date."""
+
+    user = UserFactory.create(is_active=True)
+    subscription = create_test_subscription(owner=user)
+
+    # Create reports with different study dates
+    base_time = datetime.now(timezone.utc)
+    language = LanguageFactory.create(code="en")
+    report1 = ReportFactory.create(language=language, study_datetime=base_time - timedelta(days=10))
+    report2 = ReportFactory.create(language=language, study_datetime=base_time - timedelta(days=5))
+    report3 = ReportFactory.create(language=language, study_datetime=base_time - timedelta(days=1))
+
+    item1 = SubscribedItemFactory.create(subscription=subscription, report=report1)
+    item2 = SubscribedItemFactory.create(subscription=subscription, report=report2)
+    item3 = SubscribedItemFactory.create(subscription=subscription, report=report3)
+
+    client.force_login(user)
+
+    # Test descending (newest study date first)
+    response = client.get(f"/subscriptions/{subscription.pk}/inbox/?sort_by=study_date&order=desc")
+    assert response.status_code == 200
+    items = list(response.context["object_list"])
+    assert items[0].pk == item3.pk
+    assert items[1].pk == item2.pk
+    assert items[2].pk == item1.pk
+
+    # Test ascending (oldest study date first)
+    response = client.get(f"/subscriptions/{subscription.pk}/inbox/?sort_by=study_date&order=asc")
+    assert response.status_code == 200
+    items = list(response.context["object_list"])
+    assert items[0].pk == item1.pk
+    assert items[1].pk == item2.pk
+    assert items[2].pk == item3.pk
+
+
+@pytest.mark.django_db
+def test_subscription_inbox_invalid_sort_parameters(client: Client):
+    """Test that invalid sort parameters fall back to defaults."""
+
+    user = UserFactory.create(is_active=True)
+    subscription = create_test_subscription(owner=user)
+    language = LanguageFactory.create(code="en")
+
+    SubscribedItemFactory.create(
+        subscription=subscription, report=ReportFactory.create(language=language)
+    )
+
+    client.force_login(user)
+
+    # Invalid sort_by should default to created_at
+    response = client.get(
+        f"/subscriptions/{subscription.pk}/inbox/?sort_by=invalid_field&order=desc"
+    )
+    assert response.status_code == 200
+    assert response.context["current_sort_by"] == "created_at"
+
+    # Invalid order should default to desc
+    response = client.get(
+        f"/subscriptions/{subscription.pk}/inbox/?sort_by=created_at&order=invalid"
+    )
+    assert response.status_code == 200
+    assert response.context["current_order"] == "desc"
+
+
+@pytest.mark.django_db
+def test_subscription_inbox_filtering_by_patient_id(client: Client):
+    """Test filtering by patient ID."""
+
+    user = UserFactory.create(is_active=True)
+    subscription = create_test_subscription(owner=user)
+    language = LanguageFactory.create(code="en")
+    report1 = ReportFactory.create(language=language, patient_id="12345")
+    report2 = ReportFactory.create(language=language, patient_id="67890")
+    report3 = ReportFactory.create(language=language, patient_id="54321")
+
+    item1 = SubscribedItemFactory.create(subscription=subscription, report=report1)
+    item2 = SubscribedItemFactory.create(subscription=subscription, report=report2)
+    item3 = SubscribedItemFactory.create(subscription=subscription, report=report3)
+
+    client.force_login(user)
+
+    # Filter by patient_id (partial match)
+    response = client.get(f"/subscriptions/{subscription.pk}/inbox/?patient_id=123")
+    assert response.status_code == 200
+    items = list(response.context["object_list"])
+    assert len(items) == 1  # Should match "12345"
+    assert item1 in items
+    assert item2 and item3 not in items
+
+
+@pytest.mark.django_db
+def test_subscription_inbox_filtering_by_date_range(client: Client):
+    """Test filtering by study date range."""
+
+    user = UserFactory.create(is_active=True)
+    subscription = create_test_subscription(owner=user)
+
+    base_date = datetime.now(timezone.utc)
+    language = LanguageFactory.create(code="en")
+    report1 = ReportFactory.create(language=language, study_datetime=base_date - timedelta(days=10))
+    report2 = ReportFactory.create(language=language, study_datetime=base_date - timedelta(days=5))
+    report3 = ReportFactory.create(language=language, study_datetime=base_date - timedelta(days=1))
+
+    item1 = SubscribedItemFactory.create(subscription=subscription, report=report1)
+    item2 = SubscribedItemFactory.create(subscription=subscription, report=report2)
+    item3 = SubscribedItemFactory.create(subscription=subscription, report=report3)
+
+    client.force_login(user)
+
+    # Filter by date range
+    date_from = (base_date - timedelta(days=7)).strftime("%Y-%m-%d")
+    date_till = (base_date - timedelta(days=2)).strftime("%Y-%m-%d")
+
+    response = client.get(
+        f"/subscriptions/{subscription.pk}/inbox/?study_date_from={date_from}&study_date_till={date_till}"
+    )
+    assert response.status_code == 200
+    items = list(response.context["object_list"])
+    assert len(items) == 1
+    assert item2 in items
+
+
+@pytest.mark.django_db
+def test_subscription_inbox_combined_filter_and_sort(client: Client):
+    """Test that filtering and sorting work together."""
+
+    user = UserFactory.create(is_active=True)
+    subscription = create_test_subscription(owner=user)
+
+    # Create items with same patient but different study dates
+    base_date = datetime.now(timezone.utc)
+    language = LanguageFactory.create(code="en")
+    report1 = ReportFactory.create(
+        language=language, patient_id="12345", study_datetime=base_date - timedelta(days=5)
+    )
+    report2 = ReportFactory.create(
+        language=language, patient_id="12345", study_datetime=base_date - timedelta(days=1)
+    )
+    report3 = ReportFactory.create(language=language, patient_id="67890", study_datetime=base_date)
+
+    item1 = SubscribedItemFactory.create(subscription=subscription, report=report1)
+    item2 = SubscribedItemFactory.create(subscription=subscription, report=report2)
+    item3 = SubscribedItemFactory.create(subscription=subscription, report=report3)
+
+    client.force_login(user)
+
+    # Filter by patient_id and sort by study_date ascending
+    response = client.get(
+        f"/subscriptions/{subscription.pk}/inbox/?patient_id=12345&sort_by=study_date&order=asc"
+    )
+    assert response.status_code == 200
+    items = list(response.context["object_list"])
+    assert len(items) == 2
+    assert items[0].pk == item1.pk  # Older study date
+    assert items[1].pk == item2.pk  # Newer study date
+    assert item3 not in items  # Different patient

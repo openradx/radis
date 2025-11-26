@@ -57,4 +57,3 @@ class SubscribedItemFactory(BaseDjangoModelFactory[SubscribedItem]):
         SubscriptionJobFactory, subscription=factory.SelfAttribute("..subscription")
     )
     report = factory.SubFactory(ReportFactory)
-    answers = factory.LazyFunction(lambda: {"question_1": "answer_1", "question_2": "answer_2"})
