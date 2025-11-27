@@ -22,7 +22,7 @@ def generate_output_fields_schema(fields: QuerySet[OutputField]) -> type[BaseMod
             options = tuple(field.selection_options)
             if not options:
                 raise ValueError("Selection output requires at least one option.")
-            output_type = Literal.__getitem__(options)
+            output_type = Literal[*options]
         else:
             raise ValueError(f"Unknown data type: {field.output_type}")
 
