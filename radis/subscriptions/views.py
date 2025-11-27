@@ -1,6 +1,7 @@
 from logging import getLogger
 from typing import Any, Type, cast
 
+from adit_radis_shared.accounts.models import User
 from adit_radis_shared.common.mixins import (
     PageSizeSelectMixin,
     RelatedFilterMixin,
@@ -180,12 +181,12 @@ class SubscriptionInboxView(
     filterset_class = SubscribedItemFilter
     paginate_by = 10
     page_sizes = [10, 25, 50]
-    request: AuthenticatedHttpRequest
 
     def get_queryset(self) -> QuerySet[Subscription]:
         assert self.model
         model = cast(Type[Subscription], self.model)
-        if self.request.user.is_staff:
+        user = cast(User, self.request.user)
+        if user.is_staff:
             return model.objects.all()
         return model.objects.filter(owner=self.request.user)
 
