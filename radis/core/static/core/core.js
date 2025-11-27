@@ -130,10 +130,19 @@ function SelectionOptions(rootEl) {
     const normalized = value.trim().toLowerCase();
     return normalized === "true" || normalized === "1" || normalized === "on";
   };
+  const parseMaxOptions = () => {
+    const datasetValue =
+      hiddenInput?.dataset.maxSelectionOptions ??
+      rootEl.dataset.maxSelectionOptions ??
+      "";
+    const parsed = Number.parseInt(datasetValue, 10);
+    return Number.isNaN(parsed) ? 0 : parsed;
+  };
+  const initialMaxOptions = parseMaxOptions();
 
   return {
     options: [],
-    maxOptions: 7,
+    maxOptions: initialMaxOptions,
     supportsSelection: false,
     isArray: parseArrayValue(arrayInput?.value),
     lastSelectionOptions: [],

@@ -11,6 +11,8 @@ from procrastinate.contrib.django.models import ProcrastinateJob
 from radis.core.models import AnalysisJob, AnalysisTask
 from radis.reports.models import Language, Modality, Report
 
+from .constants import MAX_SELECTION_OPTIONS
+
 
 class ExtractionsAppSettings(AppSettings):
     class Meta:
@@ -112,8 +114,14 @@ class OutputField(models.Model):
         if self.output_type == OutputType.SELECTION:
             if not self.selection_options:
                 raise ValidationError({"selection_options": "Add at least one selection option."})
-            if len(self.selection_options) > 7:
-                raise ValidationError({"selection_options": "Provide at most 7 selection options."})
+            if len(self.selection_options) > MAX_SELECTION_OPTIONS:
+                raise ValidationError(
+                    {
+                        "selection_options": (
+                            f"Provide at most {MAX_SELECTION_OPTIONS} selection options."
+                        )
+                    }
+                )
             cleaned_options = []
             for option in self.selection_options:
                 if not isinstance(option, str):

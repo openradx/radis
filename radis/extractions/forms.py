@@ -15,6 +15,7 @@ from radis.search.forms import AGE_STEP, MAX_AGE, MIN_AGE
 from radis.search.site import Search, SearchFilters
 from radis.search.utils.query_parser import QueryParser
 
+from .constants import MAX_SELECTION_OPTIONS
 from .models import ExtractionJob, OutputField, OutputType
 from .site import extraction_retrieval_providers
 
@@ -212,6 +213,7 @@ class OutputFieldForm(forms.ModelForm):
         self.fields["selection_options"].widget.attrs.update(
             {
                 "data-selection-input": "true",
+                "data-max-selection-options": str(MAX_SELECTION_OPTIONS),
             }
         )
         self.fields["is_array"].widget.attrs.update(
@@ -279,8 +281,10 @@ class OutputFieldForm(forms.ModelForm):
                 raise forms.ValidationError("Selection options cannot be empty.")
             cleaned.append(value)
 
-        if len(cleaned) > 7:
-            raise forms.ValidationError("Provide at most 7 selection options.")
+        if len(cleaned) > MAX_SELECTION_OPTIONS:
+            raise forms.ValidationError(
+                f"Provide at most {MAX_SELECTION_OPTIONS} selection options."
+            )
         if len(set(cleaned)) != len(cleaned):
             raise forms.ValidationError("Selection options must be unique.")
 
