@@ -11,10 +11,11 @@ from adit_radis_shared.common.types import AuthenticatedHttpRequest
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib.messages.views import SuccessMessageMixin
 from django.db import IntegrityError
-from django.db.models import Count, QuerySet
+from django.db.models import Count, F, Q, QuerySet
 from django.forms.models import BaseInlineFormSet
 from django.http import HttpResponse, HttpResponseRedirect
 from django.urls import reverse, reverse_lazy
+from django.utils import timezone
 from django.views.generic import CreateView, DeleteView, DetailView, UpdateView
 from django_tables2 import SingleTableView
 
@@ -46,6 +47,13 @@ class SubscriptionListView(LoginRequiredMixin, SingleTableView):
         return (
             Subscription.objects.filter(owner=self.request.user)
             .annotate(num_reports=Count("items"))
+            .annotate(
+                num_new_reports=Count(
+                    "items",
+                    filter=Q(items__created_at__gt=F("last_viewed_at"))
+                    | Q(last_viewed_at__isnull=True),
+                )
+            )
             .order_by("-created_at")
         )
 
@@ -250,5 +258,10 @@ class SubscriptionInboxView(
         # Add validated sort parameters to context for template rendering
         context["current_sort_by"] = sort_by
         context["current_order"] = order
+
+        # Update last_viewed_at to mark all current reports as seen
+        subscription = cast(Subscription, self.object)
+        subscription.last_viewed_at = timezone.now()
+        subscription.save(update_fields=["last_viewed_at"])
 
         return context

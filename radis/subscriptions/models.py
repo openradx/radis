@@ -50,6 +50,7 @@ class Subscription(models.Model):
 
     created_at = models.DateTimeField(auto_now_add=True)
     last_refreshed = models.DateTimeField(auto_now_add=True)
+    last_viewed_at = models.DateTimeField(null=True, blank=True)
 
     filter_questions: models.QuerySet["FilterQuestion"]
     output_fields: models.QuerySet[OutputField]
