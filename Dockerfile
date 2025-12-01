@@ -21,7 +21,7 @@ RUN apt-get update \
   postgresql-client-17 \
   && rm -rf /var/lib/apt/lists/*
 
-COPY --from=ghcr.io/astral-sh/uv:0.9.11 /uv /uvx /bin/
+COPY --from=ghcr.io/astral-sh/uv:0.9.13 /uv /uvx /bin/
 
 WORKDIR /app
 
