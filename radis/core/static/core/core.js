@@ -89,3 +89,85 @@ function FormSet(rootEl) {
     },
   };
 }
+
+/**
+ * Manages the dynamic selection options input for extraction output fields.
+ *
+ * @param {HTMLElement} rootEl
+ * @returns {Object}
+ */
+function SelectionOptions(rootEl) {
+  const hiddenInput = rootEl.querySelector("[data-selection-input]");
+  const formContainer =
+    rootEl.closest(".formset-form") ?? rootEl.closest("form") ?? rootEl;
+  const outputTypeField =
+    formContainer.querySelector('select[name$="-output_type"]') ??
+    formContainer.querySelector('select[name="output_type"]');
+
+  return {
+    options: [],
+    maxOptions: 7,
+    supportsSelection: false,
+    init() {
+      this.options = this.parseOptions(hiddenInput?.value);
+      this.updateSupports();
+      if (outputTypeField) {
+        outputTypeField.addEventListener("change", () => {
+          const wasSelection = this.supportsSelection;
+          this.updateSupports();
+          if (!this.supportsSelection) {
+            this.options = [];
+          } else if (!wasSelection && this.options.length === 0) {
+            this.options = this.parseOptions(hiddenInput?.value);
+          }
+        });
+      }
+    },
+    parseOptions(value) {
+      if (!value) {
+        return [];
+      }
+      try {
+        const parsed = JSON.parse(value);
+        if (Array.isArray(parsed)) {
+          return parsed
+            .map((opt) => (typeof opt === "string" ? opt : ""))
+            .filter((opt) => opt !== "");
+        }
+      } catch (err) {
+        console.warn("Invalid selection options payload", err);
+      }
+      return [];
+    },
+    updateSupports() {
+      this.supportsSelection = outputTypeField
+        ? outputTypeField.value === "S"
+        : false;
+    },
+    syncOptions() {
+      if (!hiddenInput) {
+        return;
+      }
+      const sanitized = this.options
+        .map((opt) => (typeof opt === "string" ? opt.trim() : ""))
+        .filter((opt) => opt !== "");
+      hiddenInput.value = JSON.stringify(sanitized);
+    },
+    addOption() {
+      if (!this.supportsSelection || this.options.length >= this.maxOptions) {
+        return;
+      }
+      this.options.push("");
+      this.$nextTick(() => {
+        const inputs = rootEl.querySelectorAll("[data-selection-option-input]");
+        const lastInput = inputs[inputs.length - 1];
+        if (lastInput instanceof HTMLInputElement) {
+          lastInput.focus();
+        }
+      });
+    },
+    removeOption(index) {
+      this.options.splice(index, 1);
+    },
+  };
+}
