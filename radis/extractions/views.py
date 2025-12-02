@@ -1,3 +1,5 @@
+import csv
+import io
 from typing import Any, Type, cast
 
 from adit_radis_shared.common.mixins import (
@@ -14,8 +16,10 @@ from django.core.exceptions import SuspiciousOperation
 from django.db import transaction
 from django.db.models import QuerySet
 from django.forms import BaseInlineFormSet
-from django.shortcuts import redirect
+from django.http import FileResponse, HttpResponse
+from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse_lazy
+from django.views import View
 from django.views.generic import DetailView
 from django_tables2 import SingleTableMixin, tables
 from formtools.wizard.views import SessionWizardView
@@ -43,16 +47,21 @@ from .forms import (
     SummaryForm,
 )
 from .mixins import ExtractionsLockedMixin
-from .models import ExtractionInstance, ExtractionJob, ExtractionTask
+from .models import (
+    ExtractionInstance,
+    ExtractionJob,
+    ExtractionResultExport,
+    ExtractionTask,
+)
 from .tables import (
     ExtractionInstanceTable,
     ExtractionJobTable,
     ExtractionResultsTable,
     ExtractionTaskTable,
 )
+from .utils.csv import sanitize_csv_value
 
 EXTRACTIONS_SEARCH_PROVIDER = "extractions_search_provider"
-
 
 class ExtractionUpdatePreferencesView(ExtractionsLockedMixin, BaseUpdatePreferencesView):
     allowed_keys = [
@@ -272,3 +281,184 @@ class ExtractionResultListView(
     def get_table_data(self):
         job = cast(ExtractionJob, self.get_object())
         return ExtractionInstance.objects.filter(task__job=job)
+
+    def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
+        context = super().get_context_data(**kwargs)
+        job = cast(ExtractionJob, self.get_object())
+        context["download_available"] = (
+            job.status in ExtractionResultDownloadView.FINISHED_STATUSES
+        )
+        export = job.result_exports.first()
+        context["latest_export"] = export
+        context["export_ready"] = (
+            export is not None
+            and export.status == ExtractionResultExport.Status.COMPLETED
+            and bool(export.file)
+        )
+        context["export_in_progress"] = export is not None and export.status in {
+            ExtractionResultExport.Status.PENDING,
+            ExtractionResultExport.Status.PROCESSING,
+        }
+        context["export_failed"] = (
+            export is not None
+            and export.status == ExtractionResultExport.Status.FAILED
+            and not context["export_in_progress"]
+        )
+        row_count = (
+            ExtractionInstance.objects.filter(task__job=job).only("id").count()
+        )
+        context["export_row_count"] = row_count
+        small_limit = settings.EXTRACTION_SMALL_EXPORT_ROW_LIMIT
+        context["small_export_available"] = (
+            context["download_available"] and row_count <= small_limit
+        )
+        if context["small_export_available"]:
+            context["export_in_progress"] = False
+            context["export_failed"] = False
+        return context
+
+
+class ExtractionResultDownloadView(ExtractionsLockedMixin, LoginRequiredMixin, View):
+    FINISHED_STATUSES = {
+        ExtractionJob.Status.SUCCESS,
+        ExtractionJob.Status.WARNING,
+        ExtractionJob.Status.FAILURE,
+    }
+
+    request: AuthenticatedHttpRequest
+
+    def get_queryset(self) -> QuerySet[ExtractionJob]:
+        if self.request.user.is_staff:
+            return ExtractionJob.objects.all()
+        return ExtractionJob.objects.filter(owner=self.request.user)
+
+    def get(self, request: AuthenticatedHttpRequest, pk: int, *args, **kwargs):
+        job = get_object_or_404(self.get_queryset(), pk=pk)
+
+        if job.status not in self.FINISHED_STATUSES:
+            return HttpResponse(
+                "Cannot download results: extraction job has not finished processing.",
+                status=409,
+                content_type="text/plain",
+            )
+
+        output_fields = list(job.output_fields.order_by("id"))
+        instances_qs = (
+            ExtractionInstance.objects.filter(task__job=job)
+            .order_by("id")
+            .only("id", "output")
+        )
+        chunk_size = getattr(settings, "EXTRACTION_RESULTS_EXPORT_CHUNK_SIZE", 1000)
+        row_count = instances_qs.count()
+        force_refresh = request.GET.get("refresh") == "1"
+
+        small_limit = settings.EXTRACTION_SMALL_EXPORT_ROW_LIMIT
+        if row_count <= small_limit and not force_refresh:
+            return self._build_inline_response(
+                job, output_fields, instances_qs, chunk_size
+            )
+
+        inline_requested = row_count <= small_limit
+        message = "Extraction results are being prepared. Please check back in a moment."
+        status_code = 202
+        inline_ready = False
+
+        with transaction.atomic():
+            latest_export = job.result_exports.select_for_update().first()
+            should_enqueue = False
+
+            if (
+                latest_export
+                and latest_export.status == ExtractionResultExport.Status.COMPLETED
+                and latest_export.file
+                and not force_refresh
+            ):
+                try:
+                    file_handle = latest_export.file.open("rb")
+                except FileNotFoundError:
+                    latest_export.status = ExtractionResultExport.Status.PENDING
+                    latest_export.error_message = "Export file missing. Regenerating."
+                    latest_export.save(update_fields=["status", "error_message"])
+                    should_enqueue = True
+                    message = "Export file missing. Regenerating."
+                    inline_requested = False
+                else:
+                    return FileResponse(
+                        file_handle,
+                        as_attachment=True,
+                        filename=f"extraction-job-{job.pk}.csv",
+                        content_type="text/csv",
+                    )
+
+            export: ExtractionResultExport
+            created = False
+            if (
+                force_refresh
+                or latest_export is None
+                or latest_export.status == ExtractionResultExport.Status.FAILED
+            ):
+                export = job.result_exports.create(requested_by=request.user)
+                created = True
+            else:
+                export = latest_export
+
+            should_enqueue = should_enqueue or created
+
+            if not created and export.status == ExtractionResultExport.Status.FAILED:
+                export.status = ExtractionResultExport.Status.PENDING
+                export.error_message = ""
+                export.save(update_fields=["status", "error_message"])
+                should_enqueue = True
+
+            if should_enqueue:
+                inline_requested = False
+                transaction.on_commit(export.delay)
+                if (
+                    message
+                    == "Extraction results are being prepared. Please check back in a moment."
+                ):
+                    message = "Extraction export has been scheduled. Please check back shortly."
+            elif inline_requested:
+                status_code = 200
+                inline_ready = True
+            elif export.status == ExtractionResultExport.Status.PROCESSING:
+                message = "An export is currently in progress. Please try again later."
+            elif export.status == ExtractionResultExport.Status.PENDING:
+                message = "An export request is pending. Please try again later."
+            else:
+                message = "An export request already exists. Please try again later."
+
+        if inline_ready:
+            return self._build_inline_response(
+                job, output_fields, instances_qs, chunk_size
+            )
+
+        return HttpResponse(message, status=status_code, content_type="text/plain")
+
+    @staticmethod
+    def _build_inline_response(
+        job: ExtractionJob,
+        output_fields: list,
+        instances_qs: QuerySet[ExtractionInstance],
+        chunk_size: int,
+    ) -> HttpResponse:
+        buffer = io.StringIO()
+        writer = csv.writer(buffer, lineterminator="\n")
+
+        header = ["id"] + [field.name for field in output_fields]
+        writer.writerow(header)
+
+        for instance in instances_qs.iterator(chunk_size=chunk_size):
+            output_data = instance.output or {}
+            row = [sanitize_csv_value(instance.pk)]
+            for field in output_fields:
+                value = output_data.get(field.name)
+                row.append(sanitize_csv_value(value))
+            writer.writerow(row)
+
+        content = buffer.getvalue().encode("utf-8")
+        response = HttpResponse(content, content_type="text/csv")
+        response["Content-Disposition"] = (
+            f'attachment; filename="extraction-job-{job.pk}.csv"'
+        )
+        return response
