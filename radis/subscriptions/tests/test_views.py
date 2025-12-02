@@ -2,8 +2,11 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 from adit_radis_shared.accounts.factories import GroupFactory, UserFactory
+from django.core import mail
 from django.test import Client
+from django.utils import timezone as django_timezone
 
+from radis.core.models import AnalysisTask
 from radis.extractions.factories import OutputFieldFactory
 from radis.reports.factories import LanguageFactory, ReportFactory
 from radis.reports.models import Modality
@@ -11,6 +14,8 @@ from radis.subscriptions.factories import (
     FilterQuestionFactory,
     SubscribedItemFactory,
     SubscriptionFactory,
+    SubscriptionJobFactory,
+    SubscriptionTaskFactory,
 )
 from radis.subscriptions.models import Subscription
 
@@ -618,3 +623,260 @@ def test_subscription_inbox_combined_filter_and_sort(client: Client):
     assert items[0].pk == item1.pk  # Older study date
     assert items[1].pk == item2.pk  # Newer study date
     assert item3 not in items  # Different patient
+
+
+# Email Notification Tests
+
+
+@pytest.mark.django_db
+def test_subscription_job_sends_email_when_enabled(client: Client):
+    """Test that email is sent when send_finished_mail is True."""
+    user = UserFactory.create(is_active=True, email="test@example.com")
+    subscription = create_test_subscription(owner=user)
+    subscription.send_finished_mail = True
+    subscription.save()
+
+    job = SubscriptionJobFactory(
+        subscription=subscription, started_at=django_timezone.now()
+    )
+    task = SubscriptionTaskFactory(job=job, status=AnalysisTask.Status.SUCCESS)
+
+    # Create subscribed items
+    for _ in range(3):
+        SubscribedItemFactory(subscription=subscription, job=job)
+
+    # Trigger email sending
+    job.update_job_state()
+
+    # Assertions
+    assert len(mail.outbox) == 1
+    email = mail.outbox[0]
+    assert email.subject == f"Job {job} finished"
+    assert email.to == [user.email]
+    assert subscription.name in email.body
+
+
+@pytest.mark.django_db
+def test_subscription_job_no_email_when_disabled(client: Client):
+    """Test that email is NOT sent when send_finished_mail is False."""
+    user = UserFactory.create(is_active=True, email="test@example.com")
+    subscription = create_test_subscription(owner=user)
+    subscription.send_finished_mail = False
+    subscription.save()
+
+    job = SubscriptionJobFactory(
+        subscription=subscription, started_at=django_timezone.now()
+    )
+    task = SubscriptionTaskFactory(job=job, status=AnalysisTask.Status.SUCCESS)
+
+    # Create subscribed items
+    for _ in range(3):
+        SubscribedItemFactory(subscription=subscription, job=job)
+
+    # Trigger email sending
+    job.update_job_state()
+
+    # Assertions
+    assert len(mail.outbox) == 0
+
+
+@pytest.mark.django_db
+def test_subscription_job_email_content_and_context(client: Client):
+    """Test that email content and context are correct."""
+    user = UserFactory.create(is_active=True, email="test@example.com")
+    subscription = create_test_subscription(
+        owner=user, name="Test Pneumothorax Subscription"
+    )
+    subscription.send_finished_mail = True
+    subscription.save()
+
+    job = SubscriptionJobFactory(
+        subscription=subscription, started_at=django_timezone.now() - timedelta(hours=1)
+    )
+    task = SubscriptionTaskFactory(job=job, status=AnalysisTask.Status.SUCCESS)
+
+    # Items created AFTER job.started_at should appear in email
+    new_item1 = SubscribedItemFactory(subscription=subscription, job=job)
+    new_item1.created_at = django_timezone.now()
+    new_item1.save()
+
+    new_item2 = SubscribedItemFactory(subscription=subscription, job=job)
+    new_item2.created_at = django_timezone.now()
+    new_item2.save()
+
+    # Item created BEFORE should NOT appear
+    old_item = SubscribedItemFactory(subscription=subscription)
+    old_item.created_at = django_timezone.now() - timedelta(hours=2)
+    old_item.save()
+
+    # Trigger email sending
+    job.update_job_state()
+
+    # Assertions
+    assert len(mail.outbox) == 1
+    email = mail.outbox[0]
+
+    # Check subscription name appears
+    assert "Test Pneumothorax Subscription" in email.body
+
+    # Check HTML version exists
+    assert len(email.alternatives) > 0
+    assert email.alternatives[0][1] == "text/html"
+    html_content = email.alternatives[0][0]
+
+    # Verify subscription name in HTML
+    assert "Test Pneumothorax Subscription" in html_content
+
+
+# UI Badge Notification Tests
+
+
+@pytest.mark.django_db
+def test_subscription_badge_appears_for_first_time_view(client: Client):
+    """Test that badge appears for subscriptions with null last_viewed_at."""
+    user = UserFactory.create(is_active=True)
+    subscription = create_test_subscription(owner=user)
+    # last_viewed_at defaults to None
+    assert subscription.last_viewed_at is None
+
+    # Create subscribed items
+    SubscribedItemFactory.create_batch(2, subscription=subscription)
+
+    client.force_login(user)
+    response = client.get("/subscriptions/")
+
+    assert response.status_code == 200
+    subscription_data = list(response.context["table"].data)[0]
+    assert subscription_data.num_new_reports == 2
+    assert "2 new" in response.content.decode()
+
+
+@pytest.mark.django_db
+def test_subscription_list_shows_badge_for_new_items(client: Client):
+    """Test that badge shows correct count of new items."""
+    user = UserFactory.create(is_active=True)
+    subscription = create_test_subscription(owner=user)
+    subscription.last_viewed_at = django_timezone.now() - timedelta(hours=5)
+    subscription.save()
+
+    # Create 3 items AFTER last_viewed_at
+    for _ in range(3):
+        item = SubscribedItemFactory(subscription=subscription)
+        item.created_at = django_timezone.now()
+        item.save()
+
+    # Create 2 items BEFORE last_viewed_at (should not count)
+    for _ in range(2):
+        item = SubscribedItemFactory(subscription=subscription)
+        item.created_at = django_timezone.now() - timedelta(hours=6)
+        item.save()
+
+    client.force_login(user)
+    response = client.get("/subscriptions/")
+
+    assert response.status_code == 200
+    subscription_data = list(response.context["table"].data)[0]
+    assert subscription_data.num_new_reports == 3
+    assert "3 new" in response.content.decode()
+
+
+@pytest.mark.django_db
+def test_subscription_list_no_badge_when_no_new_items(client: Client):
+    """Test that no badge appears when there are no new items."""
+    user = UserFactory.create(is_active=True)
+    subscription = create_test_subscription(owner=user)
+    subscription.last_viewed_at = django_timezone.now()
+    subscription.save()
+
+    # Create items all BEFORE last_viewed_at
+    item = SubscribedItemFactory(subscription=subscription)
+    item.created_at = django_timezone.now() - timedelta(hours=1)
+    item.save()
+
+    client.force_login(user)
+    response = client.get("/subscriptions/")
+
+    assert response.status_code == 200
+    subscription_data = list(response.context["table"].data)[0]
+    assert subscription_data.num_new_reports == 0
+
+
+@pytest.mark.django_db
+def test_subscription_inbox_updates_last_viewed_at(client: Client):
+    """Test that last_viewed_at is updated when viewing inbox."""
+    user = UserFactory.create(is_active=True)
+    subscription = create_test_subscription(owner=user)
+    subscription.last_viewed_at = None
+    subscription.save()
+
+    client.force_login(user)
+
+    before = django_timezone.now()
+    response = client.get(f"/subscriptions/{subscription.pk}/inbox/")
+    after = django_timezone.now()
+
+    assert response.status_code == 200
+    subscription.refresh_from_db()
+    assert subscription.last_viewed_at is not None
+    assert before <= subscription.last_viewed_at <= after
+
+
+@pytest.mark.django_db
+def test_subscription_badge_disappears_after_viewing_inbox(client: Client):
+    """Test that badge disappears after viewing inbox."""
+    user = UserFactory.create(is_active=True)
+    subscription = create_test_subscription(owner=user)
+    subscription.last_viewed_at = django_timezone.now() - timedelta(hours=2)
+    subscription.save()
+
+    # Create new items
+    for _ in range(3):
+        item = SubscribedItemFactory(subscription=subscription)
+        item.created_at = django_timezone.now()
+        item.save()
+
+    client.force_login(user)
+
+    # First list view - badge should appear
+    response1 = client.get("/subscriptions/")
+    assert response1.status_code == 200
+    subscription_data1 = list(response1.context["table"].data)[0]
+    assert subscription_data1.num_new_reports == 3
+    assert "badge" in response1.content.decode()
+
+    # View inbox - updates last_viewed_at
+    response_inbox = client.get(f"/subscriptions/{subscription.pk}/inbox/")
+    assert response_inbox.status_code == 200
+
+    # Second list view - badge should be gone
+    response2 = client.get("/subscriptions/")
+    assert response2.status_code == 200
+    subscription_data2 = list(response2.context["table"].data)[0]
+    assert subscription_data2.num_new_reports == 0
+
+
+@pytest.mark.django_db
+def test_subscription_badge_reappears_with_new_items(client: Client):
+    """Test that badge reappears when new items are added after viewing inbox."""
+    user = UserFactory.create(is_active=True)
+    subscription = create_test_subscription(owner=user)
+
+    client.force_login(user)
+
+    # View inbox to set last_viewed_at
+    response1 = client.get(f"/subscriptions/{subscription.pk}/inbox/")
+    assert response1.status_code == 200
+    subscription.refresh_from_db()
+    assert subscription.last_viewed_at is not None
+
+    # Create new item with created_at AFTER the updated last_viewed_at
+    item = SubscribedItemFactory(subscription=subscription)
+    item.created_at = django_timezone.now()
+    item.save()
+
+    # Load subscription list
+    response2 = client.get("/subscriptions/")
+    assert response2.status_code == 200
+    subscription_data = list(response2.context["table"].data)[0]
+    assert subscription_data.num_new_reports == 1
+    assert "1 new" in response2.content.decode()
