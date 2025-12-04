@@ -7,8 +7,8 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("extractions", "0004_remove_outputfield_unique"),
-        ("subscriptions", "0010_rename_answers_subscribeditem_filter_results_and_more"),
+        ("extractions", "0005_remove_outputfield_unique"),
+        ("subscriptions", "0011_rename_answers_subscribeditem_filter_results_and_more"),
     ]
 
     operations = [

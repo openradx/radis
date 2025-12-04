@@ -34,7 +34,6 @@ class ExtractionJob(AnalysisJob):
         ProcrastinateJob, null=True, on_delete=models.SET_NULL, related_name="+"
     )
     title = models.CharField(max_length=100)
-    provider = models.CharField(max_length=100)
     group = models.ForeignKey[Group](Group, on_delete=models.CASCADE)
     query = models.CharField(max_length=200)
     language = models.ForeignKey[Language](Language, on_delete=models.CASCADE)

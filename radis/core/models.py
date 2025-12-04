@@ -111,21 +111,20 @@ class AnalysisJob(models.Model):
         has_warning = self.tasks.filter(status=AnalysisTask.Status.WARNING).exists()
         has_failure = self.tasks.filter(status=AnalysisTask.Status.FAILURE).exists()
 
-        if has_success and not has_warning and not has_failure:
-            self.status = AnalysisJob.Status.SUCCESS
-            self.message = "All tasks succeeded."
-        elif has_success and has_failure or has_warning and has_failure:
+        if has_failure:
             self.status = AnalysisJob.Status.FAILURE
-            self.message = "Some tasks failed."
-        elif has_success and has_warning:
-            self.status = AnalysisJob.Status.WARNING
-            self.message = "Some tasks have warnings."
+            self.message = (
+                "Some tasks failed." if (has_success or has_warning) else "All tasks failed."
+            )
+
         elif has_warning:
             self.status = AnalysisJob.Status.WARNING
-            self.message = "All tasks have warnings."
-        elif has_failure:
-            self.status = AnalysisJob.Status.FAILURE
-            self.message = "All tasks failed."
+            self.message = (
+                "Some tasks have warnings." if has_success else "All tasks have warnings."
+            )
+        elif has_success:
+            self.status = AnalysisJob.Status.SUCCESS
+            self.message = "All tasks succeeded."
         else:
             # at least one of success, warnings or failures must be > 0
             raise AssertionError(f"Invalid task status of {self}.")

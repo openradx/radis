@@ -21,8 +21,9 @@ class ExtractionRetrievalProvider(NamedTuple):
     max_results: int | None
 
 
-extraction_retrieval_providers: dict[str, ExtractionRetrievalProvider] = {}
+extraction_retrieval_provider: ExtractionRetrievalProvider | None = None
 
 
-def register_extraction_retrieval_provider(retrieval_provider: ExtractionRetrievalProvider):
-    extraction_retrieval_providers[retrieval_provider.name] = retrieval_provider
+def register_extraction_retrieval_provider(provider: ExtractionRetrievalProvider):
+    global extraction_retrieval_provider
+    extraction_retrieval_provider = provider
