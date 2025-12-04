@@ -6,7 +6,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("subscriptions", "0011_procrastinate_on_delete"),
+        ("subscriptions", "0012_procrastinate_on_delete"),
     ]
 
     operations = [

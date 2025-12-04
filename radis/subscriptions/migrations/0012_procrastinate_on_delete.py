@@ -7,7 +7,7 @@ from adit_radis_shared.common.utils.migration_utils import procrastinate_on_dele
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("subscriptions", "0010_rename_answers_subscribeditem_filter_results_and_more"),
+        ("subscriptions", "0011_rename_answers_subscribeditem_filter_results_and_more"),
         ("procrastinate", "0028_add_cancel_states"),
     ]
 

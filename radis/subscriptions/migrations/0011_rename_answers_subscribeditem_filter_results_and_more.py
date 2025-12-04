@@ -7,7 +7,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("subscriptions", "0009_alter_subscribeditem_options_and_more"),
+        ("subscriptions", "0010_remove_subscription_provider"),
     ]
 
     operations = [
