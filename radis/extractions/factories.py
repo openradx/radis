@@ -10,7 +10,6 @@ from .models import (
     OutputField,
     OutputType,
 )
-from .site import extraction_retrieval_providers
 
 fake = Faker()
 
@@ -28,7 +27,6 @@ class ExtractionJobFactory(BaseDjangoModelFactory):
         model = ExtractionJob
 
     title = factory.Faker("sentence", nb_words=3)
-    provider = factory.Faker("random_element", elements=list(extraction_retrieval_providers.keys()))
     group = factory.SubFactory("adit_radis_shared.accounts.factories.GroupFactory")
     query = factory.Faker("word")
     language = factory.SubFactory("radis.reports.factories.LanguageFactory")

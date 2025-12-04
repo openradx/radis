@@ -2,6 +2,7 @@ from typing import Any
 
 from adit_radis_shared.common.types import AuthenticatedHttpRequest
 from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
+from django.core.exceptions import ImproperlyConfigured
 from django.core.paginator import Paginator
 from django.http import Http404, HttpRequest
 from django.shortcuts import render
@@ -10,7 +11,7 @@ from django.views import View
 from radis.search.forms import SearchForm
 from radis.search.utils.query_parser import QueryParser
 
-from .site import Search, SearchFilters, search_providers
+from .site import Search, SearchFilters, search_provider
 
 
 class SearchView(LoginRequiredMixin, UserPassesTestMixin, View):
@@ -28,7 +29,6 @@ class SearchView(LoginRequiredMixin, UserPassesTestMixin, View):
             return render(request, "search/search.html", context)
 
         query = form.cleaned_data["query"]
-        provider = form.cleaned_data["provider"]
         language = form.cleaned_data["language"]
         modalities = form.cleaned_data["modalities"]
         study_date_from = form.cleaned_data["study_date_from"]
@@ -38,8 +38,8 @@ class SearchView(LoginRequiredMixin, UserPassesTestMixin, View):
         age_from = form.cleaned_data["age_from"]
         age_till = form.cleaned_data["age_till"]
 
-        search_provider = search_providers[provider]
-        context["selected_provider"] = search_provider.name
+        if search_provider is None:
+            raise ImproperlyConfigured("Search provider is not configured.")
 
         page_number = self.get_page_number(request)
         page_size: int = self.get_page_size(request)

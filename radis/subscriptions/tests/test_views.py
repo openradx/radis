@@ -94,7 +94,6 @@ def test_subscription_create_view_post_valid(client: Client):
 
     data = {
         "name": "Test Subscription",
-        "provider": "test_provider",
         "query": "test query",
         "language": language.pk,
         "modalities": [modality.pk],
@@ -253,7 +252,6 @@ def test_subscription_update_view_post_valid(client: Client):
 
     data = {
         "name": "Updated Name",
-        "provider": subscription.provider,
         "query": "updated query",
         "study_description": "Updated study",
         "patient_sex": "F",
