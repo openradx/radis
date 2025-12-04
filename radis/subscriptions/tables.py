@@ -1,4 +1,6 @@
 import django_tables2 as tables
+from django.urls import reverse
+from django.utils.html import format_html
 from django_tables2.utils import A
 
 from .models import Subscription
@@ -17,6 +19,20 @@ class SubscriptionTable(tables.Table):
             "td": {"class": "text-center"},
         },
     )
+
+    def render_num_reports(self, value, record):
+        """Render the num_reports column with a notification badge for new reports."""
+        num_new = getattr(record, "num_new_reports", 0)
+        url = reverse("subscription_inbox", args=[record.pk])
+
+        if num_new > 0:
+            return format_html(
+                '<a href="{}">{} <span class="badge bg-primary">{} new</span></a>',
+                url,
+                value,
+                num_new,
+            )
+        return format_html('<a href="{}">{}</a>', url, value)
 
     class Meta:
         model = Subscription

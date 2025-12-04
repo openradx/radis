@@ -4,7 +4,7 @@ from adit_radis_shared.common.factories import BaseDjangoModelFactory
 
 from radis.reports.factories import LanguageFactory, ReportFactory
 
-from .models import Question, SubscribedItem, Subscription, SubscriptionJob, SubscriptionTask
+from .models import FilterQuestion, SubscribedItem, Subscription, SubscriptionJob, SubscriptionTask
 
 
 class SubscriptionFactory(BaseDjangoModelFactory[Subscription]):
@@ -24,9 +24,9 @@ class SubscriptionFactory(BaseDjangoModelFactory[Subscription]):
     send_finished_mail = factory.Faker("boolean")
 
 
-class QuestionFactory(BaseDjangoModelFactory[Question]):
+class FilterQuestionFactory(BaseDjangoModelFactory[FilterQuestion]):
     class Meta:
-        model = Question
+        model = FilterQuestion
 
     subscription = factory.SubFactory(SubscriptionFactory)
     question = factory.Faker("sentence", nb_words=6, variable_nb_words=True)
@@ -56,4 +56,3 @@ class SubscribedItemFactory(BaseDjangoModelFactory[SubscribedItem]):
         SubscriptionJobFactory, subscription=factory.SelfAttribute("..subscription")
     )
     report = factory.SubFactory(ReportFactory)
-    answers = factory.LazyFunction(lambda: {"question_1": "answer_1", "question_2": "answer_2"})

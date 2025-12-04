@@ -6,10 +6,11 @@ from django import forms
 
 from radis.core.constants import LANGUAGE_LABELS
 from radis.core.layouts import Formset, RangeSlider
+from radis.extractions.models import OutputField
 from radis.reports.models import Language, Modality
 from radis.search.forms import AGE_STEP, MAX_AGE, MIN_AGE
 
-from .models import Question, Subscription
+from .models import FilterQuestion, Subscription
 
 
 class SubscriptionForm(forms.ModelForm):
@@ -83,7 +84,16 @@ class SubscriptionForm(forms.ModelForm):
                     "name",
                     "query",
                     "send_finished_mail",
-                    Formset("formset", legend="Questions", add_form_label="Add Question"),
+                    Formset(
+                        "filter_formset",
+                        legend="Filter Questions",
+                        add_form_label="Add Filter Question",
+                    ),
+                    Formset(
+                        "output_formset",
+                        legend="Extraction Fields",
+                        add_form_label="Add Extraction Field",
+                    ),
                 ),
                 Column(
                     "patient_id",
@@ -120,35 +130,104 @@ class SubscriptionForm(forms.ModelForm):
         return super().clean()
 
 
-class QuestionForm(forms.ModelForm):
+class FilterQuestionForm(forms.ModelForm):
     class Meta:
-        model = Question
-        fields = ["question"]
+        model = FilterQuestion
+        fields = ["question", "expected_answer"]
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
         self.fields["question"].required = False
+        self.fields["expected_answer"].required = False
+        self.fields["expected_answer"].choices = [  # type: ignore[attr-defined]
+            ("", "Select the expected answer"),
+            *FilterQuestion.ExpectedAnswer.choices,
+        ]
+        self.fields["expected_answer"].label = "Accept when answer is"
 
         self.helper = FormHelper()
         self.helper.form_tag = False
         self.helper.disable_csrf = True
-        self.helper.layout = Layout(
-            Div(
-                Field("id", type="hidden"),
-                Field("DELETE", type="hidden"),
-                "question",
+        fields = [Field("id", type="hidden"), "question", "expected_answer"]
+        if "DELETE" in self.fields:
+            fields.insert(1, Field("DELETE", type="hidden"))
+        self.helper.layout = Layout(Div(*fields))
+
+    def has_changed(self) -> bool:
+        if not self.is_bound:
+            return super().has_changed()
+
+        question = (self.data.get(self.add_prefix("question")) or "").strip()
+        expected_answer = self.data.get(self.add_prefix("expected_answer")) or ""
+
+        if not question and not expected_answer:
+            return False
+
+        return super().has_changed()
+
+    def clean(self) -> dict[str, Any]:
+        cleaned_data = super().clean()
+        assert cleaned_data
+
+        question = cleaned_data.get("question")
+        expected_answer = cleaned_data.get("expected_answer")
+
+        if (question and not expected_answer) or (expected_answer and not question):
+            raise forms.ValidationError("You must provide both a question and an expected answer.")
+
+        return cleaned_data
+
+
+class OutputFieldForm(forms.ModelForm):
+    class Meta:
+        model = OutputField
+        fields = ["name", "description", "output_type"]
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        self.fields["name"].required = True
+        self.fields["description"].required = True
+
+        self.helper = FormHelper()
+        self.helper.form_tag = False
+        self.helper.disable_csrf = True
+
+        fields = [
+            Field("id", type="hidden"),
+            Row(
+                Column("name", css_class="col-6"),
+                Column("output_type", css_class="col-4"),
             ),
-        )
+            "description",
+        ]
+
+        if "DELETE" in self.fields:
+            fields.insert(1, Field("DELETE", type="hidden"))
+
+        self.helper.layout = Layout(Div(*fields))
 
 
-QuestionFormSet = forms.inlineformset_factory(
+FilterQuestionFormSet = forms.inlineformset_factory(
     Subscription,
-    Question,
-    form=QuestionForm,
+    FilterQuestion,
+    form=FilterQuestionForm,
     extra=1,
     min_num=0,
     max_num=3,
+    validate_max=True,
+    can_delete=False,
+)
+
+OutputFieldFormSet = forms.inlineformset_factory(
+    Subscription,
+    OutputField,
+    form=OutputFieldForm,
+    fk_name="subscription",
+    extra=1,
+    min_num=0,
+    max_num=10,
     validate_max=True,
     can_delete=False,
 )

@@ -1,4 +1,6 @@
 {% extends 'subscriptions/subscription_layout.html' %}
+{% load crispy from crispy_forms_tags %}
+
 {% block title %}
     Subscription Inbox
 {% endblock title %}
@@ -6,7 +8,67 @@
     <c-page-heading title="Subscription Inbox" />
 {% endblock heading %}
 {% block content %}
-    {% for subscribed_item in object_list %}
-        {% include "subscriptions/_subscribed_item_preview.html" %}
-    {% endfor %}
+    <div class="row">
+        <div class="col">
+            {# Sorting Controls #}
+            <div class="mb-3">
+                <div class="btn-group btn-group-sm" role="group" aria-label="Sort options">
+                    <a href="?sort_by=created_at&order=desc{% if request.GET.per_page %}&per_page={{ request.GET.per_page }}{% endif %}{% for key, value in request.GET.items %}{% if key != 'sort_by' and key != 'order' and key != 'page' and key != 'per_page' %}&{{ key }}={{ value }}{% endif %}{% endfor %}"
+                       class="btn btn-outline-secondary {% if current_sort_by == 'created_at' and current_order == 'desc' %}active{% endif %}">
+                        Newest First
+                    </a>
+                    <a href="?sort_by=created_at&order=asc{% if request.GET.per_page %}&per_page={{ request.GET.per_page }}{% endif %}{% for key, value in request.GET.items %}{% if key != 'sort_by' and key != 'order' and key != 'page' and key != 'per_page' %}&{{ key }}={{ value }}{% endif %}{% endfor %}"
+                       class="btn btn-outline-secondary {% if current_sort_by == 'created_at' and current_order == 'asc' %}active{% endif %}">
+                        Oldest First
+                    </a>
+                    <a href="?sort_by=study_date&order=desc{% if request.GET.per_page %}&per_page={{ request.GET.per_page }}{% endif %}{% for key, value in request.GET.items %}{% if key != 'sort_by' and key != 'order' and key != 'page' and key != 'per_page' %}&{{ key }}={{ value }}{% endif %}{% endfor %}"
+                       class="btn btn-outline-secondary {% if current_sort_by == 'study_date' and current_order == 'desc' %}active{% endif %}">
+                        Study Date (Newest)
+                    </a>
+                    <a href="?sort_by=study_date&order=asc{% if request.GET.per_page %}&per_page={{ request.GET.per_page }}{% endif %}{% for key, value in request.GET.items %}{% if key != 'sort_by' and key != 'order' and key != 'page' and key != 'per_page' %}&{{ key }}={{ value }}{% endif %}{% endfor %}"
+                       class="btn btn-outline-secondary {% if current_sort_by == 'study_date' and current_order == 'asc' %}active{% endif %}">
+                        Study Date (Oldest)
+                    </a>
+                </div>
+            </div>
+            {# Card List #}
+            {% for subscribed_item in object_list %}
+                {% include "subscriptions/_subscribed_item_preview.html" %}
+            {% empty %}
+                <div class="alert alert-light" role="alert">
+                    No items found
+                </div>
+            {% endfor %}
+            {# Pagination Controls #}
+            <div class="d-flex justify-content-around align-items-center mt-3">
+                <div>
+                    <c-pagination :page-obj="page_obj" :page-sizes="page_sizes" />
+                </div>
+            </div>
+        </div>
+        {# Filter Sidebar #}
+        <div class="col col-auto">
+            <form action="{% url 'subscription_inbox' object.pk %}"
+                  method="get"
+                  x-data
+                  x-ignore-empty-inputs>
+                <div id="filters" class="card">
+                    <div class="card-body">
+                        <h5 class="card-title">Filters</h5>
+                        {# Hidden inputs to preserve sort and pagination state #}
+                        <input type="hidden"
+                               name="per_page"
+                               value="{{ request.GET.per_page|default:'' }}">
+                        <input type="hidden"
+                               name="sort_by"
+                               value="{{ request.GET.sort_by|default:'' }}">
+                        <input type="hidden"
+                               name="order"
+                               value="{{ request.GET.order|default:'' }}">
+                        {% crispy filter.form %}
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
 {% endblock content %}
