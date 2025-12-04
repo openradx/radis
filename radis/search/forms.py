@@ -9,25 +9,15 @@ from radis.core.layouts import RangeSlider
 from radis.reports.models import Language, Modality
 
 from .layouts import QueryInput
-from .site import search_providers
 
 MIN_AGE = 0
 MAX_AGE = 120
 AGE_STEP = 10
 
 
-def get_search_providers():
-    return [(provider.name, provider.name) for provider in search_providers.values()]
-
-
 class SearchForm(forms.Form):
     # Query fields
     query = forms.CharField(required=False, label=False)  # type: ignore
-    provider = forms.ChoiceField(
-        required=False,
-        choices=get_search_providers,
-        label=False,  # type: ignore
-    )
     # Filter fields
     language = forms.ChoiceField(required=False, choices=[])
     modalities = forms.MultipleChoiceField(required=False, choices=[])
@@ -69,9 +59,6 @@ class SearchForm(forms.Form):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-        search_provider_choices = self.fields["provider"].choices  # type: ignore
-        if search_provider_choices:
-            self.fields["provider"].initial = search_provider_choices[0][0]
         self.fields["language"].choices = [  # type: ignore
             (language.code, LANGUAGE_LABELS[language.code])
             for language in Language.objects.order_by("code")
@@ -99,15 +86,10 @@ class SearchForm(forms.Form):
         return Layout(
             QueryInput(
                 "query",
-                "provider",
                 query_attrs={
                     "placeholder": "Input your search terms",
                     "autocomplete": "off",
                     "maxlength": 200,
-                },
-                provider_attrs={
-                    "style": "max-width: 200px",
-                    "aria-label": "Select search provider",
                 },
             ),
         )
@@ -133,11 +115,6 @@ class SearchForm(forms.Form):
             ),
         )
 
-    def clean_provider(self) -> str:
-        if self["provider"].html_name not in self.data:
-            return self.fields["provider"].initial
-        return self.cleaned_data["provider"]
-
     def clean_age_from(self) -> int:
         age_from = self.cleaned_data["age_from"]
         if age_from is not None and age_from % AGE_STEP != 0:
@@ -151,11 +128,6 @@ class SearchForm(forms.Form):
         return age_till
 
     def clean(self) -> dict[str, Any] | None:
-        if not self.fields["provider"].choices:  # type: ignore
-            raise forms.ValidationError(
-                "Setup of RADIS is incomplete. No search providers are registered."
-            )
-
         age_from = self.cleaned_data["age_from"]
         age_till = self.cleaned_data["age_till"]
 
