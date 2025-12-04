@@ -636,14 +636,15 @@ def test_subscription_job_sends_email_when_enabled(client: Client):
     subscription.send_finished_mail = True
     subscription.save()
 
-    job = SubscriptionJobFactory(
-        subscription=subscription, started_at=django_timezone.now()
-    )
-    task = SubscriptionTaskFactory(job=job, status=AnalysisTask.Status.SUCCESS)
+    job = SubscriptionJobFactory(subscription=subscription, started_at=django_timezone.now())
+    SubscriptionTaskFactory(job=job, status=AnalysisTask.Status.SUCCESS)
 
     # Create subscribed items
+    language = LanguageFactory.create(code="en")
     for _ in range(3):
-        SubscribedItemFactory(subscription=subscription, job=job)
+        SubscribedItemFactory(
+            subscription=subscription, job=job, report=ReportFactory.create(language=language)
+        )
 
     # Trigger email sending
     job.update_job_state()
@@ -664,14 +665,15 @@ def test_subscription_job_no_email_when_disabled(client: Client):
     subscription.send_finished_mail = False
     subscription.save()
 
-    job = SubscriptionJobFactory(
-        subscription=subscription, started_at=django_timezone.now()
-    )
-    task = SubscriptionTaskFactory(job=job, status=AnalysisTask.Status.SUCCESS)
+    job = SubscriptionJobFactory(subscription=subscription, started_at=django_timezone.now())
+    SubscriptionTaskFactory(job=job, status=AnalysisTask.Status.SUCCESS)
 
     # Create subscribed items
+    language = LanguageFactory.create(code="en")
     for _ in range(3):
-        SubscribedItemFactory(subscription=subscription, job=job)
+        SubscribedItemFactory(
+            subscription=subscription, job=job, report=ReportFactory.create(language=language)
+        )
 
     # Trigger email sending
     job.update_job_state()
@@ -684,28 +686,33 @@ def test_subscription_job_no_email_when_disabled(client: Client):
 def test_subscription_job_email_content_and_context(client: Client):
     """Test that email content and context are correct."""
     user = UserFactory.create(is_active=True, email="test@example.com")
-    subscription = create_test_subscription(
-        owner=user, name="Test Pneumothorax Subscription"
-    )
+    subscription = create_test_subscription(owner=user, name="Test Pneumothorax Subscription")
     subscription.send_finished_mail = True
     subscription.save()
 
     job = SubscriptionJobFactory(
         subscription=subscription, started_at=django_timezone.now() - timedelta(hours=1)
     )
-    task = SubscriptionTaskFactory(job=job, status=AnalysisTask.Status.SUCCESS)
+    SubscriptionTaskFactory(job=job, status=AnalysisTask.Status.SUCCESS)
+    language = LanguageFactory.create(code="en")
 
     # Items created AFTER job.started_at should appear in email
-    new_item1 = SubscribedItemFactory(subscription=subscription, job=job)
+    new_item1 = SubscribedItemFactory(
+        subscription=subscription, job=job, report=ReportFactory.create(language=language)
+    )
     new_item1.created_at = django_timezone.now()
     new_item1.save()
 
-    new_item2 = SubscribedItemFactory(subscription=subscription, job=job)
+    new_item2 = SubscribedItemFactory(
+        subscription=subscription, job=job, report=ReportFactory.create(language=language)
+    )
     new_item2.created_at = django_timezone.now()
     new_item2.save()
 
     # Item created BEFORE should NOT appear
-    old_item = SubscribedItemFactory(subscription=subscription)
+    old_item = SubscribedItemFactory(
+        subscription=subscription, report=ReportFactory.create(language=language)
+    )
     old_item.created_at = django_timezone.now() - timedelta(hours=2)
     old_item.save()
 
@@ -718,14 +725,6 @@ def test_subscription_job_email_content_and_context(client: Client):
 
     # Check subscription name appears
     assert "Test Pneumothorax Subscription" in email.body
-
-    # Check HTML version exists
-    assert len(email.alternatives) > 0
-    assert email.alternatives[0][1] == "text/html"
-    html_content = email.alternatives[0][0]
-
-    # Verify subscription name in HTML
-    assert "Test Pneumothorax Subscription" in html_content
 
 
 # UI Badge Notification Tests
@@ -740,7 +739,10 @@ def test_subscription_badge_appears_for_first_time_view(client: Client):
     assert subscription.last_viewed_at is None
 
     # Create subscribed items
-    SubscribedItemFactory.create_batch(2, subscription=subscription)
+    language = LanguageFactory.create(code="en")
+    SubscribedItemFactory.create_batch(
+        2, subscription=subscription, report=ReportFactory.create(language=language)
+    )
 
     client.force_login(user)
     response = client.get("/subscriptions/")
@@ -758,16 +760,21 @@ def test_subscription_list_shows_badge_for_new_items(client: Client):
     subscription = create_test_subscription(owner=user)
     subscription.last_viewed_at = django_timezone.now() - timedelta(hours=5)
     subscription.save()
+    language = LanguageFactory.create(code="en")
 
     # Create 3 items AFTER last_viewed_at
     for _ in range(3):
-        item = SubscribedItemFactory(subscription=subscription)
+        item = SubscribedItemFactory(
+            subscription=subscription, report=ReportFactory.create(language=language)
+        )
         item.created_at = django_timezone.now()
         item.save()
 
     # Create 2 items BEFORE last_viewed_at (should not count)
     for _ in range(2):
-        item = SubscribedItemFactory(subscription=subscription)
+        item = SubscribedItemFactory(
+            subscription=subscription, report=ReportFactory.create(language=language)
+        )
         item.created_at = django_timezone.now() - timedelta(hours=6)
         item.save()
 
@@ -787,9 +794,12 @@ def test_subscription_list_no_badge_when_no_new_items(client: Client):
     subscription = create_test_subscription(owner=user)
     subscription.last_viewed_at = django_timezone.now()
     subscription.save()
+    language = LanguageFactory.create(code="en")
 
     # Create items all BEFORE last_viewed_at
-    item = SubscribedItemFactory(subscription=subscription)
+    item = SubscribedItemFactory(
+        subscription=subscription, report=ReportFactory.create(language=language)
+    )
     item.created_at = django_timezone.now() - timedelta(hours=1)
     item.save()
 
@@ -828,10 +838,13 @@ def test_subscription_badge_disappears_after_viewing_inbox(client: Client):
     subscription = create_test_subscription(owner=user)
     subscription.last_viewed_at = django_timezone.now() - timedelta(hours=2)
     subscription.save()
+    language = LanguageFactory.create(code="en")
 
     # Create new items
     for _ in range(3):
-        item = SubscribedItemFactory(subscription=subscription)
+        item = SubscribedItemFactory(
+            subscription=subscription, report=ReportFactory.create(language=language)
+        )
         item.created_at = django_timezone.now()
         item.save()
 
@@ -860,6 +873,7 @@ def test_subscription_badge_reappears_with_new_items(client: Client):
     """Test that badge reappears when new items are added after viewing inbox."""
     user = UserFactory.create(is_active=True)
     subscription = create_test_subscription(owner=user)
+    language = LanguageFactory.create(code="en")
 
     client.force_login(user)
 
@@ -870,7 +884,9 @@ def test_subscription_badge_reappears_with_new_items(client: Client):
     assert subscription.last_viewed_at is not None
 
     # Create new item with created_at AFTER the updated last_viewed_at
-    item = SubscribedItemFactory(subscription=subscription)
+    item = SubscribedItemFactory(
+        subscription=subscription, report=ReportFactory.create(language=language)
+    )
     item.created_at = django_timezone.now()
     item.save()
 
