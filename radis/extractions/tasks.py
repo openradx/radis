@@ -9,9 +9,9 @@ from radis.reports.models import Report
 from radis.search.site import Search, SearchFilters
 from radis.search.utils.query_parser import QueryParser
 
+from . import site
 from .models import ExtractionInstance, ExtractionJob, ExtractionTask
 from .processors import ExtractionTaskProcessor
-from .site import extraction_retrieval_provider
 
 logger = logging.getLogger(__name__)
 
@@ -42,10 +42,10 @@ def process_extraction_job(job_id: int) -> None:
                 task.delay()
     else:
         # This is a newly created job or a job that has been restarted.
-        if extraction_retrieval_provider is None:
+        if site.extraction_retrieval_provider is None:
             logger.error("Extraction retrieval provider is not configured for job %s", job)
             raise ImproperlyConfigured("Extraction retrieval provider is not configured.")
-        retrieval_provider = extraction_retrieval_provider
+        retrieval_provider = site.extraction_retrieval_provider
 
         logger.debug("Collecting tasks for job %s", job)
 
