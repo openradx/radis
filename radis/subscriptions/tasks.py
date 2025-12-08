@@ -105,7 +105,7 @@ def process_subscription_job(job_id: int) -> None:
     job.save()
 
 
-@app.periodic(cron=settings.SUBSCRIPTION_CRON)
+# @app.periodic(cron=settings.SUBSCRIPTION_CRON)
 @app.task()
 def subscription_launcher(timestamp: int):
     logger.info("Launching SubscriptionJobs (Timestamp %s)", datetime.fromtimestamp(timestamp))
