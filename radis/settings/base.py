@@ -404,6 +404,40 @@ Fields to extract:
 $fields
 """
 
+# Query Generation from Extraction Fields
+ENABLE_AUTO_QUERY_GENERATION = env.bool("ENABLE_AUTO_QUERY_GENERATION", default=True)
+QUERY_GENERATION_TIMEOUT = env.int("QUERY_GENERATION_TIMEOUT", default=10)
+QUERY_GENERATION_MAX_RETRIES = env.int("QUERY_GENERATION_MAX_RETRIES", default=2)
+
+QUERY_GENERATION_SYSTEM_PROMPT = """You are an AI assistant specialized in medical informatics and radiology report retrieval.
+
+Your task is to generate an effective search query to find radiology reports that would contain information relevant to the specified data extraction fields.
+
+Given extraction fields with their descriptions and types, generate a boolean search query that will retrieve reports likely to contain the requested information.
+
+Guidelines:
+1. Use medical terminology and common synonyms
+2. Prefer broader terms to avoid missing relevant reports
+3. Use boolean operators: AND, OR, NOT
+4. Use quotes for exact phrases: "lung nodule"
+5. Consider anatomical variations and medical abbreviations
+6. Keep the query concise but comprehensive (max 150 characters recommended)
+7. Focus on key concepts that would appear in reports containing this data
+
+Output format: Return ONLY the search query as a single line, without explanation.
+
+Examples:
+Fields: [{"name": "nodule_size", "description": "size of lung nodule in millimeters", "type": "NUMERIC"}]
+Query: ("lung nodule" OR "pulmonary nodule") AND (size OR measurement OR diameter)
+
+Fields: [{"name": "fracture_type", "description": "type of bone fracture", "type": "TEXT"}, {"name": "bone", "description": "which bone is fractured", "type": "TEXT"}]
+Query: fracture AND bone
+
+Extraction Fields:
+$fields
+
+Generate the search query:"""
+
 # The maximum number of reports that can be extracted by one extraction job.
 EXTRACTION_MAXIMUM_REPORTS_COUNT = 25000
 

@@ -50,6 +50,7 @@ from .tables import (
     ExtractionResultsTable,
     ExtractionTaskTable,
 )
+from .utils.query_generator import QueryGenerator
 
 EXTRACTIONS_SEARCH_PROVIDER = "extractions_search_provider"
 
@@ -101,18 +102,49 @@ class ExtractionJobWizardView(
             assert data and isinstance(data, dict)
 
             context["fixed_query"] = data.get("fixed_query")
-            context["retrieval_count"] = data["retrieval_count"]
-            self.storage.extra_data["retrieval_count"] = data["retrieval_count"]
+            context["retrieval_count"] = data.get("retrieval_count", 0)
+            context["requires_query_generation"] = data.get("requires_query_generation", False)
+
+            # Store for use in summary step
+            self.storage.extra_data["retrieval_count"] = data.get("retrieval_count", 0)
+            self.storage.extra_data["requires_query_generation"] = data.get(
+                "requires_query_generation", False
+            )
 
         elif self.steps.current == ExtractionJobWizardView.SUMMARY_STEP:
             search_data = self.get_cleaned_data_for_step(ExtractionJobWizardView.SEARCH_STEP)
-            output_fields = self.get_cleaned_data_for_step(
+            output_fields_data = self.get_cleaned_data_for_step(
                 ExtractionJobWizardView.OUTPUT_FIELDS_STEP
             )
 
+            # Auto-generate query if needed
+            if self.storage.extra_data.get("requires_query_generation", False):
+                # Create temporary OutputField objects for query generation
+                from .models import OutputField
+
+                temp_fields = [
+                    OutputField(
+                        name=field_data["name"],
+                        description=field_data["description"],
+                        output_type=field_data["output_type"],
+                    )
+                    for field_data in output_fields_data
+                    if not field_data.get("DELETE", False)
+                ]
+
+                generator = QueryGenerator()
+                generated_query, metadata = generator.generate_from_fields(temp_fields)
+
+                # Store generated query
+                search_data["query"] = generated_query
+                search_data["query_metadata"] = metadata
+                self.storage.extra_data["generated_query"] = generated_query
+                self.storage.extra_data["query_metadata"] = metadata
+
             context["search"] = search_data
-            context["output_fields"] = output_fields
-            context["retrieval_count"] = self.storage.extra_data["retrieval_count"]
+            context["output_fields"] = output_fields_data
+            context["retrieval_count"] = self.storage.extra_data.get("retrieval_count", 0)
+            context["query_metadata"] = self.storage.extra_data.get("query_metadata", {})
 
         return context
 
@@ -137,6 +169,12 @@ class ExtractionJobWizardView(
         with transaction.atomic():
             summary_form = form_objs[2]
             job_form = form_objs[0]
+
+            # Use generated query if it was auto-generated
+            if self.storage.extra_data.get("requires_query_generation", False):
+                generated_query = self.storage.extra_data.get("generated_query", "")
+                job_form.instance.query = generated_query
+
             if summary_form.cleaned_data["send_finished_mail"]:
                 job_form.cleaned_data["send_finished_mail"] = True
 

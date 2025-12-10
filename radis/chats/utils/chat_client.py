@@ -52,6 +52,36 @@ class ChatClient:
         self._client = openai.OpenAI(base_url=base_url, api_key=api_key)
         self._llm_model_name = settings.LLM_MODEL_NAME
 
+    def chat(
+        self,
+        messages: Iterable[ChatCompletionMessageParam],
+        max_completion_tokens: int | None = None,
+    ) -> str:
+        """
+        Send messages to LLM and return the response text.
+
+        Args:
+            messages: List of message dictionaries with 'role' and 'content'
+            max_completion_tokens: Optional maximum tokens to generate
+
+        Returns:
+            The LLM's response as a string
+        """
+        logger.debug(f"Sending messages to LLM for chat:\n{messages}")
+
+        request = {
+            "model": self._llm_model_name,
+            "messages": messages,
+        }
+        if max_completion_tokens is not None:
+            request["max_completion_tokens"] = max_completion_tokens
+
+        completion = self._client.chat.completions.create(**request)
+        answer = completion.choices[0].message.content
+        assert answer is not None
+        logger.debug("Received from LLM: %s", answer)
+        return answer
+
     def extract_data(self, prompt: str, schema: type[BaseModel]) -> BaseModel:
         logger.debug("Sending prompt and schema to LLM to extract data.")
         logger.debug("Prompt:\n%s", prompt)
