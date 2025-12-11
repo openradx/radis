@@ -6,6 +6,8 @@ from typing import Any
 from adit_radis_shared.common.types import User
 from django import db
 from django.conf import settings
+from openai import APIError
+from pydantic import ValidationError
 
 from radis.chats.utils.chat_client import ChatClient
 from radis.core.processors import AnalysisTaskProcessor
@@ -87,8 +89,14 @@ class SubscriptionTaskProcessor(AnalysisTaskProcessor):
                         if answer_bool != question.expected_answer_bool:
                             is_accepted = False
                             break
-            except Exception as e:
-                logger.error(f"LLM extraction failed for report {report.pk}: {e}")
+            except APIError as e:
+                logger.error(f"LLM API error filtering report {report.pk}: {e}")
+                return
+            except ValidationError as e:
+                logger.error(f"Response validation failed filtering report {report.pk}: {e}")
+                return
+            except AssertionError:
+                logger.error(f"No parsed response received filtering report {report.pk}")
                 return
         else:
             logger.debug(
@@ -112,12 +120,23 @@ class SubscriptionTaskProcessor(AnalysisTaskProcessor):
                 }
             )
             extraction_schema = generate_output_fields_schema(output_fields)
-            extraction_response = self.client.extract_data(extraction_prompt, extraction_schema)
 
-            for field in output_fields:
-                extraction_results[str(field.pk)] = getattr(
-                    extraction_response, get_output_field_name(field), None
-                )
+            try:
+                extraction_response = self.client.extract_data(extraction_prompt, extraction_schema)
+
+                for field in output_fields:
+                    extraction_results[str(field.pk)] = getattr(
+                        extraction_response, get_output_field_name(field), None
+                    )
+            except APIError as e:
+                logger.error(f"LLM API error extracting from report {report.pk}: {e}")
+                return
+            except ValidationError as e:
+                logger.error(f"Response validation failed extracting from report {report.pk}: {e}")
+                return
+            except AssertionError:
+                logger.error(f"No parsed response received extracting from report {report.pk}")
+                return
 
         SubscribedItem.objects.create(
             subscription=task.job.subscription,
