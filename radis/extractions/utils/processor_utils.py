@@ -1,6 +1,6 @@
+from collections.abc import Iterable
 from typing import Any
 
-from django.db.models import QuerySet
 from pydantic import BaseModel, create_model
 
 from ..models import OutputField, OutputType
@@ -8,9 +8,9 @@ from ..models import OutputField, OutputType
 type Numeric = float | int
 
 
-def generate_output_fields_schema(fields: QuerySet[OutputField]) -> type[BaseModel]:
+def generate_output_fields_schema(fields: Iterable[OutputField]) -> type[BaseModel]:
     field_definitions: dict[str, Any] = {}
-    for field in fields.all():
+    for field in fields:
         if field.output_type == OutputType.TEXT:
             output_type = str
         elif field.output_type == OutputType.NUMERIC:
@@ -25,9 +25,9 @@ def generate_output_fields_schema(fields: QuerySet[OutputField]) -> type[BaseMod
     return create_model("OutputFieldsModel", **field_definitions)
 
 
-def generate_output_fields_prompt(fields: QuerySet[OutputField]) -> str:
+def generate_output_fields_prompt(fields: Iterable[OutputField]) -> str:
     prompt = ""
-    for field in fields.all():
+    for field in fields:
         prompt += f"{field.name}: {field.description}\n"
 
     return prompt
