@@ -91,6 +91,22 @@
                                 <dd class="col-sm-9">
                                     {{ field.output_type|human_readable_output_type }}
                                 </dd>
+                                {% if field.is_array %}
+                                    <dt class="col-sm-3">Array Output</dt>
+                                    <dd class="col-sm-9">
+                                        Yes — return multiple {{ field.output_type|human_readable_output_type|lower }} values
+                                    </dd>
+                                {% endif %}
+                                {% if field.selection_options %}
+                                    <dt class="col-sm-3">Selections</dt>
+                                    <dd class="col-sm-9">
+                                        <ul class="mb-0 ps-3">
+                                            {% for option in field.selection_options %}
+                                                <li>{{ option }}</li>
+                                            {% endfor %}
+                                        </ul>
+                                    </dd>
+                                {% endif %}
                             </dl>
                         </li>
                     {% endif %}
@@ -98,7 +114,10 @@
             </ul>
         </dd>
     </dl>
-    <form action="" method="post" class="pt-3">
+    <form action=""
+          method="post"
+          class="pt-3"
+          data-prevent-enter-submit="true">
         {% csrf_token %}
         {{ wizard.management_form }}
         {% crispy form %}

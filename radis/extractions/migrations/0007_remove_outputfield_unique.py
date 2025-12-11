@@ -7,7 +7,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("extractions", "0004_remove_extractionjob_provider"),
+        ("extractions", "0006_remove_extractionjob_provider"),
     ]
 
     operations = [

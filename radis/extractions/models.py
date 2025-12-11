@@ -12,6 +12,8 @@ from procrastinate.contrib.django.models import ProcrastinateJob
 from radis.core.models import AnalysisJob, AnalysisTask
 from radis.reports.models import Language, Modality, Report
 
+from .constants import MAX_SELECTION_OPTIONS
+
 
 class ExtractionsAppSettings(AppSettings):
     class Meta:
@@ -76,6 +78,9 @@ class OutputType(models.TextChoices):
     TEXT = "T", "Text"
     NUMERIC = "N", "Numeric"
     BOOLEAN = "B", "Boolean"
+    SELECTION = "S", "Selection"  # New output type which works like a enum
+    # Allows user to define a set of options which the LLM can
+    # choose from to answer questions.
 
 
 class OutputField(models.Model):
@@ -85,6 +90,12 @@ class OutputField(models.Model):
         max_length=1, choices=OutputType.choices, default=OutputType.TEXT
     )
     get_output_type_display: Callable[[], str]
+    optional = models.BooleanField(default=False)
+    # For Selection output type, stores the list of allowed options.
+    # Only used if output_type == OutputType.SELECTION.
+    selection_options = models.JSONField(default=list, blank=True)
+    # Whether the field should return an array of values or just values.
+    is_array = models.BooleanField(default=False)
     job = models.ForeignKey[ExtractionJob](
         ExtractionJob, null=True, blank=True, on_delete=models.CASCADE, related_name="output_fields"
     )
@@ -119,6 +130,47 @@ class OutputField(models.Model):
 
     def __str__(self) -> str:
         return f'Output Field "{self.name}" [{self.pk}]'
+
+    def clean(self) -> None:
+        """Custom validation logic for Selection output type
+        Checks for non empty, uniqueness, and max number of options."""
+
+        from django.core.exceptions import ValidationError
+
+        super().clean()  # Call Django's field validators and other checks first
+
+        if self.output_type == OutputType.SELECTION:
+            if not self.selection_options:
+                raise ValidationError({"selection_options": "Add at least one selection option."})
+            if len(self.selection_options) > MAX_SELECTION_OPTIONS:
+                raise ValidationError(
+                    {
+                        "selection_options": (
+                            f"Provide at most {MAX_SELECTION_OPTIONS} selection options."
+                        )
+                    }
+                )
+            cleaned_options = []
+            for option in self.selection_options:
+                if not isinstance(option, str):
+                    raise ValidationError(
+                        {"selection_options": "All selection options must be text."}
+                    )
+                stripped = option.strip()
+                if not stripped:
+                    raise ValidationError(
+                        {"selection_options": "Selection options cannot be empty strings."}
+                    )
+                cleaned_options.append(stripped)
+            if len(set(cleaned_options)) != len(cleaned_options):
+                raise ValidationError({"selection_options": "Selection options must be unique."})
+            self.selection_options = cleaned_options
+        else:
+            if self.selection_options:
+                raise ValidationError(
+                    {"selection_options": "Selections are only allowed for the Selection type."}
+                )
+            self.selection_options = []
 
 
 class ExtractionTask(AnalysisTask):
