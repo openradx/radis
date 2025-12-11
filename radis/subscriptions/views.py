@@ -122,6 +122,16 @@ class SubscriptionCreateView(LoginRequiredMixin, CreateView):  # TODO: Add Permi
 
                     generator = QueryGenerator()
                     generated_query, metadata = generator.generate_from_fields(temp_fields)
+
+                    # Check if generation failed
+                    if generated_query is None or not metadata.get("success"):
+                        form.add_error(
+                            "query",
+                            "Unable to automatically generate a query from your extraction fields. "
+                            "Please manually enter a search query.",
+                        )
+                        return self.form_invalid(form)
+
                     form.instance.query = generated_query
                     logger.info(
                         f"Auto-generated query for subscription: {generated_query} "
@@ -205,6 +215,16 @@ class SubscriptionUpdateView(LoginRequiredMixin, UpdateView):
 
                     generator = QueryGenerator()
                     generated_query, metadata = generator.generate_from_fields(temp_fields)
+
+                    # Check if generation failed
+                    if generated_query is None or not metadata.get("success"):
+                        form.add_error(
+                            "query",
+                            "Unable to automatically generate a query from your extraction fields. "
+                            "Please manually enter a search query.",
+                        )
+                        return self.form_invalid(form)
+
                     form.instance.query = generated_query
                     logger.info(
                         f"Auto-generated query for subscription update: {generated_query} "

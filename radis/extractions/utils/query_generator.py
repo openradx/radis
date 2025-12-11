@@ -27,7 +27,7 @@ class QueryGenerator:
         self.client = ChatClient()
         self.parser = QueryParser()
 
-    def generate_from_fields(self, fields: Iterable[OutputField]) -> tuple[str, dict[str, any]]:
+    def generate_from_fields(self, fields: Iterable[OutputField]) -> tuple[str | None, dict[str, any]]:
         """
         Generate a search query from extraction fields.
 
@@ -55,10 +55,10 @@ class QueryGenerator:
 
         # Handle empty fields
         if field_count == 0:
-            logger.warning("No fields provided for query generation, using wildcard")
-            metadata["generation_method"] = "wildcard"
-            metadata["success"] = True
-            return "*", metadata
+            logger.warning("No fields provided for query generation")
+            metadata["error"] = "No fields provided"
+            metadata["success"] = False
+            return None, metadata
 
         # Try LLM generation first
         if settings.ENABLE_AUTO_QUERY_GENERATION:
@@ -96,11 +96,14 @@ class QueryGenerator:
             logger.error(f"Error during keyword fallback: {e}", exc_info=True)
             metadata["error"] = f"Keyword fallback failed: {e}"
 
-        # Final fallback to wildcard
-        logger.warning("All query generation methods failed, using wildcard")
-        metadata["generation_method"] = "wildcard"
-        metadata["success"] = True
-        return "*", metadata
+        # All methods failed - return None
+        logger.warning(
+            f"All query generation methods failed for {field_count} fields. "
+            "User must manually enter a query."
+        )
+        metadata["error"] = metadata.get("error") or "All generation methods failed"
+        metadata["success"] = False
+        return None, metadata
 
     def _call_llm(self, fields: list[OutputField]) -> str | None:
         """
@@ -188,7 +191,7 @@ class QueryGenerator:
 
         return cleaned
 
-    def _extract_keywords_fallback(self, fields: list[OutputField]) -> str:
+    def _extract_keywords_fallback(self, fields: list[OutputField]) -> str | None:
         """
         Fallback method: Extract keywords from field names and descriptions.
 
@@ -198,7 +201,7 @@ class QueryGenerator:
             fields: List of OutputField objects
 
         Returns:
-            Simple keyword-based query string
+            Simple keyword-based query string, or None if no keywords extracted
         """
         keywords = set()
 
@@ -245,8 +248,9 @@ class QueryGenerator:
         keywords_list = sorted(keywords)[:10]
 
         if not keywords_list:
-            # If no keywords extracted, return wildcard
-            return "*"
+            # If no keywords extracted, return None
+            logger.warning("No keywords could be extracted from fields")
+            return None
 
         # Join with OR operator
         return " OR ".join(keywords_list)

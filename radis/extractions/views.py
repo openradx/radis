@@ -135,6 +135,19 @@ class ExtractionJobWizardView(
                 generator = QueryGenerator()
                 generated_query, metadata = generator.generate_from_fields(temp_fields)
 
+                # Check if generation failed
+                if generated_query is None or not metadata.get("success"):
+                    from django.contrib import messages
+
+                    messages.error(
+                        self.request,
+                        "Unable to automatically generate a query from your extraction fields. "
+                        "Please go back to Step 1 and manually enter a search query.",
+                    )
+                    # Redirect back to step 0
+                    self.storage.current_step = self.steps.first
+                    return self.render_goto_step(self.steps.first)
+
                 # Store generated query
                 search_data["query"] = generated_query
                 search_data["query_metadata"] = metadata
