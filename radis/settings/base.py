@@ -409,11 +409,11 @@ ENABLE_AUTO_QUERY_GENERATION = env.bool("ENABLE_AUTO_QUERY_GENERATION", default=
 QUERY_GENERATION_TIMEOUT = env.int("QUERY_GENERATION_TIMEOUT", default=10)
 QUERY_GENERATION_MAX_RETRIES = env.int("QUERY_GENERATION_MAX_RETRIES", default=2)
 
-QUERY_GENERATION_SYSTEM_PROMPT = """You are an AI assistant specialized in medical informatics and radiology report retrieval.
-
-Your task is to generate an effective search query to find radiology reports that would contain information relevant to the specified data extraction fields.
-
-Given extraction fields with their descriptions and types, generate a boolean search query that will retrieve reports likely to contain the requested information.
+QUERY_GENERATION_SYSTEM_PROMPT = """You are an AI assistant specialized in medical informatics and 
+radiology report retrieval. Your task is to generate an effective search query to find radiology 
+reports that would contain information relevant to the specified data extraction fields.
+Given extraction fields with their descriptions and types, generate a boolean search query that 
+will retrieve reports likely to contain the requested information.
 
 Guidelines:
 1. Use medical terminology and common synonyms
@@ -427,10 +427,12 @@ Guidelines:
 Output format: Return ONLY the search query as a single line, without explanation.
 
 Examples:
-Fields: [{"name": "nodule_size", "description": "size of lung nodule in millimeters", "type": "NUMERIC"}]
+Fields: [{"name": "nodule_size", "description": "size of lung nodule in millimeters", 
+"type": "NUMERIC"}]
 Query: ("lung nodule" OR "pulmonary nodule") AND (size OR measurement OR diameter)
 
-Fields: [{"name": "fracture_type", "description": "type of bone fracture", "type": "TEXT"}, {"name": "bone", "description": "which bone is fractured", "type": "TEXT"}]
+Fields: [{"name": "fracture_type", "description": "type of bone fracture", "type": "TEXT"}, 
+{"name": "bone", "description": "which bone is fractured", "type": "TEXT"}]
 Query: fracture AND bone
 
 Extraction Fields:

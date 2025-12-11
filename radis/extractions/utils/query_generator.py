@@ -8,7 +8,7 @@ from user-defined extraction fields using LLM with fallback strategies.
 import logging
 import re
 from string import Template
-from typing import Iterable
+from typing import Any, Iterable
 
 from django.conf import settings
 
@@ -27,7 +27,9 @@ class QueryGenerator:
         self.client = ChatClient()
         self.parser = QueryParser()
 
-    def generate_from_fields(self, fields: Iterable[OutputField]) -> tuple[str | None, dict[str, any]]:
+    def generate_from_fields(
+        self, fields: Iterable[OutputField]
+    ) -> tuple[str | None, dict[str, Any]]:
         """
         Generate a search query from extraction fields.
 
@@ -38,7 +40,7 @@ class QueryGenerator:
             Tuple of (query_string, metadata_dict)
             - query_string: The generated query
             - metadata: Dict with keys:
-                - generation_method: "llm", "keyword_fallback", or "wildcard"
+                - generation_method: "llm"
                 - field_count: Number of fields processed
                 - success: Boolean indicating if generation succeeded
                 - error: Optional error message if failed
@@ -82,19 +84,8 @@ class QueryGenerator:
                 logger.error(f"Error during LLM query generation: {e}", exc_info=True)
                 metadata["error"] = str(e)
 
-        # Fallback to keyword extraction
-        try:
-            query = self._extract_keywords_fallback(fields_list)
-            validated_query, fixes = self.validate_and_fix_query(query)
-            if validated_query:
-                logger.info(f"Generated query from {field_count} fields using keyword fallback")
-                metadata["generation_method"] = "keyword_fallback"
-                metadata["success"] = True
-                metadata["fixes_applied"] = len(fixes) > 0
-                return validated_query, metadata
-        except Exception as e:
-            logger.error(f"Error during keyword fallback: {e}", exc_info=True)
-            metadata["error"] = f"Keyword fallback failed: {e}"
+        # No fallback - return None for LLM failures
+        logger.warning(f"LLM query generation failed for {field_count} fields")
 
         # All methods failed - return None
         logger.warning(
@@ -190,70 +181,6 @@ class QueryGenerator:
         cleaned = cleaned.split("\n")[0].strip()
 
         return cleaned
-
-    def _extract_keywords_fallback(self, fields: list[OutputField]) -> str | None:
-        """
-        Fallback method: Extract keywords from field names and descriptions.
-
-        Creates a simple OR query from field names and key terms from descriptions.
-
-        Args:
-            fields: List of OutputField objects
-
-        Returns:
-            Simple keyword-based query string, or None if no keywords extracted
-        """
-        keywords = set()
-
-        for field in fields:
-            # Add field name (split on underscores and camelCase)
-            name_parts = re.split(r"[_\s]+|(?<=[a-z])(?=[A-Z])", field.name)
-            keywords.update(part.lower() for part in name_parts if len(part) > 2)
-
-            # Extract key terms from description
-            if field.description:
-                # Remove common words
-                stopwords = {
-                    "the",
-                    "a",
-                    "an",
-                    "and",
-                    "or",
-                    "but",
-                    "in",
-                    "on",
-                    "at",
-                    "to",
-                    "for",
-                    "of",
-                    "with",
-                    "is",
-                    "are",
-                    "was",
-                    "were",
-                    "be",
-                    "been",
-                    "being",
-                    "this",
-                    "that",
-                    "these",
-                    "those",
-                }
-
-                # Split description into words
-                desc_words = re.findall(r"\b[a-zA-Z]{3,}\b", field.description.lower())
-                keywords.update(word for word in desc_words if word not in stopwords)
-
-        # Limit to most relevant keywords (max 10)
-        keywords_list = sorted(keywords)[:10]
-
-        if not keywords_list:
-            # If no keywords extracted, return None
-            logger.warning("No keywords could be extracted from fields")
-            return None
-
-        # Join with OR operator
-        return " OR ".join(keywords_list)
 
     def validate_and_fix_query(self, query: str) -> tuple[str, list[str]]:
         """

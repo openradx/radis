@@ -16,57 +16,15 @@ class QueryGeneratorTest(TestCase):
         self.generator = QueryGenerator()
 
     def test_generate_from_empty_fields(self):
-        """Test query generation with no fields returns wildcard."""
+        """Test query generation with no fields returns None."""
         fields = []
         query, metadata = self.generator.generate_from_fields(fields)
 
-        assert query == "*"
-        assert metadata["generation_method"] == "wildcard"
+        assert query is None
+        assert metadata["generation_method"] is None
         assert metadata["field_count"] == 0
-        assert metadata["success"] is True
-
-    def test_keyword_fallback_single_field(self):
-        """Test keyword extraction fallback with a single field."""
-        field = OutputField(
-            name="lung_nodule",
-            description="size of lung nodule in millimeters",
-            output_type=OutputType.NUMERIC,
-        )
-
-        with override_settings(ENABLE_AUTO_QUERY_GENERATION=False):
-            query, metadata = self.generator.generate_from_fields([field])
-
-        assert query != ""
-        assert metadata["generation_method"] == "keyword_fallback"
-        assert metadata["success"] is True
-        assert metadata["field_count"] == 1
-        # Should contain keywords from name and description
-        assert "lung" in query.lower() or "nodule" in query.lower()
-
-    def test_keyword_fallback_multiple_fields(self):
-        """Test keyword extraction with multiple fields."""
-        fields = [
-            OutputField(
-                name="fracture_type",
-                description="type of bone fracture",
-                output_type=OutputType.TEXT,
-            ),
-            OutputField(
-                name="bone_name",
-                description="which bone is fractured",
-                output_type=OutputType.TEXT,
-            ),
-        ]
-
-        with override_settings(ENABLE_AUTO_QUERY_GENERATION=False):
-            query, metadata = self.generator.generate_from_fields(fields)
-
-        assert query != ""
-        assert metadata["generation_method"] == "keyword_fallback"
-        assert metadata["success"] is True
-        assert metadata["field_count"] == 2
-        # Should use OR operator
-        assert " OR " in query
+        assert metadata["success"] is False
+        assert metadata["error"] == "No fields provided"
 
     @patch("radis.extractions.utils.query_generator.ChatClient")
     def test_llm_generation_success(self, mock_chat_client_class):
@@ -91,33 +49,8 @@ class QueryGeneratorTest(TestCase):
         assert query != ""
         assert metadata["generation_method"] == "llm"
         assert metadata["success"] is True
+        assert query is not None
         assert "nodule" in query.lower()
-
-    @patch("radis.extractions.utils.query_generator.ChatClient")
-    def test_llm_generation_failure_fallback(self, mock_chat_client_class):
-        """Test that LLM failure triggers keyword fallback."""
-        # Mock LLM to raise an exception
-        mock_client = Mock()
-        mock_client.chat.side_effect = Exception("LLM service unavailable")
-        mock_chat_client_class.return_value = mock_client
-
-        fields = [
-            OutputField(
-                name="tumor_size",
-                description="size of the tumor in centimeters",
-                output_type=OutputType.NUMERIC,
-            )
-        ]
-
-        with override_settings(ENABLE_AUTO_QUERY_GENERATION=True):
-            generator = QueryGenerator()
-            query, metadata = generator.generate_from_fields(fields)
-
-        # Should fall back to keyword extraction
-        assert query != ""
-        assert metadata["generation_method"] == "keyword_fallback"
-        assert metadata["success"] is True
-        assert metadata["error"] is not None
 
     def test_validate_and_fix_valid_query(self):
         """Test validation of a valid query."""
@@ -142,36 +75,6 @@ class QueryGeneratorTest(TestCase):
 
         assert fixed_query != ""
         assert "lung nodule" in fixed_query or "lung" in fixed_query
-
-    def test_extract_keywords_from_camel_case(self):
-        """Test keyword extraction from camelCase field names."""
-        field = OutputField(
-            name="patientAge",
-            description="age of the patient in years",
-            output_type=OutputType.NUMERIC,
-        )
-
-        with override_settings(ENABLE_AUTO_QUERY_GENERATION=False):
-            query, metadata = self.generator.generate_from_fields([field])
-
-        assert query != ""
-        # Should split camelCase into separate words
-        query_lower = query.lower()
-        assert "patient" in query_lower or "age" in query_lower
-
-    def test_extract_keywords_filters_stopwords(self):
-        """Test that common stopwords are filtered from keyword extraction."""
-        field = OutputField(
-            name="finding",
-            description="the finding in the report",
-            output_type=OutputType.TEXT,
-        )
-
-        keywords = self.generator._extract_keywords_fallback([field])
-
-        # Stopwords like "the", "in" should not be in the query
-        assert "the" not in keywords.split()
-        assert "in" not in keywords.split()
 
     def test_format_fields_for_prompt(self):
         """Test formatting of fields for LLM prompt."""
@@ -232,6 +135,7 @@ class QueryGeneratorTest(TestCase):
 
         assert query != ""
         assert metadata["success"] is True
+        assert query is not None
         assert "fracture" in query.lower()
 
     def test_query_generation_with_mixed_field_types(self):

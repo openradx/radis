@@ -1,6 +1,5 @@
 {% extends 'subscriptions/subscription_layout.html' %}
 {% load crispy from crispy_forms_tags %}
-
 {% block title %}
     Subscription Inbox
 {% endblock title %}
@@ -35,9 +34,7 @@
             {% for subscribed_item in object_list %}
                 {% include "subscriptions/_subscribed_item_preview.html" %}
             {% empty %}
-                <div class="alert alert-light" role="alert">
-                    No items found
-                </div>
+                <div class="alert alert-light" role="alert">No items found</div>
             {% endfor %}
             {# Pagination Controls #}
             <div class="d-flex justify-content-around align-items-center mt-3">
@@ -62,9 +59,7 @@
                         <input type="hidden"
                                name="sort_by"
                                value="{{ request.GET.sort_by|default:'' }}">
-                        <input type="hidden"
-                               name="order"
-                               value="{{ request.GET.order|default:'' }}">
+                        <input type="hidden" name="order" value="{{ request.GET.order|default:'' }}">
                         {% crispy filter.form %}
                     </div>
                 </div>

@@ -35,7 +35,10 @@ class SearchForm(forms.ModelForm):
         ]
         help_texts = {
             "title": "Title of the extraction job",
-            "query": "Search query to filter reports (leave empty to auto-generate from extraction fields)",
+            "query": (
+                "Search query to filter reports "
+                "(leave empty to auto-generate from extraction fields)"
+            ),
         }
         widgets = {
             "query": forms.TextInput(attrs={"placeholder": "Optional - auto-generated if empty"}),
@@ -46,6 +49,7 @@ class SearchForm(forms.ModelForm):
 
         super().__init__(*args, **kwargs)
 
+        self.fields["query"].required = False
         self.fields["language"].choices = [  # type: ignore
             (language.pk, LANGUAGE_LABELS[language.code])
             for language in Language.objects.order_by("code")
@@ -134,7 +138,7 @@ class SearchForm(forms.ModelForm):
         if not query:
             # Mark for auto-generation from output fields
             cleaned_data["requires_query_generation"] = True
-            cleaned_data["retrieval_count"] = 0
+            cleaned_data["retrieval_count"] = None  # Will be calculated after query generation
             return cleaned_data
 
         # Validate manual query
