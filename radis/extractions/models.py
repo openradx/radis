@@ -90,7 +90,6 @@ class OutputField(models.Model):
         max_length=1, choices=OutputType.choices, default=OutputType.TEXT
     )
     get_output_type_display: Callable[[], str]
-    optional = models.BooleanField(default=False)
     # For Selection output type, stores the list of allowed options.
     # Only used if output_type == OutputType.SELECTION.
     selection_options = models.JSONField(default=list, blank=True)
