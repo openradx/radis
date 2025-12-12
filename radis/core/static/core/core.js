@@ -84,14 +84,14 @@ function FormSet(rootEl) {
     minForms: parseInt(minForms.value),
     maxForms: parseInt(maxForms.value),
     init() {
-      console.log(this.formCount);
     },
     addForm() {
-      const newForm = template.content.cloneNode(true);
+      if (!template) {
+        return;
+      }
       const idx = totalForms.value;
-      container.append(newForm);
-      const lastForm = container.querySelector(".formset-form:last-child");
-      lastForm.innerHTML = lastForm.innerHTML.replace(/__prefix__/g, idx);
+      const html = template.innerHTML.replace(/__prefix__/g, idx);
+      container.insertAdjacentHTML("beforeend", html);
       totalForms.value = (parseInt(idx) + 1).toString();
       this.formCount = parseInt(totalForms.value);
     },
