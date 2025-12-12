@@ -20,7 +20,6 @@ class SubscriptionForm(forms.ModelForm):
         model = Subscription
         fields = [
             "name",
-            "query",
             "language",
             "modalities",
             "study_description",
@@ -33,7 +32,6 @@ class SubscriptionForm(forms.ModelForm):
         labels = {"patient_id": "Patient ID"}
         help_texts = {
             "name": "Name of the Subscription",
-            "query": "A query to filter reports",
         }
 
     def __init__(self, *args, **kwargs):
@@ -84,7 +82,6 @@ class SubscriptionForm(forms.ModelForm):
             Row(
                 Column(
                     "name",
-                    "query",
                     "send_finished_mail",
                     Formset(
                         "filter_formset",

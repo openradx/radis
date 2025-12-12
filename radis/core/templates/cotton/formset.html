@@ -4,10 +4,10 @@
     {% if legend %}<legend>{{ legend }}</legend>{% endif %}
     {{ formset.management_form }}
 <template>
-    <c-formset-form>{% crispy formset.empty_form %}</c-formset-form>
+    <c-formset-form class="formset-form">{% crispy formset.empty_form %}</c-formset-form>
 </template>
 <div class="formset-forms">
-    {% for form in formset %}<c-formset-form>{% crispy form %}</c-formset-form>{% endfor %}
+    {% for form in formset %}<c-formset-form class="formset-form">{% crispy form %}</c-formset-form>{% endfor %}
 </div>
     {% if add_form_label %}
         <div class="d-flex flex-row-reverse">

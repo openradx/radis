@@ -94,7 +94,6 @@ def test_subscription_create_view_post_valid(client: Client):
 
     data = {
         "name": "Test Subscription",
-        "query": "test query",
         "language": language.pk,
         "modalities": [modality.pk],
         "study_description": "Test study",
@@ -140,7 +139,6 @@ def test_subscription_create_view_ignores_empty_filter_question(client: Client):
         "name": "Subscription Without Filter",
         "provider": "test_provider",
         "language": language.pk,
-        "query": "",
         "filter_questions-TOTAL_FORMS": "1",
         "filter_questions-INITIAL_FORMS": "0",
         "filter_questions-MIN_NUM_FORMS": "0",
@@ -178,7 +176,6 @@ def test_subscription_create_view_post_duplicate_name(client: Client):
         "name": "Duplicate Name",
         "provider": "test_provider",
         "language": language.pk,
-        "query": "",
         "filter_questions-TOTAL_FORMS": "0",
         "filter_questions-INITIAL_FORMS": "0",
         "filter_questions-MIN_NUM_FORMS": "0",
@@ -252,7 +249,6 @@ def test_subscription_update_view_post_valid(client: Client):
 
     data = {
         "name": "Updated Name",
-        "query": "updated query",
         "study_description": "Updated study",
         "patient_sex": "F",
         "send_finished_mail": False,

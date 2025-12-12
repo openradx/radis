@@ -44,16 +44,8 @@
             {{ subscription.last_refreshed }}
         </dd>
     </dl>
-    <h4>Search Details</h4>
+    <h4>Filter Details</h4>
     <dl class="row">
-        <dt class="col-sm-3">Search Query</dt>
-        <dd class="col-sm-9">
-            {% if subscription.query %}
-                {{ subscription.query }}
-            {% else %}
-                –
-            {% endif %}
-        </dd>
         <dt class="col-sm-3">Language</dt>
         <dd class="col-sm-9">
             {% if subscription.language %}
@@ -62,9 +54,6 @@
                 –
             {% endif %}
         </dd>
-    </dl>
-    <h4>Filter Details</h4>
-    <dl class="row">
         <dt class="col-sm-3">Modalities</dt>
         <dd class="col-sm-9">
             {{ subscription.modalities.all|join:", "|default:"–" }}
