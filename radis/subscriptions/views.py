@@ -1,3 +1,5 @@
+import csv
+from collections.abc import Generator
 from logging import getLogger
 from typing import Any, Type, cast
 
@@ -13,9 +15,10 @@ from django.contrib.messages.views import SuccessMessageMixin
 from django.db import IntegrityError
 from django.db.models import Count, F, Q, QuerySet
 from django.forms.models import BaseInlineFormSet
-from django.http import HttpResponse, HttpResponseRedirect
+from django.http import HttpResponse, HttpResponseRedirect, StreamingHttpResponse
 from django.urls import reverse, reverse_lazy
 from django.utils import timezone
+from django.utils.text import slugify
 from django.views.generic import CreateView, DeleteView, DetailView, UpdateView
 from django_tables2 import SingleTableView
 
@@ -28,6 +31,7 @@ from .forms import (
     SubscriptionForm,
 )
 from .models import SubscribedItem, Subscription
+from .utils.csv_export import iter_subscribed_item_rows
 
 logger = getLogger(__name__)
 
@@ -265,3 +269,112 @@ class SubscriptionInboxView(
         subscription.save(update_fields=["last_viewed_at"])
 
         return context
+
+
+class _Echo:
+    """Lightweight write-only buffer for csv.writer."""
+
+    def write(self, value: str) -> str:
+        return value
+
+
+class SubscriptionInboxDownloadView(LoginRequiredMixin, RelatedFilterMixin, DetailView):
+    """Stream subscription inbox items as a CSV download.
+
+    Applies the same filters as SubscriptionInboxView to ensure users
+    download exactly what they see (respecting filters but ignoring pagination).
+    """
+
+    model = Subscription
+    filterset_class = SubscribedItemFilter
+    request: AuthenticatedHttpRequest
+
+    def get_queryset(self) -> QuerySet[Subscription]:
+        """Return only subscriptions owned by the current user."""
+        assert self.model
+        model = cast(Type[Subscription], self.model)
+        user = cast(User, self.request.user)
+        if user.is_staff:
+            return model.objects.all()
+        return model.objects.filter(owner=self.request.user)
+
+    def get_ordering(self) -> str:
+        """Get the ordering from query parameters (same logic as SubscriptionInboxView)."""
+        sort_by = self.request.GET.get("sort_by", "created_at")
+        order = self.request.GET.get("order", "desc")
+
+        # Define allowed sort fields to prevent injection
+        allowed_fields = {
+            "created_at": "created_at",
+            "study_date": "report__study_datetime",
+        }
+
+        # Validate sort_by parameter
+        if sort_by not in allowed_fields:
+            sort_by = "created_at"
+
+        # Validate order parameter
+        if order not in ["asc", "desc"]:
+            order = "desc"
+
+        field = allowed_fields[sort_by]
+        return field if order == "asc" else f"-{field}"
+
+    def get_related_queryset(self) -> QuerySet[SubscribedItem]:
+        """Build queryset matching the inbox view (for filtering)."""
+        subscription = cast(Subscription, self.get_object())
+        ordering = self.get_ordering()
+        return (
+            SubscribedItem.objects.filter(subscription_id=subscription.pk)
+            .exclude(extraction_results__isnull=True)  # Only items with results
+            .exclude(extraction_results={})  # Only items with non-empty results
+            .select_related("subscription")
+            .prefetch_related(
+                "report",
+                "report__modalities",
+                "subscription__output_fields",
+            )
+            .order_by(ordering)
+        )
+
+    def get_filter_queryset(self) -> QuerySet[SubscribedItem]:
+        """Required by RelatedFilterMixin."""
+        return self.get_related_queryset()
+
+    def get(self, request: AuthenticatedHttpRequest, *args, **kwargs) -> StreamingHttpResponse:
+        """Stream the CSV file response."""
+        subscription = cast(Subscription, self.get_object())
+
+        # Manually instantiate the filterset to apply filters
+        # (RelatedFilterMixin doesn't provide get_filtered_queryset())
+        filterset_class = self.get_filterset_class()
+        filterset_kwargs = self.get_filterset_kwargs(filterset_class)
+        assert filterset_class is not None
+        filterset = filterset_class(**filterset_kwargs)
+
+        # Get the filtered queryset from filterset.qs
+        filtered_items = filterset.qs
+
+        filename = self._build_filename(subscription)
+
+        response = StreamingHttpResponse(
+            self._stream_rows(subscription, filtered_items),
+            content_type="text/csv",
+        )
+        response["Content-Disposition"] = f'attachment; filename="{filename}"'
+        return response
+
+    def _stream_rows(
+        self, subscription: Subscription, items: QuerySet[SubscribedItem]
+    ) -> Generator[str, None, None]:
+        """Yield serialized CSV rows for the response."""
+        pseudo_buffer = _Echo()
+        writer = csv.writer(pseudo_buffer)
+        yield "\ufeff"  # UTF-8 BOM for Excel compatibility
+        for row in iter_subscribed_item_rows(subscription, items):
+            yield writer.writerow(row)
+
+    def _build_filename(self, subscription: Subscription) -> str:
+        """Generate a descriptive CSV filename for the subscription."""
+        slug = slugify(subscription.name) or "inbox"
+        return f"subscription_{subscription.pk}_{slug}.csv"
