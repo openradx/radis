@@ -128,15 +128,42 @@
     <h4 class="mt-4">Extraction Fields</h4>
     {% with fields=subscription.output_fields.all %}
         {% if fields %}
-            <dl class="row">
+            <ul>
                 {% for field in fields %}
-                    <dt class="col-sm-3">{{ field.name }}</dt>
-                    <dd class="col-sm-9">
-                        {{ field.description|default:"No description provided." }}
-                        <div class="text-muted small">Type: {{ field.get_output_type_display }}</div>
-                    </dd>
+                    <li>
+                        <dl class="row mb-0">
+                            <dt class="col-sm-3">Name</dt>
+                            <dd class="col-sm-9">
+                                {{ field.name }}
+                            </dd>
+                            <dt class="col-sm-3">Description</dt>
+                            <dd class="col-sm-9">
+                                {{ field.description }}
+                            </dd>
+                            <dt class="col-sm-3">Data Type</dt>
+                            <dd class="col-sm-9">
+                                {{ field.get_output_type_display }}
+                            </dd>
+                            {% if field.is_array %}
+                                <dt class="col-sm-3">Array Output</dt>
+                                <dd class="col-sm-9">
+                                    Yes — return multiple {{ field.get_output_type_display|lower }} values
+                                </dd>
+                            {% endif %}
+                            {% if field.selection_options %}
+                                <dt class="col-sm-3">Selections</dt>
+                                <dd class="col-sm-9">
+                                    <ul class="mb-0 ps-3">
+                                        {% for option in field.selection_options %}
+                                            <li>{{ option }}</li>
+                                        {% endfor %}
+                                    </ul>
+                                </dd>
+                            {% endif %}
+                        </dl>
+                    </li>
                 {% endfor %}
-            </dl>
+            </ul>
         {% else %}
             <p class="text-muted mb-0">No extraction fields configured.</p>
         {% endif %}
