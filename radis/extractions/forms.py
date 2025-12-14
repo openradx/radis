@@ -37,7 +37,13 @@ class SearchForm(forms.ModelForm):
         ]
         help_texts = {
             "title": "Title of the extraction job",
-            "query": "A query to find reports for further analysis",
+            "query": (
+                "Search query to filter reports "
+                "(leave empty to auto-generate from extraction fields)"
+            ),
+        }
+        widgets = {
+            "query": forms.TextInput(attrs={"placeholder": "Optional - auto-generated if empty"}),
         }
 
     def __init__(self, *args, **kwargs):
@@ -45,6 +51,7 @@ class SearchForm(forms.ModelForm):
 
         super().__init__(*args, **kwargs)
 
+        self.fields["query"].required = False
         self.fields["language"].choices = [  # type: ignore
             (language.pk, LANGUAGE_LABELS[language.code])
             for language in Language.objects.order_by("code")
@@ -109,10 +116,13 @@ class SearchForm(forms.ModelForm):
         )
 
     def clean_query(self) -> str:
-        query = self.cleaned_data["query"]
+        query = self.cleaned_data["query"].strip()
+        if not query:
+            # Query is empty - will be auto-generated from output fields
+            return ""
         query_node, _ = QueryParser().parse(query)
         if query_node is None:
-            raise forms.ValidationError("Invalid empty query")
+            raise forms.ValidationError("Invalid query syntax")
         return query
 
     def clean(self) -> dict[str, Any] | None:
@@ -124,7 +134,17 @@ class SearchForm(forms.ModelForm):
         language = cast(Language, cleaned_data["language"])
         modalities = cast(QuerySet[Modality], cleaned_data["modalities"])
 
-        query_node, fixes = QueryParser().parse(cleaned_data["query"])
+        query = cleaned_data.get("query", "").strip()
+
+        # Check if query generation is needed
+        if not query:
+            # Mark for auto-generation from output fields
+            cleaned_data["requires_query_generation"] = True
+            cleaned_data["retrieval_count"] = None  # Will be calculated after query generation
+            return cleaned_data
+
+        # Validate manual query
+        query_node, fixes = QueryParser().parse(query)
         assert query_node
 
         if len(fixes) > 0:
@@ -167,6 +187,8 @@ class SearchForm(forms.ModelForm):
                 f"Your search returned more results ({retrieval_count}) than the extraction "
                 "provider can handle. Please refine your search."
             )
+
+        cleaned_data["requires_query_generation"] = False
 
         return cleaned_data
 

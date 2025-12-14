@@ -37,7 +37,7 @@ class ExtractionJob(AnalysisJob):
     )
     title = models.CharField(max_length=100)
     group = models.ForeignKey[Group](Group, on_delete=models.CASCADE)
-    query = models.CharField(max_length=200)
+    query = models.CharField(max_length=200, blank=True)
     language = models.ForeignKey[Language](Language, on_delete=models.CASCADE)
     modalities = models.ManyToManyField(Modality, blank=True)
     study_date_from = models.DateField(null=True, blank=True)

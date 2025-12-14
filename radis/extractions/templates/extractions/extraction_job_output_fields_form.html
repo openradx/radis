@@ -44,7 +44,11 @@
                 </div>
             {% endif %}
             <p>
-                Your search will hit approximately <strong>{{ retrieval_count }} report{{ retrieval_count|pluralize }}</strong>.
+                {% if retrieval_count is None %}
+                    Your search will hit approximately <strong>TBD reports</strong> (to be determined after query generation).
+                {% else %}
+                    Your search will hit approximately <strong>{{ retrieval_count }} report{{ retrieval_count|pluralize }}</strong>.
+                {% endif %}
                 The more reports you analyze the longer it will take. If you like to refine your search you can go back to
                 the previous step and adjust the query and/or filters.
             </p>

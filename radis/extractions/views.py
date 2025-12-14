@@ -1,7 +1,9 @@
 import csv
 from collections.abc import Generator
-from typing import Any, Type, cast
+from datetime import date
+from typing import Any, Literal, Type, cast
 
+from adit_radis_shared.accounts.models import User
 from adit_radis_shared.common.mixins import (
     PageSizeSelectMixin,
 )
@@ -38,6 +40,8 @@ from radis.core.views import (
     AnalysisTaskResetView,
     BaseUpdatePreferencesView,
 )
+from radis.reports.models import Language, Modality
+from radis.search.site import Search, SearchFilters
 from radis.search.utils.query_parser import QueryParser
 
 from .filters import ExtractionInstanceFilter, ExtractionJobFilter, ExtractionTaskFilter
@@ -48,6 +52,7 @@ from .forms import (
 )
 from .mixins import ExtractionsLockedMixin
 from .models import ExtractionInstance, ExtractionJob, ExtractionTask
+from .site import extraction_retrieval_provider
 from .tables import (
     ExtractionInstanceTable,
     ExtractionJobTable,
@@ -55,6 +60,7 @@ from .tables import (
     ExtractionTaskTable,
 )
 from .utils.csv_export import iter_extraction_result_rows
+from .utils.query_generator import QueryGenerator
 
 EXTRACTIONS_SEARCH_PROVIDER = "extractions_search_provider"
 
@@ -106,18 +112,135 @@ class ExtractionJobWizardView(
             assert data and isinstance(data, dict)
 
             context["fixed_query"] = data.get("fixed_query")
-            context["retrieval_count"] = data["retrieval_count"]
-            self.storage.extra_data["retrieval_count"] = data["retrieval_count"]
+            context["retrieval_count"] = data.get("retrieval_count", 0)
+            context["requires_query_generation"] = data.get("requires_query_generation", False)
+
+            # Store for use in summary step
+            self.storage.extra_data["retrieval_count"] = data.get("retrieval_count", 0)
+            self.storage.extra_data["requires_query_generation"] = data.get(
+                "requires_query_generation", False
+            )
 
         elif self.steps.current == ExtractionJobWizardView.SUMMARY_STEP:
             search_data = self.get_cleaned_data_for_step(ExtractionJobWizardView.SEARCH_STEP)
-            output_fields = self.get_cleaned_data_for_step(
+            output_fields_data = self.get_cleaned_data_for_step(
                 ExtractionJobWizardView.OUTPUT_FIELDS_STEP
             )
+            assert search_data and isinstance(search_data, dict)
+            assert output_fields_data and isinstance(output_fields_data, list)
+            # Auto-generate query if needed
+            if self.storage.extra_data.get("requires_query_generation", False):
+                # Create temporary OutputField objects for query generation
+                from .models import OutputField
+
+                temp_fields = [
+                    OutputField(
+                        name=field_data["name"],
+                        description=field_data["description"],
+                        output_type=field_data["output_type"],
+                    )
+                    for field_data in output_fields_data
+                    if not field_data.get("DELETE", False)
+                ]
+
+                generator = QueryGenerator()
+                generated_query, metadata = generator.generate_from_fields(temp_fields)
+
+                # Check if generation failed
+                if generated_query is None or not metadata.get("success"):
+                    from django.contrib import messages
+
+                    messages.error(
+                        self.request,
+                        "Unable to automatically generate a query from your extraction fields. "
+                        "Please go back to Step 1 and manually enter a search query.",
+                    )
+                    # Redirect back to step 0
+                    self.storage.current_step = self.steps.first
+                    return self.render_goto_step(self.steps.first)
+
+                # Store generated query
+                search_data["query"] = generated_query
+                search_data["query_metadata"] = metadata
+                self.storage.extra_data["generated_query"] = generated_query
+                self.storage.extra_data["query_metadata"] = metadata
+
+                # Calculate retrieval count for auto-generated query
+                # Parse the generated query
+                query_node, _ = QueryParser().parse(generated_query)
+                assert query_node  # Should be valid since it was just generated and validated
+
+                # Build search with all filters from search_data
+                user = cast(User, self.request.user)
+                active_group = user.active_group
+                assert active_group
+
+                language = cast(Language, search_data.get("language"))
+                modalities = cast(QuerySet[Modality], search_data.get("modalities"))
+
+                search = Search(
+                    query=query_node,
+                    offset=0,
+                    limit=0,
+                    filters=SearchFilters(
+                        group=active_group.pk,
+                        language=language.code,
+                        modalities=list(modalities.values_list("code", flat=True))
+                        if modalities
+                        else [],
+                        study_date_from=cast("date | None", search_data.get("study_date_from")),
+                        study_date_till=cast("date | None", search_data.get("study_date_till")),
+                        study_description=cast(str, search_data.get("study_description")) or "",
+                        patient_sex=cast(Literal["M", "F"], search_data.get("patient_sex")) or None,
+                        patient_age_from=cast("int | None", search_data.get("age_from")),
+                        patient_age_till=cast("int | None", search_data.get("age_till")),
+                    ),
+                )
+
+                # Get the actual count
+                if extraction_retrieval_provider is None:
+                    from django.contrib import messages
+
+                    messages.error(self.request, "Extraction retrieval provider is not configured.")
+                    self.storage.current_step = self.steps.first
+                    return self.render_goto_step(self.steps.first)
+
+                retrieval_count = extraction_retrieval_provider.count(search)
+                self.storage.extra_data["retrieval_count"] = retrieval_count
+
+                # Validate against limits
+                if retrieval_count > settings.EXTRACTION_MAXIMUM_REPORTS_COUNT:
+                    from django.contrib import messages
+
+                    messages.error(
+                        self.request,
+                        f"Your auto-generated query returned {retrieval_count} results, "
+                        "which exceeds the maximum limit of "
+                        f"{settings.EXTRACTION_MAXIMUM_REPORTS_COUNT}. "
+                        "Please go back and refine your extraction fields or add a manual query.",
+                    )
+                    self.storage.current_step = self.steps.first
+                    return self.render_goto_step(self.steps.first)
+
+                if (
+                    extraction_retrieval_provider.max_results
+                    and retrieval_count > extraction_retrieval_provider.max_results
+                ):
+                    from django.contrib import messages
+
+                    messages.error(
+                        self.request,
+                        f"Your auto-generated query returned {retrieval_count} results, "
+                        "which exceeds the provider's limit. "
+                        "Please refine your extraction fields or add a manual query.",
+                    )
+                    self.storage.current_step = self.steps.first
+                    return self.render_goto_step(self.steps.first)
 
             context["search"] = search_data
-            context["output_fields"] = output_fields
-            context["retrieval_count"] = self.storage.extra_data["retrieval_count"]
+            context["output_fields"] = output_fields_data
+            context["retrieval_count"] = self.storage.extra_data.get("retrieval_count", 0)
+            context["query_metadata"] = self.storage.extra_data.get("query_metadata", {})
 
         return context
 
@@ -142,6 +265,12 @@ class ExtractionJobWizardView(
         with transaction.atomic():
             summary_form = form_objs[2]
             job_form = form_objs[0]
+
+            # Use generated query if it was auto-generated
+            if self.storage.extra_data.get("requires_query_generation", False):
+                generated_query = self.storage.extra_data.get("generated_query", "")
+                job_form.instance.query = generated_query
+
             if summary_form.cleaned_data["send_finished_mail"]:
                 job_form.cleaned_data["send_finished_mail"] = True
 
