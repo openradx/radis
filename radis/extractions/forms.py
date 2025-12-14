@@ -172,10 +172,6 @@ class SearchForm(forms.ModelForm):
 
 
 class OutputFieldForm(forms.ModelForm):
-    """Hidden field to store selection options and array flag as JSON string.
-    This is done because the selection options are dynamic and the array toggle
-    is an alpine component that needs to be re-rendered on every change."""
-
     selection_options = forms.CharField(
         required=False,
         widget=forms.HiddenInput(),
@@ -199,8 +195,6 @@ class OutputFieldForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
 
         self.fields["description"].widget = forms.Textarea(attrs={"rows": 3})
-
-        # Stamp data attributes so the selection-options widget can locate these fields.
         self.fields["selection_options"].widget.attrs.update(
             {
                 "data-selection-input": "true",
@@ -214,16 +208,12 @@ class OutputFieldForm(forms.ModelForm):
         )
 
         initial_options = self.instance.selection_options if self.instance.pk else []
-
-        # Prepopulate the hidden fields so existing options/toggle state show up in the widget.
         self.initial["selection_options"] = json.dumps(initial_options)
         self.initial["is_array"] = "true" if self.instance.is_array else "false"
 
         self.helper = FormHelper()
-        self.helper.form_tag = False  # because we want to define only the inner layout
+        self.helper.form_tag = False
         self.helper.disable_csrf = True
-
-        # Build the layout for selection options and array toggle button using crispy.
         self.helper.layout = Layout(
             Row(
                 Column("name", css_class="col-md-7 col-12"),
@@ -247,15 +237,12 @@ class OutputFieldForm(forms.ModelForm):
                 css_class="g-3 align-items-center",
             ),
             "description",
-            # Include the selection options widget partial template here.
             Div(
                 HTML('{% include "extractions/_selection_options_field.html" %}'),
                 css_class="selection-options-wrapper",
             ),
         )
 
-    # Parse and sanitize the JSON payload (trim strings, enforce uniqueness and max count).
-    # Called automatically by Django form validation.
     def clean_selection_options(self) -> list[str]:
         raw_value = self.cleaned_data.get("selection_options") or ""
         raw_value = raw_value.strip()
@@ -288,7 +275,6 @@ class OutputFieldForm(forms.ModelForm):
 
         return cleaned
 
-    # not exactly needed because we set the value ourselves, but more as a double check
     def clean_is_array(self) -> bool:
         raw_value = (self.cleaned_data.get("is_array") or "").strip().lower()
         if raw_value in {"1", "true", "on"}:

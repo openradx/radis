@@ -78,9 +78,7 @@ class OutputType(models.TextChoices):
     TEXT = "T", "Text"
     NUMERIC = "N", "Numeric"
     BOOLEAN = "B", "Boolean"
-    SELECTION = "S", "Selection"  # New output type which works like a enum
-    # Allows user to define a set of options which the LLM can
-    # choose from to answer questions.
+    SELECTION = "S", "Selection"
 
 
 class OutputField(models.Model):
@@ -90,10 +88,8 @@ class OutputField(models.Model):
         max_length=1, choices=OutputType.choices, default=OutputType.TEXT
     )
     get_output_type_display: Callable[[], str]
-    # For Selection output type, stores the list of allowed options.
-    # Only used if output_type == OutputType.SELECTION.
+    optional = models.BooleanField(default=False)
     selection_options = models.JSONField(default=list, blank=True)
-    # Whether the field should return an array of values or just values.
     is_array = models.BooleanField(default=False)
     job = models.ForeignKey[ExtractionJob](
         ExtractionJob, null=True, blank=True, on_delete=models.CASCADE, related_name="output_fields"
@@ -131,12 +127,9 @@ class OutputField(models.Model):
         return f'Output Field "{self.name}" [{self.pk}]'
 
     def clean(self) -> None:
-        """Custom validation logic for Selection output type
-        Checks for non empty, uniqueness, and max number of options."""
-
         from django.core.exceptions import ValidationError
 
-        super().clean()  # Call Django's field validators and other checks first
+        super().clean()
 
         if self.output_type == OutputType.SELECTION:
             if not self.selection_options:

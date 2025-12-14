@@ -1,11 +1,8 @@
-<!-- Provide a dynamic UI for entering selection options (add/remove inputs) and toggling array output. 
-There’s no built-in HTML control for “editable list,” so we build one with Alpine  -->
 {% load bootstrap_icon from common_extras %}
 <div class="mt-3"
      x-data="SelectionOptions($el)"
      x-effect="syncState()"
      data-selection-wrapper="true">
-    <!-- Hidden fields must appear first so the Alpine component can read/write its state -->
     {{ form.selection_options }}
     {{ form.is_array }}
     <div class="d-flex align-items-center flex-wrap selection-options-controls">
@@ -23,7 +20,6 @@ There’s no built-in HTML control for “editable list,” so we build one with
         </div>
     </div>
     <div class="mt-2" x-show="supportsSelection">
-        <!-- Each entry binds to options[index] so that we can list all the added selection options -->
         <template x-for="(option, index) in options" :key="index">
             <div class="input-group mb-2">
                 <input type="text"
@@ -42,7 +38,6 @@ There’s no built-in HTML control for “editable list,” so we build one with
     <p class="text-muted fst-italic" x-show="!supportsSelection">
         Choose the “Selection” output type to define enumerated values.
     </p>
-    <!-- Server-side validation errors from the Django form appear here -->
     {% if form.selection_options.errors %}
         <div class="invalid-feedback d-block">
             {% for error in form.selection_options.errors %}{{ error }}{% endfor %}

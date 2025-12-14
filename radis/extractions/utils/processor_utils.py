@@ -15,17 +15,14 @@ def generate_output_fields_schema(fields: Iterable[OutputField]) -> type[BaseMod
     for field in fields:
         if field.output_type == OutputType.TEXT:
             output_type = str
-        elif field.output_type == OutputType.NUMERIC:
+        elif field_type == OutputType.NUMERIC:
             output_type = Numeric
-        elif field.output_type == OutputType.BOOLEAN:
+        elif field_type == OutputType.BOOLEAN:
             output_type = bool
         elif field.output_type == OutputType.SELECTION:
-            # Grab the saved selection_options list and convert it to a tuple.
             options = tuple(field.selection_options)
             if not options:
                 raise ValueError("Selection output requires at least one option.")
-            # Set the output type to a Literal of the options so that only these values
-            # can be accepted.
             output_type = Literal[*options]
         else:
             raise ValueError(f"Unknown data type: {field.output_type}")
@@ -45,12 +42,10 @@ def generate_output_fields_prompt(fields: Iterable[OutputField]) -> str:
     for field in fields:
         description = field.description
         if OutputType(field.output_type) == OutputType.SELECTION and field.selection_options:
-            # Tell the processor exactly which selections it may return.
             description = (
                 f"{description} (Allowed selections: {', '.join(field.selection_options)})"
             )
         if field.is_array:
-            # Remind the processor to return an array, not a single value.
             description = (
                 f"{description} (Return an array of "
                 f"{field.get_output_type_display().lower()} values.)"

@@ -7,15 +7,11 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-
-        # Introduce a JSON column to store the Selection output fields.
         migrations.AddField(
             model_name="outputfield",
             name="selection_options",
             field=models.JSONField(blank=True, default=list),
         ),
-
-        # Extend the output_type choices so the database accepts the new Selection code ("S").
         migrations.AlterField(
             model_name="outputfield",
             name="output_type",

@@ -1,6 +1,7 @@
 import factory
 from faker import Faker
 
+from adit_radis_shared.accounts.factories import UserFactory
 from radis.reports.factories import ModalityFactory
 
 from .models import (
@@ -26,6 +27,7 @@ class ExtractionJobFactory(BaseDjangoModelFactory):
     class Meta:
         model = ExtractionJob
 
+    owner = factory.SubFactory(UserFactory)
     title = factory.Faker("sentence", nb_words=3)
     group = factory.SubFactory("adit_radis_shared.accounts.factories.GroupFactory")
     query = factory.Faker("word")
@@ -56,6 +58,16 @@ class ExtractionJobFactory(BaseDjangoModelFactory):
             # django_get_or_create would not be respected then
             self.modalities.add(ModalityFactory(code=modality))  # type: ignore
 
+    @factory.post_generation
+    def ensure_owner_in_group(self, create, extracted, **kwargs):
+        if not create:
+            return
+
+        self.owner.groups.add(self.group)
+        if self.owner.active_group_id is None:
+            self.owner.active_group = self.group
+            self.owner.save(update_fields=["active_group"])
+
 
 class OutputFieldFactory(BaseDjangoModelFactory[OutputField]):
     class Meta:
@@ -65,6 +77,9 @@ class OutputFieldFactory(BaseDjangoModelFactory[OutputField]):
     name = factory.Sequence(lambda n: f"output_field_{n}")
     description = factory.Faker("sentence", nb_words=10)
     output_type = factory.Faker("random_element", elements=[a[0] for a in OutputType.choices])
+    selection_options = factory.LazyAttribute(
+        lambda obj: ["Option 1", "Option 2"] if obj.output_type == OutputType.SELECTION else []
+    )
 
 
 class ExtractionTaskFactory(BaseDjangoModelFactory[ExtractionTask]):
