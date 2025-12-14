@@ -426,7 +426,7 @@ START_EXTRACTION_JOB_UNVERIFIED = False
 # Subscription
 SUBSCRIPTION_DEFAULT_PRIORITY = 3
 SUBSCRIPTION_URGENT_PRIORITY = 4
-SUBSCRIPTION_CRON = "* * * * *"
+SUBSCRIPTION_CRON = "* * * * *"  # Disabled - using handler-based approach
 SUBSCRIPTION_REFRESH_TASK_BATCH_SIZE = 100
 
 # The priority for stalled jobs that are retried.
