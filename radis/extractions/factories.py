@@ -1,16 +1,15 @@
+from typing import cast
+
 import factory
-from adit_radis_shared.accounts.factories import UserFactory
+from adit_radis_shared.accounts.factories import GroupFactory, UserFactory
+from adit_radis_shared.accounts.models import User
+from adit_radis_shared.common.utils.testing_helpers import add_user_to_group
+from django.contrib.auth.models import Group
 from faker import Faker
 
 from radis.reports.factories import ModalityFactory
 
-from .models import (
-    ExtractionInstance,
-    ExtractionJob,
-    ExtractionTask,
-    OutputField,
-    OutputType,
-)
+from .models import ExtractionInstance, ExtractionJob, ExtractionTask, OutputField, OutputType
 
 fake = Faker()
 
@@ -29,7 +28,7 @@ class ExtractionJobFactory(BaseDjangoModelFactory):
 
     owner = factory.SubFactory(UserFactory)
     title = factory.Faker("sentence", nb_words=3)
-    group = factory.SubFactory("adit_radis_shared.accounts.factories.GroupFactory")
+    group = factory.SubFactory(GroupFactory)
     query = factory.Faker("word")
     language = factory.SubFactory("radis.reports.factories.LanguageFactory")
     study_date_from = factory.Faker("date")
@@ -59,14 +58,14 @@ class ExtractionJobFactory(BaseDjangoModelFactory):
             self.modalities.add(ModalityFactory(code=modality))  # type: ignore
 
     @factory.post_generation
-    def ensure_owner_in_group(self, create, extracted, **kwargs):
+    def ensure_owner_in_group(obj, create, extracted, **kwargs):
+        owner = cast(User, obj.owner)
+        group = cast(Group, obj.group)
+
         if not create:
             return
 
-        self.owner.groups.add(self.group)
-        if self.owner.active_group_id is None:
-            self.owner.active_group = self.group
-            self.owner.save(update_fields=["active_group"])
+        add_user_to_group(owner, group)
 
 
 class OutputFieldFactory(BaseDjangoModelFactory[OutputField]):
