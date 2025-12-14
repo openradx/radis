@@ -27,9 +27,7 @@ def iter_extraction_result_rows(job: ExtractionJob) -> Iterable[Sequence[str]]:
         Sequences of stringified cell values suitable for csv.writer.
     """
 
-    field_names: list[str] = list(
-        job.output_fields.order_by("pk").values_list("name", flat=True)
-    )
+    field_names: list[str] = list(job.output_fields.order_by("pk").values_list("name", flat=True))
 
     header = ["instance_id", "report_id", "is_processed"]
     header.extend(field_names)

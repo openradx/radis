@@ -143,9 +143,7 @@
                                 <dt class="col-sm-3">Selections</dt>
                                 <dd class="col-sm-9">
                                     <ul class="mb-0 ps-3">
-                                        {% for option in field.selection_options %}
-                                            <li>{{ option }}</li>
-                                        {% endfor %}
+                                        {% for option in field.selection_options %}<li>{{ option }}</li>{% endfor %}
                                     </ul>
                                 </dd>
                             {% endif %}

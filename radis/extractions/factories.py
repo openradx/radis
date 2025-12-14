@@ -1,7 +1,7 @@
 import factory
+from adit_radis_shared.accounts.factories import UserFactory
 from faker import Faker
 
-from adit_radis_shared.accounts.factories import UserFactory
 from radis.reports.factories import ModalityFactory
 
 from .models import (
