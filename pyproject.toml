@@ -88,6 +88,7 @@ cli = "cli:app"
 
 [tool.uv]
 default-groups = ["dev", "client"]
+constraint-dependencies = ["autobahn<25.11.1"]
 
 [tool.uv.sources]
 radis-client = { path = "./radis-client", editable = true }
