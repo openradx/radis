@@ -12,6 +12,7 @@ from .views import (
     ExtractionJobRetryView,
     ExtractionJobVerifyView,
     ExtractionJobWizardView,
+    ExtractionResultDownloadView,
     ExtractionResultListView,
     ExtractionTaskDeleteView,
     ExtractionTaskDetailView,
@@ -98,6 +99,11 @@ urlpatterns = [
         "jobs/<int:pk>/results/",
         ExtractionResultListView.as_view(),
         name="extraction_result_list",
+    ),
+    path(
+        "jobs/<int:pk>/results/download/",
+        ExtractionResultDownloadView.as_view(),
+        name="extraction_result_download",
     ),
     path(
         "instances/<int:pk>/",

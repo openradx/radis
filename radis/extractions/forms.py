@@ -1,8 +1,9 @@
+import json
 from typing import Any, cast
 
 from adit_radis_shared.accounts.models import User
 from crispy_forms.helper import FormHelper
-from crispy_forms.layout import Column, Layout, Row, Submit
+from crispy_forms.layout import HTML, Column, Div, Layout, Row, Submit
 from django import forms
 from django.conf import settings
 from django.db.models import QuerySet
@@ -14,7 +15,8 @@ from radis.search.forms import AGE_STEP, MAX_AGE, MIN_AGE
 from radis.search.site import Search, SearchFilters
 from radis.search.utils.query_parser import QueryParser
 
-from .models import ExtractionJob, OutputField
+from .constants import MAX_SELECTION_OPTIONS
+from .models import ExtractionJob, OutputField, OutputType
 from .site import extraction_retrieval_provider
 
 
@@ -192,13 +194,138 @@ class SearchForm(forms.ModelForm):
 
 
 class OutputFieldForm(forms.ModelForm):
+    selection_options = forms.CharField(
+        required=False,
+        widget=forms.HiddenInput(),
+    )
+    is_array = forms.CharField(
+        required=False,
+        widget=forms.HiddenInput(),
+    )
+
     class Meta:
         model = OutputField
         fields = [
             "name",
             "description",
             "output_type",
+            "selection_options",
+            "is_array",
         ]
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        self.fields["description"].widget = forms.Textarea(attrs={"rows": 3})
+        self.fields["selection_options"].widget.attrs.update(
+            {
+                "data-selection-input": "true",
+                "data-max-selection-options": str(MAX_SELECTION_OPTIONS),
+            }
+        )
+        self.fields["is_array"].widget.attrs.update(
+            {
+                "data-array-input": "true",
+            }
+        )
+
+        initial_options = self.instance.selection_options if self.instance.pk else []
+        self.initial["selection_options"] = json.dumps(initial_options)
+        self.initial["is_array"] = "true" if self.instance.is_array else "false"
+
+        self.helper = FormHelper()
+        self.helper.form_tag = False
+        self.helper.disable_csrf = True
+        self.helper.layout = Layout(
+            Row(
+                Column("name", css_class="col-md-7 col-12"),
+                Column("output_type", css_class="col-md-4 col-10"),
+                Column(
+                    HTML(
+                        (
+                            '<button type="button" '
+                            'class="btn btn-outline-secondary btn-sm array-toggle-btn '
+                            'form-array-toggle" '
+                            'data-array-toggle="true" '
+                            'aria-pressed="false" '
+                            'title="Toggle array output">[ ]</button>'
+                        )
+                    ),
+                    css_class=(
+                        "col-md-1 col-2 d-flex align-items-center "
+                        "justify-content-end array-toggle-field"
+                    ),
+                ),
+                css_class="g-3 align-items-center",
+            ),
+            "description",
+            Div(
+                HTML('{% include "extractions/_selection_options_field.html" %}'),
+                css_class="selection-options-wrapper",
+            ),
+        )
+
+    def clean_selection_options(self) -> list[str]:
+        raw_value = self.cleaned_data.get("selection_options") or ""
+        raw_value = raw_value.strip()
+        if raw_value == "":
+            return []
+
+        try:
+            parsed = json.loads(raw_value)
+        except json.JSONDecodeError as exc:
+            raise forms.ValidationError("Invalid selection data.") from exc
+
+        if not isinstance(parsed, list):
+            raise forms.ValidationError("Selection data must be a list.")
+
+        cleaned: list[str] = []
+        for item in parsed:
+            if not isinstance(item, str):
+                raise forms.ValidationError("Selection options must be text.")
+            value = item.strip()
+            if not value:
+                raise forms.ValidationError("Selection options cannot be empty.")
+            cleaned.append(value)
+
+        if len(cleaned) > MAX_SELECTION_OPTIONS:
+            raise forms.ValidationError(
+                f"Provide at most {MAX_SELECTION_OPTIONS} selection options."
+            )
+        if len(set(cleaned)) != len(cleaned):
+            raise forms.ValidationError("Selection options must be unique.")
+
+        return cleaned
+
+    def clean_is_array(self) -> bool:
+        raw_value = (self.cleaned_data.get("is_array") or "").strip().lower()
+        if raw_value in {"1", "true", "on"}:
+            return True
+        return False
+
+    def clean(self):
+        cleaned_data = super().clean()
+        if not cleaned_data:
+            return cleaned_data
+
+        output_type = cleaned_data.get("output_type")
+        selection_options: list[str] = cleaned_data.get("selection_options") or []
+
+        if output_type == OutputType.SELECTION:
+            if not selection_options:
+                self.add_error(
+                    "selection_options",
+                    "Add at least one selection to use the Selection type.",
+                )
+        else:
+            if selection_options:
+                self.add_error(
+                    "selection_options",
+                    "Selections are only allowed when Output Type is Selection.",
+                )
+                cleaned_data["selection_options"] = []
+
+        return cleaned_data
 
 
 OutputFieldFormSet = forms.inlineformset_factory(

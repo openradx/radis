@@ -27,7 +27,7 @@ class SubscriptionTable(tables.Table):
 
         if num_new > 0:
             return format_html(
-                '<a href="{}">{} <span class="badge bg-primary">{} new</span></a>',
+                '<a href="{}">{}<span class="badge bg-primary ms-2">{} new</span></a>',
                 url,
                 value,
                 num_new,

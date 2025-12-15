@@ -6,7 +6,7 @@ from django.db import migrations
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("extractions", "0003_alter_extractionjob_options_and_more"),
+        ("extractions", "0005_outputfield_is_array"),
     ]
 
     operations = [

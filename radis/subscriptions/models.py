@@ -32,7 +32,6 @@ class Subscription(models.Model):
 
     group = models.ForeignKey[Group](Group, on_delete=models.CASCADE, related_name="+")
     patient_id = models.CharField(max_length=100, blank=True)
-    query = models.CharField(max_length=200, blank=True)
     language = models.ForeignKey[Language](
         Language, on_delete=models.SET_NULL, blank=True, null=True, related_name="+"
     )
