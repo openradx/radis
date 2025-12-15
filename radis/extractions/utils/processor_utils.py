@@ -15,9 +15,9 @@ def generate_output_fields_schema(fields: Iterable[OutputField]) -> type[BaseMod
     for field in fields:
         if field.output_type == OutputType.TEXT:
             output_type = str
-        elif field_type == OutputType.NUMERIC:
+        elif field.output_type == OutputType.NUMERIC:
             output_type = Numeric
-        elif field_type == OutputType.BOOLEAN:
+        elif field.output_type == OutputType.BOOLEAN:
             output_type = bool
         elif field.output_type == OutputType.SELECTION:
             options = tuple(field.selection_options)
