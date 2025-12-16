@@ -39,7 +39,8 @@ class SearchForm(forms.ModelForm):
             "title": "Title of the extraction job",
             "query": (
                 "Search query to filter reports. "
-                "This query was auto-generated from your extraction fields - you can edit or refine it."
+                "This query was auto-generated from your extraction fields"
+                " - you can edit or refine it."
             ),
         }
         widgets = {
@@ -119,7 +120,8 @@ class SearchForm(forms.ModelForm):
         query = self.cleaned_data["query"].strip()
         if not query:
             raise forms.ValidationError(
-                "A search query is required. Please enter a query or go back to regenerate from fields."
+                "A search query is required. "
+                "Please enter a query or go back to regenerate from fields."
             )
         query_node, _ = QueryParser().parse(query)
         if query_node is None:
@@ -140,7 +142,8 @@ class SearchForm(forms.ModelForm):
         # Query should always be present now (either generated or user-edited)
         if not query:
             raise forms.ValidationError(
-                "A search query is required. Please enter a query or go back to regenerate from fields."
+                "A search query is required. "
+                "Please enter a query or go back to regenerate from fields."
             )
 
         # Validate the query
