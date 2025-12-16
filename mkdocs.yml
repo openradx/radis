@@ -1,0 +1,87 @@
+site_name: RADIS Documentation
+site_description: RADIS (Radiology Report Archive and Discovery System) is a web application for managing, retrieving, and analyzing radiology reports.
+site_author: CCI Bonn
+site_url: https://openradx.github.io/radis
+
+repo_name: openradx/radis
+repo_url: https://github.com/openradx/radis
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  palette:
+    - scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      primary: green
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.expand
+    - navigation.path
+    - navigation.top
+    - navigation.tracking
+    - search.highlight
+    - search.share
+    - search.suggest
+    - content.code.copy
+    - content.code.annotate
+    - content.action.edit
+    - content.action.view
+    - toc.follow
+    - content.full-width
+
+plugins:
+  - search:
+      separator: '[\s\-,:!=\[\]()"`/]+|\.(?!\d)|&[lg]t;|(?!\b)(?=[A-Z][a-z])'
+  - minify:
+      minify_html: true
+
+markdown_extensions:
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences:
+      preserve_tabs: true
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.details
+  - admonition
+  - attr_list # required for Material’s grid layouts:contentReference[oaicite:15]{index=15}
+  - md_in_html # required for Material’s grid layouts:contentReference[oaicite:16]{index=16}
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - toc:
+      permalink: true
+
+nav:
+  - Home: index.md
+  - User Documentation:
+      - Getting Started: user-docs/getting-started.md
+      - User Guide: user-docs/user-guide.md
+      - FAQ: user-docs/faq.md
+  - Developer Documentation:
+      - Contributing: dev-docs/contributing.md
+      - Architecture: dev-docs/architecture.md
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/openradx/radis
+    - icon: fontawesome/solid/globe
+      link: https://ccibonn.ai/
