@@ -6,7 +6,7 @@
     New Extraction Job
 {% endblock title %}
 {% block heading %}
-    <c-page-heading title="New Extraction Job - Summary">
+    <c-page-heading title="New Extraction Job - Review & Submit (Step 3 of 3)">
     <c-slot name="left">
     <button type="button"
             class="btn btn-info"
@@ -27,6 +27,14 @@
         <dt class="col-sm-3">Search Query</dt>
         <dd class="col-sm-9">
             {{ search.query }}
+            {% if query_metadata.success %}
+                <br />
+                <small class="text-muted">
+                    {% bootstrap_icon "info-circle" %}
+                    Auto-generated from extraction fields
+                    {% if query_metadata.fixes_applied %}(with automatic fixes applied){% endif %}
+                </small>
+            {% endif %}
         </dd>
         <dt class="col-sm-3">Language</dt>
         <dd class="col-sm-9">
@@ -125,7 +133,7 @@
             <button type="submit"
                     name="wizard_goto_step"
                     value="{{ wizard.steps.prev }}"
-                    class="btn btn-secondary">Previous Step (Output Fields)</button>
+                    class="btn btn-secondary">Previous Step (Search Query)</button>
             <button type="submit" class="btn btn-primary">Create Extraction Job</button>
         </div>
     </form>

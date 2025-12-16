@@ -5,7 +5,7 @@
     New Extraction Job
 {% endblock title %}
 {% block heading %}
-    <c-page-heading title="New Extraction Job - Search">
+    <c-page-heading title="New Extraction Job - Search Query (Step 2 of 3)">
     <c-slot name="left">
     <button type="button"
             class="btn btn-info"
@@ -24,9 +24,32 @@
     </c-page-heading>
 {% endblock heading %}
 {% block content %}
+    {% if generated_query %}
+        <div class="alert alert-info mb-4" role="alert">
+            <h5 class="alert-heading">
+                {% bootstrap_icon "magic" %} Auto-Generated Query
+            </h5>
+            <p>
+                Based on your {{ output_fields_count }} extraction field{{ output_fields_count|pluralize }},
+                we generated the following search query:
+            </p>
+            <code class="d-block bg-light p-2 mb-2">{{ generated_query }}</code>
+            <p class="mb-0">
+                <small>
+                    You can edit this query below to refine your search.
+                    The query will help find relevant medical reports for your extraction.
+                </small>
+            </p>
+        </div>
+    {% endif %}
     <form action="" method="post">
         {% csrf_token %}
         {{ wizard.management_form }}
         {% crispy form %}
+        {% if retrieval_count is not None %}
+            <div class="alert alert-success mt-3" role="alert">
+                Your search will retrieve approximately <strong>{{ retrieval_count }} report{{ retrieval_count|pluralize }}</strong>.
+            </div>
+        {% endif %}
     </form>
 {% endblock content %}
