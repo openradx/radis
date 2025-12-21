@@ -38,12 +38,13 @@ class SearchForm(forms.ModelForm):
         help_texts = {
             "title": "Title of the extraction job",
             "query": (
-                "Search query to filter reports "
-                "(leave empty to auto-generate from extraction fields)"
+                "Search query to filter reports. "
+                "This query was auto-generated from your extraction fields"
+                " - you can edit or refine it."
             ),
         }
         widgets = {
-            "query": forms.TextInput(attrs={"placeholder": "Optional - auto-generated if empty"}),
+            "query": forms.TextInput(attrs={"placeholder": "Auto-generated query (editable)"}),
         }
 
     def __init__(self, *args, **kwargs):
@@ -51,7 +52,7 @@ class SearchForm(forms.ModelForm):
 
         super().__init__(*args, **kwargs)
 
-        self.fields["query"].required = False
+        self.fields["query"].required = True
         self.fields["language"].choices = [  # type: ignore
             (language.pk, LANGUAGE_LABELS[language.code])
             for language in Language.objects.order_by("code")
@@ -99,7 +100,9 @@ class SearchForm(forms.ModelForm):
                 Column(
                     "title",
                     "query",
-                    Submit("next", "Next Step (Output Fields)", css_class="btn-primary"),
+                    # Preview div from template include
+                    HTML('{% include "extractions/_search_preview_form_section.html" %}'),
+                    Submit("next", "Next Step (Summary)", css_class="btn-primary"),
                 ),
                 Column(
                     "language",
@@ -118,8 +121,10 @@ class SearchForm(forms.ModelForm):
     def clean_query(self) -> str:
         query = self.cleaned_data["query"].strip()
         if not query:
-            # Query is empty - will be auto-generated from output fields
-            return ""
+            raise forms.ValidationError(
+                "A search query is required. "
+                "Please enter a query or go back to regenerate from fields."
+            )
         query_node, _ = QueryParser().parse(query)
         if query_node is None:
             raise forms.ValidationError("Invalid query syntax")
@@ -136,20 +141,22 @@ class SearchForm(forms.ModelForm):
 
         query = cleaned_data.get("query", "").strip()
 
-        # Check if query generation is needed
+        # Query should always be present now (either generated or user-edited)
         if not query:
-            # Mark for auto-generation from output fields
-            cleaned_data["requires_query_generation"] = True
-            cleaned_data["retrieval_count"] = None  # Will be calculated after query generation
-            return cleaned_data
+            raise forms.ValidationError(
+                "A search query is required. "
+                "Please enter a query or go back to regenerate from fields."
+            )
 
-        # Validate manual query
+        # Validate the query
         query_node, fixes = QueryParser().parse(query)
-        assert query_node
+        if query_node is None:
+            raise forms.ValidationError("Invalid query syntax")
 
         if len(fixes) > 0:
             cleaned_data["fixed_query"] = QueryParser.unparse(query_node)
 
+        # Calculate retrieval count
         search = Search(
             query=query_node,
             offset=0,
@@ -169,14 +176,16 @@ class SearchForm(forms.ModelForm):
 
         if extraction_retrieval_provider is None:
             raise forms.ValidationError("Extraction retrieval provider is not configured.")
+
         retrieval_count = extraction_retrieval_provider.count(search)
         cleaned_data["retrieval_count"] = retrieval_count
 
+        # Validate against limits
         if retrieval_count > settings.EXTRACTION_MAXIMUM_REPORTS_COUNT:
             raise forms.ValidationError(
                 f"Your search returned more results ({retrieval_count}) than the extraction "
                 f"pipeline can handle (max. {settings.EXTRACTION_MAXIMUM_REPORTS_COUNT}). "
-                "Please refine your search."
+                "Please refine your search query."
             )
 
         if (
@@ -187,8 +196,6 @@ class SearchForm(forms.ModelForm):
                 f"Your search returned more results ({retrieval_count}) than the extraction "
                 "provider can handle. Please refine your search."
             )
-
-        cleaned_data["requires_query_generation"] = False
 
         return cleaned_data
 

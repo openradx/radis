@@ -1,7 +1,8 @@
 import csv
 from collections.abc import Generator
-from datetime import date
-from typing import Any, Literal, Type, cast
+from datetime import datetime
+from typing import Any, Literal, Type, Union, cast
+from urllib.parse import urlencode
 
 from adit_radis_shared.accounts.models import User
 from adit_radis_shared.common.mixins import (
@@ -19,10 +20,10 @@ from django.db import transaction
 from django.db.models import QuerySet
 from django.forms import BaseInlineFormSet
 from django.http import StreamingHttpResponse
-from django.shortcuts import redirect
-from django.urls import reverse_lazy
+from django.shortcuts import redirect, render
+from django.urls import reverse, reverse_lazy
 from django.utils.text import slugify
-from django.views.generic import DetailView
+from django.views.generic import DetailView, View
 from django_tables2 import SingleTableMixin, tables
 from formtools.wizard.views import SessionWizardView
 
@@ -81,11 +82,11 @@ class ExtractionJobListView(ExtractionsLockedMixin, AnalysisJobListView):
 class ExtractionJobWizardView(
     LoginRequiredMixin, PermissionRequiredMixin, UserPassesTestMixin, SessionWizardView
 ):
-    SEARCH_STEP = "0"
-    OUTPUT_FIELDS_STEP = "1"
+    OUTPUT_FIELDS_STEP = "0"
+    SEARCH_STEP = "1"
     SUMMARY_STEP = "2"
 
-    form_list = [SearchForm, OutputFieldFormSet, SummaryForm]
+    form_list = [OutputFieldFormSet, SearchForm, SummaryForm]
     permission_required = "extractions.add_extractionjob"
     permission_denied_message = "You must be logged in and have an active group"
     request: AuthenticatedHttpRequest
@@ -99,146 +100,106 @@ class ExtractionJobWizardView(
             kwargs["user"] = self.request.user
         return kwargs
 
+    def process_step(self, form):
+        """Process validated form data and trigger query generation after output fields step."""
+        step_data = self.get_form_step_data(form)
+
+        # After output fields are submitted, generate query
+        if self.steps.current == ExtractionJobWizardView.OUTPUT_FIELDS_STEP:
+            # Extract output fields from formset
+            from .models import OutputField
+
+            formset_data = []
+            if hasattr(form, "cleaned_data"):
+                formset_data = form.cleaned_data
+
+            temp_fields = [
+                OutputField(
+                    name=field_data["name"],
+                    description=field_data["description"],
+                    output_type=field_data["output_type"],
+                )
+                for field_data in formset_data
+                if not field_data.get("DELETE", False)
+            ]
+
+            # Generate query from fields
+            generator = QueryGenerator()
+            generated_query, metadata = generator.generate_from_fields(temp_fields)
+
+            # Store in wizard storage for use in next step
+            self.storage.extra_data["generated_query"] = generated_query or ""
+            self.storage.extra_data["query_metadata"] = metadata
+            self.storage.extra_data["query_generation_attempted"] = True
+
+            # Check if generation failed
+            if generated_query is None or not metadata.get("success"):
+                from django.contrib import messages
+
+                messages.warning(
+                    self.request,
+                    "Unable to automatically generate a query from your extraction fields. "
+                    "You can manually enter a search query in the next step.",
+                )
+
+        # After search step is submitted, store retrieval count for summary
+        elif self.steps.current == ExtractionJobWizardView.SEARCH_STEP:
+            if hasattr(form, "cleaned_data"):
+                retrieval_count = form.cleaned_data.get("retrieval_count")
+                if retrieval_count is not None:
+                    self.storage.extra_data["retrieval_count"] = retrieval_count
+
+            return step_data
+
+    def get_form_initial(self, step=None):
+        """Provide initial data for forms, including generated query for search step."""
+        initial = super().get_form_initial(step)
+
+        if step == ExtractionJobWizardView.SEARCH_STEP:
+            # Pre-populate query field with generated query
+            generated_query = self.storage.extra_data.get("generated_query", "")
+            if generated_query:
+                initial["query"] = generated_query
+
+        return initial
+
     def get_context_data(self, form, **kwargs):
         context = super().get_context_data(form, **kwargs)
 
-        if self.steps.current == ExtractionJobWizardView.SEARCH_STEP:
-            pass
-
-        elif self.steps.current == ExtractionJobWizardView.OUTPUT_FIELDS_STEP:
+        if self.steps.current == ExtractionJobWizardView.OUTPUT_FIELDS_STEP:
+            # First step - just show the formset
             context["formset"] = form
 
-            data = self.get_cleaned_data_for_step(ExtractionJobWizardView.SEARCH_STEP)
-            assert data and isinstance(data, dict)
+        elif self.steps.current == ExtractionJobWizardView.SEARCH_STEP:
+            # Second step - show generated query info and retrieval count
+            context["generated_query"] = self.storage.extra_data.get("generated_query", "")
+            context["query_metadata"] = self.storage.extra_data.get("query_metadata", {})
 
-            context["fixed_query"] = data.get("fixed_query")
-            context["retrieval_count"] = data.get("retrieval_count", 0)
-            context["requires_query_generation"] = data.get("requires_query_generation", False)
-
-            # Store for use in summary step
-            self.storage.extra_data["retrieval_count"] = data.get("retrieval_count", 0)
-            self.storage.extra_data["requires_query_generation"] = data.get(
-                "requires_query_generation", False
-            )
-
-        elif self.steps.current == ExtractionJobWizardView.SUMMARY_STEP:
-            search_data = self.get_cleaned_data_for_step(ExtractionJobWizardView.SEARCH_STEP)
+            # Get output fields data to show context
             output_fields_data = self.get_cleaned_data_for_step(
                 ExtractionJobWizardView.OUTPUT_FIELDS_STEP
             )
-            assert search_data and isinstance(search_data, dict)
-            assert output_fields_data and isinstance(output_fields_data, list)
-            # Auto-generate query if needed
-            if self.storage.extra_data.get("requires_query_generation", False):
-                # Create temporary OutputField objects for query generation
-                from .models import OutputField
-
-                temp_fields = [
-                    OutputField(
-                        name=field_data["name"],
-                        description=field_data["description"],
-                        output_type=field_data["output_type"],
-                    )
-                    for field_data in output_fields_data
-                    if not field_data.get("DELETE", False)
-                ]
-
-                generator = QueryGenerator()
-                generated_query, metadata = generator.generate_from_fields(temp_fields)
-
-                # Check if generation failed
-                if generated_query is None or not metadata.get("success"):
-                    from django.contrib import messages
-
-                    messages.error(
-                        self.request,
-                        "Unable to automatically generate a query from your extraction fields. "
-                        "Please go back to Step 1 and manually enter a search query.",
-                    )
-                    # Redirect back to step 0
-                    self.storage.current_step = self.steps.first
-                    return self.render_goto_step(self.steps.first)
-
-                # Store generated query
-                search_data["query"] = generated_query
-                search_data["query_metadata"] = metadata
-                self.storage.extra_data["generated_query"] = generated_query
-                self.storage.extra_data["query_metadata"] = metadata
-
-                # Calculate retrieval count for auto-generated query
-                # Parse the generated query
-                query_node, _ = QueryParser().parse(generated_query)
-                assert query_node  # Should be valid since it was just generated and validated
-
-                # Build search with all filters from search_data
-                user = cast(User, self.request.user)
-                active_group = user.active_group
-                assert active_group
-
-                language = cast(Language, search_data.get("language"))
-                modalities = cast(QuerySet[Modality], search_data.get("modalities"))
-
-                search = Search(
-                    query=query_node,
-                    offset=0,
-                    limit=0,
-                    filters=SearchFilters(
-                        group=active_group.pk,
-                        language=language.code,
-                        modalities=list(modalities.values_list("code", flat=True))
-                        if modalities
-                        else [],
-                        study_date_from=cast("date | None", search_data.get("study_date_from")),
-                        study_date_till=cast("date | None", search_data.get("study_date_till")),
-                        study_description=cast(str, search_data.get("study_description")) or "",
-                        patient_sex=cast(Literal["M", "F"], search_data.get("patient_sex")) or None,
-                        patient_age_from=cast("int | None", search_data.get("age_from")),
-                        patient_age_till=cast("int | None", search_data.get("age_till")),
-                    ),
+            if output_fields_data:
+                context["output_fields_count"] = len(
+                    [
+                        f
+                        for f in output_fields_data
+                        if not cast(dict[str, Any], f).get("DELETE", False)
+                    ]
                 )
 
-                # Get the actual count
-                if extraction_retrieval_provider is None:
-                    from django.contrib import messages
+        elif self.steps.current == ExtractionJobWizardView.SUMMARY_STEP:
+            # Final step - show everything for review
+            output_fields_data = self.get_cleaned_data_for_step(
+                ExtractionJobWizardView.OUTPUT_FIELDS_STEP
+            )
+            search_data = self.get_cleaned_data_for_step(ExtractionJobWizardView.SEARCH_STEP)
 
-                    messages.error(self.request, "Extraction retrieval provider is not configured.")
-                    self.storage.current_step = self.steps.first
-                    return self.render_goto_step(self.steps.first)
+            assert output_fields_data and isinstance(output_fields_data, list)
+            assert search_data and isinstance(search_data, dict)
 
-                retrieval_count = extraction_retrieval_provider.count(search)
-                self.storage.extra_data["retrieval_count"] = retrieval_count
-
-                # Validate against limits
-                if retrieval_count > settings.EXTRACTION_MAXIMUM_REPORTS_COUNT:
-                    from django.contrib import messages
-
-                    messages.error(
-                        self.request,
-                        f"Your auto-generated query returned {retrieval_count} results, "
-                        "which exceeds the maximum limit of "
-                        f"{settings.EXTRACTION_MAXIMUM_REPORTS_COUNT}. "
-                        "Please go back and refine your extraction fields or add a manual query.",
-                    )
-                    self.storage.current_step = self.steps.first
-                    return self.render_goto_step(self.steps.first)
-
-                if (
-                    extraction_retrieval_provider.max_results
-                    and retrieval_count > extraction_retrieval_provider.max_results
-                ):
-                    from django.contrib import messages
-
-                    messages.error(
-                        self.request,
-                        f"Your auto-generated query returned {retrieval_count} results, "
-                        "which exceeds the provider's limit. "
-                        "Please refine your extraction fields or add a manual query.",
-                    )
-                    self.storage.current_step = self.steps.first
-                    return self.render_goto_step(self.steps.first)
-
-            context["search"] = search_data
             context["output_fields"] = output_fields_data
+            context["search"] = search_data
             context["retrieval_count"] = self.storage.extra_data.get("retrieval_count", 0)
             context["query_metadata"] = self.storage.extra_data.get("query_metadata", {})
 
@@ -246,10 +207,10 @@ class ExtractionJobWizardView(
 
     def get_template_names(self) -> list[str]:
         step = self.steps.current
-        if step == ExtractionJobWizardView.SEARCH_STEP:
-            return ["extractions/extraction_job_search_form.html"]
-        elif step == ExtractionJobWizardView.OUTPUT_FIELDS_STEP:
+        if step == ExtractionJobWizardView.OUTPUT_FIELDS_STEP:
             return ["extractions/extraction_job_output_fields_form.html"]
+        elif step == ExtractionJobWizardView.SEARCH_STEP:
+            return ["extractions/extraction_job_search_form.html"]
         elif step == ExtractionJobWizardView.SUMMARY_STEP:
             return ["extractions/extraction_job_wizard_summary.html"]
         else:
@@ -257,29 +218,26 @@ class ExtractionJobWizardView(
 
     def done(
         self,
-        form_objs: tuple[SearchForm, BaseInlineFormSet, SummaryForm],
+        form_objs: tuple[BaseInlineFormSet, SearchForm, SummaryForm],
         **kwargs,
     ):
         user = self.request.user
 
         with transaction.atomic():
+            output_fields_formset = form_objs[0]
+            search_form = form_objs[1]
             summary_form = form_objs[2]
-            job_form = form_objs[0]
 
-            # Use generated query if it was auto-generated
-            if self.storage.extra_data.get("requires_query_generation", False):
-                generated_query = self.storage.extra_data.get("generated_query", "")
-                job_form.instance.query = generated_query
-
+            # The query is always in search_form now (no conditional logic needed)
             if summary_form.cleaned_data["send_finished_mail"]:
-                job_form.cleaned_data["send_finished_mail"] = True
+                search_form.cleaned_data["send_finished_mail"] = True
 
-            job: ExtractionJob = job_form.save(commit=False)
+            job: ExtractionJob = search_form.save(commit=False)
 
+            # Parse and normalize the query
             query = job.query
             query_node, fixes = QueryParser().parse(query)
             if len(fixes) > 0:
-                # The query was already validated that it is not empty by the form
                 assert query_node
                 job.query = QueryParser.unparse(query_node)
 
@@ -291,8 +249,8 @@ class ExtractionJobWizardView(
             job.save()
 
             # Save output fields
-            form_objs[1].instance = job
-            form_objs[1].save()
+            output_fields_formset.instance = job
+            output_fields_formset.save()
 
             if user.is_staff or settings.START_EXTRACTION_JOB_UNVERIFIED:
                 job.status = ExtractionJob.Status.PENDING
@@ -301,6 +259,164 @@ class ExtractionJobWizardView(
                 transaction.on_commit(lambda: job.delay())
 
         return redirect(job)
+
+
+class ExtractionSearchPreviewView(LoginRequiredMixin, View):
+    """HTMX endpoint for live search preview: count and link."""
+
+    request: AuthenticatedHttpRequest
+
+    def get(self, request: AuthenticatedHttpRequest):
+        # Wizard step prefix for form field names
+        WIZARD_STEP_PREFIX = "1-"
+
+        # Extract query and filter parameters from GET
+        query_str = request.GET.get(f"{WIZARD_STEP_PREFIX}query", "").strip()
+        language_id = request.GET.get(f"{WIZARD_STEP_PREFIX}language")
+        modality_ids = request.GET.getlist(f"{WIZARD_STEP_PREFIX}modalities")
+
+        # Get string values from GET parameters
+        study_date_from_str = request.GET.get(f"{WIZARD_STEP_PREFIX}study_date_from", "").strip()
+        study_date_till_str = request.GET.get(f"{WIZARD_STEP_PREFIX}study_date_till", "").strip()
+        study_description = request.GET.get(f"{WIZARD_STEP_PREFIX}study_description", "")
+        patient_sex_str = request.GET.get(f"{WIZARD_STEP_PREFIX}patient_sex")
+        patient_sex: Literal["M", "F"] | None = None
+        if patient_sex_str in ("M", "F"):
+            patient_sex = patient_sex_str  # Type narrowed to Literal["M", "F"]
+        age_from_str = request.GET.get(f"{WIZARD_STEP_PREFIX}age_from", "").strip()
+        age_till_str = request.GET.get(f"{WIZARD_STEP_PREFIX}age_till", "").strip()
+
+        # Parse dates from YYYY-MM-DD format to date objects
+        study_date_from = None
+        study_date_till = None
+        if study_date_from_str:
+            try:
+                study_date_from = datetime.strptime(study_date_from_str, "%Y-%m-%d").date()
+            except ValueError:
+                pass  # Invalid date format, leave as None
+
+        if study_date_till_str:
+            try:
+                study_date_till = datetime.strptime(study_date_till_str, "%Y-%m-%d").date()
+            except ValueError:
+                pass  # Invalid date format, leave as None
+
+        # Parse age values to integers
+        age_from_int = None
+        age_till_int = None
+        if age_from_str:
+            try:
+                age_from_int = int(age_from_str)
+            except ValueError:
+                pass  # Invalid integer, leave as None
+
+        if age_till_str:
+            try:
+                age_till_int = int(age_till_str)
+            except ValueError:
+                pass  # Invalid integer, leave as None
+
+        # Get user's active group
+        user = cast("User", request.user)
+        active_group = user.active_group
+
+        # Validate query syntax
+        if not query_str:
+            context = {
+                "count": None,
+                "search_url": None,
+                "error": None,
+                "max_reports_limit": settings.EXTRACTION_MAXIMUM_REPORTS_COUNT,
+            }
+            return render(request, "extractions/_search_preview.html", context)
+
+        query_node, fixes = QueryParser().parse(query_str)
+        if query_node is None:
+            context = {
+                "count": None,
+                "search_url": None,
+                "error": "Invalid query syntax",
+                "max_reports_limit": settings.EXTRACTION_MAXIMUM_REPORTS_COUNT,
+            }
+            return render(request, "extractions/_search_preview.html", context)
+
+        # Get language and modalities objects
+        try:
+            language = Language.objects.get(pk=language_id) if language_id else None
+            modalities_qs = (
+                Modality.objects.filter(pk__in=modality_ids)
+                if modality_ids
+                else Modality.objects.none()
+            )
+        except (Language.DoesNotExist, ValueError):
+            context = {
+                "count": None,
+                "search_url": None,
+                "error": "Invalid language or modality selection",
+                "max_reports_limit": settings.EXTRACTION_MAXIMUM_REPORTS_COUNT,
+            }
+            return render(request, "extractions/_search_preview.html", context)
+
+        # Build search object (age_from_int and age_till_int already parsed above)
+        search = Search(
+            query=query_node,
+            offset=0,
+            limit=0,
+            filters=SearchFilters(
+                group=active_group.pk if active_group else None,
+                language=language.code if language else "",
+                modalities=list(modalities_qs.values_list("code", flat=True)),
+                study_date_from=study_date_from,
+                study_date_till=study_date_till,
+                study_description=study_description,
+                patient_sex=patient_sex,
+                patient_age_from=age_from_int,
+                patient_age_till=age_till_int,
+            ),
+        )
+
+        # Calculate count
+        if extraction_retrieval_provider is None:
+            context = {
+                "count": None,
+                "search_url": None,
+                "error": "Extraction retrieval provider is not configured",
+                "max_reports_limit": settings.EXTRACTION_MAXIMUM_REPORTS_COUNT,
+            }
+            return render(request, "extractions/_search_preview.html", context)
+
+        retrieval_count = extraction_retrieval_provider.count(search)
+
+        # Generate search URL - use STRING values for URL parameters
+        # Note: modalities can be a list, which urlencode with doseq=True expands
+        search_params: dict[str, Union[str, list[str]]] = {"query": query_str}
+        if language_id:
+            search_params["language"] = Language.objects.get(pk=language_id).code
+        if modality_ids:
+            search_params["modalities"] = modality_ids
+        if study_date_from_str:  # Use STRING version for URL
+            search_params["study_date_from"] = study_date_from_str
+        if study_date_till_str:  # Use STRING version for URL
+            search_params["study_date_till"] = study_date_till_str
+        if study_description:
+            search_params["study_description"] = study_description
+        if patient_sex:
+            search_params["patient_sex"] = patient_sex
+        if age_from_str:  # Use STRING version for URL
+            search_params["age_from"] = age_from_str
+        if age_till_str:  # Use STRING version for URL
+            search_params["age_till"] = age_till_str
+
+        # doseq=True ensures modalities list becomes: modalities=DX&modalities=MR
+        search_url = reverse("search") + "?" + urlencode(search_params, doseq=True)
+
+        context = {
+            "count": retrieval_count,
+            "search_url": search_url,
+            "error": None,
+            "max_reports_limit": settings.EXTRACTION_MAXIMUM_REPORTS_COUNT,
+        }
+        return render(request, "extractions/_search_preview.html", context)
 
 
 class ExtractionJobDetailView(AnalysisJobDetailView):
