@@ -100,6 +100,8 @@ class SearchForm(forms.ModelForm):
                 Column(
                     "title",
                     "query",
+                    # Preview div from template include
+                    HTML('{% include "extractions/_search_preview_form_section.html" %}'),
                     Submit("next", "Next Step (Summary)", css_class="btn-primary"),
                 ),
                 Column(

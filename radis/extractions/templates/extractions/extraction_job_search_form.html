@@ -47,23 +47,6 @@
         {% csrf_token %}
         {{ wizard.management_form }}
         {% crispy form %}
-        <!-- Live Search Preview Container -->
-        <div id="search-preview"
-             class="mt-3"
-             hx-get="{% url 'extraction_search_preview' %}"
-             hx-trigger="updatePreview, load"
-             hx-include="[name='1-query'], [name='1-language'], [name='1-modalities'], [name='1-study_date_from'], [name='1-study_date_till'], [name='1-study_description'], [name='1-patient_sex'], [name='1-age_from'], [name='1-age_till']"
-             hx-target="this"
-             hx-swap="innerHTML"
-             x-on:htmx:after-request="isLoading = false">
-            <!-- Initial placeholder or server-rendered content -->
-            <div class="alert alert-secondary" role="alert">
-                <span class="spinner-border spinner-border-sm me-2"
-                      role="status"
-                      aria-hidden="true"></span>
-                Loading search preview...
-            </div>
-        </div>
     </form>
     <script>
     // Debug: Log HTMX events

@@ -27,14 +27,6 @@
         <dt class="col-sm-3">Search Query</dt>
         <dd class="col-sm-9">
             {{ search.query }}
-            {% if query_metadata.success %}
-                <br />
-                <small class="text-muted">
-                    {% bootstrap_icon "info-circle" %}
-                    Auto-generated from extraction fields
-                    {% if query_metadata.fixes_applied %}(with automatic fixes applied){% endif %}
-                </small>
-            {% endif %}
         </dd>
         <dt class="col-sm-3">Language</dt>
         <dd class="col-sm-9">
@@ -109,9 +101,7 @@
                                     <dt class="col-sm-3">Selections</dt>
                                     <dd class="col-sm-9">
                                         <ul class="mb-0 ps-3">
-                                            {% for option in field.selection_options %}
-                                                <li>{{ option }}</li>
-                                            {% endfor %}
+                                            {% for option in field.selection_options %}<li>{{ option }}</li>{% endfor %}
                                         </ul>
                                     </dd>
                                 {% endif %}
@@ -122,10 +112,7 @@
             </ul>
         </dd>
     </dl>
-    <form action=""
-          method="post"
-          class="pt-3"
-          data-prevent-enter-submit="true">
+    <form action="" method="post" class="pt-3" data-prevent-enter-submit="true">
         {% csrf_token %}
         {{ wizard.management_form }}
         {% crispy form %}

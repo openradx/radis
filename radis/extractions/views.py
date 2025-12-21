@@ -142,7 +142,14 @@ class ExtractionJobWizardView(
                     "You can manually enter a search query in the next step.",
                 )
 
-        return step_data
+        # After search step is submitted, store retrieval count for summary
+        elif self.steps.current == ExtractionJobWizardView.SEARCH_STEP:
+            if hasattr(form, "cleaned_data"):
+                retrieval_count = form.cleaned_data.get("retrieval_count")
+                if retrieval_count is not None:
+                    self.storage.extra_data["retrieval_count"] = retrieval_count
+
+            return step_data
 
     def get_form_initial(self, step=None):
         """Provide initial data for forms, including generated query for search step."""
@@ -180,14 +187,6 @@ class ExtractionJobWizardView(
                         if not cast(dict[str, Any], f).get("DELETE", False)
                     ]
                 )
-
-            # If query is populated (either generated or user-edited), show estimated count
-            if form.is_bound and hasattr(form, "cleaned_data") and form.cleaned_data:
-                retrieval_count = form.cleaned_data.get("retrieval_count")
-                if retrieval_count is not None:
-                    context["retrieval_count"] = retrieval_count
-                    # Store for summary step
-                    self.storage.extra_data["retrieval_count"] = retrieval_count
 
         elif self.steps.current == ExtractionJobWizardView.SUMMARY_STEP:
             # Final step - show everything for review
@@ -268,21 +267,24 @@ class ExtractionSearchPreviewView(LoginRequiredMixin, View):
     request: AuthenticatedHttpRequest
 
     def get(self, request: AuthenticatedHttpRequest):
+        # Wizard step prefix for form field names
+        WIZARD_STEP_PREFIX = "1-"
+
         # Extract query and filter parameters from GET
-        query_str = request.GET.get("query", "").strip()
-        language_id = request.GET.get("language")
-        modality_ids = request.GET.getlist("modalities")
+        query_str = request.GET.get(f"{WIZARD_STEP_PREFIX}query", "").strip()
+        language_id = request.GET.get(f"{WIZARD_STEP_PREFIX}language")
+        modality_ids = request.GET.getlist(f"{WIZARD_STEP_PREFIX}modalities")
 
         # Get string values from GET parameters
-        study_date_from_str = request.GET.get("study_date_from", "").strip()
-        study_date_till_str = request.GET.get("study_date_till", "").strip()
-        study_description = request.GET.get("study_description", "")
-        patient_sex_str = request.GET.get("patient_sex")
+        study_date_from_str = request.GET.get(f"{WIZARD_STEP_PREFIX}study_date_from", "").strip()
+        study_date_till_str = request.GET.get(f"{WIZARD_STEP_PREFIX}study_date_till", "").strip()
+        study_description = request.GET.get(f"{WIZARD_STEP_PREFIX}study_description", "")
+        patient_sex_str = request.GET.get(f"{WIZARD_STEP_PREFIX}patient_sex")
         patient_sex: Literal["M", "F"] | None = None
         if patient_sex_str in ("M", "F"):
             patient_sex = patient_sex_str  # Type narrowed to Literal["M", "F"]
-        age_from_str = request.GET.get("age_from", "").strip()
-        age_till_str = request.GET.get("age_till", "").strip()
+        age_from_str = request.GET.get(f"{WIZARD_STEP_PREFIX}age_from", "").strip()
+        age_till_str = request.GET.get(f"{WIZARD_STEP_PREFIX}age_till", "").strip()
 
         # Parse dates from YYYY-MM-DD format to date objects
         study_date_from = None
@@ -389,7 +391,7 @@ class ExtractionSearchPreviewView(LoginRequiredMixin, View):
         # Note: modalities can be a list, which urlencode with doseq=True expands
         search_params: dict[str, Union[str, list[str]]] = {"query": query_str}
         if language_id:
-            search_params["language"] = language_id
+            search_params["language"] = Language.objects.get(pk=language_id).code
         if modality_ids:
             search_params["modalities"] = modality_ids
         if study_date_from_str:  # Use STRING version for URL
