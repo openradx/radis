@@ -267,6 +267,8 @@ def test_subscription_update_view_post_valid(client: Client):
         "output_fields-0-name": "Volume",
         "output_fields-0-description": "Volume description",
         "output_fields-0-output_type": "N",
+        "output_fields-0-selection_options": "",
+        "output_fields-0-is_array": "false",
     }
 
     response = client.post(f"/subscriptions/{subscription.pk}/update/", data)

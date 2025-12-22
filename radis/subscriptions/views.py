@@ -101,47 +101,6 @@ class SubscriptionCreateView(LoginRequiredMixin, CreateView):  # TODO: Add Permi
             active_group = user.active_group
             form.instance.group = active_group
 
-            # Auto-generate query if needed
-            if not form.cleaned_data.get("query", "").strip():
-                # Collect output fields from formset
-                temp_fields = []
-                for field_form in output_formset:
-                    if (
-                        field_form.cleaned_data
-                        and not field_form.cleaned_data.get("DELETE", False)
-                        and field_form.cleaned_data.get("name")
-                    ):
-                        from radis.extractions.models import OutputField
-
-                        temp_fields.append(
-                            OutputField(
-                                name=field_form.cleaned_data["name"],
-                                description=field_form.cleaned_data["description"],
-                                output_type=field_form.cleaned_data["output_type"],
-                            )
-                        )
-
-                if temp_fields:
-                    from radis.extractions.utils.query_generator import QueryGenerator
-
-                    generator = QueryGenerator()
-                    generated_query, metadata = generator.generate_from_fields(temp_fields)
-
-                    # Check if generation failed
-                    if generated_query is None or not metadata.get("success"):
-                        form.add_error(
-                            "query",
-                            "Unable to automatically generate a query from your extraction fields. "
-                            "Please manually enter a search query.",
-                        )
-                        return self.form_invalid(form)
-
-                    form.instance.query = generated_query
-                    logger.info(
-                        f"Auto-generated query for subscription: {generated_query} "
-                        f"(method: {metadata.get('generation_method')})"
-                    )
-
             try:
                 self.object: Subscription = form.save()
             except IntegrityError as e:
@@ -194,47 +153,6 @@ class SubscriptionUpdateView(LoginRequiredMixin, UpdateView):
         filter_formset = ctx["filter_formset"]
         output_formset = ctx["output_formset"]
         if filter_formset.is_valid() and output_formset.is_valid():
-            # Auto-generate query if needed
-            if not form.cleaned_data.get("query", "").strip():
-                # Collect output fields from formset
-                temp_fields = []
-                for field_form in output_formset:
-                    if (
-                        field_form.cleaned_data
-                        and not field_form.cleaned_data.get("DELETE", False)
-                        and field_form.cleaned_data.get("name")
-                    ):
-                        from radis.extractions.models import OutputField
-
-                        temp_fields.append(
-                            OutputField(
-                                name=field_form.cleaned_data["name"],
-                                description=field_form.cleaned_data["description"],
-                                output_type=field_form.cleaned_data["output_type"],
-                            )
-                        )
-
-                if temp_fields:
-                    from radis.extractions.utils.query_generator import QueryGenerator
-
-                    generator = QueryGenerator()
-                    generated_query, metadata = generator.generate_from_fields(temp_fields)
-
-                    # Check if generation failed
-                    if generated_query is None or not metadata.get("success"):
-                        form.add_error(
-                            "query",
-                            "Unable to automatically generate a query from your extraction fields. "
-                            "Please manually enter a search query.",
-                        )
-                        return self.form_invalid(form)
-
-                    form.instance.query = generated_query
-                    logger.info(
-                        f"Auto-generated query for subscription update: {generated_query} "
-                        f"(method: {metadata.get('generation_method')})"
-                    )
-
             try:
                 self.object = form.save()
             except IntegrityError as e:

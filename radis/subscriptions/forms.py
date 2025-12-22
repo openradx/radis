@@ -30,16 +30,6 @@ class SubscriptionForm(forms.ModelForm):
             "send_finished_mail",
         ]
         labels = {"patient_id": "Patient ID"}
-        help_texts = {
-            "name": "Name of the Subscription",
-            "query": (
-                "Search query to filter reports "
-                "(leave empty to auto-generate from extraction fields)"
-            ),
-        }
-        widgets = {
-            "query": forms.TextInput(attrs={"placeholder": "Optional - auto-generated if empty"}),
-        }
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

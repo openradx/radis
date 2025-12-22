@@ -18,7 +18,7 @@ def test_generate_output_fields_schema_uses_literal_for_selection_fields():
     field.selection_options = ["Grade 1", "Grade 2"]
     field.save()
 
-    schema = generate_output_fields_schema(job.output_fields)
+    schema = generate_output_fields_schema(job.output_fields.all())
 
     grade_field = schema.model_fields["grade"]
     annotation = grade_field.annotation
@@ -38,7 +38,7 @@ def test_generate_output_fields_schema_wraps_literal_in_list_for_array_selection
     field.is_array = True
     field.save()
 
-    schema = generate_output_fields_schema(job.output_fields)
+    schema = generate_output_fields_schema(job.output_fields.all())
 
     grade_field = schema.model_fields["grade_multi"]
     annotation = grade_field.annotation

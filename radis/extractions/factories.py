@@ -5,6 +5,7 @@ from adit_radis_shared.accounts.factories import GroupFactory, UserFactory
 from adit_radis_shared.accounts.models import User
 from adit_radis_shared.common.utils.testing_helpers import add_user_to_group
 from django.contrib.auth.models import Group
+from factory.declarations import SKIP
 from faker import Faker
 
 from radis.reports.factories import ModalityFactory
@@ -72,7 +73,13 @@ class OutputFieldFactory(BaseDjangoModelFactory[OutputField]):
     class Meta:
         model = OutputField
 
-    job = factory.SubFactory("radis.extractions.factories.ExtractionJobFactory")
+    # Use factory.Maybe to conditionally create job only when subscription is None
+    job = factory.Maybe(
+        factory.SelfAttribute("subscription"),
+        yes_declaration=SKIP,  # If subscription exists, skip job creation
+        no_declaration=factory.SubFactory("radis.extractions.factories.ExtractionJobFactory"),  # type: ignore[arg-type]
+    )
+    subscription = None
     name = factory.Sequence(lambda n: f"output_field_{n}")
     description = factory.Faker("sentence", nb_words=10)
     output_type = factory.Faker("random_element", elements=[a[0] for a in OutputType.choices])
