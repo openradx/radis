@@ -1,0 +1,36 @@
+{% load bootstrap_icon from common_extras %}
+
+{% if error %}
+    <div class="alert alert-warning" role="alert">
+        {% bootstrap_icon "exclamation-triangle" %}
+        <strong>{{ error }}</strong>
+    </div>
+{% elif count is None %}
+    <div class="alert alert-secondary" role="alert">
+        {% bootstrap_icon "info-circle" %}
+        Enter a query to see the number of reports that will be retrieved.
+    </div>
+{% else %}
+    <div class="alert alert-success d-flex justify-content-between align-items-center" role="alert">
+        <div>
+            {% bootstrap_icon "check-circle" %}
+            <strong>{{ count }} report{{ count|pluralize }}</strong> will be retrieved
+            {% if count > max_reports_limit %}
+                <br />
+                <small class="text-danger">
+                    {% bootstrap_icon "exclamation-triangle" %}
+                    This exceeds the maximum limit of {{ max_reports_limit }} reports. Please refine your query.
+                </small>
+            {% endif %}
+        </div>
+        {% if search_url %}
+            <a href="{{ search_url }}"
+               target="_blank"
+               class="btn btn-sm btn-outline-primary"
+               rel="noopener noreferrer">
+                {% bootstrap_icon "box-arrow-up-right" %}
+                Preview Search Results
+            </a>
+        {% endif %}
+    </div>
+{% endif %}

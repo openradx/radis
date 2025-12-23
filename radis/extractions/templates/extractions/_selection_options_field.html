@@ -1,0 +1,46 @@
+{% load bootstrap_icon from common_extras %}
+<div class="mt-3"
+     x-data="SelectionOptions($el)"
+     x-effect="syncState()"
+     data-selection-wrapper="true">
+    {{ form.selection_options }}
+    {{ form.is_array }}
+    <div class="d-flex align-items-center flex-wrap selection-options-controls">
+        <div class="d-flex align-items-center gap-2 flex-wrap selection-options-actions">
+            <button type="button"
+                    class="btn btn-outline-secondary btn-sm"
+                    @click.prevent="addOption()"
+                    :disabled="!supportsSelection || options.length >= maxOptions">
+                {% bootstrap_icon "plus-lg" %}
+                Enter a selection
+            </button>
+            <small class="text-muted"
+                   x-show="supportsSelection"
+                   x-text="`${options.length} / ${maxOptions}`"></small>
+        </div>
+    </div>
+    <div class="mt-2" x-show="supportsSelection">
+        <template x-for="(option, index) in options" :key="index">
+            <div class="input-group mb-2">
+                <input type="text"
+                       class="form-control"
+                       :placeholder="`Selection ${index + 1}`"
+                       data-selection-option-input
+                       x-model="options[index]">
+                <button type="button"
+                        class="btn btn-outline-danger"
+                        @click.prevent="removeOption(index)"
+                        aria-label="Remove selection option">{% bootstrap_icon "trash" %}</button>
+            </div>
+        </template>
+        <p class="text-muted fst-italic" x-show="options.length === 0">No selections defined yet.</p>
+    </div>
+    <p class="text-muted fst-italic" x-show="!supportsSelection">
+        Choose the “Selection” output type to define enumerated values.
+    </p>
+    {% if form.selection_options.errors %}
+        <div class="invalid-feedback d-block">
+            {% for error in form.selection_options.errors %}{{ error }}{% endfor %}
+        </div>
+    {% endif %}
+</div>

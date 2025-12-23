@@ -5,7 +5,7 @@
     New Extraction Job
 {% endblock title %}
 {% block heading %}
-    <c-page-heading title="New Extraction Job - Search">
+    <c-page-heading title="New Extraction Job - Search Query (Step 2 of 3)">
     <c-slot name="left">
     <button type="button"
             class="btn btn-info"
@@ -24,9 +24,80 @@
     </c-page-heading>
 {% endblock heading %}
 {% block content %}
-    <form action="" method="post">
+    {% if generated_query %}
+        <div class="alert alert-info mb-4" role="alert">
+            <h5 class="alert-heading">{% bootstrap_icon "magic" %} Auto-Generated Query</h5>
+            <p>
+                Based on your {{ output_fields_count }} extraction field{{ output_fields_count|pluralize }},
+                we generated the following search query:
+            </p>
+            <code class="d-block bg-light p-2 mb-2">{{ generated_query }}</code>
+            <p class="mb-0">
+                <small>
+                    You can edit this query below to refine your search.
+                    The query will help find relevant medical reports for your extraction.
+                </small>
+            </p>
+        </div>
+    {% endif %}
+    <form action=""
+          method="post"
+          x-data="{ isLoading: false }"
+          @input.debounce.500ms=" console.log('[DEBUG] Form input event:', { fieldName: $event.target.name, fieldType: $event.target.type, fieldValue: $event.target.value, target: $event.target }); isLoading = true; console.log('[DEBUG] Triggering updatePreview event'); htmx.trigger('#search-preview', 'updatePreview'); ">
         {% csrf_token %}
         {{ wizard.management_form }}
         {% crispy form %}
     </form>
+    <script>
+    // Debug: Log HTMX events
+    document.addEventListener('htmx:beforeRequest', function(evt) {
+        console.log('[DEBUG] HTMX beforeRequest:', {
+            url: evt.detail.pathInfo?.requestPath,
+            target: evt.detail.target,
+            trigger: evt.detail.triggeringEvent
+        });
+    });
+
+    document.addEventListener('htmx:afterRequest', function(evt) {
+        console.log('[DEBUG] HTMX afterRequest:', {
+            status: evt.detail.xhr.status,
+            successful: evt.detail.successful,
+            responseLength: evt.detail.xhr.response?.length
+        });
+    });
+
+    document.addEventListener('htmx:responseError', function(evt) {
+        console.error('[DEBUG] HTMX responseError:', {
+            error: evt.detail,
+            status: evt.detail.xhr?.status
+        });
+    });
+
+    // Debug: Check initial state when DOM loads
+    document.addEventListener('DOMContentLoaded', function() {
+        console.log('[DEBUG] DOMContentLoaded fired');
+        const queryField = document.querySelector('[name="query"]');
+        console.log('[DEBUG] Query field:', {
+            exists: !!queryField,
+            value: queryField?.value,
+            hasValue: queryField?.value?.trim().length > 0,
+            tagName: queryField?.tagName
+        });
+
+        const previewDiv = document.querySelector('#search-preview');
+        console.log('[DEBUG] Preview div:', {
+            exists: !!previewDiv,
+            hxGet: previewDiv?.getAttribute('hx-get'),
+            hxTrigger: previewDiv?.getAttribute('hx-trigger')
+        });
+
+        // Log if htmx is loaded
+        console.log('[DEBUG] HTMX loaded:', typeof htmx !== 'undefined');
+    });
+
+    // Debug: Listen for the custom updatePreview event
+    document.addEventListener('updatePreview', function(evt) {
+        console.log('[DEBUG] Custom updatePreview event received:', evt);
+    });
+    </script>
 {% endblock content %}
