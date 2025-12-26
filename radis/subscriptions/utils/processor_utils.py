@@ -11,7 +11,7 @@ def generate_questions_schema(questions: QuerySet[Question]) -> type[BaseModel]:
     for index, _ in enumerate(questions.all()):
         field_definitions[f"question_{index}"] = (bool, ...)
 
-    return create_model("QuestionsModel", field_definitions=field_definitions)
+    return create_model("QuestionsModel", **field_definitions)
 
 
 def generate_questions_for_prompt(fields: QuerySet[Question]) -> str:

@@ -90,7 +90,6 @@ def test_subscription_create_view_post_valid(client: Client):
 
     data = {
         "name": "Test Subscription",
-        "provider": "test_provider",
         "query": "test query",
         "language": language.pk,
         "modalities": [modality.pk],
@@ -127,7 +126,6 @@ def test_subscription_create_view_post_duplicate_name(client: Client):
 
     data = {
         "name": "Duplicate Name",
-        "provider": "test_provider",
         "questions-TOTAL_FORMS": "0",
         "questions-INITIAL_FORMS": "0",
         "questions-MIN_NUM_FORMS": "0",
@@ -196,7 +194,6 @@ def test_subscription_update_view_post_valid(client: Client):
 
     data = {
         "name": "Updated Name",
-        "provider": subscription.provider,
         "query": "updated query",
         "study_description": "Updated study",
         "patient_sex": "F",

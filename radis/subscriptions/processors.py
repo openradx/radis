@@ -48,7 +48,7 @@ class SubscriptionTaskProcessor(AnalysisTaskProcessor):
     def process_report(self, report: Report, task: SubscriptionTask) -> None:
         subscription: Subscription = task.job.subscription
         Schema = generate_questions_schema(subscription.questions)
-        prompt = Template(settings.QUESTION_SYSTEM_PROMPT).substitute(
+        prompt = Template(settings.QUESTIONS_SYSTEM_PROMPT).substitute(
             {
                 "report": report.body,
                 "questions": generate_questions_for_prompt(subscription.questions),
