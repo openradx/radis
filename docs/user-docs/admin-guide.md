@@ -100,23 +100,13 @@ Users with urgent priority permission can skip the queue:
 
 ## Subscription Management
 
-Administrators can oversee automated report subscriptions and notifications.
+Administrators can view and manage all user subscriptions through the Django Admin interface.
 
 ### Managing Subscriptions
 
 1. **Access Django Admin**: Navigate to **Subscriptions** → **Subscriptions**
-2. **View All Subscriptions**: See all active subscriptions across users
-3. **Configure Periodic Launcher**:
-   - Default: Runs every minute to check for new matching reports
-   - Configured in Django settings: `SUBSCRIPTION_CRON`
-
-### Subscription Jobs
-
-Monitor subscription refresh jobs:
-
-1. Navigate to **Subscriptions** → **Subscription Jobs**
-2. View job status and matched reports
-3. Check email notification delivery
+2. **View All Subscriptions**: Click on a subscription entry to view its full details.
+3. **Delete a Subscription**: Subscriptions can be removed if necessary using the Delete action
 
 ### Urgent Priority Permission
 
