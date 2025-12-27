@@ -43,9 +43,9 @@ RADIS uses [Procrastinate](https://procrastinate.readthedocs.io/en/stable/), a P
 
 ### Container Types
 
-**Web Container (`radis-web-1`)**: Runs Django application serving web UI and REST API. Python 3.13 with Daphne ASGI server. Ports: 8000 (dev), 80/443 (prod with SSL). Handles authentication, serves static files, enqueues tasks, and manages database connections. In production, runs with 3 replicas for high availability.
+**Web Container (`radis-web-1`)**: Runs Django application serving web UI and REST API. Ports: 8000 (dev), 80/443 (prod with SSL). Handles authentication, serves static files, enqueues tasks, and manages database connections. In production, runs with 3 replicas for high availability.
 
-**PostgreSQL Container (`radis-postgres-1`)**: PostgreSQL 17 database storing all data (users, reports, collections, subscriptions, tasks, logs, Procrastinate queue). Port 5432. Uses Docker volumes for persistence.
+**PostgreSQL Container (`radis-postgres-1`)**: PostgreSQL database storing all data (users, reports, collections, subscriptions, tasks, logs, Procrastinate queue). Port 5432. Uses Docker volumes for persistence.
 
 **Default Worker Container (`radis-default_worker-1`)**: Processes background tasks in the default queue (e.g., extraction job preparation, subscription job preparation, periodic subscription launcher, disk space checks, database backups).
 

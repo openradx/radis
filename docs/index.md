@@ -184,14 +184,9 @@ RADIS is currently in an early phase of development. While we are actively build
 
 ## Quick Start
 
-1. **Getting Started**: Learn the basics in our [getting started guide](user-docs/getting-started.md)
-2. **User Guide**: Explore features in our [user guide](user-docs/user-guide.md)
-3. **Development**: Contribute to the project with our [development guide](dev-docs/contributing.md)
-
-## Getting Help
-
-- Browse the [user documentation](user-docs/user-guide.md)
-- Report issues on [GitHub](https://github.com/openradx/radis/issues)
+1. **Admin Guide**: Learn to configure administrative features in our [Admin Guide](user-docs/admin-guide.md)
+2. **User Guide**: Explore features in our [User Guide](user-docs/user-guide.md)
+3. **Development**: Explore the architecture overview in our [development guide](dev-docs/architecture.md)
 
 ## License
 

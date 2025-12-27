@@ -12,16 +12,16 @@ RADIS acts as a centralized repository for radiology reports, providing powerful
 4. **You receive** ranked results matching your criteria
 5. **You organize** reports into collections, add notes, and subscribe to searches
 
-## Dashboard Overview
+## Functionalities Overview
 
-When you log into RADIS, you'll see the main dashboard with several sections:
+When you log into RADIS, you'll see the main/homepage with several sections:
 
 - **Search**: Search for reports using text queries and filters
 - **Collections**: Organize reports into custom collections
 - **Subscriptions**: Set up notifications for new matching reports
 - **Notes**: View and manage notes you've added to reports
-- **Extractions**: AI-powered analysis and filtering (if enabled)
-- **Chats**: Interactive chat interface with AI (if enabled)
+- **Extractions**: AI-powered analysis and filtering
+- **Chats**: Interactive chat interface with AI
 
 ## Main Features
 
@@ -81,24 +81,26 @@ Add personal notes to reports for additional context:
 Set up subscriptions to be notified when new reports match your criteria:
 
 1. Navigate to the "Subscriptions" section
-2. Click "Create Subscription" to set up a new subscription
-3. Configure search criteria and filters
+2. Click "Add Subscription" to set up a new subscription
+3. Enter the Subscription Name and add filter questions.
+
+   - Write each question and select Accept when answer is Yes or No.\
+   - Add extraction fields by specifying the following for each field:
+     - Name
+     - Output Type (Boolean, Text, or Numeric)
+     - Description
+
 4. Choose to receive email notifications
 5. New matching reports will be tracked and you'll receive notifications
 
-#### Subscription Options
+### 5. Extraction
 
-- **Name**: Descriptive name for your subscription
-- **Query**: Search query to match against new reports
-- **Filters**: Same filters available in regular search
-- **Email Notifications**: Receive email when new matches are found
-
-### 5. Extractions (AI-Powered Analysis)
-
-- Create extraction jobs to analyze multiple reports
-- Ask specific questions about report content
-- Get structured answers extracted by AI
-- Useful for research and quality assurance
+- Create extraction jobs to analyze multiple reports.
+- Add extraction fields by specifying the following for each field:
+  - Name
+  - Output Type (Boolean, Text, or Numeric)
+  - Description
+- In the next step, search query will be automatically generated based on these fields, which you can then review and refine.
 
 ### 6. Chats (AI Assistant)
 
@@ -108,53 +110,6 @@ If enabled, the Chats feature provides an interactive AI assistant:
 - Get contextual answers based on report content
 - Useful for exploring report data interactively
 
-## User Interface Elements
+## RADIS Client
 
-### Report Panel
-
-Each report in search results displays:
-
-- Patient demographics (age, sex)
-- Study information (modality, date, description)
-- Report summary or excerpt
-- Action buttons (collections, notes, chats, PACS link)
-
-### Search Results
-
-Search results show:
-
-- Total number of matching reports
-- Relevance-ranked list of reports
-- Pagination controls for large result sets
-
-## Administrator Features
-
-### System Announcements
-
-System administrators can create announcements that appear on the home page:
-
-1. Access the Django admin interface at `/django-admin/`
-2. Navigate to "Core" > "Project Settings"
-3. Edit the "Announcement" field
-4. Announcements support HTML formatting
-
-Announcements are useful for:
-
-- Notifying users about maintenance windows
-- Announcing new features or changes
-- Sharing important system updates
-
-## Troubleshooting
-
-### No Search Results
-
-- Check your active group - you can only see reports in your group
-- Verify filters are not too restrictive
-- Try broader search terms
-- Contact your administrator if reports should exist
-
-### Cannot Create Collections
-
-- Verify you have the necessary permissions
-- Check if you've reached any collection limits
-- Contact your administrator for assistance
+RADIS Client is a Python library for programmatic access to RADIS features without using the web interface.

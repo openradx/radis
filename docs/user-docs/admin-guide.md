@@ -16,7 +16,7 @@ uv run cli stack-deploy  # builds and starts Docker containers
 
 Follow these steps to safely update your RADIS installation:
 
-1. **Verify no active jobs**: Navigate to Django Admin → **Analysis Jobs** and confirm no extractions or subscriptions are running
+1. **Verify no active jobs**
 2. **Enable maintenance mode**: In Django Admin, navigate to **Common** → **Project Settings** and check the "Maintenance mode" checkbox, then save
 3. Navigate to Production folder
 4. **Backup database**: Run `uv run cli db-backup` to create a database backup
@@ -39,60 +39,41 @@ RADIS uses a group-based permission system:
 
 ### Creating and Managing Groups
 
-1. **Access Django Admin**:
+#### Access Django Admin
 
-   - Log in as a staff user
-   - Go to **Admin Section** → **Django Admin** (available at `/django-admin/` URL path)
+- Log in as a staff user
+- Go to **Admin Section** → **Django Admin** (available at `/django-admin/` URL path)
 
-2. **Create/Edit Groups**:
+#### Create/Edit Groups
 
-   - Navigate to **Authentication and Authorization** → **Groups**
-   - Click "Add Group" or edit an existing group
-   - Give the group a **Name** (e.g., "Radiology Department", "Research Team", "Oncology")
+- Navigate to **Authentication and Authorization** → **Groups**
+- Click "Add Group" or edit an existing group
+- Give the group a **Name** (e.g., "Radiology Department", "Research Team", "Oncology")
 
-3. **Assign Permissions**:
+#### Assign Permissions
 
-   - In the group form, you'll see **Available permissions** and **Chosen permissions**
-   - Select the permissions you want from the available list:
-     - `extractions | extraction job | Can process urgently`
-     - `subscriptions | subscription | Can process urgently`
-     - Plus other RADIS-specific permissions for viewing/managing extractions, subscriptions, and collections
-   - Move them to **Chosen permissions**
+- In the group form, you'll see **Available permissions** and **Chosen permissions**
+- Select the permissions you want from the available list
+- Move them to **Chosen permissions**
 
-4. **Add Users to Group**:
+#### Add Users to Group
 
-   - In the **Users** section, select users from **Available users**
-   - Move them to **Chosen users**
-   - Click **Save** to apply all changes
+- In the **Users** section, select users from **Available users**
+- Move them to **Chosen users**
+- Click **Save** to apply all changes
 
 ### Active Group
 
 Each user has an **active group** that determines which reports they can currently access:
 
-- Users can switch between their assigned groups
 - Only reports associated with the active group are visible in searches and collections
 - This ensures proper data isolation between different departments or projects
 
 ## Report Management
 
-### Managing Modalities
-
-Define DICOM modalities for report filtering:
-
-1. **Access Django Admin**: Navigate to **Reports** → **Modalities**
-2. **Add Modality**:
-   - Click **Add Modality**
-   - Enter **Code** (e.g., "CT", "MR", "US", "XR")
-   - Enter **Name** (e.g., "Computed Tomography", "Magnetic Resonance")
-   - Save
-
 ### Report Import and Management
 
 Administrators can import reports programmatically via the RADIS API or using the RADIS Client library. See the **RADIS Client** section below for details.
-
-## AI/LLM Configuration
-
-RADIS uses Large Language Models (LLMs) for AI-powered features including extractions and subscription filtering.
 
 ### Extraction Jobs
 
@@ -105,8 +86,7 @@ Administrators can monitor and manage extraction jobs where AI analyzes reports 
 3. **View Details**: Click on a job to see:
    - Owner and group
    - Query and filters
-   - Output field definitions
-   - Processing statistics
+   - Output field
    - Results data
 
 ### Granting Urgent Priority Permission
@@ -138,16 +118,12 @@ Monitor subscription refresh jobs:
 2. View job status and matched reports
 3. Check email notification delivery
 
-### Granting Urgent Priority Permission
+### Urgent Priority Permission
 
 1. Navigate to **Authentication and Authorization** → **Groups**
 2. Edit the desired group
 3. Add permission: `subscriptions | subscription | Can process urgently`
 4. Save
-
-## Background Workers
-
-RADIS uses Procrastinate for distributed task processing with two worker types:
 
 ## System Announcements
 
@@ -182,14 +158,6 @@ extractions and subscriptions accordingly.
 <strong>New Feature Available:</strong> You can now create custom extraction
 jobs with multiple output fields. Check out the user guide for more details.
 ```
-
-## Storage and Disk Space Monitoring
-
-RADIS includes disk space monitoring:
-
-1. **Configure Monitoring**: Set up periodic checks in Django Admin → **Procrastinate** → **Periodic Deferrer**
-2. **Alert Thresholds**: Configure in Django settings
-3. **View Alerts**: Check Django Admin for disk space warnings
 
 ## RADIS Client
 

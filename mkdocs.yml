@@ -72,9 +72,8 @@ markdown_extensions:
 nav:
   - Home: index.md
   - User Documentation:
-      - Getting Started: user-docs/admin-guide.md
+      - Admin Guide: user-docs/admin-guide.md
       - User Guide: user-docs/user-guide.md
-      - FAQ: user-docs/faq.md
   - Developer Documentation:
       - Contributing: dev-docs/contributing.md
       - Architecture: dev-docs/architecture.md
