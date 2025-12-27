@@ -72,7 +72,7 @@ markdown_extensions:
 nav:
   - Home: index.md
   - User Documentation:
-      - Getting Started: user-docs/getting-started.md
+      - Getting Started: user-docs/admin-guide.md
       - User Guide: user-docs/user-guide.md
       - FAQ: user-docs/faq.md
   - Developer Documentation:

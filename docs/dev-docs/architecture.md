@@ -39,7 +39,7 @@ RADIS uses [Procrastinate](https://procrastinate.readthedocs.io/en/stable/), a P
 
 ## Docker Container Architecture
 
-RADIS runs as multiple Docker containers deployed using Docker Swarm. In development, these containers run inside a VS Code [Dev Container](https://code.visualstudio.com/docs/devcontainers/create-dev-container) which provides a consistent development environment with Docker-in-Docker support.
+**Docker Swarm**: RADIS employs a sophisticated multi-container architecture, optimized for local deployment using Docker Swarm mode—a feature included with all Docker installations. This local-first approach ensures compliance with the strict data security requirements inherent in hospital and research environments where sensitive patient or research data is managed. By leveraging Docker Swarm, RADIS offers seamless scalability, allowing services to be easily adjusted to meet the specific computational demands of the deployment site.
 
 ### Container Types
 
@@ -51,103 +51,19 @@ RADIS runs as multiple Docker containers deployed using Docker Swarm. In develop
 
 **LLM Worker Container (`radis-llm_worker-1`)**: Executes AI-intensive tasks from the llm queue (extraction tasks, subscription tasks). Uses ChatClient to communicate with LLM service.
 
-**LLM Service Container (`radis-llm_gpu-1`)**: Runs SGLang server with local LLM models for AI-powered features. Uses GPU acceleration when available. Accessible at http://llm.local:8080/v1. Stores model cache in Docker volume.
+**LLM Service Container (`radis-llm_gpu-1`)**: Runs llama.cpp server with local LLM models for AI-powered features. Llama.cpp provides OpenAI-compatible API endpoints for chat completions and structured output via JSON schema (using `response_format` parameter). Uses GPU acceleration when available (CUDA support). Accessible at http://llm.local:8080/v1. Stores model cache in Docker volume. Configured with context size of 8192 tokens, 2 parallel slots, and 99 GPU layers for maximum GPU utilization.
 
-### Dev Container
+### LLM Configuration
 
-The [Dev Container](https://code.visualstudio.com/docs/devcontainers/create-dev-container) is a Docker container that provides the development environment (VS Code, Git, Docker CLI, Node.js, Python tools). It uses Docker-in-Docker to run the application containers inside it. This ensures all developers have identical environments.
+**Model-Agnostic Architecture**: RADIS is model-agnostic and works with any LLM that provides an OpenAI-compatible API, supporting both local and external providers.
 
-## Application Architecture
+**Development**: Uses **llama.cpp** server with GGUF-formatted models. Default model: `SmolLM2-135M-Instruct` (lightweight for testing). Supports CPU and GPU modes. Models automatically downloaded from HuggingFace and cached in Docker volume.
 
-### Core Django Apps Structure
+**Production**: Uses **SGLang** server for optimized inference with better batching and throughput.
 
-#### **Search App** (`radis.search`)
+**Structured Output**: Uses OpenAI's `beta.chat.completions.parse` API with Pydantic schemas as `response_format` parameter, ensuring LLM returns valid JSON matching defined schemas. Applied in extractions (custom field extraction) and subscriptions (yes/no question filtering).
 
-- **Purpose**: Report search and retrieval
-- **Components**: Search interface, search filters, query parser
-- **Key Features**: Text search with query syntax, semantic search support, hybrid search
-
-#### **Collections App** (`radis.collections`)
-
-- **Purpose**: Report organization and bookmarking
-- **Components**: Collection model, collection management views
-- **Key Features**: Create collections, add/remove reports, organize by project
-
-#### **Notes App** (`radis.notes`)
-
-- **Purpose**: Personal annotations on reports
-- **Components**: Note model linked to reports and users
-- **Key Features**: Add notes to reports, view all notes, private to user
-
-#### **Subscriptions App** (`radis.subscriptions`)
-
-- **Purpose**: Automated notification system
-- **Components**: Subscription model, SubscriptionJob, SubscriptionTask
-- **Key Features**: Subscribe to search queries, automatic refresh, email notifications
-
-#### **Extractions App** (`radis.extractions`)
-
-- **Purpose**: AI-powered report analysis
-- **Components**: ExtractionJob, ExtractionTask, ExtractionInstance, OutputField
-- **Key Features**: Extract structured data from reports using LLMs, custom output fields
-
-#### **Chats App** (`radis.chats`)
-
-- **Purpose**: Interactive AI assistant
-- **Components**: Chat interface, ChatClient utility
-- **Key Features**: Ask questions about reports, contextual AI responses
-
-#### **PgSearch App** (`radis.pgsearch`)
-
-- **Purpose**: PostgreSQL-based search implementation
-- **Components**: Search provider implementation using pg_search and pg_vector
-- **Key Features**: Hybrid search (BM25 + semantic), vector embeddings
-
-## Primary Models
-
-### User Management
-
-- **Users & Groups**: Django authentication with group-based access. Each user has an active group that determines which reports they can access.
-- **Permissions**: Fine-grained access control for features (extractions, subscriptions, urgent priority).
-
-### Collections & Notes
-
-- **Collection**: User-created report collections with name and owner
-- **Note**: Personal annotations on reports, private to each user
-
-### Subscriptions
-
-- **Subscription**: Search criteria for automated notifications
-  - Query string and filters (language, modality, date, patient demographics)
-  - Email notification preferences
-  - Last refresh timestamp
-- **SubscriptionJob**: Job to refresh a subscription and find new matching reports
-- **SubscriptionTask**: Task processing batch of new reports (questions, email)
-- **SubscribedItem**: Individual report matched by subscription
-
-### AI Analysis
-
-- **ExtractionJob**: Job to analyze multiple reports with custom questions
-  - Query and filters to select reports
-  - Output field definitions
-  - Processing status and results
-- **ExtractionTask**: Task processing a batch of reports
-- **ExtractionInstance**: Individual report extraction result
-- **OutputField**: Custom field definition for data extraction (text, number, boolean, etc.)
-
-### Task System
-
-- **AnalysisJob**: Base model for long-running analysis jobs
-  - Status tracking (PREPARING, PENDING, IN_PROGRESS, SUCCESS, FAILURE, CANCELED)
-  - Owner and group association
-  - Email notification settings
-  - Urgency flag for priority processing
-- **AnalysisTask**: Base model for individual tasks within a job
-  - Status tracking with same states as jobs
-  - Attempts counter and retry logic
-  - Message and log fields
-  - Timestamps (created, started, ended)
-  - Link to Procrastinate queue job
+**External Providers**: Optionally use external APIs (OpenAI GPT-4, Claude, Azure OpenAI, local Ollama) by configuring `EXTERNAL_LLM_PROVIDER_URL` and `EXTERNAL_LLM_PROVIDER_API_KEY` environment variables.
 
 ## Search Architecture
 
@@ -171,39 +87,3 @@ RADIS uses a modular search architecture allowing different search providers to 
 - Study description, patient sex, patient age range
 - Patient ID, group access
 - Created after timestamp (for subscriptions)
-
-## Background Processing
-
-**Extraction Processing**:
-
-1. Job created with query and output field definitions
-2. Job transitions to PREPARING state
-3. Search executed to find matching reports
-4. Reports batched into tasks
-5. Each task processed on LLM queue with configured concurrency
-6. Results stored in ExtractionInstance records
-
-**Subscription Processing**:
-
-1. Periodic launcher creates jobs for all subscriptions (every minute by default)
-2. Job searches for new reports since last refresh
-3. Reports batched into tasks
-4. Each task processes reports with subscription questions using LLM
-5. New matches added to subscription items
-6. Email notifications sent if configured
-
-## Deployment
-
-**Docker Swarm**: Production deployment using Docker Swarm mode for orchestration, scaling, and high availability. Services can be scaled independently (e.g., 3 web replicas).
-
-**Environment Configuration**: Managed through .env files with variables for database credentials, email settings, LLM configuration, SSL certificates.
-
-**CLI Commands**: Helper commands for deployment, backup, and management tasks (compose-up, compose-down, stack-deploy, stack-rm, db-backup, db-restore).
-
-## Key Technologies
-
-- **Backend**: Django 5.1, Python 3.13
-- **Database**: PostgreSQL 17 with pg_search and pg_vector extensions
-- **Task Queue**: Procrastinate
-- **Frontend**: HTMX, Alpine.js, Bootstrap 5
-- **Deployment**: Docker, Docker Swarm
