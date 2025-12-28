@@ -112,4 +112,6 @@ If enabled, the Chats feature provides an interactive AI assistant:
 
 ## RADIS Client
 
-RADIS Client is a Python library for programmatic access to RADIS features without using the web interface.
+RADIS Client is a Python library that provides programmatic access to RADIS features without using the web interface.
+
+To use the RADIS Client, you must have an API token provided by an administrator. For instructions on generating an API token, refer to the [Admin Guide](admin-guide.md).
