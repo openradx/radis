@@ -91,12 +91,15 @@ class SubscriptionTaskProcessor(AnalysisTaskProcessor):
                             break
             except APIError as e:
                 logger.error(f"LLM API error filtering report {report.pk}: {e}")
+                db.close_old_connections()
                 return
             except ValidationError as e:
                 logger.error(f"Response validation failed filtering report {report.pk}: {e}")
+                db.close_old_connections()
                 return
             except AssertionError:
                 logger.error(f"No parsed response received filtering report {report.pk}")
+                db.close_old_connections()
                 return
         else:
             logger.debug(
@@ -107,6 +110,7 @@ class SubscriptionTaskProcessor(AnalysisTaskProcessor):
 
         if not is_accepted:
             logger.debug(f"Report {report.pk} was rejected by subscription {subscription.pk}")
+            db.close_old_connections()
             return
 
         extraction_results: dict[str, Any] = {}
@@ -130,12 +134,15 @@ class SubscriptionTaskProcessor(AnalysisTaskProcessor):
                     )
             except APIError as e:
                 logger.error(f"LLM API error extracting from report {report.pk}: {e}")
+                db.close_old_connections()
                 return
             except ValidationError as e:
                 logger.error(f"Response validation failed extracting from report {report.pk}: {e}")
+                db.close_old_connections()
                 return
             except AssertionError:
                 logger.error(f"No parsed response received extracting from report {report.pk}")
+                db.close_old_connections()
                 return
 
         SubscribedItem.objects.create(
@@ -146,3 +153,4 @@ class SubscriptionTaskProcessor(AnalysisTaskProcessor):
             extraction_results=extraction_results or None,
         )
         logger.debug(f"Report {report.pk} was accepted by subscription {subscription.pk}")
+        db.close_old_connections()

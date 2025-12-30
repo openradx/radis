@@ -37,9 +37,21 @@ class AsyncChatClient:
         if max_completion_tokens is not None:
             request["max_completion_tokens"] = max_completion_tokens
 
-        completion = await self._client.chat.completions.create(**request)
+        try:
+            completion = await self._client.chat.completions.create(**request)
+        except openai.APIError as e:
+            logger.error(f"OpenAI API error during chat: {e}")
+            raise RuntimeError(f"Failed to communicate with LLM service: {e}") from e
+
+        if not completion.choices:
+            logger.error("LLM returned empty choices list")
+            raise ValueError("LLM returned no response choices")
+
         answer = completion.choices[0].message.content
-        assert answer is not None
+        if answer is None:
+            logger.error("LLM returned None for message content")
+            raise ValueError("LLM returned empty response content")
+
         logger.debug("Received from LLM: %s", answer)
         return answer
 
@@ -76,9 +88,21 @@ class ChatClient:
         if max_completion_tokens is not None:
             request["max_completion_tokens"] = max_completion_tokens
 
-        completion = self._client.chat.completions.create(**request)
+        try:
+            completion = self._client.chat.completions.create(**request)
+        except openai.APIError as e:
+            logger.error(f"OpenAI API error during chat: {e}")
+            raise RuntimeError(f"Failed to communicate with LLM service: {e}") from e
+
+        if not completion.choices:
+            logger.error("LLM returned empty choices list")
+            raise ValueError("LLM returned no response choices")
+
         answer = completion.choices[0].message.content
-        assert answer is not None
+        if answer is None:
+            logger.error("LLM returned None for message content")
+            raise ValueError("LLM returned empty response content")
+
         logger.debug("Received from LLM: %s", answer)
         return answer
 
@@ -87,12 +111,24 @@ class ChatClient:
         logger.debug("Prompt:\n%s", prompt)
         logger.debug("Schema:\n%s", schema.model_json_schema())
 
-        completion = self._client.beta.chat.completions.parse(
-            model=self._llm_model_name,
-            messages=[{"role": "system", "content": prompt}],
-            response_format=schema,
-        )
+        try:
+            completion = self._client.beta.chat.completions.parse(
+                model=self._llm_model_name,
+                messages=[{"role": "system", "content": prompt}],
+                response_format=schema,
+            )
+        except openai.APIError as e:
+            logger.error(f"OpenAI API error during data extraction: {e}")
+            raise RuntimeError(f"Failed to communicate with LLM service: {e}") from e
+
+        if not completion.choices:
+            logger.error("LLM returned empty choices list")
+            raise ValueError("LLM returned no response choices")
+
         event = completion.choices[0].message.parsed
-        assert event
+        if event is None:
+            logger.error("LLM returned None for parsed message")
+            raise ValueError("LLM returned empty parsed response")
+
         logger.debug("Received from LLM: %s", event)
         return event
