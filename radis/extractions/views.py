@@ -142,6 +142,8 @@ class ExtractionJobWizardView(
                     "You can manually enter a search query in the next step.",
                 )
 
+            return step_data
+
         # After search step is submitted, store retrieval count for summary
         elif self.steps.current == ExtractionJobWizardView.SEARCH_STEP:
             if hasattr(form, "cleaned_data"):
@@ -150,6 +152,9 @@ class ExtractionJobWizardView(
                     self.storage.extra_data["retrieval_count"] = retrieval_count
 
             return step_data
+
+        # For any other steps (SUMMARY_STEP or future additions)
+        return step_data
 
     def get_form_initial(self, step=None):
         """Provide initial data for forms, including generated query for search step."""
@@ -162,6 +167,40 @@ class ExtractionJobWizardView(
                 initial["query"] = generated_query
 
         return initial
+
+    def render(self, form=None, **kwargs):
+        """Override to validate wizard data integrity before rendering summary step."""
+        # Only validate if we're on the summary step
+        if self.steps.current == ExtractionJobWizardView.SUMMARY_STEP:
+            output_fields_data = self.get_cleaned_data_for_step(
+                ExtractionJobWizardView.OUTPUT_FIELDS_STEP
+            )
+            search_data = self.get_cleaned_data_for_step(ExtractionJobWizardView.SEARCH_STEP)
+
+            # If output fields data is missing or invalid, restart wizard
+            if not output_fields_data or not isinstance(output_fields_data, list):
+                from django.contrib import messages
+
+                self.storage.reset()
+                self.storage.current_step = self.steps.first
+                messages.error(
+                    self.request,
+                    "Wizard data was lost or corrupted. Please start over from step 1.",
+                )
+                return redirect(reverse("extraction_job_create"))
+
+            # If search data is missing, go back to search step
+            if not search_data or not isinstance(search_data, dict):
+                from django.contrib import messages
+
+                self.storage.current_step = ExtractionJobWizardView.SEARCH_STEP
+                messages.error(
+                    self.request,
+                    "Search data is missing. Please complete step 2.",
+                )
+                return redirect(reverse("extraction_job_create"))
+
+        return super().render(form, **kwargs)
 
     def get_context_data(self, form, **kwargs):
         context = super().get_context_data(form, **kwargs)
@@ -190,13 +229,11 @@ class ExtractionJobWizardView(
 
         elif self.steps.current == ExtractionJobWizardView.SUMMARY_STEP:
             # Final step - show everything for review
+            # Data integrity validated in render() method
             output_fields_data = self.get_cleaned_data_for_step(
                 ExtractionJobWizardView.OUTPUT_FIELDS_STEP
             )
             search_data = self.get_cleaned_data_for_step(ExtractionJobWizardView.SEARCH_STEP)
-
-            assert output_fields_data and isinstance(output_fields_data, list)
-            assert search_data and isinstance(search_data, dict)
 
             context["output_fields"] = output_fields_data
             context["search"] = search_data
