@@ -22,14 +22,17 @@
                     <div class="border-top pt-2 mt-1">
                         <div class="fw-semibold small text-muted mb-1">Extracted Fields</div>
                         <dl class="row mb-0 small">
-                            {% for field in subscribed_item.subscription.output_fields.all %}
-                                {% with field_key=field.pk|stringformat:"s" %}
-                                    <dt class="col-sm-4">{{ field.name }}</dt>
-                                    <dd class="col-sm-8">
-                                        {{ subscribed_item.extraction_results|get_item:field_key|default_if_none:"—" }}
-                                    </dd>
-                                {% endwith %}
-                            {% endfor %}
+                            {# LLM-generated content - ensure HTML escaping for XSS protection #}
+                            {% autoescape on %}
+                                {% for field in subscribed_item.subscription.output_fields.all %}
+                                    {% with field_key=field.pk|stringformat:"s" %}
+                                        <dt class="col-sm-4">{{ field.name }}</dt>
+                                        <dd class="col-sm-8">
+                                            {{ subscribed_item.extraction_results|get_item:field_key|default_if_none:"—" }}
+                                        </dd>
+                                    {% endwith %}
+                                {% endfor %}
+                            {% endautoescape %}
                         </dl>
                     </div>
                 {% endif %}
