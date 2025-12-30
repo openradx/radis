@@ -12,7 +12,7 @@ from adit_radis_shared.common.mixins import (
 from adit_radis_shared.common.types import AuthenticatedHttpRequest
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib.messages.views import SuccessMessageMixin
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction
 from django.db.models import Count, F, Q, QuerySet
 from django.forms.models import BaseInlineFormSet
 from django.http import HttpResponse, HttpResponseRedirect, StreamingHttpResponse
@@ -91,6 +91,7 @@ class SubscriptionCreateView(LoginRequiredMixin, CreateView):  # TODO: Add Permi
             ctx["output_formset"] = OutputFieldFormSet()
         return ctx
 
+    @transaction.atomic()
     def form_valid(self, form) -> HttpResponse:
         ctx = self.get_context_data()
         filter_formset: BaseInlineFormSet = ctx["filter_formset"]
@@ -148,6 +149,7 @@ class SubscriptionUpdateView(LoginRequiredMixin, UpdateView):
         ctx["output_formset"].extra = 0
         return ctx
 
+    @transaction.atomic()
     def form_valid(self, form) -> HttpResponse:
         ctx = self.get_context_data()
         filter_formset = ctx["filter_formset"]

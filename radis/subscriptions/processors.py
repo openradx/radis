@@ -6,7 +6,6 @@ from typing import Any
 from adit_radis_shared.common.types import User
 from django import db
 from django.conf import settings
-from openai import APIError
 from pydantic import ValidationError
 
 from radis.chats.utils.chat_client import ChatClient
@@ -91,13 +90,13 @@ class SubscriptionTaskProcessor(AnalysisTaskProcessor):
                             if answer_bool != question.expected_answer_bool:
                                 is_accepted = False
                                 break
-                except APIError as e:
+                except RuntimeError as e:
                     logger.error(f"LLM API error filtering report {report.pk}: {e}")
                     return
                 except ValidationError as e:
                     logger.error(f"Response validation failed filtering report {report.pk}: {e}")
                     return
-                except AssertionError:
+                except ValueError:
                     logger.error(f"No parsed response received filtering report {report.pk}")
                     return
             else:
@@ -132,7 +131,7 @@ class SubscriptionTaskProcessor(AnalysisTaskProcessor):
                         extraction_results[str(field.pk)] = getattr(
                             extraction_response, get_output_field_name(field), None
                         )
-                except APIError as e:
+                except RuntimeError as e:
                     logger.error(f"LLM API error extracting from report {report.pk}: {e}")
                     return
                 except ValidationError as e:
@@ -140,7 +139,7 @@ class SubscriptionTaskProcessor(AnalysisTaskProcessor):
                         f"Response validation failed extracting from report {report.pk}: {e}"
                     )
                     return
-                except AssertionError:
+                except ValueError:
                     logger.error(f"No parsed response received extracting from report {report.pk}")
                     return
 
