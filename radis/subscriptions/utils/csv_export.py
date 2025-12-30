@@ -36,6 +36,11 @@ def iter_subscribed_item_rows(
         subscription.output_fields.order_by("pk").values_list("name", flat=True)
     )
 
+    # Pre-fetch field PKs to avoid N+1 query in the loop below
+    field_pks: list[int] = list(
+        subscription.output_fields.order_by("pk").values_list("pk", flat=True)
+    )
+
     # Header row
     header = [
         "subscribed_item_id",
@@ -75,7 +80,7 @@ def iter_subscribed_item_rows(
 
         # Add extraction results (keyed by field PK as string)
         extraction_results: dict[str, Any] = item.extraction_results or {}
-        for field_pk in subscription.output_fields.order_by("pk").values_list("pk", flat=True):
+        for field_pk in field_pks:
             value = extraction_results.get(str(field_pk))
             row.append(_format_cell(value))
 
