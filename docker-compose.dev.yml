@@ -46,6 +46,7 @@ services:
 
   web:
     <<: *default-app
+    image: radis_dev-web:latest
     ports:
       - ${WEB_DEV_PORT:-8000}:8000
       - ${REMOTE_DEBUGGING_PORT:-5678}:5678
@@ -65,6 +66,7 @@ services:
 
   default_worker:
     <<: *default-app
+    image: radis_dev-default_worker:latest
     command: >
       bash -c "
         wait-for-it -s postgres.local:5432 -t 60 &&
@@ -73,6 +75,7 @@ services:
 
   llm_worker:
     <<: *default-app
+    image: radis_dev-llm_worker:latest
     command: >
       bash -c "
         wait-for-it -s postgres.local:5432 -t 60 &&

@@ -33,7 +33,10 @@ jobs:
           context: .
           target: development
           load: true
-          tags: radis_dev:latest
+          tags: |
+            radis_dev-web:latest
+            radis_dev-default_worker:latest
+            radis_dev-llm_worker:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
       - name: Start Docker containers
