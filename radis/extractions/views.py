@@ -61,7 +61,6 @@ from .tables import (
     ExtractionTaskTable,
 )
 from .utils.csv_export import iter_extraction_result_rows
-from .utils.query_generator import QueryGenerator
 
 EXTRACTIONS_SEARCH_PROVIDER = "extractions_search_provider"
 
@@ -104,43 +103,29 @@ class ExtractionJobWizardView(
         """Process validated form data and trigger query generation after output fields step."""
         step_data = self.get_form_step_data(form)
 
-        # After output fields are submitted, generate query
+        # After output fields are submitted, store field data for async query generation
         if self.steps.current == ExtractionJobWizardView.OUTPUT_FIELDS_STEP:
-            # Extract output fields from formset
-            from .models import OutputField
-
+            # Extract and serialize output fields data for async generation
             formset_data = []
             if hasattr(form, "cleaned_data"):
                 formset_data = form.cleaned_data
 
-            temp_fields = [
-                OutputField(
-                    name=field_data["name"],
-                    description=field_data["description"],
-                    output_type=field_data["output_type"],
-                )
+            output_fields_data = [
+                {
+                    "name": field_data["name"],
+                    "description": field_data["description"],
+                    "output_type": field_data["output_type"],
+                }
                 for field_data in formset_data
                 if not field_data.get("DELETE", False)
             ]
 
-            # Generate query from fields
-            generator = QueryGenerator()
-            generated_query, metadata = generator.generate_from_fields(temp_fields)
-
-            # Store in wizard storage for use in next step
-            self.storage.extra_data["generated_query"] = generated_query or ""
-            self.storage.extra_data["query_metadata"] = metadata
-            self.storage.extra_data["query_generation_attempted"] = True
-
-            # Check if generation failed
-            if generated_query is None or not metadata.get("success"):
-                from django.contrib import messages
-
-                messages.warning(
-                    self.request,
-                    "Unable to automatically generate a query from your extraction fields. "
-                    "You can manually enter a search query in the next step.",
-                )
+            # Store serialized data for async generation - query will be generated via HTMX
+            self.storage.extra_data["output_fields_data"] = output_fields_data
+            self.storage.extra_data["query_generation_attempted"] = False
+            # Clear any previous query to ensure fresh generation
+            self.storage.extra_data["generated_query"] = ""
+            self.storage.extra_data["query_metadata"] = {}
 
             return step_data
 
@@ -479,6 +464,101 @@ class ExtractionJobCancelView(ExtractionsLockedMixin, AnalysisJobCancelView):
 
 class ExtractionJobResumeView(ExtractionsLockedMixin, AnalysisJobResumeView):
     model = ExtractionJob
+
+
+class ExtractionQueryGeneratorView(LoginRequiredMixin, View):
+    """HTMX endpoint for async query generation from output fields."""
+
+    request: AuthenticatedHttpRequest
+
+    async def post(self, request: AuthenticatedHttpRequest):
+        """Generate query asynchronously and save to wizard session."""
+        import logging
+
+        logger = logging.getLogger(__name__)
+        logger.info("Query generation endpoint called")
+
+        # Access wizard session storage
+        # Django-formtools stores wizard data in a nested structure:
+        # session['wizard_extraction_job_wizard_view'] = {
+        #     'step': '1',
+        #     'step_data': {...},
+        #     'extra_data': {'output_fields_data': [...], ...}
+        # }
+        wizard_session_key = "wizard_extraction_job_wizard_view"
+        wizard_data = request.session.get(wizard_session_key, {})
+
+        if not wizard_data:
+            logger.error(f"No wizard session data found for key: {wizard_session_key}")
+            logger.error(f"Available session keys: {list(request.session.keys())}")
+
+        # Get extra_data from within the wizard data
+        extra_data = wizard_data.get("extra_data", {})
+        output_fields_data = extra_data.get("output_fields_data", [])
+
+        logger.info(f"Found wizard_data: {bool(wizard_data)}, extra_data: {bool(extra_data)}")
+        logger.info(f"Found {len(output_fields_data)} output fields in session")
+
+        if not output_fields_data:
+            context = {
+                "error": "No output fields found. Please go back to step 1.",
+                "generated_query": "",
+                "query_metadata": {},
+            }
+            return render(request, "extractions/_query_generation_result.html", context)
+
+        # Reconstruct OutputField objects from stored data
+        from .models import OutputField
+
+        temp_fields = [
+            OutputField(
+                name=field_data["name"],
+                description=field_data["description"],
+                output_type=field_data["output_type"],
+            )
+            for field_data in output_fields_data
+        ]
+
+        # Generate query using async query generator
+        from .utils.query_generator import AsyncQueryGenerator
+
+        try:
+            generator = AsyncQueryGenerator()
+            generated_query, metadata = await generator.generate_from_fields(temp_fields)
+
+            # Store in wizard session
+            extra_data["generated_query"] = generated_query or ""
+            extra_data["query_metadata"] = metadata
+            extra_data["query_generation_attempted"] = True
+
+            # Update wizard data and save back to session
+            wizard_data["extra_data"] = extra_data
+            request.session[wizard_session_key] = wizard_data
+            request.session.modified = True
+            logger.info("Saved query to wizard session")
+
+            context = {
+                "generated_query": generated_query,
+                "query_metadata": metadata,
+                "output_fields_count": len(temp_fields),
+                "error": None if metadata.get("success") else "Query generation failed",
+            }
+
+        except Exception as e:
+            logger.error(f"Error during async query generation: {e}", exc_info=True)
+            context = {
+                "error": f"Error generating query: {str(e)}",
+                "generated_query": "",
+                "query_metadata": {"success": False, "error": str(e)},
+            }
+            extra_data["generated_query"] = ""
+            extra_data["query_metadata"] = context["query_metadata"]
+            extra_data["query_generation_attempted"] = True
+            wizard_data["extra_data"] = extra_data
+            request.session[wizard_session_key] = wizard_data
+            request.session.modified = True
+
+        return render(request, "extractions/_query_generation_result.html", context)
 
 
 class ExtractionJobRetryView(ExtractionsLockedMixin, AnalysisJobRetryView):

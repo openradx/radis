@@ -99,6 +99,8 @@ class SearchForm(forms.ModelForm):
             Row(
                 Column(
                     "title",
+                    # Query generation section (async HTMX)
+                    HTML('{% include "extractions/_query_generation_section.html" %}'),
                     "query",
                     # Preview div from template include
                     HTML('{% include "extractions/_search_preview_form_section.html" %}'),

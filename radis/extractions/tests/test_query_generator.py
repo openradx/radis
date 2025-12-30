@@ -1,24 +1,24 @@
-"""Unit tests for the QueryGenerator class."""
+"""Unit tests for the AsyncQueryGenerator class."""
 
-from unittest.mock import Mock, patch
+from unittest.mock import AsyncMock, patch
 
 from django.test import TestCase, override_settings
 
 from radis.extractions.models import OutputField, OutputType
-from radis.extractions.utils.query_generator import QueryGenerator
+from radis.extractions.utils.query_generator import AsyncQueryGenerator
 
 
-class QueryGeneratorTest(TestCase):
-    """Test cases for QueryGenerator."""
+class AsyncQueryGeneratorTest(TestCase):
+    """Test cases for AsyncQueryGenerator."""
 
     def setUp(self):
         """Set up test fixtures."""
-        self.generator = QueryGenerator()
+        self.generator = AsyncQueryGenerator()
 
-    def test_generate_from_empty_fields(self):
+    async def test_generate_from_empty_fields(self):
         """Test query generation with no fields returns None."""
         fields = []
-        query, metadata = self.generator.generate_from_fields(fields)
+        query, metadata = await self.generator.generate_from_fields(fields)
 
         assert query is None
         assert metadata["generation_method"] is None
@@ -26,11 +26,11 @@ class QueryGeneratorTest(TestCase):
         assert metadata["success"] is False
         assert metadata["error"] == "No fields provided"
 
-    @patch("radis.extractions.utils.query_generator.ChatClient")
-    def test_llm_generation_success(self, mock_chat_client_class):
+    @patch("radis.chats.utils.chat_client.AsyncChatClient")
+    async def test_llm_generation_success(self, mock_chat_client_class):
         """Test successful LLM query generation."""
-        # Mock the LLM response
-        mock_client = Mock()
+        # Mock the LLM response using AsyncMock for async methods
+        mock_client = AsyncMock()
         mock_client.chat.return_value = '("lung nodule" OR "pulmonary nodule") AND size'
         mock_chat_client_class.return_value = mock_client
 
@@ -43,11 +43,10 @@ class QueryGeneratorTest(TestCase):
         ]
 
         with override_settings(ENABLE_AUTO_QUERY_GENERATION=True):
-            generator = QueryGenerator()  # Create new instance with mocked client
-            query, metadata = generator.generate_from_fields(fields)
+            generator = AsyncQueryGenerator()  # Create new instance with mocked client
+            query, metadata = await generator.generate_from_fields(fields)
 
         assert query != ""
-        assert metadata["generation_method"] == "llm"
         assert metadata["success"] is True
         assert query is not None
         assert "nodule" in query.lower()

@@ -12,6 +12,7 @@ from .views import (
     ExtractionJobRetryView,
     ExtractionJobVerifyView,
     ExtractionJobWizardView,
+    ExtractionQueryGeneratorView,
     ExtractionResultDownloadView,
     ExtractionResultListView,
     ExtractionSearchPreviewView,
@@ -45,6 +46,11 @@ urlpatterns = [
         "jobs/new/search-preview/",
         ExtractionSearchPreviewView.as_view(),
         name="extraction_search_preview",
+    ),
+    path(
+        "jobs/new/generate-query/",
+        ExtractionQueryGeneratorView.as_view(),
+        name="extraction_generate_query",
     ),
     path(
         "jobs/<int:pk>/",
