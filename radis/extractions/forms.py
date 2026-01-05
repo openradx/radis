@@ -3,7 +3,7 @@ from typing import Any, cast
 
 from adit_radis_shared.accounts.models import User
 from crispy_forms.helper import FormHelper
-from crispy_forms.layout import HTML, Column, Div, Layout, Row, Submit
+from crispy_forms.layout import HTML, Column, Div, Field, Layout, Row, Submit
 from django import forms
 from django.conf import settings
 from django.db.models import QuerySet
@@ -203,6 +203,10 @@ class SearchForm(forms.ModelForm):
 
 
 class OutputFieldForm(forms.ModelForm):
+    """Hidden field to store selection options and array flag as JSON string.
+    This is done because the selection options are dynamic and the array toggle
+    is an alpine component that needs to be re-rendered on every change."""
+
     selection_options = forms.CharField(
         required=False,
         widget=forms.HiddenInput(),
@@ -225,6 +229,8 @@ class OutputFieldForm(forms.ModelForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
+        self.fields["name"].required = True
+        self.fields["description"].required = True
         self.fields["description"].widget = forms.Textarea(attrs={"rows": 3})
         self.fields["selection_options"].widget.attrs.update(
             {
@@ -245,7 +251,10 @@ class OutputFieldForm(forms.ModelForm):
         self.helper = FormHelper()
         self.helper.form_tag = False
         self.helper.disable_csrf = True
-        self.helper.layout = Layout(
+
+        # Build the layout for selection options and array toggle button using crispy.
+        fields = [
+            Field("id", type="hidden"),
             Row(
                 Column("name", css_class="col-md-7 col-12"),
                 Column("output_type", css_class="col-md-4 col-10"),
@@ -268,11 +277,17 @@ class OutputFieldForm(forms.ModelForm):
                 css_class="g-3 align-items-center",
             ),
             "description",
+            # Include the selection options widget partial template here.
             Div(
                 HTML('{% include "extractions/_selection_options_field.html" %}'),
                 css_class="selection-options-wrapper",
             ),
-        )
+        ]
+
+        if "DELETE" in self.fields:
+            fields.insert(1, Field("DELETE", type="hidden"))
+
+        self.helper.layout = Layout(Div(*fields))
 
     def clean_selection_options(self) -> list[str]:
         raw_value = self.cleaned_data.get("selection_options") or ""
