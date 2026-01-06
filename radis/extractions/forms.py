@@ -8,10 +8,13 @@ from django import forms
 from django.conf import settings
 from django.db.models import QuerySet
 
-from radis.core.constants import LANGUAGE_LABELS
+from radis.core.form_fields import (
+    create_age_range_fields,
+    create_language_field,
+    create_modality_field,
+)
 from radis.core.layouts import RangeSlider
 from radis.reports.models import Language, Modality
-from radis.search.forms import AGE_STEP, MAX_AGE, MIN_AGE
 from radis.search.site import Search, SearchFilters
 from radis.search.utils.query_parser import QueryParser
 
@@ -53,41 +56,13 @@ class SearchForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
 
         self.fields["query"].required = True
-        self.fields["language"].choices = [  # type: ignore
-            (language.pk, LANGUAGE_LABELS[language.code])
-            for language in Language.objects.order_by("code")
-        ]
-        self.fields["modalities"].choices = [  # type: ignore
-            (modality.pk, modality.code)
-            for modality in Modality.objects.filter(filterable=True).order_by("code")
-        ]
-        self.fields["modalities"].widget.attrs["size"] = 6
+        self.fields["language"] = create_language_field()
+        self.fields["modalities"] = create_modality_field()
         self.fields["study_date_from"].widget = forms.DateInput(attrs={"type": "date"})
         self.fields["study_date_till"].widget = forms.DateInput(attrs={"type": "date"})
-        self.fields["age_from"] = forms.IntegerField(
-            required=False,
-            min_value=MIN_AGE,
-            max_value=MAX_AGE,
-            widget=forms.NumberInput(
-                attrs={
-                    "type": "range",
-                    "step": AGE_STEP,
-                    "value": MIN_AGE,
-                }
-            ),
-        )
-        self.fields["age_till"] = forms.IntegerField(
-            required=False,
-            min_value=MIN_AGE,
-            max_value=MAX_AGE,
-            widget=forms.NumberInput(
-                attrs={
-                    "type": "range",
-                    "step": AGE_STEP,
-                    "value": MAX_AGE,
-                }
-            ),
-        )
+        age_from, age_till = create_age_range_fields()
+        self.fields["age_from"] = age_from
+        self.fields["age_till"] = age_till
 
         self.helper = FormHelper()
         self.helper.form_tag = False
@@ -127,9 +102,13 @@ class SearchForm(forms.ModelForm):
                 "A search query is required. "
                 "Please enter a query or go back to regenerate from fields."
             )
-        query_node, _ = QueryParser().parse(query)
+        query_node, fixes = QueryParser().parse(query)
         if query_node is None:
             raise forms.ValidationError("Invalid query syntax")
+        else:
+            self.cleaned_data["query_node"] = query_node
+        if len(fixes) > 0:
+            query = QueryParser.unparse(query_node)
         return query
 
     def clean(self) -> dict[str, Any] | None:
@@ -141,26 +120,9 @@ class SearchForm(forms.ModelForm):
         language = cast(Language, cleaned_data["language"])
         modalities = cast(QuerySet[Modality], cleaned_data["modalities"])
 
-        query = cleaned_data.get("query", "").strip()
-
-        # Query should always be present now (either generated or user-edited)
-        if not query:
-            raise forms.ValidationError(
-                "A search query is required. "
-                "Please enter a query or go back to regenerate from fields."
-            )
-
-        # Validate the query
-        query_node, fixes = QueryParser().parse(query)
-        if query_node is None:
-            raise forms.ValidationError("Invalid query syntax")
-
-        if len(fixes) > 0:
-            cleaned_data["fixed_query"] = QueryParser.unparse(query_node)
-
-        # Calculate retrieval count
+        # Calculate retrieval count with inline Search construction
         search = Search(
-            query=query_node,
+            query=cleaned_data["query_node"],
             offset=0,
             limit=0,
             filters=SearchFilters(

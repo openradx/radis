@@ -4,12 +4,15 @@ from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Column, Div, Field, Layout, Row
 from django import forms
 
-from radis.core.constants import LANGUAGE_LABELS
+from radis.core.constants import AGE_STEP
+from radis.core.form_fields import (
+    create_age_range_fields,
+    create_language_field,
+    create_modality_field,
+)
 from radis.core.layouts import Formset, RangeSlider
 from radis.extractions.forms import OutputFieldForm
 from radis.extractions.models import OutputField
-from radis.reports.models import Language, Modality
-from radis.search.forms import AGE_STEP, MAX_AGE, MIN_AGE
 
 from .models import FilterQuestion, Subscription
 
@@ -33,40 +36,11 @@ class SubscriptionForm(forms.ModelForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-        self.fields["language"].choices = [  # type: ignore
-            (language.pk, LANGUAGE_LABELS[language.code])
-            for language in Language.objects.order_by("code")
-        ]
-        self.fields["language"].empty_label = "All"  # type: ignore
-        self.fields["modalities"].choices = [  # type: ignore
-            (modality.pk, modality.code)
-            for modality in Modality.objects.filter(filterable=True).order_by("code")
-        ]
-        self.fields["modalities"].widget.attrs["size"] = 6
-        self.fields["age_from"] = forms.IntegerField(
-            required=False,
-            min_value=MIN_AGE,
-            max_value=MAX_AGE,
-            widget=forms.NumberInput(
-                attrs={
-                    "type": "range",
-                    "step": AGE_STEP,
-                    "value": MIN_AGE,
-                }
-            ),
-        )
-        self.fields["age_till"] = forms.IntegerField(
-            required=False,
-            min_value=MIN_AGE,
-            max_value=MAX_AGE,
-            widget=forms.NumberInput(
-                attrs={
-                    "type": "range",
-                    "step": AGE_STEP,
-                    "value": MAX_AGE,
-                }
-            ),
-        )
+        self.fields["language"] = create_language_field(empty_label="All")
+        self.fields["modalities"] = create_modality_field()
+        age_from, age_till = create_age_range_fields()
+        self.fields["age_from"] = age_from
+        self.fields["age_till"] = age_till
         self.fields["send_finished_mail"].label = "Notify me via mail of new reports"
 
         self.helper = FormHelper()

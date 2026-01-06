@@ -1,7 +1,6 @@
 import csv
 from collections.abc import Generator
-from datetime import datetime
-from typing import Any, Literal, Type, Union, cast
+from typing import Any, Type, Union, cast
 from urllib.parse import urlencode
 
 from adit_radis_shared.accounts.models import User
@@ -19,7 +18,7 @@ from django.core.exceptions import SuspiciousOperation
 from django.db import transaction
 from django.db.models import QuerySet
 from django.forms import BaseInlineFormSet
-from django.http import StreamingHttpResponse
+from django.http import QueryDict, StreamingHttpResponse
 from django.shortcuts import redirect, render
 from django.urls import reverse, reverse_lazy
 from django.utils.text import slugify
@@ -41,7 +40,6 @@ from radis.core.views import (
     AnalysisTaskResetView,
     BaseUpdatePreferencesView,
 )
-from radis.reports.models import Language, Modality
 from radis.search.site import Search, SearchFilters
 from radis.search.utils.query_parser import QueryParser
 
@@ -292,108 +290,86 @@ class ExtractionSearchPreviewView(LoginRequiredMixin, View):
         # Wizard step prefix for form field names
         WIZARD_STEP_PREFIX = "1-"
 
-        # Extract query and filter parameters from GET
-        query_str = request.GET.get(f"{WIZARD_STEP_PREFIX}query", "").strip()
-        language_id = request.GET.get(f"{WIZARD_STEP_PREFIX}language")
-        modality_ids = request.GET.getlist(f"{WIZARD_STEP_PREFIX}modalities")
+        # Extract wizard data and strip "1-" prefix
+        wizard_data = {
+            key.replace(WIZARD_STEP_PREFIX, "", 1): value
+            for key, value in request.GET.items()
+            if key.startswith(WIZARD_STEP_PREFIX)
+        }
 
-        # Get string values from GET parameters
-        study_date_from_str = request.GET.get(f"{WIZARD_STEP_PREFIX}study_date_from", "").strip()
-        study_date_till_str = request.GET.get(f"{WIZARD_STEP_PREFIX}study_date_till", "").strip()
-        study_description = request.GET.get(f"{WIZARD_STEP_PREFIX}study_description", "")
-        patient_sex_str = request.GET.get(f"{WIZARD_STEP_PREFIX}patient_sex")
-        patient_sex: Literal["M", "F"] | None = None
-        if patient_sex_str in ("M", "F"):
-            patient_sex = patient_sex_str  # Type narrowed to Literal["M", "F"]
-        age_from_str = request.GET.get(f"{WIZARD_STEP_PREFIX}age_from", "").strip()
-        age_till_str = request.GET.get(f"{WIZARD_STEP_PREFIX}age_till", "").strip()
+        # Build QueryDict for SearchForm (supports getlist for modalities)
+        query_dict = QueryDict(mutable=True)
+        for key, value in wizard_data.items():
+            if key == "modalities":
+                # modalities are sent as multiple values
+                query_dict.setlist(key, request.GET.getlist(f"{WIZARD_STEP_PREFIX}{key}"))
+            else:
+                query_dict[key] = str(value)
 
-        # Parse dates from YYYY-MM-DD format to date objects
-        study_date_from = None
-        study_date_till = None
-        if study_date_from_str:
-            try:
-                study_date_from = datetime.strptime(study_date_from_str, "%Y-%m-%d").date()
-            except ValueError:
-                pass  # Invalid date format, leave as None
+        # Add dummy title (required field but not used in preview)
+        query_dict["title"] = "preview"
 
-        if study_date_till_str:
-            try:
-                study_date_till = datetime.strptime(study_date_till_str, "%Y-%m-%d").date()
-            except ValueError:
-                pass  # Invalid date format, leave as None
-
-        # Parse age values to integers
-        age_from_int = None
-        age_till_int = None
-        if age_from_str:
-            try:
-                age_from_int = int(age_from_str)
-            except ValueError:
-                pass  # Invalid integer, leave as None
-
-        if age_till_str:
-            try:
-                age_till_int = int(age_till_str)
-            except ValueError:
-                pass  # Invalid integer, leave as None
-
-        # Get user's active group
+        # Validate with SearchForm (pass user kwarg)
         user = cast("User", request.user)
+        form = SearchForm(query_dict, user=user)
+
+        if not form.is_valid():
+            # Extract error messages
+            error_messages = []
+            for field, errors in form.errors.items():
+                # Skip title field errors (dummy field)
+                if field == "title":
+                    continue
+                for error in errors:
+                    if field == "__all__":
+                        error_messages.append(str(error))
+                    else:
+                        error_messages.append(f"{field}: {error}")
+
+            error = "; ".join(error_messages) if error_messages else "Invalid search parameters"
+            context = {
+                "count": None,
+                "search_url": None,
+                "error": error,
+                "max_reports_limit": settings.EXTRACTION_MAXIMUM_REPORTS_COUNT,
+            }
+            return render(request, "extractions/_search_preview.html", context)
+
+        # Extract validated data from form
+        # Note: query already validated by clean_query() including QueryParser!
+        query_str = form.cleaned_data["query"]
+        query_node = form.cleaned_data["query_node"]  # QueryNode object
+        language = form.cleaned_data["language"]  # Language object or None
+        modalities = form.cleaned_data["modalities"]  # QuerySet[Modality]
+        study_date_from = form.cleaned_data["study_date_from"]  # date object or None
+        study_date_till = form.cleaned_data["study_date_till"]  # date object or None
+        study_description = form.cleaned_data["study_description"]
+        patient_sex = form.cleaned_data["patient_sex"]
+        age_from = form.cleaned_data["age_from"]  # int or None
+        age_till = form.cleaned_data["age_till"]  # int or None
+
+        # Convert objects to codes for Search object
+        language_code = language.code if language else ""
+        modality_codes = list(modalities.values_list("code", flat=True))
+
+        # Get active group (user already cast above)
         active_group = user.active_group
 
-        # Validate query syntax
-        if not query_str:
-            context = {
-                "count": None,
-                "search_url": None,
-                "error": None,
-                "max_reports_limit": settings.EXTRACTION_MAXIMUM_REPORTS_COUNT,
-            }
-            return render(request, "extractions/_search_preview.html", context)
-
-        query_node, fixes = QueryParser().parse(query_str)
-        if query_node is None:
-            context = {
-                "count": None,
-                "search_url": None,
-                "error": "Invalid query syntax",
-                "max_reports_limit": settings.EXTRACTION_MAXIMUM_REPORTS_COUNT,
-            }
-            return render(request, "extractions/_search_preview.html", context)
-
-        # Get language and modalities objects
-        try:
-            language = Language.objects.get(pk=language_id) if language_id else None
-            modalities_qs = (
-                Modality.objects.filter(pk__in=modality_ids)
-                if modality_ids
-                else Modality.objects.none()
-            )
-        except (Language.DoesNotExist, ValueError):
-            context = {
-                "count": None,
-                "search_url": None,
-                "error": "Invalid language or modality selection",
-                "max_reports_limit": settings.EXTRACTION_MAXIMUM_REPORTS_COUNT,
-            }
-            return render(request, "extractions/_search_preview.html", context)
-
-        # Build search object (age_from_int and age_till_int already parsed above)
+        # Build Search object
         search = Search(
             query=query_node,
             offset=0,
             limit=0,
             filters=SearchFilters(
                 group=active_group.pk if active_group else None,
-                language=language.code if language else "",
-                modalities=list(modalities_qs.values_list("code", flat=True)),
-                study_date_from=study_date_from,
-                study_date_till=study_date_till,
+                language=language_code,  # Converted from Language object
+                modalities=modality_codes,  # Converted from QuerySet
+                study_date_from=study_date_from,  # Already date object from form
+                study_date_till=study_date_till,  # Already date object from form
                 study_description=study_description,
                 patient_sex=patient_sex,
-                patient_age_from=age_from_int,
-                patient_age_till=age_till_int,
+                patient_age_from=age_from,  # Already int from form
+                patient_age_till=age_till,  # Already int from form
             ),
         )
 
@@ -409,29 +385,36 @@ class ExtractionSearchPreviewView(LoginRequiredMixin, View):
 
         retrieval_count = extraction_retrieval_provider.count(search)
 
-        # Generate search URL - use STRING values for URL parameters
-        # Note: modalities can be a list, which urlencode with doseq=True expands
+        # Generate search URL with codes (FIX: use codes not PKs!)
         search_params: dict[str, Union[str, list[str]]] = {"query": query_str}
-        if language_id:
-            search_params["language"] = Language.objects.get(pk=language_id).code
-        if modality_ids:
-            search_params["modalities"] = modality_ids
-        if study_date_from_str:  # Use STRING version for URL
-            search_params["study_date_from"] = study_date_from_str
-        if study_date_till_str:  # Use STRING version for URL
-            search_params["study_date_till"] = study_date_till_str
+
+        if language_code:
+            search_params["language"] = language_code
+
+        if modality_codes:
+            search_params["modalities"] = modality_codes  # FIX: Use codes not PKs!
+
+        if study_date_from:
+            search_params["study_date_from"] = study_date_from.strftime("%Y-%m-%d")
+
+        if study_date_till:
+            search_params["study_date_till"] = study_date_till.strftime("%Y-%m-%d")
+
         if study_description:
             search_params["study_description"] = study_description
+
         if patient_sex:
             search_params["patient_sex"] = patient_sex
-        if age_from_str:  # Use STRING version for URL
-            search_params["age_from"] = age_from_str
-        if age_till_str:  # Use STRING version for URL
-            search_params["age_till"] = age_till_str
 
-        # doseq=True ensures modalities list becomes: modalities=DX&modalities=MR
+        if age_from is not None:
+            search_params["age_from"] = str(age_from)
+
+        if age_till is not None:
+            search_params["age_till"] = str(age_till)
+
         search_url = reverse("search") + "?" + urlencode(search_params, doseq=True)
 
+        # Return context
         context = {
             "count": retrieval_count,
             "search_url": search_url,
