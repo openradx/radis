@@ -5,7 +5,7 @@
     New Extraction Job
 {% endblock title %}
 {% block heading %}
-    <c-page-heading title="New Extraction Job - Search">
+    <c-page-heading title="New Extraction Job - Search Query (Step 2 of 3)">
     <c-slot name="left">
     <button type="button"
             class="btn btn-info"
@@ -24,7 +24,10 @@
     </c-page-heading>
 {% endblock heading %}
 {% block content %}
-    <form action="" method="post">
+    <form action=""
+          method="post"
+          x-data="{ isLoading: false }"
+          @input.debounce.500ms="isLoading = true; htmx.trigger('#search-preview', 'updatePreview');">
         {% csrf_token %}
         {{ wizard.management_form }}
         {% crispy form %}

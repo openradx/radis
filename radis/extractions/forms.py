@@ -1,21 +1,27 @@
+import json
 from typing import Any, cast
 
 from adit_radis_shared.accounts.models import User
 from crispy_forms.helper import FormHelper
-from crispy_forms.layout import Column, Layout, Row, Submit
+from crispy_forms.layout import HTML, Column, Div, Field, Layout, Row, Submit
 from django import forms
 from django.conf import settings
 from django.db.models import QuerySet
 
-from radis.core.constants import LANGUAGE_LABELS
+from radis.core.form_fields import (
+    create_age_range_fields,
+    create_language_field,
+    create_modality_field,
+)
 from radis.core.layouts import RangeSlider
 from radis.reports.models import Language, Modality
-from radis.search.forms import AGE_STEP, MAX_AGE, MIN_AGE
 from radis.search.site import Search, SearchFilters
 from radis.search.utils.query_parser import QueryParser
 
-from .models import ExtractionJob, OutputField
+from .constants import MAX_SELECTION_OPTIONS
+from .models import ExtractionJob, OutputField, OutputType
 from .site import extraction_retrieval_provider
+from .utils.validation import validate_selection_options
 
 
 class SearchForm(forms.ModelForm):
@@ -35,7 +41,14 @@ class SearchForm(forms.ModelForm):
         ]
         help_texts = {
             "title": "Title of the extraction job",
-            "query": "A query to find reports for further analysis",
+            "query": (
+                "Search query to filter reports. "
+                "This query was auto-generated from your extraction fields"
+                " - you can edit or refine it."
+            ),
+        }
+        widgets = {
+            "query": forms.TextInput(attrs={"placeholder": "Auto-generated query (editable)"}),
         }
 
     def __init__(self, *args, **kwargs):
@@ -43,41 +56,14 @@ class SearchForm(forms.ModelForm):
 
         super().__init__(*args, **kwargs)
 
-        self.fields["language"].choices = [  # type: ignore
-            (language.pk, LANGUAGE_LABELS[language.code])
-            for language in Language.objects.order_by("code")
-        ]
-        self.fields["modalities"].choices = [  # type: ignore
-            (modality.pk, modality.code)
-            for modality in Modality.objects.filter(filterable=True).order_by("code")
-        ]
-        self.fields["modalities"].widget.attrs["size"] = 6
+        self.fields["query"].required = True
+        self.fields["language"] = create_language_field()
+        self.fields["modalities"] = create_modality_field()
         self.fields["study_date_from"].widget = forms.DateInput(attrs={"type": "date"})
         self.fields["study_date_till"].widget = forms.DateInput(attrs={"type": "date"})
-        self.fields["age_from"] = forms.IntegerField(
-            required=False,
-            min_value=MIN_AGE,
-            max_value=MAX_AGE,
-            widget=forms.NumberInput(
-                attrs={
-                    "type": "range",
-                    "step": AGE_STEP,
-                    "value": MIN_AGE,
-                }
-            ),
-        )
-        self.fields["age_till"] = forms.IntegerField(
-            required=False,
-            min_value=MIN_AGE,
-            max_value=MAX_AGE,
-            widget=forms.NumberInput(
-                attrs={
-                    "type": "range",
-                    "step": AGE_STEP,
-                    "value": MAX_AGE,
-                }
-            ),
-        )
+        age_from, age_till = create_age_range_fields()
+        self.fields["age_from"] = age_from
+        self.fields["age_till"] = age_till
 
         self.helper = FormHelper()
         self.helper.form_tag = False
@@ -89,8 +75,12 @@ class SearchForm(forms.ModelForm):
             Row(
                 Column(
                     "title",
+                    # Query generation section (async HTMX)
+                    HTML('{% include "extractions/_query_generation_section.html" %}'),
                     "query",
-                    Submit("next", "Next Step (Output Fields)", css_class="btn-primary"),
+                    # Preview div from template include
+                    HTML('{% include "extractions/_search_preview_form_section.html" %}'),
+                    Submit("next", "Next Step (Summary)", css_class="btn-primary"),
                 ),
                 Column(
                     "language",
@@ -107,29 +97,37 @@ class SearchForm(forms.ModelForm):
         )
 
     def clean_query(self) -> str:
-        query = self.cleaned_data["query"]
-        query_node, _ = QueryParser().parse(query)
+        query = self.cleaned_data["query"].strip()
+        if not query:
+            raise forms.ValidationError(
+                "A search query is required. "
+                "Please enter a query or go back to regenerate from fields."
+            )
+        query_node, fixes = QueryParser().parse(query)
         if query_node is None:
-            raise forms.ValidationError("Invalid empty query")
+            raise forms.ValidationError("Invalid query syntax")
+        else:
+            self.cleaned_data["query_node"] = query_node
+        if len(fixes) > 0:
+            query = QueryParser.unparse(query_node)
         return query
 
     def clean(self) -> dict[str, Any] | None:
         cleaned_data = super().clean()
         assert cleaned_data
 
+        # If query validation failed, query_node won't exist - exit early
+        if "query_node" not in cleaned_data:
+            return cleaned_data
+
         active_group = self.user.active_group
 
         language = cast(Language, cleaned_data["language"])
         modalities = cast(QuerySet[Modality], cleaned_data["modalities"])
 
-        query_node, fixes = QueryParser().parse(cleaned_data["query"])
-        assert query_node
-
-        if len(fixes) > 0:
-            cleaned_data["fixed_query"] = QueryParser.unparse(query_node)
-
+        # Calculate retrieval count with inline Search construction
         search = Search(
-            query=query_node,
+            query=cleaned_data["query_node"],
             offset=0,
             limit=0,
             filters=SearchFilters(
@@ -147,14 +145,16 @@ class SearchForm(forms.ModelForm):
 
         if extraction_retrieval_provider is None:
             raise forms.ValidationError("Extraction retrieval provider is not configured.")
+
         retrieval_count = extraction_retrieval_provider.count(search)
         cleaned_data["retrieval_count"] = retrieval_count
 
+        # Validate against limits
         if retrieval_count > settings.EXTRACTION_MAXIMUM_REPORTS_COUNT:
             raise forms.ValidationError(
                 f"Your search returned more results ({retrieval_count}) than the extraction "
                 f"pipeline can handle (max. {settings.EXTRACTION_MAXIMUM_REPORTS_COUNT}). "
-                "Please refine your search."
+                "Please refine your search query."
             )
 
         if (
@@ -170,13 +170,134 @@ class SearchForm(forms.ModelForm):
 
 
 class OutputFieldForm(forms.ModelForm):
+    """Hidden field to store selection options and array flag as JSON string.
+    This is done because the selection options are dynamic and the array toggle
+    is an alpine component that needs to be re-rendered on every change."""
+
+    selection_options = forms.CharField(
+        required=False,
+        widget=forms.HiddenInput(),
+    )
+    is_array = forms.CharField(
+        required=False,
+        widget=forms.HiddenInput(),
+    )
+
     class Meta:
         model = OutputField
         fields = [
             "name",
             "description",
             "output_type",
+            "selection_options",
+            "is_array",
         ]
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        self.fields["name"].required = True
+        self.fields["description"].required = True
+        self.fields["description"].widget = forms.Textarea(attrs={"rows": 3})
+        self.fields["selection_options"].widget.attrs.update(
+            {
+                "data-selection-input": "true",
+                "data-max-selection-options": str(MAX_SELECTION_OPTIONS),
+            }
+        )
+        self.fields["is_array"].widget.attrs.update(
+            {
+                "data-array-input": "true",
+            }
+        )
+
+        initial_options = self.instance.selection_options if self.instance.pk else []
+        self.initial["selection_options"] = json.dumps(initial_options)
+        self.initial["is_array"] = "true" if self.instance.is_array else "false"
+
+        self.helper = FormHelper()
+        self.helper.form_tag = False
+        self.helper.disable_csrf = True
+
+        # Build the layout for selection options and array toggle button using crispy.
+        fields = [
+            Field("id", type="hidden"),
+            Row(
+                Column("name", css_class="col-md-7 col-12"),
+                Column("output_type", css_class="col-md-4 col-10"),
+                Column(
+                    HTML(
+                        (
+                            '<button type="button" '
+                            'class="btn btn-outline-secondary btn-sm array-toggle-btn '
+                            'form-array-toggle" '
+                            'data-array-toggle="true" '
+                            'aria-pressed="false" '
+                            'title="Toggle array output">[ ]</button>'
+                        )
+                    ),
+                    css_class=(
+                        "col-md-1 col-2 d-flex align-items-center "
+                        "justify-content-end array-toggle-field"
+                    ),
+                ),
+                css_class="g-3 align-items-center",
+            ),
+            "description",
+            # Include the selection options widget partial template here.
+            Div(
+                HTML('{% include "extractions/_selection_options_field.html" %}'),
+                css_class="selection-options-wrapper",
+            ),
+        ]
+
+        if "DELETE" in self.fields:
+            fields.insert(1, Field("DELETE", type="hidden"))
+
+        self.helper.layout = Layout(Div(*fields))
+
+    def clean_selection_options(self) -> list[str]:
+        raw_value = self.cleaned_data.get("selection_options") or ""
+        raw_value = raw_value.strip()
+        if raw_value == "":
+            return []
+
+        try:
+            parsed = json.loads(raw_value)
+        except json.JSONDecodeError as exc:
+            raise forms.ValidationError("Invalid selection data.") from exc
+
+        return validate_selection_options(parsed)
+
+    def clean_is_array(self) -> bool:
+        raw_value = (self.cleaned_data.get("is_array") or "").strip().lower()
+        if raw_value in {"1", "true", "on"}:
+            return True
+        return False
+
+    def clean(self):
+        cleaned_data = super().clean()
+        if not cleaned_data:
+            return cleaned_data
+
+        output_type = cleaned_data.get("output_type")
+        selection_options: list[str] = cleaned_data.get("selection_options") or []
+
+        if output_type == OutputType.SELECTION:
+            if not selection_options:
+                self.add_error(
+                    "selection_options",
+                    "Add at least one selection to use the Selection type.",
+                )
+        else:
+            if selection_options:
+                self.add_error(
+                    "selection_options",
+                    "Selections are only allowed when Output Type is Selection.",
+                )
+                cleaned_data["selection_options"] = []
+
+        return cleaned_data
 
 
 OutputFieldFormSet = forms.inlineformset_factory(

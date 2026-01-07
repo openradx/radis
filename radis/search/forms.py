@@ -4,23 +4,21 @@ from crispy_forms.helper import FormHelper, Layout
 from crispy_forms.layout import Button, Div, Field
 from django import forms
 
-from radis.core.constants import LANGUAGE_LABELS
+from radis.core.constants import AGE_STEP
+from radis.core.form_fields import (
+    create_age_range_fields,
+    create_language_field,
+    create_modality_field,
+)
 from radis.core.layouts import RangeSlider
-from radis.reports.models import Language, Modality
 
 from .layouts import QueryInput
-
-MIN_AGE = 0
-MAX_AGE = 120
-AGE_STEP = 10
 
 
 class SearchForm(forms.Form):
     # Query fields
     query = forms.CharField(required=False, label=False)  # type: ignore
-    # Filter fields
-    language = forms.ChoiceField(required=False, choices=[])
-    modalities = forms.MultipleChoiceField(required=False, choices=[])
+    # Filter fields - language, modalities, and age fields created in __init__
     study_date_from = forms.DateField(
         required=False, widget=forms.DateInput(attrs={"type": "date"})
     )
@@ -31,43 +29,16 @@ class SearchForm(forms.Form):
     patient_sex = forms.ChoiceField(
         required=False, choices=[("", "All"), ("M", "Male"), ("F", "Female")]
     )
-    age_from = forms.IntegerField(
-        required=False,
-        min_value=MIN_AGE,
-        max_value=MAX_AGE,
-        widget=forms.NumberInput(
-            attrs={
-                "type": "range",
-                "step": AGE_STEP,
-                "value": MIN_AGE,
-            }
-        ),
-    )
-    age_till = forms.IntegerField(
-        required=False,
-        min_value=MIN_AGE,
-        max_value=MAX_AGE,
-        widget=forms.NumberInput(
-            attrs={
-                "type": "range",
-                "step": AGE_STEP,
-                "value": MAX_AGE,
-            }
-        ),
-    )
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-        self.fields["language"].choices = [  # type: ignore
-            (language.code, LANGUAGE_LABELS[language.code])
-            for language in Language.objects.order_by("code")
-        ]
-        self.fields["modalities"].choices = [  # type: ignore
-            (modality.code, modality.code)
-            for modality in Modality.objects.filter(filterable=True).order_by("code")
-        ]
-        self.fields["modalities"].widget.attrs["size"] = 6
+        # Create fields using factory functions (use codes, not PKs)
+        self.fields["language"] = create_language_field(use_pk=False)
+        self.fields["modalities"] = create_modality_field(use_pk=False)
+        age_from, age_till = create_age_range_fields()
+        self.fields["age_from"] = age_from
+        self.fields["age_till"] = age_till
 
         self.query_helper = FormHelper()
         self.query_helper.template = "search/form_elements/form_part.html"  # type: ignore
