@@ -4,9 +4,7 @@
     {% if legend %}<legend>{{ legend }}</legend>{% endif %}
     {{ formset.management_form }}
     <template>
-        {% with form=formset.empty_form %}
-            <c-formset-form>{% crispy formset.empty_form %}</c-formset-form>
-        {% endwith %}
+        <c-formset-form>{% crispy formset.empty_form %}</c-formset-form>
     </template>
     <div class="formset-forms">
         {% for form in formset %}

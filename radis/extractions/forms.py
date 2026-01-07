@@ -21,6 +21,7 @@ from radis.search.utils.query_parser import QueryParser
 from .constants import MAX_SELECTION_OPTIONS
 from .models import ExtractionJob, OutputField, OutputType
 from .site import extraction_retrieval_provider
+from .utils.validation import validate_selection_options
 
 
 class SearchForm(forms.ModelForm):
@@ -114,6 +115,10 @@ class SearchForm(forms.ModelForm):
     def clean(self) -> dict[str, Any] | None:
         cleaned_data = super().clean()
         assert cleaned_data
+
+        # If query validation failed, query_node won't exist - exit early
+        if "query_node" not in cleaned_data:
+            return cleaned_data
 
         active_group = self.user.active_group
 
@@ -262,26 +267,7 @@ class OutputFieldForm(forms.ModelForm):
         except json.JSONDecodeError as exc:
             raise forms.ValidationError("Invalid selection data.") from exc
 
-        if not isinstance(parsed, list):
-            raise forms.ValidationError("Selection data must be a list.")
-
-        cleaned: list[str] = []
-        for item in parsed:
-            if not isinstance(item, str):
-                raise forms.ValidationError("Selection options must be text.")
-            value = item.strip()
-            if not value:
-                raise forms.ValidationError("Selection options cannot be empty.")
-            cleaned.append(value)
-
-        if len(cleaned) > MAX_SELECTION_OPTIONS:
-            raise forms.ValidationError(
-                f"Provide at most {MAX_SELECTION_OPTIONS} selection options."
-            )
-        if len(set(cleaned)) != len(cleaned):
-            raise forms.ValidationError("Selection options must be unique.")
-
-        return cleaned
+        return validate_selection_options(parsed)
 
     def clean_is_array(self) -> bool:
         raw_value = (self.cleaned_data.get("is_array") or "").strip().lower()
