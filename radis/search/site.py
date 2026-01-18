@@ -57,6 +57,7 @@ class SearchFilters:
     patient_id: str | None = None
     created_after: datetime | None = None
     created_before: datetime | None = None
+    updated_after: datetime | None = None
 
 
 class Search(NamedTuple):

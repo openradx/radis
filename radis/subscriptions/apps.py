@@ -7,7 +7,8 @@ class SubscriptionsConfig(AppConfig):
 
     def ready(self):
         register_app()
-        register_reports_handler()
+        register_reports_created_handler()
+        register_reports_updated_handler()
 
         # Put calls to db stuff in this signal handler
         post_migrate.connect(init_db, sender=self)
@@ -31,7 +32,7 @@ def init_db(**kwargs):
         SubscriptionsAppSettings.objects.create()
 
 
-def register_reports_handler():
+def register_reports_created_handler():
     """Register handler to trigger subscriptions when reports are created."""
     from radis.reports.site import ReportsCreatedHandler, reports_created_handlers
 
@@ -41,5 +42,19 @@ def register_reports_handler():
         ReportsCreatedHandler(
             name="subscription_launcher",
             handle=handle_reports_created,
+        )
+    )
+
+
+def register_reports_updated_handler():
+    """Register handler to trigger subscriptions when reports are updated."""
+    from radis.reports.site import ReportsUpdatedHandler, reports_updated_handlers
+
+    from .handlers import handle_reports_updated
+
+    reports_updated_handlers.append(
+        ReportsUpdatedHandler(
+            name="subscription_launcher",
+            handle=handle_reports_updated,
         )
     )

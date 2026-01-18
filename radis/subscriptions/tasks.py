@@ -50,7 +50,7 @@ def process_subscription_job(job_id: int) -> None:
         patient_sex=job.subscription.patient_sex,
         patient_age_from=job.subscription.age_from,
         patient_age_till=job.subscription.age_till,
-        created_after=job.subscription.last_refreshed,
+        updated_after=job.subscription.last_refreshed,
     )
 
     logger.debug("Searching new reports with filters for job %s", job)
@@ -79,7 +79,7 @@ def process_subscription_job(job_id: int) -> None:
     job.save()
 
 
-# @app.periodic(cron=settings.SUBSCRIPTION_CRON)
+@app.periodic(cron=settings.SUBSCRIPTION_CRON)
 @app.task()
 def subscription_launcher(timestamp: int):
     logger.info("Launching SubscriptionJobs (Timestamp %s)", datetime.fromtimestamp(timestamp))
