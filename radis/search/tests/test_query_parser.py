@@ -33,6 +33,7 @@ def test_parse_valid_queries():
     assert is_valid_query("foobar")
     assert is_valid_query("Hämatom")
     assert is_valid_query("Magen-Darm-Trakt")
+    assert is_valid_query("krüşk")
 
     # Phrases
     assert is_valid_query('"foo bar"')

@@ -5,7 +5,8 @@ LANGUAGES = {
 
 
 def code_to_language(code: str) -> str:
-    if code in LANGUAGES:
-        return LANGUAGES[code]
-    else:
-        raise ValueError(f"Language {code} is not supported.")
+    if not code:
+        return "simple"
+    normalized = code.lower()
+    base = normalized.split("-", 1)[0].split("_", 1)[0]
+    return LANGUAGES.get(base, "simple")
