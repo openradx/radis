@@ -53,6 +53,7 @@ class Subscription(models.Model):
     filter_questions: models.QuerySet["FilterQuestion"]
     output_fields: models.QuerySet[OutputField]
     items: models.QuerySet["SubscribedItem"]
+    jobs: models.QuerySet["SubscriptionJob"]
 
     send_finished_mail = models.BooleanField(default=False)
 

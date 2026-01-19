@@ -85,7 +85,22 @@ def subscription_launcher(timestamp: int):
     logger.info("Launching SubscriptionJobs (Timestamp %s)", datetime.fromtimestamp(timestamp))
     subscriptions = Subscription.objects.all()
 
+    active_statuses = [
+        SubscriptionJob.Status.PREPARING,
+        SubscriptionJob.Status.PENDING,
+        SubscriptionJob.Status.IN_PROGRESS,
+    ]
+
     for subscription in subscriptions:
+        # Skip if subscription already has an active job
+        if subscription.jobs.filter(status__in=active_statuses).exists():
+            logger.debug(
+                "Skipping Subscription %s of user %s - active job already exists",
+                subscription.name,
+                subscription.owner,
+            )
+            continue
+
         logger.debug(
             "Creating SubscriptionJob for Subscription %s of user %s",
             subscription.name,
