@@ -1,0 +1,21 @@
+{% load bootstrap_icon from common_extras %}
+<div id="query-generation-section"
+     hx-post="{% url 'extraction_generate_query' %}"
+     hx-trigger="load"
+     hx-swap="innerHTML"
+     hx-on::after-swap="htmx.trigger('#search-preview', 'updatePreview')">
+    <!-- Loading state shown initially -->
+    <div class="alert alert-info mb-4">
+        <div class="d-flex align-items-center">
+            <span class="spinner-border spinner-border-sm me-3"
+                  role="status"
+                  aria-hidden="true"></span>
+            <div>
+                <h5 class="alert-heading mb-0">{% bootstrap_icon "magic" %} Generating Search Query...</h5>
+                <p class="mb-0 mt-2">
+                    <small>Using AI to create a search query from your extraction fields...</small>
+                </p>
+            </div>
+        </div>
+    </div>
+</div>

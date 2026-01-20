@@ -5,7 +5,7 @@
     New Extraction Job
 {% endblock title %}
 {% block heading %}
-    <c-page-heading title="New Extraction Job - Output Fields">
+    <c-page-heading title="New Extraction Job - Define Fields (Step 1 of 3)">
     <c-slot name="left">
     <button type="button"
             class="btn btn-info"
@@ -29,28 +29,24 @@
                         <button type="submit"
                                 name="wizard_goto_step"
                                 value="{{ wizard.steps.prev }}"
-                                class="btn btn-secondary">Previous Step (Search)</button>
-                        <button type="submit" class="btn btn-primary">Next Step (Summary)</button>
+                                class="btn btn-secondary"
+                                disabled>Previous Step</button>
+                        <button type="submit" class="btn btn-primary">Next Step (Search Query)</button>
                     </div>
                 </div>
             </form>
         </div>
         <div class="col-4">
-            {% if fixed_query %}
-                <div class="alert alert-warning" role="alert">
-                    Fixed invalid query, instead using:
-                    <br />
-                    <span class="font-monospace">{{ fixed_query }}</span>
-                </div>
-            {% endif %}
             <p>
-                Your search will hit approximately <strong>{{ retrieval_count }} report{{ retrieval_count|pluralize }}</strong>.
-                The more reports you analyze the longer it will take. If you like to refine your search you can go back to
-                the previous step and adjust the query and/or filters.
+                <strong>Step 1:</strong> Define the fields you want to extract from medical reports.
             </p>
             <p>
-                If the result count sounds reasonable then provide the fields to extract. Choose a short and concise name and more detailed description.
+                Choose a short and concise name and more detailed description for each field.
                 You can add up to 5 fields.
+            </p>
+            <p>
+                In the next step, we will automatically generate a search query based on these fields,
+                which you can then review and refine.
             </p>
             <p>
                 Example for an output field:

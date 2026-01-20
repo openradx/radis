@@ -7,11 +7,18 @@
 {% block heading %}
     <c-page-heading title="Extraction Results">
     <c-slot name="right">
-    <a href="{% url 'extraction_job_detail' job.id %}"
-       class="btn btn-secondary">
-        {% bootstrap_icon "arrow-return-left" %}
-        View Job
-    </a>
+    <div class="d-flex gap-2">
+        <a href="{% url 'extraction_result_download' job.id %}"
+           class="btn btn-sm btn-success">
+            {% bootstrap_icon "download" %}
+            Download CSV
+        </a>
+        <a href="{% url 'extraction_job_detail' job.id %}"
+           class="btn btn-sm btn-primary">
+            {% bootstrap_icon "arrow-return-left" %}
+            View Job
+        </a>
+    </div>
     </c-slot>
     </c-page-heading>
 {% endblock heading %}

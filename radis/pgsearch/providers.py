@@ -74,6 +74,8 @@ def _build_filter_query(filters: SearchFilters) -> Q:
         fq &= Q(report__created_at__gte=filters.created_after)
     if filters.created_before:
         fq &= Q(report__created_at__lte=filters.created_before)
+    if filters.updated_after:
+        fq &= Q(report__updated_at__gte=filters.updated_after)
 
     return fq
 

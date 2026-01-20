@@ -8,6 +8,7 @@ from procrastinate.contrib.django import app
 from procrastinate.contrib.django.models import ProcrastinateJob
 
 from radis.core.models import AnalysisJob, AnalysisTask
+from radis.extractions.models import OutputField
 from radis.reports.models import Language, Modality, Report
 
 
@@ -31,7 +32,6 @@ class Subscription(models.Model):
 
     group = models.ForeignKey[Group](Group, on_delete=models.CASCADE, related_name="+")
     patient_id = models.CharField(max_length=100, blank=True)
-    query = models.CharField(max_length=200, blank=True)
     language = models.ForeignKey[Language](
         Language, on_delete=models.SET_NULL, blank=True, null=True, related_name="+"
     )
@@ -48,9 +48,12 @@ class Subscription(models.Model):
 
     created_at = models.DateTimeField(auto_now_add=True)
     last_refreshed = models.DateTimeField(auto_now_add=True)
+    last_viewed_at = models.DateTimeField(null=True, blank=True)
 
-    questions: models.QuerySet["Question"]
+    filter_questions: models.QuerySet["FilterQuestion"]
+    output_fields: models.QuerySet[OutputField]
     items: models.QuerySet["SubscribedItem"]
+    jobs: models.QuerySet["SubscriptionJob"]
 
     send_finished_mail = models.BooleanField(default=False)
 
@@ -67,17 +70,30 @@ class Subscription(models.Model):
         return f"Subscription {self.name} [{self.pk}]"
 
 
-class Question(models.Model):
+class FilterQuestion(models.Model):
+    class ExpectedAnswer(models.TextChoices):
+        YES = "Y", "Yes"
+        NO = "N", "No"
+
     subscription = models.ForeignKey[Subscription](
-        Subscription, on_delete=models.CASCADE, related_name="questions"
+        Subscription, on_delete=models.CASCADE, related_name="filter_questions"
     )
     question = models.CharField(max_length=300)
+    expected_answer = models.CharField(
+        max_length=1,
+        choices=ExpectedAnswer.choices,
+        default=ExpectedAnswer.YES,
+    )
 
     def __str__(self) -> str:
         max_length = 30
-        if len(self.question) > max_length:
-            return f'Question "{self.question[:max_length]}..." [{self.pk}]'
-        return f'Question "{self.question}" [{self.pk}]'
+        truncated = self.question[:max_length]
+        suffix = "..." if len(self.question) > max_length else ""
+        return f'Filter Question "{truncated}{suffix}" [{self.pk}]'
+
+    @property
+    def expected_answer_bool(self) -> bool:
+        return self.expected_answer == self.ExpectedAnswer.YES
 
 
 class SubscribedItem(models.Model):
@@ -88,7 +104,8 @@ class SubscribedItem(models.Model):
         "SubscriptionJob", null=True, on_delete=models.SET_NULL, related_name="items"
     )
     report = models.ForeignKey[Report](Report, on_delete=models.CASCADE, related_name="+")
-    answers = models.JSONField(null=True, blank=True)
+    filter_results = models.JSONField(null=True, blank=True)
+    extraction_results = models.JSONField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
