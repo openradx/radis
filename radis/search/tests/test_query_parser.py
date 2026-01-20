@@ -1,6 +1,10 @@
 # def stringify
 
-from radis.search.utils.query_parser import QueryParser
+from radis.search.utils.query_parser import (
+    QueryParser,
+    is_search_query_char,
+    is_search_token_char,
+)
 
 
 def is_valid_query(query: str, final_query: str | None = None) -> bool:
@@ -34,6 +38,7 @@ def test_parse_valid_queries():
     assert is_valid_query("Hämatom")
     assert is_valid_query("Magen-Darm-Trakt")
     assert is_valid_query("krüşk")
+    assert is_valid_query("cafe\u0301")
 
     # Phrases
     assert is_valid_query('"foo bar"')
@@ -139,3 +144,19 @@ def test_empty_queries():
     assert is_empty_query("( AND )", 2)
     assert is_empty_query("( AND OR )", 3)
     assert is_empty_query("AND OR )", 3)
+
+
+def test_search_token_helpers():
+    combining = "\u0301"
+    assert is_search_token_char("a")
+    assert is_search_token_char("9")
+    assert is_search_token_char("_")
+    assert is_search_token_char("-")
+    assert is_search_token_char(combining)
+    assert not is_search_token_char("$")
+
+    assert is_search_query_char(" ")
+    assert is_search_query_char("(")
+    assert is_search_query_char(")")
+    assert is_search_query_char(combining)
+    assert not is_search_query_char("$")

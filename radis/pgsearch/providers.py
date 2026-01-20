@@ -88,7 +88,6 @@ def search(search: Search) -> SearchResult:
     language = code_to_language(search.filters.language)
     query = SearchQuery(query_str, search_type="raw", config=language)
     filter_query = _build_filter_query(search.filters)
-    language = code_to_language(search.filters.language)
     results = (
         ReportSearchVector.objects.filter(filter_query)
         .filter(search_vector=query)
@@ -132,7 +131,6 @@ def count(search: Search) -> int:
     language = code_to_language(search.filters.language)
     query = SearchQuery(query_str, search_type="raw", config=language)
     filter_query = _build_filter_query(search.filters)
-    language = code_to_language(search.filters.language)
     results = ReportSearchVector.objects.filter(filter_query).filter(search_vector=query)
     return results.count()
 
@@ -142,7 +140,6 @@ def retrieve(search: Search) -> Iterator[str]:
     language = code_to_language(search.filters.language)
     query = SearchQuery(query_str, search_type="raw", config=language)
     filter_query = _build_filter_query(search.filters)
-    language = code_to_language(search.filters.language)
     results = (
         ReportSearchVector.objects.filter(filter_query)
         .filter(search_vector=query)

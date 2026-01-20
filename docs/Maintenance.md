@@ -17,3 +17,10 @@ There are different things that can be upgraded:
 - Dependent services in `docker-compose.base.yml`, like PostgreSQL
 - Github Codespaces development container dependencies in `.devcontainer/devcontainer.json` and `.devcontainer/Dockerfile`
 - Github actions `.github/workflows/ci.yml` dependencies
+
+## Search language configs
+
+RADIS reads available text search configs from Postgres (`pg_ts_config`) and auto-maps
+language codes to matching configs (falling back to `simple`). If new dictionaries/configs
+are installed in Postgres, restart RADIS to refresh the config cache, and reindex reports
+to apply the new config to existing data.
