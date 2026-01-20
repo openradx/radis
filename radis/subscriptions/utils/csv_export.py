@@ -61,7 +61,11 @@ def iter_subscribed_item_rows(
     for item in items.iterator(chunk_size=1000):
         # Format modalities as comma-separated codes
         modality_codes = ",".join(
-            item.report.modalities.order_by("code").values_list("code", flat=True)
+            modality.code
+            for modality in sorted(
+                item.report.modalities.all(),
+                key=lambda modality: modality.code,
+            )
         )
 
         # Format study date
