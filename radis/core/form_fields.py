@@ -69,10 +69,10 @@ def create_language_field(
         return field
     else:
         # Return ChoiceField - cleaned_data will contain code strings
-        field = forms.ChoiceField(required=required)
-        field.choices = [(lang.code, LANGUAGE_LABELS[lang.code]) for lang in languages]
+        choices = [(lang.code, LANGUAGE_LABELS[lang.code]) for lang in languages]
         if empty_label is not None:
-            field.empty_label = empty_label  # type: ignore
+            choices.insert(0, ("", empty_label))
+        field = forms.ChoiceField(required=required, choices=choices)
         return field
 
 
