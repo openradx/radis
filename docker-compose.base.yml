@@ -1,6 +1,7 @@
 x-app: &default-app
   volumes:
     - ${BACKUP_DIR:?}:/backups
+    - ${RADIS_CA_CERTS_DIR:-/etc/radis/certs}:/usr/local/share/ca-certificates/custom:ro
   depends_on:
     - postgres
   environment:
@@ -23,6 +24,8 @@ x-app: &default-app
     NO_PROXY: ${NO_PROXY:-}
     SITE_DOMAIN: ${SITE_DOMAIN:?}
     SITE_NAME: ${SITE_NAME:?}
+    SSL_CERT_FILE: ${SSL_CERT_FILE:-/etc/ssl/certs/ca-certificates.crt}
+    SSL_CERT_DIR: ${SSL_CERT_DIR:-/etc/ssl/certs}
     SUPERUSER_AUTH_TOKEN: ${SUPERUSER_AUTH_TOKEN:-}
     SUPERUSER_EMAIL: ${SUPERUSER_EMAIL:-}
     SUPERUSER_USERNAME: ${SUPERUSER_USERNAME:-}
