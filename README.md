@@ -62,6 +62,16 @@ RADIS’s design philosophy prioritizes security, flexibility, and user-friendly
 
 <img src="https://github.com/user-attachments/assets/0e224f8f-9e15-4c69-a08c-498f42f9027c" alt="Description of image" width="600"/>
 
+## Custom CA Certificates (Optional)
+
+If your deployment needs to trust internal TLS certificates (e.g., private PKI), place PEM-encoded
+`*.crt` files in a host directory and point `RADIS_CA_CERTS_DIR` to it. On container startup, RADIS
+will run `update-ca-certificates` only when that directory exists and contains `*.crt` files.
+
+Notes:
+- Use `.crt` files in PEM format (include the full chain, e.g., issuing + root).
+- In Docker Swarm, the host path must exist on every node where services may run.
+
 ## Screenshots
 
 (Reports are synthetically generated without real patient data)

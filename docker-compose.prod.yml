@@ -26,6 +26,10 @@ services:
     hostname: init.local
     command: >
       bash -c "
+        if [ -d /usr/local/share/ca-certificates/custom ] && \\
+          ls /usr/local/share/ca-certificates/custom/*.crt >/dev/null 2>&1; then \\
+          update-ca-certificates; \\
+        fi &&
         wait-for-it -s postgres.local:5432 -t 120 && 
         ./manage.py migrate &&
         ./manage.py collectstatic --no-input &&
@@ -45,6 +49,10 @@ services:
       - ${WEB_HTTPS_PORT:-443}:443
     command: >
       bash -c "
+        if [ -d /usr/local/share/ca-certificates/custom ] && \\
+          ls /usr/local/share/ca-certificates/custom/*.crt >/dev/null 2>&1; then \\
+          update-ca-certificates; \\
+        fi &&
         wait-for-it -s init.local:8000 -t 300 &&
         echo 'Starting web server ...' &&
         daphne -b 0.0.0.0 -p 80 \\
@@ -61,6 +69,10 @@ services:
     <<: *default-app
     command: >
       bash -c "
+        if [ -d /usr/local/share/ca-certificates/custom ] && \\
+          ls /usr/local/share/ca-certificates/custom/*.crt >/dev/null 2>&1; then \\
+          update-ca-certificates; \\
+        fi &&
         wait-for-it -s postgres.local:5432 -t 60 &&
         ./manage.py bg_worker -q default
       "
@@ -71,6 +83,10 @@ services:
     <<: *default-app
     command: >
       bash -c "
+        if [ -d /usr/local/share/ca-certificates/custom ] && \\
+          ls /usr/local/share/ca-certificates/custom/*.crt >/dev/null 2>&1; then \\
+          update-ca-certificates; \\
+        fi &&
         wait-for-it -s postgres.local:5432 -t 60 &&
         ./manage.py bg_worker -q llm
       "
