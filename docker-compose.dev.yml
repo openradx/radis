@@ -52,10 +52,6 @@ services:
       - ${REMOTE_DEBUGGING_PORT:-5678}:5678
     command: >
       bash -c "
-        if [ -d /usr/local/share/ca-certificates/custom ] && \
-          ls /usr/local/share/ca-certificates/custom/*.crt >/dev/null 2>&1; then \
-          update-ca-certificates; \
-        fi &&
         wait-for-it -s postgres.local:5432 -t 60 && 
         ./manage.py migrate &&
         ./manage.py create_superuser &&
@@ -73,10 +69,6 @@ services:
     image: radis_dev-default_worker:latest
     command: >
       bash -c "
-        if [ -d /usr/local/share/ca-certificates/custom ] && \
-          ls /usr/local/share/ca-certificates/custom/*.crt >/dev/null 2>&1; then \
-          update-ca-certificates; \
-        fi &&
         wait-for-it -s postgres.local:5432 -t 60 &&
         ./manage.py bg_worker -l debug -q default --autoreload
       "
@@ -86,10 +78,6 @@ services:
     image: radis_dev-llm_worker:latest
     command: >
       bash -c "
-        if [ -d /usr/local/share/ca-certificates/custom ] && \
-          ls /usr/local/share/ca-certificates/custom/*.crt >/dev/null 2>&1; then \
-          update-ca-certificates; \
-        fi &&
         wait-for-it -s postgres.local:5432 -t 60 &&
         ./manage.py bg_worker -l debug -q llm --autoreload
       "

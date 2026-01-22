@@ -2,6 +2,8 @@ x-app: &default-app
   volumes:
     - ${BACKUP_DIR:?}:/backups
     - ${RADIS_CA_CERTS_DIR:-/etc/radis/certs}:/usr/local/share/ca-certificates/custom:ro
+    - ./scripts/radis-entrypoint.sh:/usr/local/bin/radis-entrypoint.sh:ro
+  entrypoint: ["/usr/local/bin/radis-entrypoint.sh"]
   depends_on:
     - postgres
   environment:
