@@ -91,6 +91,34 @@ def test_get_available_search_configs_db_error(monkeypatch):
         def __exit__(self, exc_type, exc, tb):
             return False
 
-    language_utils.get_available_search_configs.cache_clear()
+    language_utils._get_available_search_configs_cached.cache_clear()
     monkeypatch.setattr(language_utils.connection, "cursor", lambda: FailingCursor())
     assert get_available_search_configs() == set()
+
+
+def test_get_available_search_configs_db_error_not_cached(monkeypatch):
+    class FailingCursor:
+        def __enter__(self):
+            raise DatabaseError("boom")
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    class WorkingCursor:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def execute(self, _query):
+            return None
+
+        def fetchall(self):
+            return [("english",)]
+
+    language_utils._get_available_search_configs_cached.cache_clear()
+    monkeypatch.setattr(language_utils.connection, "cursor", lambda: FailingCursor())
+    assert get_available_search_configs() == set()
+    monkeypatch.setattr(language_utils.connection, "cursor", lambda: WorkingCursor())
+    assert get_available_search_configs() == {"english"}

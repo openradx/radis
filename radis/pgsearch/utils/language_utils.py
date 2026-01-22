@@ -10,13 +10,17 @@ logger = logging.getLogger(__name__)
 
 
 @lru_cache(maxsize=1)
+def _get_available_search_configs_cached() -> set[str]:
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT cfgname FROM pg_ts_config")
+        return {row[0].lower() for row in cursor.fetchall()}
+
+
 def get_available_search_configs() -> set[str]:
     try:
-        with connection.cursor() as cursor:
-            cursor.execute("SELECT cfgname FROM pg_ts_config")
-            return {row[0].lower() for row in cursor.fetchall()}
+        return _get_available_search_configs_cached()
     except DatabaseError as exc:
-        logger.debug("Failed to read pg_ts_config; falling back to simple. %s", exc)
+        logger.warning("Failed to read pg_ts_config; falling back to simple. %s", exc)
         return set()
 
 
@@ -70,7 +74,7 @@ def code_to_language(code: str) -> str:
         seen.add(candidate)
         if candidate in configs:
             return candidate
-    logger.debug(
+    logger.warning(
         "Unknown language code '%s' (normalized '%s'); falling back to simple.",
         code,
         base,
