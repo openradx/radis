@@ -1,5 +1,4 @@
 import logging
-import re
 import unicodedata
 from functools import lru_cache
 
@@ -30,7 +29,8 @@ def _normalize_language_name(name: str) -> list[str]:
         return []
     normalized = unicodedata.normalize("NFKD", trimmed)
     normalized = "".join(char for char in normalized if not unicodedata.combining(char))
-    normalized = re.sub(r"[^A-Za-z0-9]+", " ", normalized).strip().lower()
+    normalized = "".join(char if char.isalnum() else " " for char in normalized)
+    normalized = " ".join(normalized.strip().lower().split())
     if not normalized:
         return []
     tokens = normalized.split()
@@ -61,8 +61,19 @@ def _language_name_candidates(code: str) -> list[str]:
     return candidates
 
 
+def _is_safe_language_code(code: str) -> bool:
+    return all(char.isalnum() or char in {"-", "_"} for char in code)
+
+
+def clear_search_config_cache() -> None:
+    get_available_search_configs.cache_clear()
+
+
 def code_to_language(code: str) -> str:
     if not code:
+        return "simple"
+    if not _is_safe_language_code(code):
+        logger.debug("Invalid language code '%s'; falling back to simple.", code)
         return "simple"
     normalized = code.lower()
     base = normalized.split("-", 1)[0].split("_", 1)[0]

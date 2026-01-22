@@ -2,6 +2,7 @@ from django.db import DatabaseError
 
 from radis.pgsearch.utils import language_utils
 from radis.pgsearch.utils.language_utils import (
+    _is_safe_language_code,
     _normalize_language_name,
     code_to_language,
     get_available_search_configs,
@@ -57,6 +58,11 @@ def test_code_to_language_three_letter_code(monkeypatch):
     assert code_to_language("deu") == "german"
 
 
+def test_code_to_language_invalid_chars(monkeypatch):
+    set_configs(monkeypatch, {"english", "simple"})
+    assert code_to_language("en;DROP") == "simple"
+
+
 def test_code_to_language_continents(monkeypatch):
     set_configs(
         monkeypatch,
@@ -81,6 +87,17 @@ def test_normalize_language_name_diacritics():
     assert "arbereshe_albanian" in candidates
     assert "arbereshe" in candidates
     assert "albanian" in candidates
+
+
+def test_normalize_language_name_parentheses():
+    candidates = _normalize_language_name("Chinese (Traditional)")
+    assert "chinese" in candidates
+
+
+def test_language_code_validation():
+    assert _is_safe_language_code("en")
+    assert _is_safe_language_code("en-US")
+    assert not _is_safe_language_code("en;DROP")
 
 
 def test_get_available_search_configs_db_error(monkeypatch):
