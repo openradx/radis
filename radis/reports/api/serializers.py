@@ -46,9 +46,24 @@ class ReportSerializer(serializers.ModelSerializer):
     metadata = MetadataSerializer(many=True)
     modalities = ModalitySerializer(many=True)
 
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        if self.context.get("skip_document_id_unique"):
+            self._strip_unique_validator("document_id")
+
     class Meta:
         model = Report
         fields = "__all__"
+
+    def _strip_unique_validator(self, field_name: str) -> None:
+        field = self.fields.get(field_name)
+        if not field:
+            return
+        field.validators = [
+            validator
+            for validator in field.validators
+            if not isinstance(validator, validators.UniqueValidator)
+        ]
 
     def create(self, validated_data: Any) -> Any:
         language = validated_data.pop("language")
