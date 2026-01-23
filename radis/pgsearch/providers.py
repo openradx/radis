@@ -25,6 +25,10 @@ def sanitize_term(term: str) -> str:
     return "".join(char for char in term if is_search_token_char(char))
 
 
+def _resolve_language(filters: SearchFilters) -> str:
+    return code_to_language(filters.language)
+
+
 def _build_query_string(node: QueryNode) -> str:
     if isinstance(node, TermNode):
         if node.term_type == "WORD":
@@ -85,7 +89,7 @@ def _build_filter_query(filters: SearchFilters) -> Q:
 
 def search(search: Search) -> SearchResult:
     query_str = _build_query_string(search.query)
-    language = code_to_language(search.filters.language)
+    language = _resolve_language(search.filters)
     query = SearchQuery(query_str, search_type="raw", config=language)
     filter_query = _build_filter_query(search.filters)
     results = (
@@ -128,7 +132,7 @@ def search(search: Search) -> SearchResult:
 
 def count(search: Search) -> int:
     query_str = _build_query_string(search.query)
-    language = code_to_language(search.filters.language)
+    language = _resolve_language(search.filters)
     query = SearchQuery(query_str, search_type="raw", config=language)
     filter_query = _build_filter_query(search.filters)
     results = ReportSearchVector.objects.filter(filter_query).filter(search_vector=query)
@@ -137,7 +141,7 @@ def count(search: Search) -> int:
 
 def retrieve(search: Search) -> Iterator[str]:
     query_str = _build_query_string(search.query)
-    language = code_to_language(search.filters.language)
+    language = _resolve_language(search.filters)
     query = SearchQuery(query_str, search_type="raw", config=language)
     filter_query = _build_filter_query(search.filters)
     results = (

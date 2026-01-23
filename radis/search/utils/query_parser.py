@@ -193,6 +193,7 @@ class QueryParser:
         lparen = pp.Literal("(")
         rparen = pp.Literal(")")
 
+        # Input is pre-sanitized; keep regex broad to avoid pyparsing Unicode limitations.
         word = ~(not_ | and_ | or_) + pp.Regex(r"[^\s()]+").set_parse_action(
             lambda t: TermNode("WORD", t[0])  # type: ignore
         )

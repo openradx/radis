@@ -11,6 +11,7 @@ logger = logging.getLogger(__name__)
 @lru_cache(maxsize=1)
 def _get_available_search_configs_cached() -> set[str]:
     with connection.cursor() as cursor:
+        # Static query with no user input.
         cursor.execute("SELECT cfgname FROM pg_ts_config")
         return {row[0].lower() for row in cursor.fetchall()}
 
@@ -24,9 +25,11 @@ def get_available_search_configs() -> set[str]:
 
 
 def _normalize_language_name(name: str) -> list[str]:
+    """Normalize language names for config matching by stripping diacritics and punctuation."""
     trimmed = name.split("(", 1)[0].strip()
     if not trimmed:
         return []
+    # NFKD decomposes characters so diacritics can be removed consistently.
     normalized = unicodedata.normalize("NFKD", trimmed)
     normalized = "".join(char for char in normalized if not unicodedata.combining(char))
     normalized = "".join(char if char.isalnum() else " " for char in normalized)
@@ -40,6 +43,7 @@ def _normalize_language_name(name: str) -> list[str]:
 
 
 def _language_name_candidates(code: str) -> list[str]:
+    """Resolve ISO codes to candidate config names via pycountry, with safe fallbacks."""
     language = None
     if len(code) == 2:
         language = pycountry.languages.get(alpha_2=code)
@@ -66,7 +70,7 @@ def _is_safe_language_code(code: str) -> bool:
 
 
 def clear_search_config_cache() -> None:
-    get_available_search_configs.cache_clear()
+    _get_available_search_configs_cached.cache_clear()
 
 
 def code_to_language(code: str) -> str:
