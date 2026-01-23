@@ -30,6 +30,52 @@ def _bulk_upsert_reports(validated_reports: list[dict[str, Any]]) -> tuple[list[
     if not validated_reports:
         return [], []
 
+    deduped_reports: dict[str, dict[str, Any]] = {}
+    duplicate_count = 0
+    for report in validated_reports:
+        document_id = report["document_id"]
+        if document_id in deduped_reports:
+            duplicate_count += 1
+        deduped_reports[document_id] = report
+    if duplicate_count:
+        logger.warning(
+            "Bulk upsert payload contained %s duplicate document_ids; keeping last occurrence.",
+            duplicate_count,
+        )
+        validated_reports = list(deduped_reports.values())
+
+    def _dedupe_by_key(
+        items: list[dict[str, Any]], key_name: str
+    ) -> tuple[list[dict[str, Any]], int]:
+        if not items:
+            return [], 0
+        by_key: dict[str, dict[str, Any]] = {}
+        for item in items:
+            key = item[key_name]
+            by_key[key] = item
+        return list(by_key.values()), len(items) - len(by_key)
+
+    def _dedupe_metadata(items: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], int]:
+        if not items:
+            return [], 0
+        by_key: dict[str, dict[str, Any]] = {}
+        duplicates = 0
+        for item in items:
+            key = item["key"]
+            if key in by_key:
+                duplicates += 1
+            by_key[key] = item
+        return list(by_key.values()), duplicates
+
+    def _dedupe_groups(items: list[Any]) -> tuple[list[int], int]:
+        if not items:
+            return [], 0
+        by_id: dict[int, int] = {}
+        for group in items:
+            group_id = group.pk if hasattr(group, "pk") else int(group)
+            by_id[group_id] = group_id
+        return list(by_id.values()), len(items) - len(by_id)
+
     document_ids = [report["document_id"] for report in validated_reports]
 
     language_codes = {report["language"]["code"] for report in validated_reports}
@@ -135,9 +181,12 @@ def _bulk_upsert_reports(validated_reports: list[dict[str, Any]]) -> tuple[list[
             Metadata.objects.filter(report_id__in=report_ids).delete()
 
             metadata_rows: list[Metadata] = []
+            metadata_duplicate_count = 0
             for report_data in validated_reports:
                 report_id = report_id_by_document_id[report_data["document_id"]]
-                for item in report_data.get("metadata", []):
+                metadata_items, duplicates = _dedupe_metadata(report_data.get("metadata", []))
+                metadata_duplicate_count += duplicates
+                for item in metadata_items:
                     metadata_rows.append(
                         Metadata(report_id=report_id, key=item["key"], value=item["value"])
                     )
@@ -148,9 +197,14 @@ def _bulk_upsert_reports(validated_reports: list[dict[str, Any]]) -> tuple[list[
             modality_through.objects.filter(report_id__in=report_ids).delete()
 
             modality_rows = []
+            modality_duplicate_count = 0
             for report_data in validated_reports:
                 report_id = report_id_by_document_id[report_data["document_id"]]
-                for modality in report_data.get("modalities", []):
+                modality_items, duplicates = _dedupe_by_key(
+                    report_data.get("modalities", []), "code"
+                )
+                modality_duplicate_count += duplicates
+                for modality in modality_items:
                     modality_id = modality_by_code[modality["code"]].pk
                     modality_rows.append(
                         modality_through(report_id=report_id, modality_id=modality_id)
@@ -162,12 +216,24 @@ def _bulk_upsert_reports(validated_reports: list[dict[str, Any]]) -> tuple[list[
             group_through.objects.filter(report_id__in=report_ids).delete()
 
             group_rows = []
+            group_duplicate_count = 0
             for report_data in validated_reports:
                 report_id = report_id_by_document_id[report_data["document_id"]]
-                for group in report_data.get("groups", []):
-                    group_rows.append(group_through(report_id=report_id, group_id=group.pk))
+                group_items, duplicates = _dedupe_groups(report_data.get("groups", []))
+                group_duplicate_count += duplicates
+                for group_id in group_items:
+                    group_rows.append(group_through(report_id=report_id, group_id=group_id))
             if group_rows:
                 group_through.objects.bulk_create(group_rows, batch_size=BULK_DB_BATCH_SIZE)
+
+            if metadata_duplicate_count or modality_duplicate_count or group_duplicate_count:
+                logger.warning(
+                    "Bulk upsert payload contained duplicate metadata/modality/group entries "
+                    "(metadata=%s modalities=%s groups=%s); duplicates were dropped.",
+                    metadata_duplicate_count,
+                    modality_duplicate_count,
+                    group_duplicate_count,
+                )
 
         def on_commit():
             if created_ids:
