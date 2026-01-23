@@ -9,8 +9,7 @@ from django.utils import timezone
 from procrastinate.contrib.django import app
 
 from radis.reports.models import Report
-from radis.search.site import Search, SearchFilters
-from radis.search.utils.query_parser import QueryParser
+from radis.search.site import SearchFilters
 
 from . import site
 from .models import Subscription, SubscriptionJob, SubscriptionTask
@@ -40,7 +39,7 @@ def process_subscription_job(job_id: int) -> None:
     logger.debug("Collecting tasks for job %s", job)
 
     language_code = ""
-    if job.subscription.language and job.subscription.query != "":
+    if job.subscription.language:
         language_code = job.subscription.language.code
 
     filters = SearchFilters(
@@ -51,41 +50,16 @@ def process_subscription_job(job_id: int) -> None:
         patient_sex=job.subscription.patient_sex,
         patient_age_from=job.subscription.age_from,
         patient_age_till=job.subscription.age_till,
-        created_after=job.subscription.last_refreshed,
+        updated_after=job.subscription.last_refreshed,
     )
 
-    if job.subscription.query != "":
-        logger.debug("Searching new reports with query and filters for job %s", job)
+    logger.debug("Searching new reports with filters for job %s", job)
 
-        if site.subscription_retrieval_provider is None:
-            logger.error("Subscription retrieval provider is not configured for job %s", job)
-            raise ImproperlyConfigured("Subscription retrieval provider is not configured.")
-        retrieval_provider = site.subscription_retrieval_provider
-
-        query_node, fixes = QueryParser().parse(job.subscription.query)
-
-        if query_node is None:
-            raise ValueError(f"Not a valid query (evaluated as empty): {job.subscription.query}")
-
-        if len(fixes) > 0:
-            logger.info(f"The following fixes were applied to the query:\n{'\n - '.join(fixes)}")
-
-        search = Search(
-            query=query_node,
-            offset=0,
-            filters=filters,
-        )
-
-        new_document_ids = retrieval_provider.retrieve(search)
-
-    else:
-        logger.debug("Searching new reports with filters for job %s", job)
-
-        if site.subscription_filter_provider is None:
-            logger.error("Subscription filter provider is not configured for job %s", job)
-            raise ImproperlyConfigured("Subscription filter provider is not configured.")
-        filter_provider = site.subscription_filter_provider
-        new_document_ids = filter_provider.filter(filters)
+    if site.subscription_filter_provider is None:
+        logger.error("Subscription filter provider is not configured for job %s", job)
+        raise ImproperlyConfigured("Subscription filter provider is not configured.")
+    filter_provider = site.subscription_filter_provider
+    new_document_ids = filter_provider.filter(filters)
 
     for document_ids in batched(new_document_ids, settings.SUBSCRIPTION_REFRESH_TASK_BATCH_SIZE):
         logger.debug("Creating SubscriptionTask for document IDs: %s", document_ids)
@@ -111,7 +85,22 @@ def subscription_launcher(timestamp: int):
     logger.info("Launching SubscriptionJobs (Timestamp %s)", datetime.fromtimestamp(timestamp))
     subscriptions = Subscription.objects.all()
 
+    active_statuses = [
+        SubscriptionJob.Status.PREPARING,
+        SubscriptionJob.Status.PENDING,
+        SubscriptionJob.Status.IN_PROGRESS,
+    ]
+
     for subscription in subscriptions:
+        # Skip if subscription already has an active job
+        if subscription.jobs.filter(status__in=active_statuses).exists():
+            logger.debug(
+                "Skipping Subscription %s of user %s - active job already exists",
+                subscription.name,
+                subscription.owner,
+            )
+            continue
+
         logger.debug(
             "Creating SubscriptionJob for Subscription %s of user %s",
             subscription.name,

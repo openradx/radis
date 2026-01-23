@@ -1,22 +1,35 @@
-from typing import Any
+from __future__ import annotations
 
-from django.db.models import QuerySet
+from typing import Any, Iterable
+
 from pydantic import BaseModel, create_model
 
-from ..models import Question
+from radis.extractions.models import OutputField
+
+from ..models import FilterQuestion
 
 
-def generate_questions_schema(questions: QuerySet[Question]) -> type[BaseModel]:
+def get_filter_question_field_name(question: FilterQuestion) -> str:
+    return f"question_{question.pk}"
+
+
+def get_output_field_name(field: OutputField) -> str:
+    return field.name
+
+
+def generate_filter_questions_schema(questions: Iterable[FilterQuestion]) -> type[BaseModel]:
     field_definitions: dict[str, Any] = {}
-    for index, _ in enumerate(questions.all()):
-        field_definitions[f"question_{index}"] = (bool, ...)
 
-    return create_model("QuestionsModel", **field_definitions)
+    for question in questions:
+        field_name = get_filter_question_field_name(question)
+        field_definitions[field_name] = (bool, ...)
+
+    model_name = "SubscriptionFilterResultsModel"
+    return create_model(model_name, **field_definitions)
 
 
-def generate_questions_for_prompt(fields: QuerySet[Question]) -> str:
+def generate_filter_questions_prompt(questions: Iterable[FilterQuestion]) -> str:
     prompt = ""
-    for index, question in enumerate(fields.all()):
-        prompt += f"question_{index}: {question.question}\n"
-
+    for question in questions:
+        prompt += f"{get_filter_question_field_name(question)}: {question.question}\n"
     return prompt

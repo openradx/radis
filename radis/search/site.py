@@ -45,7 +45,7 @@ class SearchFilters:
         - patient_age_till: Filter only reports where the patient is at most this age
     """
 
-    group: int  # TODO: Rename to group_id
+    group: int | None = None  # TODO: Rename to group_id
     language: str = ""  # TODO: Rename to language_code
     modalities: list[str] = field(default_factory=list)
     study_date_from: date | None = None
@@ -57,6 +57,7 @@ class SearchFilters:
     patient_id: str | None = None
     created_after: datetime | None = None
     created_before: datetime | None = None
+    updated_after: datetime | None = None
 
 
 class Search(NamedTuple):
