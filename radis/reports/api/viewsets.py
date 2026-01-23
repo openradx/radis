@@ -72,7 +72,7 @@ def _bulk_upsert_reports(validated_reports: list[dict[str, Any]]) -> tuple[list[
             return [], 0
         by_id: dict[int, int] = {}
         for group in items:
-            group_id = group.pk if hasattr(group, "pk") else int(group)
+            group_id = int(getattr(group, "pk", group))
             by_id[group_id] = group_id
         return list(by_id.values()), len(items) - len(by_id)
 

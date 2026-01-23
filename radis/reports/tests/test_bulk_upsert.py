@@ -28,7 +28,7 @@ def test_bulk_upsert_creates_and_updates_reports(client: Client):
             "patient_birth_date": "1980-01-01",
             "patient_sex": "M",
             "study_description": "Study 1",
-            "study_datetime": timezone.make_aware(datetime(2024, 1, 1, 0, 0, 0)),
+            "study_datetime": "2024-01-01T00:00:00Z",
             "study_instance_uid": "1.2.3.4",
             "accession_number": "ACC1",
             "modalities": ["CT"],
