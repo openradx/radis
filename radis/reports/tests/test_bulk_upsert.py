@@ -1,11 +1,10 @@
 import json
-from datetime import date, datetime
+from datetime import date
 
 import pytest
 from adit_radis_shared.accounts.factories import GroupFactory, UserFactory
 from adit_radis_shared.token_authentication.models import Token
 from django.test import Client
-from django.utils import timezone
 
 from radis.reports.api.viewsets import _bulk_upsert_reports
 from radis.reports.models import Language, Metadata, Modality, Report
