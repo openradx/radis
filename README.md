@@ -66,11 +66,11 @@ RADIS’s design philosophy prioritizes security, flexibility, and user-friendly
 
 (Reports are synthetically generated without real patient data)
 
-![Screenshot1](https://github.com/user-attachments/assets/f4aa2574-08af-404d-9f52-07741ec970c3)
+![Screenshot1](resources/screenshots/Screenshot01_radis.png)
 
-![Screenshot2](https://github.com/user-attachments/assets/285c218a-e1b2-43eb-81e6-e9385fdb64f9)
+![Screenshot2](resources/screenshots/Screenshot02_radis.png)
 
-![Screenshot3](https://github.com/user-attachments/assets/92ade847-d33e-4a47-ab4f-45778ef31e47)
+![Screenshot3](resources/screenshots/Screenshot03_radis.png)
 
 ## Disclaimer
 
