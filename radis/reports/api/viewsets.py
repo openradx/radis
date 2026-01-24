@@ -97,7 +97,7 @@ def _bulk_upsert_reports(validated_reports: list[dict[str, Any]]) -> tuple[list[
         if existing:
             for field, value in report_fields.items():
                 setattr(existing, field, value)
-            existing.language_id = language.id
+            existing.language = language
             existing.updated_at = now
             updated_reports.append(existing)
             updated_ids.append(document_id)
@@ -124,7 +124,7 @@ def _bulk_upsert_reports(validated_reports: list[dict[str, Any]]) -> tuple[list[
             )
 
         report_id_by_document_id = {
-            report.document_id: report.id
+            report.document_id: report.pk
             for report in Report.objects.filter(document_id__in=document_ids).only(
                 "id", "document_id"
             )
@@ -151,7 +151,7 @@ def _bulk_upsert_reports(validated_reports: list[dict[str, Any]]) -> tuple[list[
             for report_data in validated_reports:
                 report_id = report_id_by_document_id[report_data["document_id"]]
                 for modality in report_data.get("modalities", []):
-                    modality_id = modality_by_code[modality["code"]].id
+                    modality_id = modality_by_code[modality["code"]].pk
                     modality_rows.append(
                         modality_through(report_id=report_id, modality_id=modality_id)
                     )
@@ -165,7 +165,7 @@ def _bulk_upsert_reports(validated_reports: list[dict[str, Any]]) -> tuple[list[
             for report_data in validated_reports:
                 report_id = report_id_by_document_id[report_data["document_id"]]
                 for group in report_data.get("groups", []):
-                    group_rows.append(group_through(report_id=report_id, group_id=group.id))
+                    group_rows.append(group_through(report_id=report_id, group_id=group.pk))
             if group_rows:
                 group_through.objects.bulk_create(group_rows, batch_size=BULK_DB_BATCH_SIZE)
 
