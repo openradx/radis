@@ -14,6 +14,7 @@ from radis.reports.models import Language, Metadata, Modality, Report
 def test_bulk_upsert_creates_and_updates_reports(client: Client):
     user = UserFactory.create(is_active=True, is_staff=True)
     group = GroupFactory.create()
+    user.groups.add(group)
     _, token = Token.objects.create_token(user, "bulk upsert test", None)
     payload = [
         {
@@ -90,6 +91,7 @@ def test_bulk_upsert_creates_and_updates_reports(client: Client):
 def test_bulk_upsert_dedupes_payload_entries(client: Client):
     user = UserFactory.create(is_active=True, is_staff=True)
     group = GroupFactory.create()
+    user.groups.add(group)
     _, token = Token.objects.create_token(user, "bulk upsert dedupe test", None)
 
     payload = [

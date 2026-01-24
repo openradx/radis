@@ -154,6 +154,11 @@ postgres_dev_port = env.int("POSTGRES_DEV_PORT", default=5432)
 database_url = f"postgres://postgres:postgres@localhost:{postgres_dev_port}/postgres"
 DATABASES = {"default": env.dj_db_url("DATABASE_URL", default=database_url)}
 
+# pgsearch indexing tuning (bulk upsert/backfill)
+PGSEARCH_BULK_INDEX_CHUNK_SIZE = env.int("PGSEARCH_BULK_INDEX_CHUNK_SIZE", default=5000)
+PGSEARCH_BULK_INSERT_BATCH_SIZE = env.int("PGSEARCH_BULK_INSERT_BATCH_SIZE", default=1000)
+PGSEARCH_SYNC_INDEXING = env.bool("PGSEARCH_SYNC_INDEXING", default=False)
+
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.0/ref/settings/#default-auto-field
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
