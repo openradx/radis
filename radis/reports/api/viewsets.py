@@ -33,7 +33,9 @@ def _bulk_upsert_reports(validated_reports: list[dict[str, Any]]) -> tuple[list[
     document_ids = [report["document_id"] for report in validated_reports]
 
     language_codes = {report["language"]["code"] for report in validated_reports}
-    language_by_code = {lang.code: lang for lang in Language.objects.filter(code__in=language_codes)}
+    language_by_code = {
+        lang.code: lang for lang in Language.objects.filter(code__in=language_codes)
+    }
     missing_language_codes = language_codes - language_by_code.keys()
     if missing_language_codes:
         Language.objects.bulk_create(
@@ -123,7 +125,9 @@ def _bulk_upsert_reports(validated_reports: list[dict[str, Any]]) -> tuple[list[
 
         report_id_by_document_id = {
             report.document_id: report.id
-            for report in Report.objects.filter(document_id__in=document_ids).only("id", "document_id")
+            for report in Report.objects.filter(document_id__in=document_ids).only(
+                "id", "document_id"
+            )
         }
         report_ids = list(report_id_by_document_id.values())
 
