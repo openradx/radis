@@ -32,7 +32,6 @@ BULK_DB_BATCH_SIZE = 1000
 
 def _bulk_upsert_reports(
     validated_reports: list[dict[str, Any]],
-    replace: bool = True,
 ) -> tuple[list[str], list[str]]:
     if not validated_reports:
         return [], []
@@ -396,7 +395,7 @@ class ReportViewSet(
         created_ids: list[str] = []
         updated_ids: list[str] = []
         if valid_payloads:
-            created_ids, updated_ids = _bulk_upsert_reports(valid_payloads, replace=replace)
+            created_ids, updated_ids = _bulk_upsert_reports(valid_payloads)
 
         response_body: dict[str, Any] = {
             "created": len(created_ids),
