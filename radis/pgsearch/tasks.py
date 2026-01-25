@@ -1,6 +1,7 @@
 import logging
 
 from procrastinate.contrib.django import app
+from procrastinate.types import JSONValue
 
 from .utils.indexing import bulk_upsert_report_search_vectors
 
@@ -19,7 +20,7 @@ def enqueue_bulk_index_reports(report_ids: list[int]) -> int | None:
     if not report_ids:
         return None
     try:
-        payload: list[int] = [int(report_id) for report_id in report_ids]
+        payload: list[JSONValue] = [int(report_id) for report_id in report_ids]
     except (TypeError, ValueError) as exc:
         logger.error("Invalid report_id in bulk index request: %s", exc)
         return None
