@@ -1,3 +1,10 @@
+x-app-env: &default-app-env
+  DJANGO_EMAIL_URL: ${DJANGO_EMAIL_URL:?}
+  DJANGO_SECURE_SSL_REDIRECT: ${DJANGO_SECURE_SSL_REDIRECT:-true}
+  DJANGO_SETTINGS_MODULE: radis.settings.production
+  DJANGO_STATIC_ROOT: /var/www/web/static/
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?}
+
 x-app: &default-app
   image: ghcr.io/openradx/radis:latest
   volumes:
@@ -5,11 +12,7 @@ x-app: &default-app
     - ${SSL_SERVER_CERT_FILE:?}:/etc/web/ssl/cert.pem
     - ${SSL_SERVER_KEY_FILE:?}:/etc/web/ssl/key.pem
   environment:
-    DJANGO_EMAIL_URL: ${DJANGO_EMAIL_URL:?}
-    DJANGO_SECURE_SSL_REDIRECT: ${DJANGO_SECURE_SSL_REDIRECT:-true}
-    DJANGO_SETTINGS_MODULE: radis.settings.production
-    DJANGO_STATIC_ROOT: /var/www/web/static/
-    POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?}
+    <<: *default-app-env
 
 x-deploy: &deploy
   replicas: 1
@@ -69,6 +72,15 @@ services:
 
   llm_worker:
     <<: *default-app
+    volumes:
+      - web_data:/var/www/web
+      - ${SSL_SERVER_CERT_FILE:?}:/etc/web/ssl/cert.pem
+      - ${SSL_SERVER_KEY_FILE:?}:/etc/web/ssl/key.pem
+      - ${RADIS_LLM_CA_BUNDLE:-/etc/ssl/certs/ca-certificates.crt}:/etc/ssl/certs/radis-ca-bundle.pem:ro
+    environment:
+      <<: *default-app-env
+      SSL_CERT_FILE: /etc/ssl/certs/radis-ca-bundle.pem
+      REQUESTS_CA_BUNDLE: /etc/ssl/certs/radis-ca-bundle.pem
     command: >
       bash -c "
         wait-for-it -s postgres.local:5432 -t 60 &&
