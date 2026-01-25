@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
+import logging
+
 from django.conf import settings
 from django.db import connection
 
@@ -9,6 +11,8 @@ from radis.reports.models import Report
 
 from ..models import ReportSearchVector
 from .language_utils import code_to_language
+
+logger = logging.getLogger(__name__)
 
 
 def _chunked(items: list[int], size: int) -> Iterable[list[int]]:
@@ -33,15 +37,24 @@ def bulk_upsert_report_search_vectors(
             .select_related("language")
             .only("id", "language__code")
         )
+        report_ids_found: set[int] = set()
         config_to_ids: dict[str, list[int]] = {}
         config_cache: dict[str, str] = {}
         for report in reports:
+            report_ids_found.add(report.pk)
             language_code = report.language.code
             config = config_cache.get(language_code)
             if config is None:
                 config = code_to_language(language_code)
                 config_cache[language_code] = config
             config_to_ids.setdefault(config, []).append(report.pk)
+        missing_ids = set(chunk) - report_ids_found
+        if missing_ids:
+            logger.warning(
+                "Skipping %s missing reports during bulk index (ids=%s).",
+                len(missing_ids),
+                sorted(missing_ids)[:10],
+            )
 
         for config, config_ids in config_to_ids.items():
             ReportSearchVector.objects.bulk_create(

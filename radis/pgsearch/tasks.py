@@ -19,7 +19,11 @@ def bulk_index_reports(report_ids: list[int]) -> None:
 def enqueue_bulk_index_reports(report_ids: list[int]) -> int | None:
     if not report_ids:
         return None
-    payload: list[Any] = [int(report_id) for report_id in report_ids]
+    try:
+        payload: list[int] = [int(report_id) for report_id in report_ids]
+    except (TypeError, ValueError) as exc:
+        logger.error("Invalid report_id in bulk index request: %s", exc)
+        return None
     return app.configure_task(
         "radis.pgsearch.tasks.bulk_index_reports",
         allow_unknown=False,
