@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-from collections.abc import Iterable
-
 import logging
+from collections.abc import Iterable
 
 from django.conf import settings
 from django.db import connection

@@ -1,5 +1,4 @@
 import logging
-from typing import Any
 
 from procrastinate.contrib.django import app
 
