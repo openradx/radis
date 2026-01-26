@@ -17,14 +17,14 @@
     </div>
   </div>
 
-<a class="prev" onclick="changeSlide(-1)">❮</a>
-<a class="next" onclick="changeSlide(1)">❯</a>
+<a class="prev" onclick="changeSlide(-1)" aria-label="Previous slide">❮</a>
+<a class="next" onclick="changeSlide(1)" aria-label="Next slide">❯</a>
 
   <div class="dot-container">
-    <span class="dot" onclick="currentSlide(0)"></span>
-    <span class="dot" onclick="currentSlide(1)"></span>
-    <span class="dot" onclick="currentSlide(2)"></span>
-    <span class="dot" onclick="currentSlide(3)"></span>
+    <span class="dot" onclick="currentSlide(0)" role="button" tabindex="0" aria-label="Go to slide 1"></span>
+    <span class="dot" onclick="currentSlide(1)" role="button" tabindex="0" aria-label="Go to slide 2"></span>
+    <span class="dot" onclick="currentSlide(2)" role="button" tabindex="0" aria-label="Go to slide 3"></span>
+    <span class="dot" onclick="currentSlide(3)" role="button" tabindex="0" aria-label="Go to slide 4"></span>
   </div>
 
 </div>

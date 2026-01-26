@@ -29,8 +29,12 @@ function showSlide(index) {
 
   slidesWrapper.style.transform = `translateX(-${slideIndex * 100}%)`;
 
-  dots.forEach((dot) => dot.classList.remove("active"));
+  dots.forEach((dot, i) => {
+    dot.classList.remove("active");
+    dot.setAttribute("aria-pressed", "false");
+  });
   dots[slideIndex].classList.add("active");
+  dots[slideIndex].setAttribute("aria-pressed", "true");
 
   clearTimeout(timer);
   timer = setTimeout(() => {
@@ -87,6 +91,13 @@ document.addEventListener("DOMContentLoaded", () => {
     // Event delegation for dot navigation
     dots.forEach((dot, index) => {
       dot.addEventListener("click", () => currentSlide(index));
+      // Add keyboard support for Enter and Space keys
+      dot.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          currentSlide(index);
+        }
+      });
     });
   }
 });
