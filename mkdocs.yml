@@ -57,6 +57,7 @@ markdown_extensions:
       custom_fences:
         - name: mermaid
           class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
   - pymdownx.tabbed:
       alternate_style: true
   - pymdownx.details
@@ -84,3 +85,9 @@ extra:
       link: https://github.com/openradx/radis
     - icon: fontawesome/solid/globe
       link: https://ccibonn.ai/
+
+extra_javascript:
+  - assets/js/slideshow.js
+
+extra_css:
+  - assets/css/slideshow.css
