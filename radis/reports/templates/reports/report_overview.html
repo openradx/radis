@@ -1,0 +1,133 @@
+{% extends "reports/reports_layout.html" %}
+{% block title %}
+    Reports Overview
+{% endblock title %}
+{% block heading %}
+    <c-page-heading title="Reports Overview" />
+{% endblock heading %}
+{% block content %}
+    {% if not stats_ready %}
+        <div class="alert alert-warning">
+            Overview stats have not been generated yet. Ask an admin to run
+            <code>uv run python manage.py rebuild_report_overview_stats</code>.
+        </div>
+    {% endif %}
+    <div class="row g-3 mb-4">
+        <div class="col-md-4">
+            <div class="card h-100">
+                <div class="card-body">
+                    <h6 class="card-title text-muted">Total Reports</h6>
+                    <div class="display-6">{{ total_count }}</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card h-100">
+                <div class="card-body">
+                    <h6 class="card-title text-muted">{{ last_year }} Reports</h6>
+                    <div class="display-6">{{ last_year_count }}</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card h-100">
+                <div class="card-body">
+                    <h6 class="card-title text-muted">YoY Change ({{ last_year }} vs {{ prev_year }})</h6>
+                    <div class="display-6">
+                        {% if yoy_change is not None %}
+                            {% if yoy_change >= 0 %}+{% endif %}{{ yoy_change|floatformat:1 }}%
+                        {% else %}
+                            —
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row g-4">
+        <div class="col-lg-4">
+            <div class="card h-100">
+                <div class="card-body">
+                    <h5 class="card-title">Top Modalities</h5>
+                    <table class="table table-sm">
+                        <thead>
+                            <tr>
+                                <th>Modality</th>
+                                <th class="text-end">Reports</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for item in top_modalities %}
+                                <tr>
+                                    <td>{{ item.modality_code|default:"Unknown" }}</td>
+                                    <td class="text-end">{{ item.count }}</td>
+                                </tr>
+                            {% endfor %}
+                            {% if other_modality_count %}
+                                <tr>
+                                    <td>Other</td>
+                                    <td class="text-end">{{ other_modality_count }}</td>
+                                </tr>
+                            {% endif %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-4">
+            <div class="card h-100">
+                <div class="card-body">
+                    <h5 class="card-title">Top Languages</h5>
+                    <table class="table table-sm">
+                        <thead>
+                            <tr>
+                                <th>Language</th>
+                                <th class="text-end">Reports</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for item in top_languages %}
+                                <tr>
+                                    <td>{{ item.language_code }}</td>
+                                    <td class="text-end">{{ item.count }}</td>
+                                </tr>
+                            {% endfor %}
+                            {% if other_language_count %}
+                                <tr>
+                                    <td>Other</td>
+                                    <td class="text-end">{{ other_language_count }}</td>
+                                </tr>
+                            {% endif %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-4">
+            <div class="card h-100">
+                <div class="card-body">
+                    <h5 class="card-title">Reports by Year (Clinical Time)</h5>
+                    <table class="table table-sm">
+                        <thead>
+                            <tr>
+                                <th>Year</th>
+                                <th class="text-end">Reports</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for item in year_counts %}
+                                <tr>
+                                    <td>{{ item.year }}</td>
+                                    <td class="text-end">{{ item.count }}</td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+{% endblock content %}

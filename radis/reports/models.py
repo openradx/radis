@@ -104,3 +104,62 @@ class Metadata(models.Model):
 
     def __str__(self) -> str:
         return f"{self.key}: {self.value}"
+
+
+class ReportOverviewTotal(models.Model):
+    group = models.OneToOneField(
+        Group,
+        on_delete=models.CASCADE,
+        related_name="report_overview_total",
+    )
+    total_count = models.PositiveIntegerField()
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self) -> str:
+        return f"{self.group_id} total={self.total_count}"
+
+
+class ReportYearStat(models.Model):
+    group = models.ForeignKey(Group, on_delete=models.CASCADE, related_name="report_year_stats")
+    year = models.PositiveIntegerField()
+    count = models.PositiveIntegerField()
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["group", "year"], name="unique_report_year_stat")
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.group_id} {self.year}={self.count}"
+
+
+class ReportModalityStat(models.Model):
+    group = models.ForeignKey(Group, on_delete=models.CASCADE, related_name="report_modality_stats")
+    modality_code = models.CharField(max_length=16)
+    count = models.PositiveIntegerField()
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["group", "modality_code"], name="unique_report_modality_stat"
+            )
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.group_id} {self.modality_code}={self.count}"
+
+
+class ReportLanguageStat(models.Model):
+    group = models.ForeignKey(Group, on_delete=models.CASCADE, related_name="report_language_stats")
+    language_code = models.CharField(max_length=10)
+    count = models.PositiveIntegerField()
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["group", "language_code"], name="unique_report_language_stat"
+            )
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.group_id} {self.language_code}={self.count}"
