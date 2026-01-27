@@ -60,7 +60,7 @@ class SearchForm(forms.Form):
         super().__init__(*args, **kwargs)
 
         self.fields["language"].choices = [  # type: ignore
-            (language.code, LANGUAGE_LABELS[language.code])
+            (language.code, LANGUAGE_LABELS.get(language.code, language.code))
             for language in Language.objects.order_by("code")
         ]
         self.fields["modalities"].choices = [  # type: ignore

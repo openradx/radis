@@ -38,6 +38,7 @@ dependencies = [
     "pandas>=2.2.3",
     "procrastinate[django]>=3.0.2",
     "psycopg[binary]>=3.2.5",
+    "pycountry>=24.6.1",
     "pyparsing>=3.2.1",
     "Twisted[tls,http2]>=24.11.0",
     "wait-for-it>=2.3.0",
