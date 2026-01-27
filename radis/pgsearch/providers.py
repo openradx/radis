@@ -1,12 +1,18 @@
 import logging
 from typing import Iterator, cast
 
-import pyparsing as pp
 from django.contrib.postgres.search import SearchHeadline, SearchQuery, SearchRank
 from django.db.models import F, Q
 
 from radis.search.site import Search, SearchFilters, SearchResult
-from radis.search.utils.query_parser import BinaryNode, ParensNode, QueryNode, TermNode, UnaryNode
+from radis.search.utils.query_parser import (
+    BinaryNode,
+    ParensNode,
+    QueryNode,
+    TermNode,
+    UnaryNode,
+    is_search_token_char,
+)
 
 from .models import ReportSearchVector
 from .utils.document_utils import AnnotatedReportSearchVector, document_from_pgsearch_response
@@ -16,8 +22,11 @@ logger = logging.getLogger(__name__)
 
 
 def sanitize_term(term: str) -> str:
-    valid_chars = pp.alphanums + pp.alphas8bit + "_-'"
-    return "".join(char for char in term if char in valid_chars)
+    return "".join(char for char in term if is_search_token_char(char))
+
+
+def _resolve_language(filters: SearchFilters) -> str:
+    return code_to_language(filters.language)
 
 
 def _build_query_string(node: QueryNode) -> str:
@@ -80,10 +89,9 @@ def _build_filter_query(filters: SearchFilters) -> Q:
 
 def search(search: Search) -> SearchResult:
     query_str = _build_query_string(search.query)
-    language = code_to_language(search.filters.language)
+    language = _resolve_language(search.filters)
     query = SearchQuery(query_str, search_type="raw", config=language)
     filter_query = _build_filter_query(search.filters)
-    language = code_to_language(search.filters.language)
     results = (
         ReportSearchVector.objects.filter(filter_query)
         .filter(search_vector=query)
@@ -124,20 +132,18 @@ def search(search: Search) -> SearchResult:
 
 def count(search: Search) -> int:
     query_str = _build_query_string(search.query)
-    language = code_to_language(search.filters.language)
+    language = _resolve_language(search.filters)
     query = SearchQuery(query_str, search_type="raw", config=language)
     filter_query = _build_filter_query(search.filters)
-    language = code_to_language(search.filters.language)
     results = ReportSearchVector.objects.filter(filter_query).filter(search_vector=query)
     return results.count()
 
 
 def retrieve(search: Search) -> Iterator[str]:
     query_str = _build_query_string(search.query)
-    language = code_to_language(search.filters.language)
+    language = _resolve_language(search.filters)
     query = SearchQuery(query_str, search_type="raw", config=language)
     filter_query = _build_filter_query(search.filters)
-    language = code_to_language(search.filters.language)
     results = (
         ReportSearchVector.objects.filter(filter_query)
         .filter(search_vector=query)
