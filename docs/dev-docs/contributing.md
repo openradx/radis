@@ -25,8 +25,33 @@ cp ./example.env ./.env  # adjust the environment variables to your needs
 uv run cli compose-up -- --watch
 ```
 
-File changes will be automatically detected and the servers will be restarted. When library
-dependencies are changed, the containers will automatically be rebuilt and restarted.
+File changes will be automatically detected and the servers will be restarted. When library dependencies are changed, the containers will automatically be rebuilt and restarted.
+
+### Updating Your Development Environment
+
+**Pull latest changes**:
+
+```terminal
+git pull origin main
+uv sync  # update dependencies
+uv run cli compose-up  # restart containers (migrations run automatically)
+```
+
+**After pulling changes**:
+
+- Migrations run automatically on container startup
+- If containers fail to start due to dependency or image changes, rebuild them:
+
+  ```terminal
+  uv run cli compose-build && uv run cli compose-up
+  ```
+
+- For major database schema changes, consider backing up first: `uv run cli db-backup`
+
+!!! note "Development vs Production"
+
+**Development**: Use `uv run cli compose-up` for local development
+**Production**: Use `uv run cli stack-deploy` for production deployment with Docker Swarm
 
 ## Reporting Issues
 

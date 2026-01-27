@@ -54,11 +54,11 @@ RADIS serves as a comprehensive platform for managing radiology reports, enablin
 
 **Ready to modernize your radiology workflow?** RADIS combines traditional database functionality with cutting-edge AI to make radiology reports more accessible and actionable.
 
-**Developed at**
+## Developed at
 
 [CCI Bonn](https://ccibonn.ai/) - Center for Computational Imaging, University Hospital Bonn
 
-**in Partnership with**
+### in Partnership with
 
 - [Universitätsklinikum Bonn](https://www.ukbonn.de/)
 - [Thoraxklinik Heidelberg](https://www.thoraxklinik-heidelberg.de/)
