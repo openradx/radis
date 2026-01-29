@@ -116,7 +116,7 @@ class ReportOverviewTotal(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self) -> str:
-        return f"{self.group_id} total={self.total_count}"
+        return f"{self.group.pk} total={self.total_count}"
 
 
 class ReportYearStat(models.Model):
@@ -130,7 +130,7 @@ class ReportYearStat(models.Model):
         ]
 
     def __str__(self) -> str:
-        return f"{self.group_id} {self.year}={self.count}"
+        return f"{self.group.pk} {self.year}={self.count}"
 
 
 class ReportModalityStat(models.Model):
@@ -146,7 +146,7 @@ class ReportModalityStat(models.Model):
         ]
 
     def __str__(self) -> str:
-        return f"{self.group_id} {self.modality_code}={self.count}"
+        return f"{self.group.pk} {self.modality_code}={self.count}"
 
 
 class ReportLanguageStat(models.Model):
@@ -162,4 +162,4 @@ class ReportLanguageStat(models.Model):
         ]
 
     def __str__(self) -> str:
-        return f"{self.group_id} {self.language_code}={self.count}"
+        return f"{self.group.pk} {self.language_code}={self.count}"
