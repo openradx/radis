@@ -1,6 +1,7 @@
 import logging
 from typing import Any
 
+from django.conf import settings
 from django.db import transaction
 from django.http import Http404
 from django.utils import timezone
@@ -11,6 +12,9 @@ from rest_framework.permissions import IsAdminUser
 from rest_framework.request import Request, clone_request
 from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
+
+from radis.pgsearch.tasks import enqueue_bulk_index_reports
+from radis.pgsearch.utils.indexing import bulk_upsert_report_search_vectors
 
 from ..models import Language, Metadata, Modality, Report
 from ..site import (
@@ -26,9 +30,57 @@ logger = logging.getLogger(__name__)
 BULK_DB_BATCH_SIZE = 1000
 
 
-def _bulk_upsert_reports(validated_reports: list[dict[str, Any]]) -> tuple[list[str], list[str]]:
+def _bulk_upsert_reports(
+    validated_reports: list[dict[str, Any]],
+) -> tuple[list[str], list[str]]:
     if not validated_reports:
         return [], []
+
+    deduped_reports: dict[str, dict[str, Any]] = {}
+    duplicate_count = 0
+    for report in validated_reports:
+        document_id = report["document_id"]
+        if document_id in deduped_reports:
+            duplicate_count += 1
+        deduped_reports[document_id] = report
+    if duplicate_count:
+        logger.warning(
+            "Bulk upsert payload contained %s duplicate document_ids; keeping last occurrence.",
+            duplicate_count,
+        )
+        validated_reports = list(deduped_reports.values())
+
+    def _dedupe_by_key(
+        items: list[dict[str, Any]], key_name: str
+    ) -> tuple[list[dict[str, Any]], int]:
+        if not items:
+            return [], 0
+        by_key: dict[str, dict[str, Any]] = {}
+        for item in items:
+            key = item[key_name]
+            by_key[key] = item
+        return list(by_key.values()), len(items) - len(by_key)
+
+    def _dedupe_metadata(items: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], int]:
+        if not items:
+            return [], 0
+        by_key: dict[str, dict[str, Any]] = {}
+        duplicates = 0
+        for item in items:
+            key = item["key"]
+            if key in by_key:
+                duplicates += 1
+            by_key[key] = item
+        return list(by_key.values()), duplicates
+
+    def _dedupe_groups(items: list[Any]) -> tuple[list[int], int]:
+        if not items:
+            return [], 0
+        by_id: dict[int, int] = {}
+        for group in items:
+            group_id = int(getattr(group, "pk", group))
+            by_id[group_id] = group_id
+        return list(by_id.values()), len(items) - len(by_id)
 
     document_ids = [report["document_id"] for report in validated_reports]
 
@@ -135,9 +187,12 @@ def _bulk_upsert_reports(validated_reports: list[dict[str, Any]]) -> tuple[list[
             Metadata.objects.filter(report_id__in=report_ids).delete()
 
             metadata_rows: list[Metadata] = []
+            metadata_duplicate_count = 0
             for report_data in validated_reports:
                 report_id = report_id_by_document_id[report_data["document_id"]]
-                for item in report_data.get("metadata", []):
+                metadata_items, duplicates = _dedupe_metadata(report_data.get("metadata", []))
+                metadata_duplicate_count += duplicates
+                for item in metadata_items:
                     metadata_rows.append(
                         Metadata(report_id=report_id, key=item["key"], value=item["value"])
                     )
@@ -148,9 +203,14 @@ def _bulk_upsert_reports(validated_reports: list[dict[str, Any]]) -> tuple[list[
             modality_through.objects.filter(report_id__in=report_ids).delete()
 
             modality_rows = []
+            modality_duplicate_count = 0
             for report_data in validated_reports:
                 report_id = report_id_by_document_id[report_data["document_id"]]
-                for modality in report_data.get("modalities", []):
+                modality_items, duplicates = _dedupe_by_key(
+                    report_data.get("modalities", []), "code"
+                )
+                modality_duplicate_count += duplicates
+                for modality in modality_items:
                     modality_id = modality_by_code[modality["code"]].pk
                     modality_rows.append(
                         modality_through(report_id=report_id, modality_id=modality_id)
@@ -162,12 +222,30 @@ def _bulk_upsert_reports(validated_reports: list[dict[str, Any]]) -> tuple[list[
             group_through.objects.filter(report_id__in=report_ids).delete()
 
             group_rows = []
+            group_duplicate_count = 0
             for report_data in validated_reports:
                 report_id = report_id_by_document_id[report_data["document_id"]]
-                for group in report_data.get("groups", []):
-                    group_rows.append(group_through(report_id=report_id, group_id=group.pk))
+                group_items, duplicates = _dedupe_groups(report_data.get("groups", []))
+                group_duplicate_count += duplicates
+                for group_id in group_items:
+                    group_rows.append(group_through(report_id=report_id, group_id=group_id))
             if group_rows:
                 group_through.objects.bulk_create(group_rows, batch_size=BULK_DB_BATCH_SIZE)
+
+            if metadata_duplicate_count or modality_duplicate_count or group_duplicate_count:
+                logger.warning(
+                    "Bulk upsert payload contained duplicate metadata/modality/group entries "
+                    "(metadata=%s modalities=%s groups=%s); duplicates were dropped.",
+                    metadata_duplicate_count,
+                    modality_duplicate_count,
+                    group_duplicate_count,
+                )
+
+        touched_report_ids = [
+            report_id_by_document_id[document_id]
+            for document_id in [*created_ids, *updated_ids]
+            if document_id in report_id_by_document_id
+        ]
 
         def on_commit():
             if created_ids:
@@ -178,6 +256,11 @@ def _bulk_upsert_reports(validated_reports: list[dict[str, Any]]) -> tuple[list[
                 updated_reports = list(Report.objects.filter(document_id__in=updated_ids))
                 for handler in reports_updated_handlers:
                     handler.handle(updated_reports)
+            if touched_report_ids:
+                if settings.PGSEARCH_SYNC_INDEXING:
+                    bulk_upsert_report_search_vectors(touched_report_ids)
+                else:
+                    enqueue_bulk_index_reports(touched_report_ids)
 
         transaction.on_commit(on_commit)
 
@@ -265,6 +348,13 @@ class ReportViewSet(
         if not isinstance(request.data, list):
             return Response(
                 {"detail": "Expected a list of report objects."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        replace = request.GET.get("replace", "true").lower() in ["true", "1", "yes"]
+        if not replace:
+            return Response(
+                {"detail": "replace=false is not supported for bulk upsert. Use replace=true."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
