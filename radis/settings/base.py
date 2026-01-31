@@ -12,6 +12,7 @@ https://docs.djangoproject.com/en/3.0/ref/settings/
 
 from pathlib import Path
 
+from adit_radis_shared.telemetry import add_otel_logging_handler, is_telemetry_active
 from environs import env
 
 # During development and calling `manage.py` from the host we have to load the .env file manually.
@@ -265,6 +266,9 @@ LOGGING = {
     },
     "root": {"handlers": ["console"], "level": "ERROR"},
 }
+
+if is_telemetry_active():
+    add_otel_logging_handler(LOGGING)
 
 # Internationalization
 # https://docs.djangoproject.com/en/3.0/topics/i18n/
