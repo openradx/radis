@@ -48,7 +48,7 @@ RADIS (Radiology Report Archive and Discovery System) is an innovative open-sour
 
 ## API Client
 
-[RADIS Client](https://github.com/openradx/radis-client) is a Python library to search for reports on RADIS in a programmatic way. It also allows admins to feed new reports to RADIS.
+[RADIS Client](https://pypi.org/project/radis-client/) is a Python library to search for reports on RADIS in a programmatic way. It also allows admins to feed new reports to RADIS.
 
 ## Architectural overview
 
