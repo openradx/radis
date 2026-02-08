@@ -1,0 +1,6 @@
+{% extends "core/core_layout.html" %}
+{% load static from static %}
+{% block css %}
+    {{ block.super }}
+    <link rel="stylesheet" type="text/css" href="{% static 'labels/labels.css' %}" />
+{% endblock css %}

@@ -1,0 +1,80 @@
+{% extends "labels/labels_layout.html" %}
+{% load bootstrap_icon from common_extras %}
+{% block title %}
+    {{ object.name }}
+{% endblock title %}
+{% block heading %}
+    <c-page-heading title="Labels" />
+{% endblock heading %}
+{% block content %}
+    <div class="card mb-3">
+        <div class="card-body">
+            <div class="d-flex justify-content-between align-items-start">
+                <div>
+                    <h5 class="card-title mb-1">{{ object.name }}</h5>
+                    <div class="text-muted">{{ object.slug }}</div>
+                    {% if object.description %}
+                        <p class="mt-2 mb-0">{{ object.description }}</p>
+                    {% endif %}
+                </div>
+                <div class="d-flex gap-2">
+                    <a href="{% url 'label_group_update' object.pk %}" class="btn btn-outline-primary">
+                        Edit Group
+                    </a>
+                    <a href="{% url 'label_group_delete' object.pk %}" class="btn btn-outline-danger">
+                        Delete Group
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="d-flex justify-content-between align-items-center mb-2">
+        <h5 class="mb-0">Questions</h5>
+        <a href="{% url 'label_question_create' object.pk %}" class="btn btn-primary">
+            {% bootstrap_icon "plus-lg" %}
+            Add Question
+        </a>
+    </div>
+
+    {% if object.questions.all %}
+        <div class="list-group">
+            {% for question in object.questions.all %}
+                <div class="list-group-item">
+                    <div class="d-flex justify-content-between align-items-start">
+                        <div>
+                            <div class="fw-semibold">{{ question.name }}</div>
+                            <div class="text-muted">{{ question.question }}</div>
+                            {% if question.description %}
+                                <div class="small text-muted mt-1">{{ question.description }}</div>
+                            {% endif %}
+                        </div>
+                        <div class="d-flex gap-2">
+                            <a href="{% url 'label_question_update' object.pk question.pk %}" class="btn btn-sm btn-outline-primary">
+                                Edit
+                            </a>
+                            <a href="{% url 'label_question_delete' object.pk question.pk %}" class="btn btn-sm btn-outline-danger">
+                                Delete
+                            </a>
+                        </div>
+                    </div>
+                    {% if question.choices.all %}
+                        <div class="mt-2">
+                            <div class="small text-muted">Choices</div>
+                            <div class="d-flex flex-wrap gap-2">
+                                {% for choice in question.choices.all %}
+                                    <span class="badge text-bg-light">
+                                        {{ choice.value }} · {{ choice.label }}
+                                        {% if choice.is_unknown %}(Unknown){% endif %}
+                                    </span>
+                                {% endfor %}
+                            </div>
+                        </div>
+                    {% endif %}
+                </div>
+            {% endfor %}
+        </div>
+    {% else %}
+        <div class="alert alert-info">No questions yet.</div>
+    {% endif %}
+{% endblock content %}

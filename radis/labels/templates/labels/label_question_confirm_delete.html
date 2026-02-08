@@ -1,0 +1,19 @@
+{% extends "labels/labels_layout.html" %}
+{% block title %}
+    Delete Question
+{% endblock title %}
+{% block heading %}
+    <c-page-heading title="Labels" />
+{% endblock heading %}
+{% block content %}
+    <div class="alert alert-warning">
+        You are about to delete the question "{{ object.name }}".
+    </div>
+    <form method="post">
+        {% csrf_token %}
+        <div class="d-flex gap-2">
+            <a href="{% url 'label_group_detail' group.pk %}" class="btn btn-secondary">Cancel</a>
+            <button type="submit" class="btn btn-danger">Delete Question</button>
+        </div>
+    </form>
+{% endblock content %}
