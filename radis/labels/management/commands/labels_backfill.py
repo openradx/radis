@@ -17,7 +17,7 @@ class Command(BaseCommand):
         parser.add_argument(
             "--group",
             dest="group",
-            help="Label group slug or ID. If omitted, all active groups are used.",
+            help="Label group name or ID. If omitted, all active groups are used.",
         )
         parser.add_argument(
             "--batch-size",
@@ -80,7 +80,12 @@ class Command(BaseCommand):
         if value.isdigit():
             group = LabelGroup.objects.filter(id=int(value)).first()
         else:
-            group = LabelGroup.objects.filter(slug=value).first()
+            matches = LabelGroup.objects.filter(name=value)
+            if matches.count() > 1:
+                raise CommandError(
+                    f"Multiple label groups named '{value}' exist. Use the numeric ID."
+                )
+            group = matches.first()
 
         if not group:
             raise CommandError(f"Label group '{value}' not found.")

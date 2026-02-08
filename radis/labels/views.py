@@ -8,8 +8,8 @@ from django.urls import reverse, reverse_lazy
 from django.views.generic import CreateView, DeleteView, DetailView, UpdateView
 from django_tables2 import SingleTableView
 
-from .forms import LabelChoiceFormSet, LabelGroupForm, LabelQuestionForm
-from .models import LabelChoice, LabelGroup, LabelQuestion
+from .forms import LabelGroupForm, LabelQuestionForm
+from .models import LabelGroup, LabelQuestion
 from .tables import LabelGroupTable
 
 
@@ -33,7 +33,7 @@ class LabelGroupDetailView(LoginRequiredMixin, DetailView):
             Prefetch(
                 "questions",
                 queryset=LabelQuestion.objects.prefetch_related("choices").order_by(
-                    "order", "name"
+                    "order", "label"
                 ),
             )
         )
@@ -72,23 +72,18 @@ class LabelQuestionCreateView(LoginRequiredMixin, CreateView):
 
     def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
         ctx = super().get_context_data(**kwargs)
-        if self.request.POST:
-            ctx["formset"] = LabelChoiceFormSet(self.request.POST, prefix="choices")
-        else:
-            ctx["formset"] = LabelChoiceFormSet(prefix="choices")
         ctx["group"] = self.group
         return ctx
 
+    def get_form_kwargs(self) -> dict[str, Any]:
+        kwargs = super().get_form_kwargs()
+        kwargs["group"] = self.group
+        return kwargs
+
     def form_valid(self, form) -> HttpResponse:
-        ctx = self.get_context_data()
-        formset = ctx["formset"]
-        if formset.is_valid():
-            form.instance.group = self.group
-            self.object = form.save()
-            formset.instance = self.object
-            formset.save()
-            return HttpResponseRedirect(self.get_success_url())
-        return self.form_invalid(form)
+        form.instance.group = self.group
+        self.object = form.save()
+        return HttpResponseRedirect(self.get_success_url())
 
     def get_success_url(self) -> str:
         return reverse("label_group_detail", kwargs={"pk": self.group.pk})
@@ -109,25 +104,17 @@ class LabelQuestionUpdateView(LoginRequiredMixin, UpdateView):
 
     def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
         ctx = super().get_context_data(**kwargs)
-        if self.request.POST:
-            ctx["formset"] = LabelChoiceFormSet(
-                self.request.POST, instance=self.object, prefix="choices"
-            )
-        else:
-            ctx["formset"] = LabelChoiceFormSet(instance=self.object, prefix="choices")
-            ctx["formset"].extra = 0
         ctx["group"] = self.group
         return ctx
 
+    def get_form_kwargs(self) -> dict[str, Any]:
+        kwargs = super().get_form_kwargs()
+        kwargs["group"] = self.group
+        return kwargs
+
     def form_valid(self, form) -> HttpResponse:
-        ctx = self.get_context_data()
-        formset = ctx["formset"]
-        if formset.is_valid():
-            self.object = form.save()
-            formset.instance = self.object
-            formset.save()
-            return HttpResponseRedirect(self.get_success_url())
-        return self.form_invalid(form)
+        self.object = form.save()
+        return HttpResponseRedirect(self.get_success_url())
 
     def get_success_url(self) -> str:
         return reverse("label_group_detail", kwargs={"pk": self.group.pk})

@@ -12,21 +12,11 @@ def test_labels_seed_command_creates_objects(tmp_path: Path):
     payload = {
         "groups": [
             {
-                "slug": "embolism",
                 "name": "Embolism",
                 "questions": [
                     {
-                        "name": "pulmonary_embolism",
+                        "label": "Pulmonary embolism",
                         "question": "Pulmonary embolism present?",
-                        "choices": [
-                            {"value": "yes", "label": "Yes"},
-                            {"value": "no", "label": "No"},
-                            {
-                                "value": "unknown",
-                                "label": "Unknown",
-                                "is_unknown": True,
-                            },
-                        ],
                     }
                 ],
             }
@@ -37,11 +27,11 @@ def test_labels_seed_command_creates_objects(tmp_path: Path):
 
     call_command("labels_seed", file=str(seed_file))
 
-    group = LabelGroup.objects.get(slug="embolism")
-    question = LabelQuestion.objects.get(group=group, name="pulmonary_embolism")
+    group = LabelGroup.objects.get(name="Embolism")
+    question = LabelQuestion.objects.get(group=group, label="Pulmonary embolism")
     choices = LabelChoice.objects.filter(question=question)
 
     assert group.name == "Embolism"
     assert question.question == "Pulmonary embolism present?"
     assert choices.count() == 3
-    assert choices.filter(value="unknown", is_unknown=True).exists()
+    assert choices.filter(value="cannot_decide", is_unknown=True).exists()

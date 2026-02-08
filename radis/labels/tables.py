@@ -13,7 +13,7 @@ class LabelGroupTable(tables.Table):
 
     class Meta:
         model = LabelGroup
-        fields = ("name", "slug", "is_active", "order")
+        fields = ("name", "is_active", "order")
         order_by = ("order", "name")
         empty_text = "No label groups found"
         attrs = {"class": "table table-bordered table-hover"}

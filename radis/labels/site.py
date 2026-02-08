@@ -10,7 +10,7 @@ from .tasks import enqueue_labeling_for_reports
 
 
 def handle_reports_created(reports: Iterable[Report]) -> None:
-    report_ids = [report.id for report in reports]
+    report_ids = [int(getattr(report, "id")) for report in reports]
     if not report_ids:
         return
 
@@ -21,7 +21,7 @@ def handle_reports_created(reports: Iterable[Report]) -> None:
 
 
 def handle_reports_updated(reports: Iterable[Report]) -> None:
-    report_ids = [report.id for report in reports]
+    report_ids = [int(getattr(report, "id")) for report in reports]
     if not report_ids:
         return
 

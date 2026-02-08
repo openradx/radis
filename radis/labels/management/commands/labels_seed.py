@@ -34,40 +34,52 @@ class Command(BaseCommand):
             group = self._upsert_group(group_data)
             for question_data in group_data.get("questions", []):
                 question = self._upsert_question(group, question_data)
-                for choice_data in question_data.get("choices", []):
-                    self._upsert_choice(question, choice_data)
+                if question_data.get("choices"):
+                    self._upsert_choice(question, {})
 
         self.stdout.write(self.style.SUCCESS("Label seed import completed."))
 
     def _upsert_group(self, data: dict) -> LabelGroup:
-        slug = data.get("slug")
         name = data.get("name")
-        if not slug or not name:
-            raise CommandError("Label group requires 'slug' and 'name'.")
+        if not name:
+            raise CommandError("Label group requires 'name'.")
 
-        group, _ = LabelGroup.objects.update_or_create(
-            slug=slug,
-            defaults={
-                "name": name,
-                "description": data.get("description", ""),
-                "is_active": data.get("is_active", True),
-                "order": data.get("order", 0),
-            },
-        )
-        return group
+        groups = LabelGroup.objects.filter(name=name)
+        if groups.count() > 1:
+            raise CommandError(
+                f"Multiple label groups named '{name}' exist. Use unique names before seeding."
+            )
+
+        defaults = {
+            "description": data.get("description", ""),
+            "is_active": data.get("is_active", True),
+            "order": data.get("order", 0),
+        }
+
+        if groups.exists():
+            group = groups.first()
+            if group is None:
+                raise CommandError(
+                    f"Label group '{name}' could not be resolved. Try seeding again."
+                )
+            for key, value in defaults.items():
+                setattr(group, key, value)
+            group.save(update_fields=list(defaults.keys()))
+            return group
+
+        return LabelGroup.objects.create(name=name, **defaults)
 
     def _upsert_question(self, group: LabelGroup, data: dict) -> LabelQuestion:
-        name = data.get("name")
-        question_text = data.get("question")
-        if not name or not question_text:
-            raise CommandError("Label question requires 'name' and 'question'.")
+        label = data.get("label")
+        question_text = data.get("question", "")
+        if not label:
+            raise CommandError("Label question requires 'label'.")
 
         question, _ = LabelQuestion.objects.update_or_create(
             group=group,
-            name=name,
+            label=label,
             defaults={
                 "question": question_text,
-                "description": data.get("description", ""),
                 "is_active": data.get("is_active", True),
                 "order": data.get("order", 0),
             },
@@ -75,18 +87,6 @@ class Command(BaseCommand):
         return question
 
     def _upsert_choice(self, question: LabelQuestion, data: dict) -> LabelChoice:
-        value = data.get("value")
-        label = data.get("label")
-        if not value or not label:
-            raise CommandError("Label choice requires 'value' and 'label'.")
-
-        choice, _ = LabelChoice.objects.update_or_create(
-            question=question,
-            value=value,
-            defaults={
-                "label": label,
-                "is_unknown": data.get("is_unknown", False),
-                "order": data.get("order", 0),
-            },
+        raise CommandError(
+            "Custom choices are not supported. Labels use fixed Yes/No/Cannot decide choices."
         )
-        return choice

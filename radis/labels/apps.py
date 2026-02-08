@@ -14,7 +14,7 @@ class LabelsConfig(AppConfig):
             register_reports_updated_handler,
         )
 
-        from . import signals
+        from . import signals  # noqa: F401
         from .site import handle_reports_created, handle_reports_updated
 
         register_reports_created_handler(
@@ -37,6 +37,6 @@ def register_app() -> None:
     register_main_menu_item(
         MainMenuItem(
             url_name="label_group_list",
-            label="Labels",
+            label="Auto Labels",
         )
     )

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from concurrent.futures import Future, ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from string import Template
 
 from django import db
@@ -56,8 +56,11 @@ class LabelGroupProcessor:
                     )
                     futures.append(future)
 
-                for future in futures:
-                    future.result()
+                for future in as_completed(futures):
+                    try:
+                        future.result()
+                    except Exception:
+                        logger.exception("Labeling failed for report in group %s", self.group)
             finally:
                 db.close_old_connections()
 
@@ -72,7 +75,8 @@ class LabelGroupProcessor:
         if overwrite_existing:
             missing_questions = questions
         else:
-            existing_question_ids = {label.question_id for label in report.labels_for_group}
+            labels_for_group = getattr(report, "labels_for_group", [])
+            existing_question_ids = {label.question_id for label in labels_for_group}
             missing_questions = [
                 question for question in questions if question.id not in existing_question_ids
             ]

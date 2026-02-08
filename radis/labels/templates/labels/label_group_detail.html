@@ -12,7 +12,6 @@
             <div class="d-flex justify-content-between align-items-start">
                 <div>
                     <h5 class="card-title mb-1">{{ object.name }}</h5>
-                    <div class="text-muted">{{ object.slug }}</div>
                     {% if object.description %}
                         <p class="mt-2 mb-0">{{ object.description }}</p>
                     {% endif %}
@@ -37,16 +36,15 @@
         </a>
     </div>
 
-    {% if object.questions.all %}
+    {% if object.questions.exists %}
         <div class="list-group">
             {% for question in object.questions.all %}
                 <div class="list-group-item">
                     <div class="d-flex justify-content-between align-items-start">
                         <div>
-                            <div class="fw-semibold">{{ question.name }}</div>
-                            <div class="text-muted">{{ question.question }}</div>
-                            {% if question.description %}
-                                <div class="small text-muted mt-1">{{ question.description }}</div>
+                            <div class="fw-semibold">{{ question.label }}</div>
+                            {% if question.question %}
+                                <div class="text-muted">{{ question.question }}</div>
                             {% endif %}
                         </div>
                         <div class="d-flex gap-2">
@@ -58,7 +56,7 @@
                             </a>
                         </div>
                     </div>
-                    {% if question.choices.all %}
+                    {% if question.choices.exists %}
                         <div class="mt-2">
                             <div class="small text-muted">Choices</div>
                             <div class="d-flex flex-wrap gap-2">

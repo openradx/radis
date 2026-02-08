@@ -40,7 +40,7 @@ class ReportDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
         assert active_group
         labels_queryset = ReportLabel.objects.select_related(
             "question__group", "choice"
-        ).order_by("question__group__order", "question__order", "question__name")
+        ).order_by("question__group__order", "question__order", "question__label")
         return (
             super()
             .get_queryset()

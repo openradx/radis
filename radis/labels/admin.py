@@ -10,18 +10,18 @@ class LabelChoiceInline(admin.TabularInline):
 
 @admin.register(LabelGroup)
 class LabelGroupAdmin(admin.ModelAdmin):
-    list_display = ("name", "slug", "is_active", "order")
+    list_display = ("name", "is_active", "order")
     list_filter = ("is_active",)
-    search_fields = ("name", "slug")
+    search_fields = ("name",)
     ordering = ("order", "name")
 
 
 @admin.register(LabelQuestion)
 class LabelQuestionAdmin(admin.ModelAdmin):
-    list_display = ("name", "group", "is_active", "order")
+    list_display = ("label", "question", "group", "is_active", "order")
     list_filter = ("group", "is_active")
-    search_fields = ("name", "question")
-    ordering = ("group__order", "order", "name")
+    search_fields = ("label", "question")
+    ordering = ("group__order", "order", "label")
     inlines = (LabelChoiceInline,)
 
 

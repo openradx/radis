@@ -8,8 +8,8 @@ from radis.reports.models import Report
 
 
 class LabelGroup(models.Model):
+    id: int
     name = models.CharField(max_length=100)
-    slug = models.SlugField(unique=True)
     description = models.TextField(blank=True, default="")
     is_active = models.BooleanField(default=True)
     order = models.PositiveSmallIntegerField(default=0)
@@ -26,12 +26,13 @@ class LabelGroup(models.Model):
 
 
 class LabelQuestion(models.Model):
+    id: int
+    group_id: int
     group = models.ForeignKey[LabelGroup](
         LabelGroup, on_delete=models.CASCADE, related_name="questions"
     )
-    name = models.CharField(max_length=100)
-    question = models.CharField(max_length=300)
-    description = models.CharField(max_length=300, blank=True, default="")
+    label = models.CharField(max_length=200)
+    question = models.CharField(max_length=300, blank=True, default="")
     is_active = models.BooleanField(default=True)
     order = models.PositiveSmallIntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -41,19 +42,25 @@ class LabelQuestion(models.Model):
     get_name_display: Callable[[], str]
 
     class Meta:
-        ordering = ["order", "name"]
+        ordering = ["order", "label"]
         constraints = [
             models.UniqueConstraint(
-                fields=["group", "name"],
-                name="unique_label_question_name_per_group",
+                fields=["group", "label"],
+                name="unique_label_question_label_per_group",
             )
         ]
 
     def __str__(self) -> str:
-        return f"LabelQuestion {self.name} [{self.pk}]"
+        return f"LabelQuestion {self.label} [{self.pk}]"
+
+    def save(self, *args, **kwargs) -> None:
+        if not self.question:
+            self.question = self.label
+        super().save(*args, **kwargs)
 
 
 class LabelChoice(models.Model):
+    id: int
     question = models.ForeignKey[LabelQuestion](
         LabelQuestion, on_delete=models.CASCADE, related_name="choices"
     )
@@ -78,6 +85,8 @@ class LabelChoice(models.Model):
 
 
 class ReportLabel(models.Model):
+    report_id: int
+    question_id: int
     report = models.ForeignKey[Report](Report, on_delete=models.CASCADE, related_name="labels")
     question = models.ForeignKey[LabelQuestion](
         LabelQuestion, on_delete=models.CASCADE, related_name="report_labels"
