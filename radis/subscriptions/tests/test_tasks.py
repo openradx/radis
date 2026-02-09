@@ -37,8 +37,6 @@ def test_process_subscription_job_only_enqueues_tasks_after_job_is_pending(monke
 
     def fake_delay(self: SubscriptionTask) -> None:
         enqueue_job_statuses.append(self.job.status)
-        self.queued_job_id = 456
-        self.save()
 
     monkeypatch.setattr(SubscriptionTask, "delay", fake_delay, raising=True)
 

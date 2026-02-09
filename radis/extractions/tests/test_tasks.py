@@ -44,8 +44,6 @@ def test_process_extraction_job_only_enqueues_tasks_after_job_is_pending(monkeyp
 
     def fake_delay(self: ExtractionTask) -> None:
         enqueue_job_statuses.append(self.job.status)
-        self.queued_job_id = 123
-        self.save()
 
     monkeypatch.setattr(ExtractionTask, "delay", fake_delay, raising=True)
 
