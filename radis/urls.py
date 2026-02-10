@@ -36,11 +36,13 @@ urlpatterns = [
     path("subscriptions/", include("radis.subscriptions.urls")),
 ]
 
-# Debug Toolbar in Debug mode only
-if settings.DEBUG:
+# Developer tooling URLs (only available when the corresponding apps are installed).
+# Note: some test runners force DEBUG=False even when using the development settings module,
+# so we gate this on INSTALLED_APPS instead of settings.DEBUG to keep URL reversing stable.
+if "django_browser_reload" in settings.INSTALLED_APPS:
+    urlpatterns = [path("__reload__/", include("django_browser_reload.urls"))] + urlpatterns
+
+if "debug_toolbar" in settings.INSTALLED_APPS:
     import debug_toolbar
 
-    urlpatterns = [
-        path("__reload__/", include("django_browser_reload.urls")),
-        path("__debug__/", include(debug_toolbar.urls)),
-    ] + urlpatterns
+    urlpatterns = [path("__debug__/", include(debug_toolbar.urls))] + urlpatterns

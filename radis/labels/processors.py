@@ -44,6 +44,7 @@ class LabelGroupProcessor:
 
         with ThreadPoolExecutor(max_workers=settings.LABELING_LLM_CONCURRENCY_LIMIT) as executor:
             futures: list[Future] = []
+            future_report_ids: dict[Future, int] = {}
             try:
                 for report in reports:
                     future = executor.submit(
@@ -55,12 +56,16 @@ class LabelGroupProcessor:
                         overwrite_existing,
                     )
                     futures.append(future)
+                    future_report_ids[future] = report.id
 
                 for future in as_completed(futures):
                     try:
                         future.result()
                     except Exception:
-                        logger.exception("Labeling failed for report in group %s", self.group)
+                        report_id = future_report_ids.get(future)
+                        logger.exception(
+                            "Labeling failed for report %s in group %s", report_id, self.group
+                        )
             finally:
                 db.close_old_connections()
 
