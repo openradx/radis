@@ -65,11 +65,13 @@ def create_language_field(
             required=required,
             empty_label=empty_label,
         )
-        field.label_from_instance = lambda obj: LANGUAGE_LABELS[obj.code]
+        field.label_from_instance = (  # type: ignore[method-assign]
+            lambda obj: LANGUAGE_LABELS.get(obj.code, obj.code)
+        )
         return field
     else:
         # Return ChoiceField - cleaned_data will contain code strings
-        choices = [(lang.code, LANGUAGE_LABELS[lang.code]) for lang in languages]
+        choices = [(lang.code, LANGUAGE_LABELS.get(lang.code, lang.code)) for lang in languages]
         if empty_label is not None:
             choices.insert(0, ("", empty_label))
         field = forms.ChoiceField(required=required, choices=choices)
