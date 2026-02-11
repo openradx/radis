@@ -79,8 +79,9 @@ class SubscriptionTaskProcessor(AnalysisTaskProcessor):
                         answer = getattr(filter_response, field_name, None)
                         if answer is None:
                             logger.debug(
-                                f"LLM returned None for question {question.pk} ",
-                                f"on report {report.pk}",
+                                "LLM returned None for question %s on report %s",
+                                question.pk,
+                                report.pk,
                             )
                             is_accepted = False
                             break

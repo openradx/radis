@@ -7,10 +7,9 @@ from ..models import OutputField, OutputType
 
 type Numeric = float | int
 
-"""Build a Pydantic model that describes the structure the extractor must output"""
-
 
 def generate_output_fields_schema(fields: Iterable[OutputField]) -> type[BaseModel]:
+    """Build a Pydantic model that describes the structure the extractor must output."""
     field_definitions: dict[str, Any] = {}
     for field in fields:
         if field.output_type == OutputType.TEXT:
@@ -37,7 +36,7 @@ def generate_output_fields_schema(fields: Iterable[OutputField]) -> type[BaseMod
 
 
 def generate_output_fields_prompt(fields: Iterable[OutputField]) -> str:
-    # Build a human-readable prompt that mirrors the same selection/array rules.
+    """Build a human-readable prompt describing output fields for the extractor."""
     prompt = ""
     for field in fields:
         description = field.description

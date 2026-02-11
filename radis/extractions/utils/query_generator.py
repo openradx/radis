@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 
 class AsyncQueryGenerator:
-    """Async version of QueryGenerator for use in async views."""
+    """Query generator that uses async LLM calls to create search queries from extraction fields."""
 
     def __init__(self):
         """Initialize the async query generator with an async LLM client."""
@@ -32,14 +32,19 @@ class AsyncQueryGenerator:
         self, fields: Iterable[OutputField]
     ) -> tuple[str | None, dict[str, Any]]:
         """
-        Async version of generate_from_fields.
+        Generate a search query from extraction output fields using LLM.
 
         Args:
             fields: Iterable of OutputField objects to generate query from
 
         Returns:
-            Tuple of (query_string, metadata_dict)
-            Same structure as synchronous version
+            Tuple of (query_string or None if generation failed, metadata_dict)
+            The metadata dict contains:
+              - field_count: Number of fields processed
+              - success: Whether query generation succeeded
+              - generation_method: "llm" if successful, None otherwise
+              - error: Error message if generation failed
+              - fixes_applied: Whether query fixes were applied (when successful)
         """
         fields_list = list(fields)
         field_count = len(fields_list)
@@ -72,7 +77,7 @@ class AsyncQueryGenerator:
                     else:
                         logger.warning("LLM generated invalid query")
                         metadata["error"] = "LLM generated invalid query"
-            except Exception as e:
+            except RuntimeError as e:
                 logger.error(f"Error during async LLM query generation: {e}", exc_info=True)
                 metadata["error"] = str(e)
 
@@ -83,13 +88,13 @@ class AsyncQueryGenerator:
 
     async def _call_llm(self, fields: list[OutputField]) -> str | None:
         """
-        Async version of _call_llm.
+        Call the LLM to generate a query from fields.
 
         Args:
             fields: List of OutputField objects
 
         Returns:
-            Generated query string, or None if failed
+            Generated query string, or None if the call failed
         """
         fields_formatted = self._format_fields_for_prompt(fields)
 
@@ -108,14 +113,13 @@ class AsyncQueryGenerator:
             logger.debug(f"Async LLM generated query: {query}")
             return query
 
-        except Exception as e:
+        except RuntimeError as e:
             logger.error(f"Async LLM call failed: {e}")
             return None
 
     def _format_fields_for_prompt(self, fields: list[OutputField]) -> str:
         """
         Format extraction fields for inclusion in LLM prompt.
-        Reuses synchronous version logic.
 
         Args:
             fields: List of OutputField objects
@@ -137,7 +141,6 @@ class AsyncQueryGenerator:
     def _extract_query_from_response(self, response: str) -> str:
         """
         Extract query from LLM response.
-        Reuses synchronous version logic.
 
         Args:
             response: Raw LLM response
@@ -160,7 +163,6 @@ class AsyncQueryGenerator:
     def validate_and_fix_query(self, query: str) -> tuple[str, list[str]]:
         """
         Validate and fix a query using QueryParser.
-        Reuses synchronous version logic.
 
         Args:
             query: Query string to validate
@@ -185,6 +187,6 @@ class AsyncQueryGenerator:
 
             return query, []
 
-        except Exception as e:
+        except ValueError as e:
             logger.error(f"Error validating query '{query}': {e}")
             return "", []

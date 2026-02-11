@@ -527,7 +527,7 @@ class ExtractionQueryGeneratorView(LoginRequiredMixin, View):
                 "error": None if metadata.get("success") else "Query generation failed",
             }
 
-        except Exception as e:
+        except (RuntimeError, ValueError) as e:
             logger.error(f"Error during async query generation: {e}", exc_info=True)
             context = {
                 "error": f"Error generating query: {str(e)}",

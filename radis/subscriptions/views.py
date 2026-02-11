@@ -265,7 +265,9 @@ class SubscriptionInboxView(
         context["current_sort_by"] = sort_by
         context["current_order"] = order
 
-        # Update last_viewed_at to mark all current reports as seen
+        # Note: Intentional side effect - update last_viewed_at to mark reports as seen.
+        # This is placed here rather than in get() to avoid interfering with the mixin chain
+        # (RelatedPaginationMixin, RelatedFilterMixin) which depend on specific get() behavior.
         subscription = cast(Subscription, self.object)
         subscription.last_viewed_at = timezone.now()
         subscription.save(update_fields=["last_viewed_at"])

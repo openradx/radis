@@ -1,5 +1,5 @@
 import logging
-from typing import Iterable
+from typing import Iterable, NoReturn
 
 import openai
 from django.conf import settings
@@ -66,7 +66,7 @@ def _validate_parsed_response(completion) -> BaseModel:
     return parsed
 
 
-def _handle_api_error(error: openai.APIError, operation: str) -> None:
+def _handle_api_error(error: openai.APIError, operation: str) -> NoReturn:
     """
     Logs and re-raises API errors with consistent error messages.
 
