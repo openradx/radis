@@ -1,4 +1,5 @@
 import re
+import unicodedata
 from typing import Callable, Literal, cast
 
 import pyparsing as pp
@@ -52,6 +53,22 @@ class BinaryNode:
 
 
 QueryNode = TermNode | ParensNode | UnaryNode | BinaryNode
+
+
+SAFE_TERM_CHARS = "_-'"
+
+
+def is_search_token_char(char: str) -> bool:
+    if char in SAFE_TERM_CHARS:
+        return True
+    category = unicodedata.category(char)
+    return category[0] in ("L", "N", "M")
+
+
+def is_search_query_char(char: str) -> bool:
+    if char in "() ":
+        return True
+    return is_search_token_char(char)
 
 
 class QueryParser:
@@ -125,10 +142,8 @@ class QueryParser:
         return "".join(results)
 
     def _replace_invalid_characters(self, input_string: str) -> str:
-        valid_chars = pp.alphanums + pp.alphas8bit + "_-'() "
-
         def handle_segment(segment: str) -> str:
-            return "".join(char for char in segment if char in valid_chars)
+            return "".join(char for char in segment if is_search_query_char(char))
 
         return self._modify_unquoted_segments(input_string, handle_segment)
 
@@ -178,9 +193,8 @@ class QueryParser:
         lparen = pp.Literal("(")
         rparen = pp.Literal(")")
 
-        word = ~(not_ | and_ | or_) + pp.Word(
-            pp.alphanums + pp.alphas8bit + "_-'"
-        ).set_parse_action(
+        # Input is pre-sanitized; keep regex broad to avoid pyparsing Unicode limitations.
+        word = ~(not_ | and_ | or_) + pp.Regex(r"[^\s()]+").set_parse_action(
             lambda t: TermNode("WORD", t[0])  # type: ignore
         )
         phrase = pp.QuotedString(quoteChar='"', esc_char="\\").set_parse_action(

@@ -101,6 +101,28 @@ class RadisClient:
         response.raise_for_status()
         return response.json()
 
+    def update_reports_bulk(
+        self, reports: list[ReportData], upsert: bool = True
+    ) -> dict[str, Any]:
+        """Bulk upsert reports using a single request.
+
+        Args:
+            reports: The report payloads to upsert.
+            upsert: Whether to perform upsert behavior when a report is missing.
+
+        Returns:
+            The response as JSON.
+        """
+        payload = [report.to_dict() for report in reports]
+        response = requests.post(
+            f"{self._reports_url}bulk-upsert/",
+            json=payload,
+            headers=self._headers,
+            params={"upsert": upsert},
+        )
+        response.raise_for_status()
+        return response.json()
+
     def delete_report(self, document_id: str) -> None:
         """
         Deletes a report with the given document_id.

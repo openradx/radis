@@ -104,7 +104,7 @@ def test_search_view_valid_query(client: Client):
     modality = ModalityFactory.create(code="CT", filterable=True)
 
     search_params = {
-        "query": "test query",
+        "query": "krüşk",
         "language": language.code,
         "modalities": [modality.code],
         "study_description": "test study",

@@ -38,6 +38,7 @@ dependencies = [
     "pandas>=2.2.3",
     "procrastinate[django]>=3.0.2",
     "psycopg[binary]>=3.2.5",
+    "pycountry>=24.6.1",
     "pyparsing>=3.2.1",
     "Twisted[tls,http2]>=24.11.0",
     "wait-for-it>=2.3.0",
@@ -47,6 +48,7 @@ dependencies = [
 ]
 
 [dependency-groups]
+docs = ["mkdocs-material>=9.7.0", "mkdocs-minify-plugin>=0.8.0"]
 dev = [
     "debugpy>=1.8.12",
     "django-browser-reload>=1.18.0",
@@ -87,7 +89,7 @@ client = ["radis-client"]
 cli = "cli:app"
 
 [tool.uv]
-default-groups = ["dev", "client"]
+default-groups = ["dev", "client", "docs"]
 constraint-dependencies = ["autobahn<25.11.1"]
 
 [tool.uv.sources]
