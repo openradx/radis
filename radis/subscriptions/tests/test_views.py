@@ -67,9 +67,55 @@ def test_subscription_list_view_filters_by_owner(client: Client):
 @pytest.mark.django_db
 def test_subscription_create_view_get(client: Client):
     user = UserFactory.create(is_active=True)
+    group = GroupFactory.create()
+    user.groups.add(group)
+    user.active_group = group
+    user.save()
+
+    # User needs permission to add subscription
+    from django.contrib.auth.models import Permission
+    from django.contrib.contenttypes.models import ContentType
+
+    content_type = ContentType.objects.get_for_model(Subscription)
+    permission = Permission.objects.get(codename="add_subscription", content_type=content_type)
+    user.user_permissions.add(permission)
+
     client.force_login(user)
     response = client.get("/subscriptions/create/")
     assert response.status_code == 200
+
+
+@pytest.mark.django_db
+def test_subscription_create_view_no_active_group(client: Client):
+    """Test that users without active_group get permission denied."""
+    user = UserFactory.create(is_active=True)
+
+    # User has permission but no active_group
+    from django.contrib.auth.models import Permission
+    from django.contrib.contenttypes.models import ContentType
+
+    content_type = ContentType.objects.get_for_model(Subscription)
+    permission = Permission.objects.get(codename="add_subscription", content_type=content_type)
+    user.user_permissions.add(permission)
+
+    client.force_login(user)
+    response = client.get("/subscriptions/create/")
+    assert response.status_code == 403
+
+
+@pytest.mark.django_db
+def test_subscription_create_view_no_permission(client: Client):
+    """Test that users without add_subscription permission get permission denied."""
+    user = UserFactory.create(is_active=True)
+    group = GroupFactory.create()
+    user.groups.add(group)
+    user.active_group = group
+    user.save()
+
+    # User has active_group but no permission
+    client.force_login(user)
+    response = client.get("/subscriptions/create/")
+    assert response.status_code == 403
 
 
 @pytest.mark.django_db
@@ -81,11 +127,19 @@ def test_subscription_create_view_unauthenticated(client: Client):
 
 @pytest.mark.django_db
 def test_subscription_create_view_post_valid(client: Client):
+    from django.contrib.auth.models import Permission
+    from django.contrib.contenttypes.models import ContentType
+
     user = UserFactory.create(is_active=True)
     group = GroupFactory.create()
     user.groups.add(group)
     user.active_group = group
     user.save()
+
+    # Add required permission
+    content_type = ContentType.objects.get_for_model(Subscription)
+    permission = Permission.objects.get(codename="add_subscription", content_type=content_type)
+    user.user_permissions.add(permission)
 
     language = LanguageFactory.create(code="en")
     modality = Modality.objects.create(code="CT", filterable=True)
@@ -125,11 +179,19 @@ def test_subscription_create_view_post_valid(client: Client):
 
 @pytest.mark.django_db
 def test_subscription_create_view_ignores_empty_filter_question(client: Client):
+    from django.contrib.auth.models import Permission
+    from django.contrib.contenttypes.models import ContentType
+
     user = UserFactory.create(is_active=True)
     group = GroupFactory.create()
     user.groups.add(group)
     user.active_group = group
     user.save()
+
+    # Add required permission
+    content_type = ContentType.objects.get_for_model(Subscription)
+    permission = Permission.objects.get(codename="add_subscription", content_type=content_type)
+    user.user_permissions.add(permission)
 
     language = LanguageFactory.create(code="en")
 
@@ -160,11 +222,19 @@ def test_subscription_create_view_ignores_empty_filter_question(client: Client):
 
 @pytest.mark.django_db
 def test_subscription_create_view_post_duplicate_name(client: Client):
+    from django.contrib.auth.models import Permission
+    from django.contrib.contenttypes.models import ContentType
+
     user = UserFactory.create(is_active=True)
     group = GroupFactory.create()
     user.groups.add(group)
     user.active_group = group
     user.save()
+
+    # Add required permission
+    content_type = ContentType.objects.get_for_model(Subscription)
+    permission = Permission.objects.get(codename="add_subscription", content_type=content_type)
+    user.user_permissions.add(permission)
 
     create_test_subscription(owner=user, name="Duplicate Name")
 

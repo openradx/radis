@@ -239,7 +239,7 @@ class ExtractionJobWizardView(
     def done(
         self,
         form_objs: tuple[BaseInlineFormSet, SearchForm, SummaryForm],
-        **kwargs,
+        **_kwargs,
     ):
         user = self.request.user
 
@@ -459,7 +459,7 @@ class ExtractionQueryGeneratorView(LoginRequiredMixin, View):
         import logging
 
         logger = logging.getLogger(__name__)
-        logger.info("Query generation endpoint called")
+        logger.debug("Query generation endpoint called")
 
         # Access wizard session storage
         # Django-formtools stores wizard data in a nested structure:
@@ -472,15 +472,14 @@ class ExtractionQueryGeneratorView(LoginRequiredMixin, View):
         wizard_data = request.session.get(wizard_session_key, {})
 
         if not wizard_data:
-            logger.error(f"No wizard session data found for key: {wizard_session_key}")
-            logger.error(f"Available session keys: {list(request.session.keys())}")
+            logger.warning("No wizard session data found")
 
         # Get extra_data from within the wizard data
         extra_data = wizard_data.get("extra_data", {})
         output_fields_data = extra_data.get("output_fields_data", [])
 
-        logger.info(f"Found wizard_data: {bool(wizard_data)}, extra_data: {bool(extra_data)}")
-        logger.info(f"Found {len(output_fields_data)} output fields in session")
+        logger.debug(f"Wizard state: has_data={bool(wizard_data)}, has_extra={bool(extra_data)}")
+        logger.debug(f"Output fields count: {len(output_fields_data)}")
 
         if not output_fields_data:
             context = {
@@ -490,17 +489,45 @@ class ExtractionQueryGeneratorView(LoginRequiredMixin, View):
             }
             return render(request, "extractions/_query_generation_result.html", context)
 
-        # Reconstruct OutputField objects from stored data
-        from .models import OutputField
+        # Reconstruct OutputField objects from stored data with validation
+        from .models import OutputField, OutputType
 
-        temp_fields = [
-            OutputField(
-                name=field_data["name"],
-                description=field_data["description"],
-                output_type=field_data["output_type"],
+        valid_output_types = {choice[0] for choice in OutputType.choices}
+        required_keys = {"name", "description", "output_type"}
+
+        temp_fields = []
+        for field_data in output_fields_data:
+            # Validate field_data is a dictionary with required keys
+            if not isinstance(field_data, dict):
+                logger.warning(f"Invalid field data type: {type(field_data)}")
+                continue
+
+            missing_keys = required_keys - field_data.keys()
+            if missing_keys:
+                logger.warning(f"Missing required keys in session data: {missing_keys}")
+                continue
+
+            # Validate output_type is a valid choice
+            output_type = field_data["output_type"]
+            if output_type not in valid_output_types:
+                logger.warning(f"Invalid output_type in session data: {output_type}")
+                continue
+
+            temp_fields.append(
+                OutputField(
+                    name=str(field_data["name"])[:30],  # Ensure string and max length
+                    description=str(field_data["description"])[:300],
+                    output_type=output_type,
+                )
             )
-            for field_data in output_fields_data
-        ]
+
+        if not temp_fields:
+            context = {
+                "error": "No valid output fields found. Please go back to step 1.",
+                "generated_query": "",
+                "query_metadata": {},
+            }
+            return render(request, "extractions/_query_generation_result.html", context)
 
         # Generate query using async query generator
         from .utils.query_generator import AsyncQueryGenerator
@@ -645,7 +672,9 @@ class ExtractionResultDownloadView(ExtractionsLockedMixin, LoginRequiredMixin, D
             return model.objects.all()
         return model.objects.filter(owner=self.request.user)
 
-    def get(self, request: AuthenticatedHttpRequest, *args, **kwargs) -> StreamingHttpResponse:
+    def get(
+        self, _request: AuthenticatedHttpRequest, *_args, **_kwargs
+    ) -> StreamingHttpResponse:
         """Stream the CSV file response."""
         job = cast(ExtractionJob, self.get_object())
         filename = self._build_filename(job)

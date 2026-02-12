@@ -83,12 +83,12 @@ def process_subscription_job(job_id: int) -> None:
 @app.task()
 def subscription_launcher(timestamp: int):
     logger.info("Launching SubscriptionJobs (Timestamp %s)", datetime.fromtimestamp(timestamp))
-    subscriptions = Subscription.objects.all()
+    subscriptions = Subscription.objects.all().iterator(chunk_size=100)
 
     active_statuses = [
-        SubscriptionJob.Status.PREPARING,
-        SubscriptionJob.Status.PENDING,
-        SubscriptionJob.Status.IN_PROGRESS,
+        SubscriptionJob.Status.PREPARING.value,
+        SubscriptionJob.Status.PENDING.value,
+        SubscriptionJob.Status.IN_PROGRESS.value,
     ]
 
     for subscription in subscriptions:

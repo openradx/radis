@@ -10,7 +10,11 @@ from adit_radis_shared.common.mixins import (
     RelatedPaginationMixin,
 )
 from adit_radis_shared.common.types import AuthenticatedHttpRequest
-from django.contrib.auth.mixins import LoginRequiredMixin
+from django.contrib.auth.mixins import (
+    LoginRequiredMixin,
+    PermissionRequiredMixin,
+    UserPassesTestMixin,
+)
 from django.contrib.messages.views import SuccessMessageMixin
 from django.db import IntegrityError, transaction
 from django.db.models import Count, F, Q, QuerySet
@@ -75,11 +79,18 @@ class SubscriptionDetailView(LoginRequiredMixin, DetailView):
         )
 
 
-class SubscriptionCreateView(LoginRequiredMixin, CreateView):  # TODO: Add PermissionRequiredMixin
+class SubscriptionCreateView(
+    LoginRequiredMixin, PermissionRequiredMixin, UserPassesTestMixin, CreateView
+):
     template_name = "subscriptions/subscription_create.html"
     form_class = SubscriptionForm
     success_url = reverse_lazy("subscription_list")
+    permission_required = "subscriptions.add_subscription"
+    permission_denied_message = "You must be logged in and have an active group"
     request: AuthenticatedHttpRequest
+
+    def test_func(self) -> bool | None:
+        return self.request.user.active_group is not None
 
     def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
         ctx = super().get_context_data(**kwargs)
@@ -204,6 +215,17 @@ class SubscriptionInboxView(
             return model.objects.all()
         return model.objects.filter(owner=self.request.user)
 
+    def get(self, request, *args, **kwargs):
+        response = super().get(request, *args, **kwargs)
+        self._update_last_viewed_at()
+        return response
+
+    def _update_last_viewed_at(self) -> None:
+        """Mark the subscription as viewed by updating last_viewed_at timestamp."""
+        subscription = cast(Subscription, self.object)
+        subscription.last_viewed_at = timezone.now()
+        subscription.save(update_fields=["last_viewed_at"])
+
     def get_ordering(self) -> str:
         """Get the ordering from query parameters, defaulting to -created_at."""
         sort_by = self.request.GET.get("sort_by", "created_at")
@@ -264,13 +286,6 @@ class SubscriptionInboxView(
         # Add validated sort parameters to context for template rendering
         context["current_sort_by"] = sort_by
         context["current_order"] = order
-
-        # Note: Intentional side effect - update last_viewed_at to mark reports as seen.
-        # This is placed here rather than in get() to avoid interfering with the mixin chain
-        # (RelatedPaginationMixin, RelatedFilterMixin) which depend on specific get() behavior.
-        subscription = cast(Subscription, self.object)
-        subscription.last_viewed_at = timezone.now()
-        subscription.save(update_fields=["last_viewed_at"])
 
         return context
 
@@ -345,7 +360,9 @@ class SubscriptionInboxDownloadView(LoginRequiredMixin, RelatedFilterMixin, Deta
         """Required by RelatedFilterMixin."""
         return self.get_related_queryset()
 
-    def get(self, request: AuthenticatedHttpRequest, *args, **kwargs) -> StreamingHttpResponse:
+    def get(
+        self, _request: AuthenticatedHttpRequest, *_args, **_kwargs
+    ) -> StreamingHttpResponse:
         """Stream the CSV file response."""
         subscription = cast(Subscription, self.get_object())
 
