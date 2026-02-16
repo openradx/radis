@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import LabelChoice, LabelGroup, LabelQuestion, ReportLabel
+from .models import LabelBackfillJob, LabelChoice, LabelGroup, LabelQuestion, ReportLabel
 
 
 class LabelChoiceInline(admin.TabularInline):
@@ -30,4 +30,18 @@ class ReportLabelAdmin(admin.ModelAdmin):
     list_display = ("report", "question", "choice", "confidence", "verified", "created_at")
     list_filter = ("verified", "question__group")
     search_fields = ("report__document_id", "question__name", "choice__label")
+    ordering = ("-created_at",)
+
+
+@admin.register(LabelBackfillJob)
+class LabelBackfillJobAdmin(admin.ModelAdmin):
+    list_display = (
+        "id",
+        "label_group",
+        "status",
+        "processed_reports",
+        "total_reports",
+        "created_at",
+    )
+    list_filter = ("status",)
     ordering = ("-created_at",)

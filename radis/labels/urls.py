@@ -31,4 +31,9 @@ urlpatterns = [
         views.LabelQuestionDeleteView.as_view(),
         name="label_question_delete",
     ),
+    path(
+        "backfill/<int:pk>/cancel/",
+        views.LabelBackfillCancelView.as_view(),
+        name="label_backfill_cancel",
+    ),
 ]

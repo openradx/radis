@@ -1,15 +1,19 @@
 from typing import Any
 
 from adit_radis_shared.common.types import AuthenticatedHttpRequest
+from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.core.exceptions import SuspiciousOperation
 from django.db.models import Prefetch, QuerySet
 from django.http import HttpResponse, HttpResponseRedirect
+from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse, reverse_lazy
+from django.views import View
 from django.views.generic import CreateView, DeleteView, DetailView, UpdateView
 from django_tables2 import SingleTableView
 
 from .forms import LabelGroupForm, LabelQuestionForm
-from .models import LabelGroup, LabelQuestion
+from .models import LabelBackfillJob, LabelGroup, LabelQuestion
 from .tables import LabelGroupTable
 
 
@@ -37,6 +41,13 @@ class LabelGroupDetailView(LoginRequiredMixin, DetailView):
                 ),
             )
         )
+
+    def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
+        context = super().get_context_data(**kwargs)
+        context["backfill_job"] = (
+            LabelBackfillJob.objects.filter(label_group=self.object).order_by("-created_at").first()
+        )
+        return context
 
 
 class LabelGroupCreateView(LoginRequiredMixin, CreateView):
@@ -133,3 +144,23 @@ class LabelQuestionDeleteView(LoginRequiredMixin, DeleteView):
 
     def get_success_url(self) -> str:
         return reverse("label_group_detail", kwargs={"pk": self.group.pk})
+
+
+class LabelBackfillCancelView(LoginRequiredMixin, View):
+    def post(self, request: AuthenticatedHttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        backfill_job = get_object_or_404(LabelBackfillJob, pk=kwargs["pk"])
+
+        if not backfill_job.is_cancelable:
+            raise SuspiciousOperation(
+                f"Backfill job {backfill_job.pk} with status "
+                f"{backfill_job.get_status_display()} is not cancelable."
+            )
+
+        backfill_job.status = LabelBackfillJob.Status.CANCELING
+        backfill_job.save()
+
+        messages.success(
+            request,
+            f"Backfill for {backfill_job.label_group.name} is being cancelled.",
+        )
+        return redirect("label_group_detail", pk=backfill_job.label_group_id)

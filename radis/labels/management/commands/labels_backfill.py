@@ -3,10 +3,11 @@ from __future__ import annotations
 from itertools import batched
 
 from django.core.management.base import BaseCommand, CommandError
+from django.utils import timezone
 
 from radis.reports.models import Report
 
-from ...models import LabelGroup
+from ...models import LabelBackfillJob, LabelGroup
 from ...tasks import process_label_group
 
 
@@ -64,17 +65,26 @@ class Command(BaseCommand):
             batch_size = settings.LABELING_TASK_BATCH_SIZE
 
         for group in groups:
+            backfill_job = LabelBackfillJob.objects.create(
+                label_group=group,
+                status=LabelBackfillJob.Status.IN_PROGRESS,
+                started_at=timezone.now(),
+                total_reports=len(report_ids),
+            )
+
             for report_batch in batched(report_ids, batch_size):
                 process_label_group.defer(
                     label_group_id=group.id,
                     report_ids=list(report_batch),
+                    backfill_job_id=backfill_job.id,
                 )
 
-        self.stdout.write(
-            self.style.SUCCESS(
-                f"Enqueued labeling for {len(report_ids)} reports across {len(groups)} group(s)."
+            self.stdout.write(
+                self.style.SUCCESS(
+                    f"Enqueued labeling for {len(report_ids)} reports "
+                    f"in group '{group.name}' (backfill job #{backfill_job.id})."
+                )
             )
-        )
 
     def _get_group(self, value: str) -> LabelGroup:
         if value.isdigit():

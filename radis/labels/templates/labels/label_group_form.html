@@ -1,7 +1,11 @@
 {% extends "labels/labels_layout.html" %}
 {% load crispy from crispy_forms_tags %}
 {% block title %}
-    {% if form.instance.pk %}Update Label Group{% else %}Create Label Group{% endif %}
+    {% if form.instance.pk %}
+        Update Label Group
+    {% else %}
+        Create Label Group
+    {% endif %}
 {% endblock title %}
 {% block heading %}
     <c-page-heading title="Labels" />
@@ -12,7 +16,11 @@
         <div class="d-flex gap-2">
             <a href="{% url 'label_group_list' %}" class="btn btn-secondary">Cancel</a>
             <button type="submit" class="btn btn-primary">
-                {% if form.instance.pk %}Save Changes{% else %}Create Group{% endif %}
+                {% if form.instance.pk %}
+                    Save Changes
+                {% else %}
+                    Create Group
+                {% endif %}
             </button>
         </div>
     </form>

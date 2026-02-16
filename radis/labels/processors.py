@@ -26,9 +26,7 @@ class LabelGroupProcessor:
         if not report_ids:
             return
 
-        questions = list(
-            self.group.questions.filter(is_active=True).prefetch_related("choices")
-        )
+        questions = list(self.group.questions.filter(is_active=True).prefetch_related("choices"))
         if not questions:
             logger.info("No active label questions for group %s", self.group)
             return
@@ -86,9 +84,7 @@ class LabelGroupProcessor:
                 question for question in questions if question.id not in existing_question_ids
             ]
         missing_questions = [
-            question
-            for question in missing_questions
-            if choice_maps.get(question.id)
+            question for question in missing_questions if choice_maps.get(question.id)
         ]
         if not missing_questions:
             return

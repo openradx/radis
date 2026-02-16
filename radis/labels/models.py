@@ -7,6 +7,54 @@ from django.db import models
 from radis.reports.models import Report
 
 
+class LabelBackfillJob(models.Model):
+    class Status(models.TextChoices):
+        PENDING = "PE", "Pending"
+        IN_PROGRESS = "IP", "In Progress"
+        CANCELING = "CI", "Canceling"
+        CANCELED = "CA", "Canceled"
+        SUCCESS = "SU", "Success"
+        FAILURE = "FA", "Failure"
+
+    label_group = models.ForeignKey(
+        "LabelGroup", on_delete=models.CASCADE, related_name="backfill_jobs"
+    )
+    status = models.CharField(max_length=2, choices=Status.choices, default=Status.PENDING)
+    get_status_display: Callable[[], str]
+    total_reports = models.PositiveIntegerField(default=0)
+    processed_reports = models.PositiveIntegerField(default=0)
+    message = models.TextField(blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+    started_at = models.DateTimeField(null=True, blank=True)
+    ended_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self) -> str:
+        return f"LabelBackfillJob [{self.pk}]"
+
+    @property
+    def is_cancelable(self) -> bool:
+        return self.status in [
+            self.Status.PENDING,
+            self.Status.IN_PROGRESS,
+        ]
+
+    @property
+    def is_active(self) -> bool:
+        return self.status in [
+            self.Status.PENDING,
+            self.Status.IN_PROGRESS,
+        ]
+
+    @property
+    def progress_percent(self) -> int:
+        if self.total_reports == 0:
+            return 0
+        return min(int((self.processed_reports / self.total_reports) * 100), 100)
+
+
 class LabelGroup(models.Model):
     id: int
     name = models.CharField(max_length=100)
