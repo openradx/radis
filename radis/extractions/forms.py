@@ -3,7 +3,7 @@ from typing import Any, cast
 
 from adit_radis_shared.accounts.models import User
 from crispy_forms.helper import FormHelper
-from crispy_forms.layout import HTML, Column, Div, Field, Layout, Row, Submit
+from crispy_forms.layout import HTML, Column, Div, Field, Layout, Row
 from django import forms
 from django.conf import settings
 from django.db.models import QuerySet
@@ -80,7 +80,6 @@ class SearchForm(forms.ModelForm):
                     "query",
                     # Preview div from template include
                     HTML('{% include "extractions/_search_preview_form_section.html" %}'),
-                    Submit("next", "Next Step (Summary)", css_class="btn-primary"),
                 ),
                 Column(
                     "language",

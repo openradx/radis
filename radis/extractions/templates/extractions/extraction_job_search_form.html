@@ -31,5 +31,12 @@
         {% csrf_token %}
         {{ wizard.management_form }}
         {% crispy form %}
+        <div class="d-flex gap-2">
+            <button type="submit"
+                    name="wizard_goto_step"
+                    value="{{ wizard.steps.prev }}"
+                    class="btn btn-secondary">Previous Step (Define Fields)</button>
+            <button type="submit" class="btn btn-primary">Next Step (Summary)</button>
+        </div>
     </form>
 {% endblock content %}
