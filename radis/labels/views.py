@@ -2,7 +2,7 @@ from typing import Any
 
 from adit_radis_shared.common.types import AuthenticatedHttpRequest
 from django.contrib import messages
-from django.contrib.auth.mixins import LoginRequiredMixin
+from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
 from django.core.exceptions import SuspiciousOperation
 from django.db.models import Prefetch, QuerySet
 from django.http import HttpResponse, HttpResponseRedirect
@@ -15,6 +15,11 @@ from django_tables2 import SingleTableView
 from .forms import LabelGroupForm, LabelQuestionForm
 from .models import LabelBackfillJob, LabelGroup, LabelQuestion
 from .tables import LabelGroupTable
+
+
+class StaffRequiredMixin(LoginRequiredMixin, UserPassesTestMixin):
+    def test_func(self) -> bool:
+        return self.request.user.is_staff
 
 
 class LabelGroupListView(LoginRequiredMixin, SingleTableView):
@@ -50,13 +55,13 @@ class LabelGroupDetailView(LoginRequiredMixin, DetailView):
         return context
 
 
-class LabelGroupCreateView(LoginRequiredMixin, CreateView):
+class LabelGroupCreateView(StaffRequiredMixin, CreateView):
     template_name = "labels/label_group_form.html"
     form_class = LabelGroupForm
     success_url = reverse_lazy("label_group_list")
 
 
-class LabelGroupUpdateView(LoginRequiredMixin, UpdateView):
+class LabelGroupUpdateView(StaffRequiredMixin, UpdateView):
     template_name = "labels/label_group_form.html"
     form_class = LabelGroupForm
     model = LabelGroup
@@ -65,13 +70,13 @@ class LabelGroupUpdateView(LoginRequiredMixin, UpdateView):
         return reverse("label_group_detail", kwargs={"pk": self.object.pk})
 
 
-class LabelGroupDeleteView(LoginRequiredMixin, DeleteView):
+class LabelGroupDeleteView(StaffRequiredMixin, DeleteView):
     model = LabelGroup
     success_url = reverse_lazy("label_group_list")
     template_name = "labels/label_group_confirm_delete.html"
 
 
-class LabelQuestionCreateView(LoginRequiredMixin, CreateView):
+class LabelQuestionCreateView(StaffRequiredMixin, CreateView):
     template_name = "labels/label_question_form.html"
     form_class = LabelQuestionForm
     model = LabelQuestion
@@ -100,7 +105,7 @@ class LabelQuestionCreateView(LoginRequiredMixin, CreateView):
         return reverse("label_group_detail", kwargs={"pk": self.group.pk})
 
 
-class LabelQuestionUpdateView(LoginRequiredMixin, UpdateView):
+class LabelQuestionUpdateView(StaffRequiredMixin, UpdateView):
     template_name = "labels/label_question_form.html"
     form_class = LabelQuestionForm
     model = LabelQuestion
@@ -131,7 +136,7 @@ class LabelQuestionUpdateView(LoginRequiredMixin, UpdateView):
         return reverse("label_group_detail", kwargs={"pk": self.group.pk})
 
 
-class LabelQuestionDeleteView(LoginRequiredMixin, DeleteView):
+class LabelQuestionDeleteView(StaffRequiredMixin, DeleteView):
     model = LabelQuestion
     template_name = "labels/label_question_confirm_delete.html"
 
@@ -146,7 +151,7 @@ class LabelQuestionDeleteView(LoginRequiredMixin, DeleteView):
         return reverse("label_group_detail", kwargs={"pk": self.group.pk})
 
 
-class LabelBackfillCancelView(LoginRequiredMixin, View):
+class LabelBackfillCancelView(StaffRequiredMixin, View):
     def post(self, request: AuthenticatedHttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
         backfill_job = get_object_or_404(LabelBackfillJob, pk=kwargs["pk"])
 

@@ -252,7 +252,7 @@ class TestLabelBackfillCancelView:
         assert "/accounts/login/" in response["Location"]
 
     def test_cancel_sets_canceling_status(self, client: Client):
-        user = UserFactory.create(is_active=True)
+        user = UserFactory.create(is_active=True, is_staff=True)
         client.force_login(user)
         job = self._create_job(status=LabelBackfillJob.Status.IN_PROGRESS)
 
@@ -263,7 +263,7 @@ class TestLabelBackfillCancelView:
         assert job.status == LabelBackfillJob.Status.CANCELING
 
     def test_cancel_pending_job(self, client: Client):
-        user = UserFactory.create(is_active=True)
+        user = UserFactory.create(is_active=True, is_staff=True)
         client.force_login(user)
         job = self._create_job(status=LabelBackfillJob.Status.PENDING)
 
@@ -273,8 +273,19 @@ class TestLabelBackfillCancelView:
         job.refresh_from_db()
         assert job.status == LabelBackfillJob.Status.CANCELING
 
+    def test_cancel_rejected_for_non_staff(self, client: Client):
+        user = UserFactory.create(is_active=True, is_staff=False)
+        client.force_login(user)
+        job = self._create_job(status=LabelBackfillJob.Status.IN_PROGRESS)
+
+        response = client.post(f"/labels/backfill/{job.pk}/cancel/")
+        assert response.status_code == 403
+
+        job.refresh_from_db()
+        assert job.status == LabelBackfillJob.Status.IN_PROGRESS
+
     def test_cancel_already_completed_returns_400(self, client: Client):
-        user = UserFactory.create(is_active=True)
+        user = UserFactory.create(is_active=True, is_staff=True)
         client.force_login(user)
         job = self._create_job(status=LabelBackfillJob.Status.SUCCESS)
 
@@ -282,14 +293,14 @@ class TestLabelBackfillCancelView:
         assert response.status_code == 400
 
     def test_cancel_nonexistent_job_returns_404(self, client: Client):
-        user = UserFactory.create(is_active=True)
+        user = UserFactory.create(is_active=True, is_staff=True)
         client.force_login(user)
 
         response = client.post("/labels/backfill/99999/cancel/")
         assert response.status_code == 404
 
     def test_cancel_redirects_to_group_detail(self, client: Client):
-        user = UserFactory.create(is_active=True)
+        user = UserFactory.create(is_active=True, is_staff=True)
         client.force_login(user)
         job = self._create_job()
 
@@ -298,7 +309,7 @@ class TestLabelBackfillCancelView:
         assert f"/labels/{job.label_group_id}/" in response["Location"]
 
     def test_get_not_allowed(self, client: Client):
-        user = UserFactory.create(is_active=True)
+        user = UserFactory.create(is_active=True, is_staff=True)
         client.force_login(user)
         job = self._create_job()
 
