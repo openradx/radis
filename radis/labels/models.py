@@ -16,6 +16,8 @@ class LabelBackfillJob(models.Model):
         SUCCESS = "SU", "Success"
         FAILURE = "FA", "Failure"
 
+    id: int
+    label_group_id: int
     label_group = models.ForeignKey(
         "LabelGroup", on_delete=models.CASCADE, related_name="backfill_jobs"
     )

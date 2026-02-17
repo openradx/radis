@@ -7,7 +7,7 @@ register = Library()
 
 @register.filter
 def backfill_status_css(status: str) -> str:
-    css_classes = {
+    css_classes: dict[str, str] = {
         LabelBackfillJob.Status.PENDING: "text-secondary",
         LabelBackfillJob.Status.IN_PROGRESS: "text-info",
         LabelBackfillJob.Status.CANCELING: "text-muted",

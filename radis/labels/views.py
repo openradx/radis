@@ -18,6 +18,8 @@ from .tables import LabelGroupTable
 
 
 class StaffRequiredMixin(LoginRequiredMixin, UserPassesTestMixin):
+    request: AuthenticatedHttpRequest
+
     def test_func(self) -> bool:
         return self.request.user.is_staff
 
