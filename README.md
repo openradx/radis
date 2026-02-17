@@ -4,6 +4,8 @@
 
 RADIS (Radiology Report Archive and Discovery System) is an innovative open-source web application developed by our team to enhance the management, retrieval, and analysis of radiology reports within hospital infrastructures.
 
+The detailed documentation of RADIS can be found at <https://openradx.github.io/radis/>.
+
 **Developed at**
 
 <table>
