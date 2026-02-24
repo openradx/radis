@@ -72,6 +72,7 @@ def process_subscription_job(job_id: int) -> None:
 
         search = Search(
             query=query_node,
+            query_text=job.subscription.query,
             offset=0,
             filters=filters,
         )

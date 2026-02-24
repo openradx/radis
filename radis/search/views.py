@@ -37,6 +37,7 @@ class SearchView(LoginRequiredMixin, UserPassesTestMixin, View):
         patient_sex = form.cleaned_data["patient_sex"]
         age_from = form.cleaned_data["age_from"]
         age_till = form.cleaned_data["age_till"]
+        semantic = form.cleaned_data["semantic"]
 
         if search_provider is None:
             raise ImproperlyConfigured("Search provider is not configured.")
@@ -64,6 +65,7 @@ class SearchView(LoginRequiredMixin, UserPassesTestMixin, View):
 
             search = Search(
                 query=query_node,
+                query_text=query,
                 filters=SearchFilters(
                     group=active_group.pk,
                     language=language,
@@ -74,6 +76,7 @@ class SearchView(LoginRequiredMixin, UserPassesTestMixin, View):
                     patient_sex=patient_sex,
                     patient_age_from=age_from,
                     patient_age_till=age_till,
+                    use_semantic=semantic,
                 ),
                 offset=offset,
                 limit=page_size,

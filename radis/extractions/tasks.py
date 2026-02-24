@@ -67,6 +67,7 @@ def process_extraction_job(job_id: int) -> None:
 
         search = Search(
             query=query_node,
+            query_text=job.query,
             offset=0,
             limit=retrieval_provider.max_results,
             filters=SearchFilters(

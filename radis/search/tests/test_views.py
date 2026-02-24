@@ -324,3 +324,65 @@ def test_search_view_form_validation_errors(client: Client):
         response = client.get("/search/", search_params)
         assert response.status_code == 200
         assert "form" in response.context
+
+
+@pytest.mark.django_db
+def test_search_view_with_semantic_toggle(client: Client):
+    """Test that semantic toggle is passed to search filters."""
+    user = create_test_user_with_active_group()
+    client.force_login(user)
+
+    captured_searches = []
+
+    def capturing_search(search):
+        captured_searches.append(search)
+        return SearchResult(total_count=0, total_relation="exact", documents=[])
+
+    test_provider = SearchProvider(
+        name="Test Provider",
+        search=capturing_search,
+        max_results=1000,
+    )
+
+    search_params = {
+        "query": "test query",
+        "semantic": "on",
+    }
+
+    with patch("radis.search.views.search_provider", test_provider):
+        response = client.get("/search/", search_params)
+        assert response.status_code == 200
+
+    assert len(captured_searches) == 1
+    assert captured_searches[0].filters.use_semantic is True
+    assert captured_searches[0].query_text == "test query"
+
+
+@pytest.mark.django_db
+def test_search_view_without_semantic_toggle(client: Client):
+    """Test that semantic is False when toggle is not checked."""
+    user = create_test_user_with_active_group()
+    client.force_login(user)
+
+    captured_searches = []
+
+    def capturing_search(search):
+        captured_searches.append(search)
+        return SearchResult(total_count=0, total_relation="exact", documents=[])
+
+    test_provider = SearchProvider(
+        name="Test Provider",
+        search=capturing_search,
+        max_results=1000,
+    )
+
+    search_params = {
+        "query": "test query",
+    }
+
+    with patch("radis.search.views.search_provider", test_provider):
+        response = client.get("/search/", search_params)
+        assert response.status_code == 200
+
+    assert len(captured_searches) == 1
+    assert captured_searches[0].filters.use_semantic is False

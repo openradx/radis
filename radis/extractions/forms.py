@@ -130,6 +130,7 @@ class SearchForm(forms.ModelForm):
 
         search = Search(
             query=query_node,
+            query_text=cleaned_data["query"],
             offset=0,
             limit=0,
             filters=SearchFilters(

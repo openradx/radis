@@ -313,6 +313,14 @@ EXTERNAL_LLM_PROVIDER_API_KEY = env.str("EXTERNAL_LLM_PROVIDER_API_KEY", default
 LLM_SERVICE_DEV_PORT = env.int("LLM_SERVICE_DEV_PORT", default=8080)
 LLM_SERVICE_URL = env.str("LLM_SERVICE_URL", default=f"http://localhost:{LLM_SERVICE_DEV_PORT}/v1")
 
+# Embedding configuration
+EMBEDDING_MODEL_NAME = env.str("EMBEDDING_MODEL_NAME", default="text-embedding-3-large")
+EMBEDDING_DIMENSIONS = env.int("EMBEDDING_DIMENSIONS", default=1536)
+EMBEDDING_BACKFILL_TASK_BATCH_SIZE = env.int("EMBEDDING_BACKFILL_TASK_BATCH_SIZE", default=100)
+
+# Hybrid search configuration
+HYBRID_SEARCH_RRF_K = env.int("HYBRID_SEARCH_RRF_K", default=60)
+
 # Chat
 CHAT_GENERATE_TITLE_SYSTEM_PROMPT = """
 Summarize the following conversation in $num_words words or less and in the same language as

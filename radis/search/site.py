@@ -57,6 +57,7 @@ class SearchFilters:
     patient_id: str | None = None
     created_after: datetime | None = None
     created_before: datetime | None = None
+    use_semantic: bool = False
 
 
 class Search(NamedTuple):
@@ -67,12 +68,14 @@ class Search(NamedTuple):
 
     Attributes:
     - query: The query to search.
+    - query_text: The raw query text (used for semantic embedding).
     - filters: The filters to apply to the search.
     - offset: The offset of the search results.
     - limit: The size limit of the search results.
     """
 
     query: QueryNode
+    query_text: str
     filters: SearchFilters
     offset: int = 0
     limit: int | None = 10

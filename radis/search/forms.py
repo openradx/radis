@@ -55,6 +55,7 @@ class SearchForm(forms.Form):
             }
         ),
     )
+    semantic = forms.BooleanField(required=False, label="Semantic search")
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -96,6 +97,7 @@ class SearchForm(forms.Form):
 
     def create_filters_layout(self) -> Layout:
         return Layout(
+            Field("semantic"),
             Field("language", css_class="form-select-sm"),
             Field("modalities", css_class="form-select-sm"),
             Field("study_date_from", css_class="form-control-sm"),
