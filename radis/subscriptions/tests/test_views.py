@@ -614,7 +614,8 @@ def test_subscription_inbox_filtering_by_patient_id(client: Client):
     items = list(response.context["object_list"])
     assert len(items) == 1  # Should match "12345"
     assert item1 in items
-    assert item2 and item3 not in items
+    assert item2 not in items
+    assert item3 not in items
 
 
 @pytest.mark.django_db
@@ -647,7 +648,8 @@ def test_subscription_inbox_filtering_by_date_range(client: Client):
     items = list(response.context["object_list"])
     assert len(items) == 1
     assert item2 in items
-    assert item1 and item3 not in items
+    assert item1 not in items
+    assert item3 not in items
 
 
 @pytest.mark.django_db
