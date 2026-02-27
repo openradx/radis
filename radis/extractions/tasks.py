@@ -22,6 +22,12 @@ def process_extraction_task(task_id: int) -> None:
     processor = ExtractionTaskProcessor(task)
     processor.start()
 
+    # The Procrastinate job is finished (success or failure). Clearing queued_job_id makes it
+    # possible to re-queue the task later if the user resets/retries it.
+    task = ExtractionTask.objects.get(id=task_id)
+    task.queued_job_id = None
+    task.save()
+
 
 @app.task
 def process_extraction_job(job_id: int) -> None:
@@ -30,17 +36,19 @@ def process_extraction_job(job_id: int) -> None:
     logger.info("Start preparing job %s", job)
     assert job.status == ExtractionJob.Status.PENDING
 
-    job.status = ExtractionJob.Status.PREPARING
-    job.save()
+    # Important invariant:
+    # While a job is in PREPARING we must not enqueue tasks. Otherwise a worker can pick up a task
+    # early and `AnalysisTaskProcessor.start()` will assert because the job is still PREPARING.
+    # Tasks may be created while PREPARING, but only enqueued after switching back to PENDING.
 
+    # If tasks already exist, this is a resume/retry path. We keep the job in PENDING and just
+    # (re-)enqueue any pending tasks that are currently not queued.
     if job.tasks.exists():
-        # The job has already attached tasks from a previous run.
-        # So the job should be resumed or retried.
-        tasks = job.tasks.filter(status=ExtractionTask.Status.PENDING)
-        for task in tasks:
-            if not task.is_queued:
-                task.delay()
+        tasks_to_enqueue = job.tasks.filter(status=ExtractionTask.Status.PENDING)
     else:
+        job.status = ExtractionJob.Status.PREPARING
+        job.save()
+
         # This is a newly created job or a job that has been restarted.
         if site.extraction_retrieval_provider is None:
             logger.error("Extraction retrieval provider is not configured for job %s", job)
@@ -86,7 +94,18 @@ def process_extraction_job(job_id: int) -> None:
                 report = Report.objects.get(document_id=document_id)
                 ExtractionInstance.objects.create(task=task, report_id=report.pk)
 
-            task.delay()
-
+        # Preparation is complete. Only now do we allow enqueuing tasks.
         job.status = ExtractionJob.Status.PENDING
+        job.queued_job_id = None
         job.save()
+
+        tasks_to_enqueue = job.tasks.filter(status=ExtractionTask.Status.PENDING)
+
+    # Ensure the job isn't considered queued anymore once the preparation task has run.
+    if job.queued_job_id is not None:
+        job.queued_job_id = None
+        job.save()
+
+    for task in tasks_to_enqueue:
+        if not task.is_queued:
+            task.delay()
