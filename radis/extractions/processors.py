@@ -30,8 +30,16 @@ class ExtractionTaskProcessor(AnalysisTaskProcessor):
                     future = executor.submit(self.process_instance, instance)
                     futures.append(future)
 
+                exceptions: list[Exception] = []
                 for future in futures:
-                    future.result()
+                    try:
+                        future.result()
+                    except Exception as e:
+                        logger.error("Error processing instance in extraction task: %s", e)
+                        exceptions.append(e)
+
+                if exceptions:
+                    raise exceptions[0]
 
             finally:
                 db.close_old_connections()

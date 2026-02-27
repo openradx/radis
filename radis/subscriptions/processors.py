@@ -47,8 +47,16 @@ class SubscriptionTaskProcessor(AnalysisTaskProcessor):
                     future = executor.submit(self.process_report, report, task)
                     futures.append(future)
 
+                exceptions: list[Exception] = []
                 for future in futures:
-                    future.result()
+                    try:
+                        future.result()
+                    except Exception as e:
+                        logger.error("Error processing report in subscription task: %s", e)
+                        exceptions.append(e)
+
+                if exceptions:
+                    raise exceptions[0]
 
             finally:
                 db.close_old_connections()

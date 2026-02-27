@@ -38,6 +38,10 @@ def process_subscription_job(job_id: int) -> None:
 
     logger.debug("Collecting tasks for job %s", job)
 
+    # Capture the refresh timestamp before querying for new reports so that
+    # any reports arriving during task creation are picked up in the next cycle.
+    refresh_time = timezone.now()
+
     language_code = ""
     if job.subscription.language:
         language_code = job.subscription.language.code
@@ -71,7 +75,7 @@ def process_subscription_job(job_id: int) -> None:
 
     logger.debug("Starting SubscriptionTasks done.")
 
-    job.subscription.last_refreshed = timezone.now()
+    job.subscription.last_refreshed = refresh_time
     job.subscription.save()
 
     job.status = SubscriptionJob.Status.PENDING
