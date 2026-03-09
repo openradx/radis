@@ -357,20 +357,34 @@ $report
 """
 
 # Subscription
-QUESTIONS_SYSTEM_PROMPT = """
+SUBSCRIPTION_FILTER_PROMPT = """
 You are an AI medical assistant with extensive knowledge in radiology and general medicine.
 You have been trained on a wide range of medical literature, including the latest research
 and guidelines in radiological practices.
-Answer the following questions from the given radiology report. The report and questions can
-be given in any language.
-Base your answers only on the information provided in the report. Don't hallucinate.
-Return the answer in JSON format. Answer with 'true' for 'yes' and 'false' for 'no'.
+Answer the following filter questions about the radiology report. The questions can be in any
+language. Base your answers strictly on the contents of the report. Return the answers in JSON
+format using the provided field identifiers. Answer with `true` for "yes" and `false` for "no".
 
 Radiology Report:
 $report
 
 Questions:
 $questions
+
+"""
+
+SUBSCRIPTION_EXTRACTION_PROMPT = """
+You are an AI medical assistant with extensive knowledge in radiology and general medicine.
+Extract the requested information from the radiology report. Only provide data that is explicitly
+mentioned in the report and respect the expected data type. If the report does not contain the
+requested information, respond with null. Return the extracted information in JSON format using
+the provided field identifiers.
+
+Radiology Report:
+$report
+
+Fields to extract:
+$fields
 """
 
 # Extraction
@@ -389,6 +403,42 @@ $report
 Fields to extract:
 $fields
 """
+
+# Query Generation from Extraction Fields
+ENABLE_AUTO_QUERY_GENERATION = env.bool("ENABLE_AUTO_QUERY_GENERATION", default=True)
+QUERY_GENERATION_TIMEOUT = env.int("QUERY_GENERATION_TIMEOUT", default=10)
+QUERY_GENERATION_MAX_RETRIES = env.int("QUERY_GENERATION_MAX_RETRIES", default=2)
+
+QUERY_GENERATION_SYSTEM_PROMPT = """You are an AI assistant specialized in medical informatics and 
+radiology report retrieval. Your task is to generate an effective search query to find radiology 
+reports that would contain information relevant to the specified data extraction fields.
+Given extraction fields with their descriptions and types, generate a boolean search query that 
+will retrieve reports likely to contain the requested information.
+
+Guidelines:
+1. Use medical terminology and common synonyms
+2. Prefer broader terms to avoid missing relevant reports
+3. Use boolean operators: AND, OR, NOT
+4. Use quotes for exact phrases: "lung nodule"
+5. Consider anatomical variations and medical abbreviations
+6. Keep the query concise but comprehensive (max 150 characters recommended)
+7. Focus on key concepts that would appear in reports containing this data
+
+Output format: Return ONLY the search query as a single line, without explanation.
+
+Examples:
+Fields: [{"name": "nodule_size", "description": "size of lung nodule in millimeters", 
+"type": "NUMERIC"}]
+Query: ("lung nodule" OR "pulmonary nodule") AND (size OR measurement OR diameter)
+
+Fields: [{"name": "fracture_type", "description": "type of bone fracture", "type": "TEXT"}, 
+{"name": "bone", "description": "which bone is fractured", "type": "TEXT"}]
+Query: fracture AND bone
+
+Extraction Fields:
+$fields
+
+Generate the search query:"""
 
 # The maximum number of reports that can be extracted by one extraction job.
 EXTRACTION_MAXIMUM_REPORTS_COUNT = 25000
@@ -412,7 +462,7 @@ START_EXTRACTION_JOB_UNVERIFIED = False
 # Subscription
 SUBSCRIPTION_DEFAULT_PRIORITY = 3
 SUBSCRIPTION_URGENT_PRIORITY = 4
-SUBSCRIPTION_CRON = "* * * * *"
+SUBSCRIPTION_CRON = "0 * * * *"  # Run every hour
 SUBSCRIPTION_REFRESH_TASK_BATCH_SIZE = 100
 
 # The priority for stalled jobs that are retried.

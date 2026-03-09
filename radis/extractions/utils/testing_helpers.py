@@ -25,7 +25,8 @@ def create_extraction_task(
     add_user_to_group(user, group)
     job = ExtractionJobFactory.create(
         status=ExtractionJob.Status.PENDING,
-        owner_id=user.id,
+        owner=user,
+        group=group,
         language=language,
     )
 
