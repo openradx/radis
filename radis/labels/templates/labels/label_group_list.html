@@ -1,0 +1,19 @@
+{% extends "labels/labels_layout.html" %}
+{% load render_table from django_tables2 %}
+{% load bootstrap_icon from common_extras %}
+{% block title %}
+    Labels
+{% endblock title %}
+{% block heading %}
+    <c-page-heading title="Labels">
+    <c-slot name="right">
+    <a href="{% url 'label_group_create' %}" class="btn btn-primary">
+        {% bootstrap_icon "plus-lg" %}
+        Add Group
+    </a>
+    </c-slot>
+    </c-page-heading>
+{% endblock heading %}
+{% block content %}
+    <div class="list-group">{% render_table table %}</div>
+{% endblock content %}

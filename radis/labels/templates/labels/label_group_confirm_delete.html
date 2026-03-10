@@ -1,0 +1,18 @@
+{% extends "labels/labels_layout.html" %}
+{% block title %}
+    Delete Label Group
+{% endblock title %}
+{% block heading %}
+    <c-page-heading title="Labels" />
+{% endblock heading %}
+{% block content %}
+    <div class="alert alert-warning">You are about to delete the label group "{{ object.name }}".</div>
+    <form method="post">
+        {% csrf_token %}
+        <div class="d-flex gap-2">
+            <a href="{% url 'label_group_detail' object.pk %}"
+               class="btn btn-secondary">Cancel</a>
+            <button type="submit" class="btn btn-danger">Delete Group</button>
+        </div>
+    </form>
+{% endblock content %}
