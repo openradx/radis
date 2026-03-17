@@ -1,0 +1,38 @@
+{
+  "groups": [
+    {
+      "name": "Chest CT Triage",
+      "description": "Triage labels for chest CT reports",
+      "is_active": true,
+      "order": 1,
+      "questions": [
+        {
+          "label": "PE",
+          "question": "Is there evidence of pulmonary embolism?",
+          "is_active": true,
+          "order": 1
+        },
+        {
+          "label": "PNEUMONIA",
+          "question": "Is pneumonia present?",
+          "is_active": true,
+          "order": 2
+        }
+      ]
+    },
+    {
+      "name": "Abdominal CT Findings",
+      "description": "Key abdominal findings",
+      "is_active": true,
+      "order": 2,
+      "questions": [
+        {
+          "label": "APPENDICITIS",
+          "question": "Is acute appendicitis present?",
+          "is_active": true,
+          "order": 1
+        }
+      ]
+    }
+  ]
+}
