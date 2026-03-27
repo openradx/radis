@@ -102,13 +102,17 @@ class RadisClient:
         return response.json()
 
     def update_reports_bulk(
-        self, reports: list[ReportData], upsert: bool = True
+        self,
+        reports: list[ReportData],
+        upsert: bool = True,
+        timeout: float | tuple[float, float] | None = None,
     ) -> dict[str, Any]:
         """Bulk upsert reports using a single request.
 
         Args:
             reports: The report payloads to upsert.
             upsert: Whether to perform upsert behavior when a report is missing.
+            timeout: Optional requests timeout (seconds).
 
         Returns:
             The response as JSON.
@@ -119,6 +123,7 @@ class RadisClient:
             json=payload,
             headers=self._headers,
             params={"upsert": upsert},
+            timeout=timeout,
         )
         response.raise_for_status()
         return response.json()
