@@ -81,6 +81,7 @@ INSTALLED_APPS = [
     "radis.search.apps.SearchConfig",
     "radis.extractions.apps.ExtractionsConfig",
     "radis.subscriptions.apps.SubscriptionsConfig",
+    "radis.labels.apps.LabelsConfig",
     "radis.collections.apps.CollectionsConfig",
     "radis.notes.apps.NotesConfig",
     "radis.chats.apps.ChatsConfig",
@@ -373,6 +374,24 @@ Questions:
 $questions
 """
 
+# Labels
+LABELS_SYSTEM_PROMPT = """
+You are an AI medical assistant with extensive knowledge in radiology and general medicine.
+You have been trained on a wide range of medical literature, including the latest research
+and guidelines in radiological practices.
+Assign a single choice to each question based only on the report text. The report and questions
+can be given in any language. Don't hallucinate.
+For each question return: choice (one of the provided choice values), confidence (0.0 to 1.0),
+and rationale (short justification grounded in the report).
+If there is not enough evidence, select the choice value that represents \"Unknown\".
+
+Radiology Report:
+$report
+
+Questions:
+$questions
+"""
+
 # Extraction
 OUTPUT_FIELDS_SYSTEM_PROMPT = """
 You are an AI medical assistant with extensive knowledge in radiology and general medicine.
@@ -406,6 +425,13 @@ EXTRACTION_TASK_BATCH_SIZE = 100
 # number of parallel computing slots of the llama.cpp should be set to match this number or the
 # continuous batching capability of the LLM or a combination of both should be used.
 EXTRACTION_LLM_CONCURRENCY_LIMIT = 6
+
+# Labels
+LABELS_AUTO_BACKFILL_ON_NEW_QUESTION = env.bool(
+    "LABELS_AUTO_BACKFILL_ON_NEW_QUESTION", default=True
+)
+LABELING_TASK_BATCH_SIZE = 100
+LABELING_LLM_CONCURRENCY_LIMIT = 6
 
 START_EXTRACTION_JOB_UNVERIFIED = False
 
