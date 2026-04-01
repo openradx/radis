@@ -1,0 +1,20 @@
+x-observability: &observability
+  networks:
+    - default
+    - openradx-observability
+  environment:
+    OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+
+networks:
+  openradx-observability:
+    external: true
+
+services:
+  init:
+    <<: *observability
+  web:
+    <<: *observability
+  default_worker:
+    <<: *observability
+  llm_worker:
+    <<: *observability

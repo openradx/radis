@@ -143,6 +143,9 @@ pyvenv.cfg
 # Certificate files
 *.pem
 
+# Observability overlay (opt-in, copied from .example)
+docker-compose.observability.yml
+
 # RADIS specific
 backups/
 models/

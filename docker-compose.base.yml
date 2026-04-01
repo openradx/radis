@@ -30,8 +30,6 @@ x-app: &default-app
     SUPPORT_EMAIL: ${SUPPORT_EMAIL:?}
     TIME_ZONE: ${TIME_ZONE:?}
     TOKEN_AUTHENTICATION_SALT: ${TOKEN_AUTHENTICATION_SALT:?}
-    # Point to otel-collector for traces, metrics, and logs via OTLP
-    OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
     OTEL_PYTHON_DJANGO_EXCLUDED_URLS: "health/,static/.*"
 
 services:
