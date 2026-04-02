@@ -44,24 +44,8 @@
             {{ subscription.last_refreshed }}
         </dd>
     </dl>
-    <h4>Search Details</h4>
+    <h4>Filter Details</h4>
     <dl class="row">
-        <dt class="col-sm-3">Search Provider</dt>
-        <dd class="col-sm-9">
-            {% if subscription.provider %}
-                {{ subscription.provider }}
-            {% else %}
-                –
-            {% endif %}
-        </dd>
-        <dt class="col-sm-3">Search Query</dt>
-        <dd class="col-sm-9">
-            {% if subscription.query %}
-                {{ subscription.query }}
-            {% else %}
-                –
-            {% endif %}
-        </dd>
         <dt class="col-sm-3">Language</dt>
         <dd class="col-sm-9">
             {% if subscription.language %}
@@ -70,9 +54,6 @@
                 –
             {% endif %}
         </dd>
-    </dl>
-    <h4>Filter Details</h4>
-    <dl class="row">
         <dt class="col-sm-3">Modalities</dt>
         <dd class="col-sm-9">
             {{ subscription.modalities.all|join:", "|default:"–" }}
@@ -118,8 +99,60 @@
             {% endif %}
         </dd>
     </dl>
-    <h4>Questions</h4>
-    <ul>
-        {% for question in subscription.questions.all %}<li>{{ question.question }}</li>{% endfor %}
-    </ul>
+    <h4>Filter Questions</h4>
+    {% with questions=subscription.filter_questions.all %}
+        {% if questions %}
+            <ul>
+                {% for question in questions %}
+                    <li>
+                        {{ question.question }} — accepts reports when answer is
+                        {{ question.get_expected_answer_display|lower }}
+                    </li>
+                {% endfor %}
+            </ul>
+        {% else %}
+            <p class="text-muted mb-0">No filter questions defined.</p>
+        {% endif %}
+    {% endwith %}
+    <h4 class="mt-4">Extraction Fields</h4>
+    {% with fields=subscription.output_fields.all %}
+        {% if fields %}
+            <ul>
+                {% for field in fields %}
+                    <li>
+                        <dl class="row mb-0">
+                            <dt class="col-sm-3">Name</dt>
+                            <dd class="col-sm-9">
+                                {{ field.name }}
+                            </dd>
+                            <dt class="col-sm-3">Description</dt>
+                            <dd class="col-sm-9">
+                                {{ field.description }}
+                            </dd>
+                            <dt class="col-sm-3">Data Type</dt>
+                            <dd class="col-sm-9">
+                                {{ field.get_output_type_display }}
+                            </dd>
+                            {% if field.is_array %}
+                                <dt class="col-sm-3">Array Output</dt>
+                                <dd class="col-sm-9">
+                                    Yes — return multiple {{ field.get_output_type_display|lower }} values
+                                </dd>
+                            {% endif %}
+                            {% if field.selection_options %}
+                                <dt class="col-sm-3">Selections</dt>
+                                <dd class="col-sm-9">
+                                    <ul class="mb-0 ps-3">
+                                        {% for option in field.selection_options %}<li>{{ option }}</li>{% endfor %}
+                                    </ul>
+                                </dd>
+                            {% endif %}
+                        </dl>
+                    </li>
+                {% endfor %}
+            </ul>
+        {% else %}
+            <p class="text-muted mb-0">No extraction fields configured.</p>
+        {% endif %}
+    {% endwith %}
 {% endblock content %}
