@@ -52,7 +52,7 @@ services:
           radis.asgi:application
       "
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost/health/"]
+      test: ["CMD", "curl", "-fk", "https://localhost/health/"]
     deploy:
       <<: *deploy
       replicas: 3
