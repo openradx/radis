@@ -4,7 +4,7 @@ from adit_radis_shared.common.factories import BaseDjangoModelFactory
 
 from radis.reports.factories import LanguageFactory, ReportFactory
 
-from .models import Question, SubscribedItem, Subscription, SubscriptionJob, SubscriptionTask
+from .models import FilterQuestion, SubscribedItem, Subscription, SubscriptionJob, SubscriptionTask
 
 
 class SubscriptionFactory(BaseDjangoModelFactory[Subscription]):
@@ -15,7 +15,6 @@ class SubscriptionFactory(BaseDjangoModelFactory[Subscription]):
     owner = factory.SubFactory(UserFactory)
     group = factory.SubFactory(GroupFactory)
     patient_id = factory.Faker("numerify", text="##########")
-    query = factory.Faker("sentence", nb_words=3)
     language = factory.SubFactory(LanguageFactory, code="en")
     study_description = factory.Faker("sentence", nb_words=4)
     patient_sex = factory.Faker("random_element", elements=["M", "F", ""])
@@ -24,9 +23,9 @@ class SubscriptionFactory(BaseDjangoModelFactory[Subscription]):
     send_finished_mail = factory.Faker("boolean")
 
 
-class QuestionFactory(BaseDjangoModelFactory[Question]):
+class FilterQuestionFactory(BaseDjangoModelFactory[FilterQuestion]):
     class Meta:
-        model = Question
+        model = FilterQuestion
 
     subscription = factory.SubFactory(SubscriptionFactory)
     question = factory.Faker("sentence", nb_words=6, variable_nb_words=True)
@@ -56,4 +55,3 @@ class SubscribedItemFactory(BaseDjangoModelFactory[SubscribedItem]):
         SubscriptionJobFactory, subscription=factory.SelfAttribute("..subscription")
     )
     report = factory.SubFactory(ReportFactory)
-    answers = factory.LazyFunction(lambda: {"question_1": "answer_1", "question_2": "answer_2"})

@@ -30,8 +30,16 @@ class ExtractionTaskProcessor(AnalysisTaskProcessor):
                     future = executor.submit(self.process_instance, instance)
                     futures.append(future)
 
+                exceptions: list[Exception] = []
                 for future in futures:
-                    future.result()
+                    try:
+                        future.result()
+                    except Exception as e:
+                        logger.error("Error processing instance in extraction task: %s", e)
+                        exceptions.append(e)
+
+                if exceptions:
+                    raise exceptions[0]
 
             finally:
                 db.close_old_connections()
@@ -46,11 +54,12 @@ class ExtractionTaskProcessor(AnalysisTaskProcessor):
 
     def process_output_fields(self, instance: ExtractionInstance) -> None:
         job = instance.task.job
-        Schema = generate_output_fields_schema(job.output_fields)
+        output_fields = list(job.output_fields.order_by("pk"))
+        Schema = generate_output_fields_schema(output_fields)
         prompt = Template(settings.OUTPUT_FIELDS_SYSTEM_PROMPT).substitute(
             {
                 "report": instance.text,
-                "fields": generate_output_fields_prompt(job.output_fields),
+                "fields": generate_output_fields_prompt(output_fields),
             }
         )
         result = self.client.extract_data(prompt.strip(), Schema)
