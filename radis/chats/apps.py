@@ -21,6 +21,7 @@ def register_app():
         MainMenuItem(
             url_name="chat_list",
             label="Chats",
+            order=8,
         )
     )
 
