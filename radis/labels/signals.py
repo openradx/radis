@@ -8,7 +8,7 @@ from django.db.models.signals import post_save
 from django.dispatch import receiver
 
 from .constants import DEFAULT_LABEL_CHOICES
-from .models import LabelBackfillJob, LabelChoice, LabelQuestion
+from .models import LabelBackfillJob, LabelChoice, LabelGroup, LabelQuestion
 from .tasks import enqueue_label_group_backfill
 
 logger = logging.getLogger(__name__)
@@ -25,27 +25,35 @@ def enqueue_backfill_for_new_question(
     if not settings.LABELS_AUTO_BACKFILL_ON_NEW_QUESTION:
         return
 
-    # Dedup: skip if there is already an active backfill for this group
-    active_exists = LabelBackfillJob.objects.filter(
-        label_group_id=instance.group_id,
-        status__in=[LabelBackfillJob.Status.PENDING, LabelBackfillJob.Status.IN_PROGRESS],
-    ).exists()
+    # The dedup check below ("is there already an active backfill?") and the
+    # subsequent create are two SQL statements. Two question-create signals
+    # running on different DB connections at the same time can both pass the
+    # check before either commits, ending up with two redundant backfill jobs
+    # for the same group. Lock the group row so the check/create pair is
+    # serialized across connections.
+    with transaction.atomic():
+        LabelGroup.objects.select_for_update().filter(id=instance.group_id).first()
 
-    if active_exists:
-        logger.info(
-            "Skipping backfill for group %s — active backfill already exists.",
-            instance.group_id,
-        )
-        return
-
-    backfill_job = LabelBackfillJob.objects.create(label_group_id=instance.group_id)
-
-    transaction.on_commit(
-        lambda: enqueue_label_group_backfill.defer(
+        active_exists = LabelBackfillJob.objects.filter(
             label_group_id=instance.group_id,
-            backfill_job_id=backfill_job.id,
+            status__in=[LabelBackfillJob.Status.PENDING, LabelBackfillJob.Status.IN_PROGRESS],
+        ).exists()
+
+        if active_exists:
+            logger.info(
+                "Skipping backfill for group %s — active backfill already exists.",
+                instance.group_id,
+            )
+            return
+
+        backfill_job = LabelBackfillJob.objects.create(label_group_id=instance.group_id)
+
+        transaction.on_commit(
+            lambda: enqueue_label_group_backfill.defer(
+                label_group_id=instance.group_id,
+                backfill_job_id=backfill_job.id,
+            )
         )
-    )
 
 
 @receiver(post_save, sender=LabelQuestion)

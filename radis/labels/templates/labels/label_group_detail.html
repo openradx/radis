@@ -36,7 +36,7 @@
                     {% if backfill_job.total_reports > 0 %}
                         <dt class="col-sm-3">Progress</dt>
                         <dd class="col-sm-9">
-                            {{ backfill_job.processed_reports }} of {{ backfill_job.total_reports }}
+                            {{ backfill_job.processed_count }} of {{ backfill_job.total_reports }}
                             <div class="progress mt-1" style="height: 6px;">
                                 <div class="progress-bar"
                                      role="progressbar"

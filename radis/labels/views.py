@@ -9,6 +9,7 @@ from django.db.models import Prefetch, QuerySet
 from django.http import HttpResponse, HttpResponseRedirect
 from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse, reverse_lazy
+from django.utils import timezone
 from django.views import View
 from django.views.generic import CreateView, DeleteView, DetailView, UpdateView
 from django_tables2 import SingleTableView
@@ -165,12 +166,28 @@ class LabelBackfillCancelView(StaffRequiredMixin, View):
                 f"{backfill_job.get_status_display()} is not cancelable."
             )
 
-        backfill_job.status = LabelBackfillJob.Status.CANCELING
-        backfill_job.save()
+        # Snapshot how much work was done before the cancel so the progress
+        # display freezes at that point instead of showing 0%.
+        remaining = backfill_job.label_group.missing_reports().count()
+        processed_at_cancel = max(backfill_job.total_reports - remaining, 0)
+
+        # Conditional UPDATE: if a worker has already finalized the job, the
+        # cancel quietly no-ops rather than fighting the terminal state.
+        LabelBackfillJob.objects.filter(
+            pk=backfill_job.pk,
+            status__in=[
+                LabelBackfillJob.Status.PENDING,
+                LabelBackfillJob.Status.IN_PROGRESS,
+            ],
+        ).update(
+            status=LabelBackfillJob.Status.CANCELED,
+            ended_at=timezone.now(),
+            processed_reports=processed_at_cancel,
+        )
 
         messages.success(
             request,
-            f"Backfill for {backfill_job.label_group.name} is being cancelled.",
+            f"Backfill for {backfill_job.label_group.name} canceled.",
         )
         return redirect("label_group_detail", pk=backfill_job.label_group_id)
 

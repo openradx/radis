@@ -62,10 +62,34 @@ class LabelBackfillJob(models.Model):
         ]
 
     @property
+    def is_terminal(self) -> bool:
+        return self.status in [
+            self.Status.SUCCESS,
+            self.Status.FAILURE,
+            self.Status.CANCELED,
+        ]
+
+    @property
+    def processed_count(self) -> int:
+        """How many reports have been fully labelled for this group.
+
+        For terminal jobs we trust the snapshot stored in ``processed_reports``
+        at finalize/cancel time. For active jobs we derive the count live from
+        the ``ReportLabel`` table, so the progress display advances during the
+        run even though no per-batch counter is maintained anymore.
+        """
+        if self.is_terminal:
+            return self.processed_reports
+        if self.total_reports == 0:
+            return 0
+        remaining = self.label_group.missing_reports().count()
+        return max(self.total_reports - remaining, 0)
+
+    @property
     def progress_percent(self) -> int:
         if self.total_reports == 0:
             return 0
-        return min(int((self.processed_reports / self.total_reports) * 100), 100)
+        return min(int((self.processed_count / self.total_reports) * 100), 100)
 
 
 class LabelGroup(models.Model):

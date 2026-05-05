@@ -22,7 +22,9 @@ def process_label_group(
     overwrite_existing: bool = False,
     backfill_job_id: int | None = None,
 ) -> None:
-    # If this is part of a backfill, check cancellation status before doing any work
+    # If this is part of a backfill, check cancellation status before doing any work.
+    # Cancellation is finalized synchronously by the cancel view, so a CANCELED job
+    # needs no further finalization here — the worker just bails out cleanly.
     if backfill_job_id is not None:
         try:
             backfill_job = LabelBackfillJob.objects.get(id=backfill_job_id)
@@ -39,7 +41,6 @@ def process_label_group(
                 backfill_job,
                 backfill_job.get_status_display(),
             )
-            _maybe_finalize(backfill_job_id)
             return
 
     group = LabelGroup.objects.get(id=label_group_id)
@@ -52,47 +53,34 @@ def process_label_group(
 
 
 def _maybe_finalize(backfill_job_id: int) -> None:
-    """Finalize the backfill if no work remains.
+    """Finalize the backfill as SUCCESS if no work remains.
 
-    Progress is derived from the actual ``ReportLabel`` rows rather than from
-    a hand-maintained counter, so this check is correct even when batches
-    crash, retry, or when reports are deleted mid-backfill.
+    Completeness is derived from the actual ``ReportLabel`` rows rather than
+    from a hand-maintained counter, so this check is correct even when
+    batches crash, retry, or when reports are deleted mid-backfill.
 
-    The terminal status is written via a conditional ``UPDATE`` so a concurrent
-    cancel cannot be silently overwritten.
+    Cancellation does not flow through this helper: the cancel view sets
+    ``CANCELED`` synchronously. The conditional ``UPDATE`` here only matches
+    ``IN_PROGRESS`` rows, so a concurrent cancel that already moved the job
+    to ``CANCELED`` cannot be silently overwritten.
     """
     try:
         backfill_job = LabelBackfillJob.objects.get(id=backfill_job_id)
     except LabelBackfillJob.DoesNotExist:
         return
 
-    if backfill_job.status not in (
-        LabelBackfillJob.Status.IN_PROGRESS,
-        LabelBackfillJob.Status.CANCELING,
-    ):
+    if backfill_job.status != LabelBackfillJob.Status.IN_PROGRESS:
         return
 
     if backfill_job.label_group.missing_reports().exists():
         return  # Still work outstanding for this group.
 
-    # Two precise conditional UPDATEs so a concurrent cancel cannot be
-    # silently overwritten: the WHERE clause picks the right branch at SQL
-    # time rather than relying on the (potentially stale) in-memory status.
-    now = timezone.now()
     LabelBackfillJob.objects.filter(
         id=backfill_job_id,
         status=LabelBackfillJob.Status.IN_PROGRESS,
     ).update(
         status=LabelBackfillJob.Status.SUCCESS,
-        ended_at=now,
-        processed_reports=backfill_job.total_reports,
-    )
-    LabelBackfillJob.objects.filter(
-        id=backfill_job_id,
-        status=LabelBackfillJob.Status.CANCELING,
-    ).update(
-        status=LabelBackfillJob.Status.CANCELED,
-        ended_at=now,
+        ended_at=timezone.now(),
         processed_reports=backfill_job.total_reports,
     )
 

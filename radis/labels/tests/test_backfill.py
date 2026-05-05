@@ -115,20 +115,56 @@ class TestLabelBackfillJobModel:
             assert job.is_retryable is False, f"Expected is_retryable=False for status={status}"
 
     def test_progress_percent_zero_total(self):
-        job = self._create_job(total_reports=0, processed_reports=0)
+        # Use SUCCESS so processed_count returns the snapshot, not derived live
+        job = self._create_job(
+            total_reports=0,
+            processed_reports=0,
+            status=LabelBackfillJob.Status.SUCCESS,
+        )
         assert job.progress_percent == 0
 
-    def test_progress_percent_partial(self):
-        job = self._create_job(total_reports=200, processed_reports=50)
+    def test_progress_percent_terminal_uses_snapshot(self):
+        # Terminal jobs trust the processed_reports snapshot
+        job = self._create_job(
+            total_reports=200,
+            processed_reports=50,
+            status=LabelBackfillJob.Status.CANCELED,
+        )
         assert job.progress_percent == 25
 
-    def test_progress_percent_complete(self):
-        job = self._create_job(total_reports=100, processed_reports=100)
+    def test_progress_percent_complete_terminal(self):
+        job = self._create_job(
+            total_reports=100,
+            processed_reports=100,
+            status=LabelBackfillJob.Status.SUCCESS,
+        )
         assert job.progress_percent == 100
 
     def test_progress_percent_capped_at_100(self):
-        job = self._create_job(total_reports=100, processed_reports=150)
+        job = self._create_job(
+            total_reports=100,
+            processed_reports=150,
+            status=LabelBackfillJob.Status.SUCCESS,
+        )
         assert job.progress_percent == 100
+
+    def test_progress_percent_active_derives_live(self):
+        # Active jobs ignore the (now-zero) snapshot and derive from missing_reports
+        group = LabelGroup.objects.create(name="LiveProgress")
+        question = _make_question(group, "Q1")
+        labelled = _make_report("doc-1")
+        _make_report("doc-2")
+        _label_report_for_question(labelled, question)
+
+        job = LabelBackfillJob.objects.create(
+            label_group=group,
+            status=LabelBackfillJob.Status.IN_PROGRESS,
+            total_reports=2,
+            processed_reports=0,
+        )
+        # 1 of 2 reports has labels for all active questions => 50%
+        assert job.processed_count == 1
+        assert job.progress_percent == 50
 
     def test_ordering_by_created_at_descending(self):
         group = LabelGroup.objects.create(name="TestGroup")
@@ -325,32 +361,33 @@ class TestMaybeFinalize:
         assert job.ended_at is not None
         assert job.processed_reports == job.total_reports
 
-    def test_finalizes_to_canceled_from_canceling(self):
+    def test_does_not_finalize_canceled_job(self):
+        # Cancellation is finalized synchronously by the cancel view; the worker
+        # helper must not re-finalize a job already in a terminal state.
         job, _ = self._setup_in_progress(
-            with_question=False, status=LabelBackfillJob.Status.CANCELING
+            with_question=False, status=LabelBackfillJob.Status.CANCELED
         )
         _maybe_finalize(job.id)
         job.refresh_from_db()
         assert job.status == LabelBackfillJob.Status.CANCELED
-        assert job.ended_at is not None
 
     def test_handles_missing_job_gracefully(self):
         # Should not raise
         _maybe_finalize(99999)
 
     def test_concurrent_cancel_is_not_overwritten(self):
-        """If status flips to CANCELING between read and write, finalize as CANCELED."""
+        """If a concurrent cancel flips status to CANCELED, finalize must no-op."""
         job, _ = self._setup_in_progress(with_question=False)  # no work, can finalize
 
         # Patch the in-memory read so the helper sees IN_PROGRESS,
-        # then the DB row transitions to CANCELING before the UPDATE fires.
+        # then the DB row transitions to CANCELED before the UPDATE fires.
         original_get = LabelBackfillJob.objects.get
 
         def get_then_cancel(*args, **kwargs):
             job_obj = original_get(*args, **kwargs)
-            # Simulate a concurrent cancel write hitting the DB
+            # Simulate a concurrent cancel write hitting the DB.
             LabelBackfillJob.objects.filter(id=job_obj.id).update(
-                status=LabelBackfillJob.Status.CANCELING
+                status=LabelBackfillJob.Status.CANCELED
             )
             return job_obj
 
@@ -358,8 +395,8 @@ class TestMaybeFinalize:
             _maybe_finalize(job.id)
 
         job.refresh_from_db()
-        # The conditional UPDATEs should pick the CANCELING branch and set CANCELED,
-        # not silently overwrite with SUCCESS.
+        # The IN_PROGRESS-only conditional UPDATE doesn't match CANCELED, so the
+        # cancel is preserved and the worker silently steps aside.
         assert job.status == LabelBackfillJob.Status.CANCELED
 
 
@@ -382,7 +419,7 @@ class TestLabelBackfillCancelView:
         assert response.status_code == 302
         assert "/accounts/login/" in response["Location"]
 
-    def test_cancel_sets_canceling_status(self, client: Client):
+    def test_cancel_sets_canceled_status(self, client: Client):
         user = UserFactory.create(is_active=True, is_staff=True)
         client.force_login(user)
         job = self._create_job(status=LabelBackfillJob.Status.IN_PROGRESS)
@@ -391,7 +428,10 @@ class TestLabelBackfillCancelView:
         assert response.status_code == 302
 
         job.refresh_from_db()
-        assert job.status == LabelBackfillJob.Status.CANCELING
+        # Cancellation is now synchronous: the view marks the job CANCELED
+        # immediately so in-flight workers can quietly bail out.
+        assert job.status == LabelBackfillJob.Status.CANCELED
+        assert job.ended_at is not None
 
     def test_cancel_pending_job(self, client: Client):
         user = UserFactory.create(is_active=True, is_staff=True)
@@ -402,7 +442,31 @@ class TestLabelBackfillCancelView:
         assert response.status_code == 302
 
         job.refresh_from_db()
-        assert job.status == LabelBackfillJob.Status.CANCELING
+        assert job.status == LabelBackfillJob.Status.CANCELED
+
+    def test_cancel_snapshots_progress_at_cancel_time(self, client: Client):
+        user = UserFactory.create(is_active=True, is_staff=True)
+        client.force_login(user)
+
+        group = LabelGroup.objects.create(name="ProgressGroup")
+        question = _make_question(group, "Q1")
+        # 2 reports total, 1 already labelled
+        labelled = _make_report("doc-labelled")
+        _make_report("doc-unlabelled")
+        _label_report_for_question(labelled, question)
+
+        job = LabelBackfillJob.objects.create(
+            label_group=group,
+            status=LabelBackfillJob.Status.IN_PROGRESS,
+            total_reports=2,
+            processed_reports=0,
+        )
+
+        client.post(f"/labels/backfill/{job.pk}/cancel/")
+        job.refresh_from_db()
+
+        # Snapshot freezes the progress display at "1 of 2" instead of "0 of 2".
+        assert job.processed_reports == 1
 
     def test_cancel_rejected_for_non_staff(self, client: Client):
         user = UserFactory.create(is_active=True, is_staff=False)
