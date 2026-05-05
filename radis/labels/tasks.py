@@ -4,7 +4,6 @@ import logging
 from itertools import batched
 
 from django.conf import settings
-from django.db.models import F
 from django.utils import timezone
 from procrastinate.contrib.django import app
 
@@ -40,36 +39,62 @@ def process_label_group(
                 backfill_job,
                 backfill_job.get_status_display(),
             )
-            _increment_and_maybe_finalize(backfill_job_id, len(report_ids))
+            _maybe_finalize(backfill_job_id)
             return
 
     group = LabelGroup.objects.get(id=label_group_id)
     processor = LabelGroupProcessor(group)
     processor.process_reports(report_ids, overwrite_existing=overwrite_existing)
 
-    # After processing, update backfill progress
+    # After processing, check whether the backfill is now complete.
     if backfill_job_id is not None:
-        _increment_and_maybe_finalize(backfill_job_id, len(report_ids))
+        _maybe_finalize(backfill_job_id)
 
 
-def _increment_and_maybe_finalize(backfill_job_id: int, count: int) -> None:
-    """Atomically increment processed_reports and check for completion."""
-    LabelBackfillJob.objects.filter(id=backfill_job_id).update(
-        processed_reports=F("processed_reports") + count
-    )
+def _maybe_finalize(backfill_job_id: int) -> None:
+    """Finalize the backfill if no work remains.
 
+    Progress is derived from the actual ``ReportLabel`` rows rather than from
+    a hand-maintained counter, so this check is correct even when batches
+    crash, retry, or when reports are deleted mid-backfill.
+
+    The terminal status is written via a conditional ``UPDATE`` so a concurrent
+    cancel cannot be silently overwritten.
+    """
     try:
         backfill_job = LabelBackfillJob.objects.get(id=backfill_job_id)
     except LabelBackfillJob.DoesNotExist:
         return
 
-    if backfill_job.processed_reports >= backfill_job.total_reports:
-        if backfill_job.status == LabelBackfillJob.Status.CANCELING:
-            backfill_job.status = LabelBackfillJob.Status.CANCELED
-        elif backfill_job.status == LabelBackfillJob.Status.IN_PROGRESS:
-            backfill_job.status = LabelBackfillJob.Status.SUCCESS
-        backfill_job.ended_at = timezone.now()
-        backfill_job.save()
+    if backfill_job.status not in (
+        LabelBackfillJob.Status.IN_PROGRESS,
+        LabelBackfillJob.Status.CANCELING,
+    ):
+        return
+
+    if backfill_job.label_group.missing_reports().exists():
+        return  # Still work outstanding for this group.
+
+    # Two precise conditional UPDATEs so a concurrent cancel cannot be
+    # silently overwritten: the WHERE clause picks the right branch at SQL
+    # time rather than relying on the (potentially stale) in-memory status.
+    now = timezone.now()
+    LabelBackfillJob.objects.filter(
+        id=backfill_job_id,
+        status=LabelBackfillJob.Status.IN_PROGRESS,
+    ).update(
+        status=LabelBackfillJob.Status.SUCCESS,
+        ended_at=now,
+        processed_reports=backfill_job.total_reports,
+    )
+    LabelBackfillJob.objects.filter(
+        id=backfill_job_id,
+        status=LabelBackfillJob.Status.CANCELING,
+    ).update(
+        status=LabelBackfillJob.Status.CANCELED,
+        ended_at=now,
+        processed_reports=backfill_job.total_reports,
+    )
 
 
 def enqueue_labeling_for_reports(
@@ -119,11 +144,16 @@ def enqueue_label_group_backfill(label_group_id: int, backfill_job_id: int) -> N
         logger.warning("Backfill job %s not found, aborting.", backfill_job_id)
         return
 
-    # Count total reports
+    # Snapshot total for display continuity. The live "remaining" count is
+    # computed on demand by ``LabelGroup.missing_reports`` and is what the
+    # finalization check uses.
     total_reports = Report.objects.count()
     backfill_job.status = LabelBackfillJob.Status.IN_PROGRESS
     backfill_job.started_at = timezone.now()
+    backfill_job.ended_at = None
+    backfill_job.message = ""
     backfill_job.total_reports = total_reports
+    backfill_job.processed_reports = 0
     backfill_job.save()
 
     if total_reports == 0:
@@ -133,13 +163,20 @@ def enqueue_label_group_backfill(label_group_id: int, backfill_job_id: int) -> N
         backfill_job.save()
         return
 
+    # Only dispatch reports that don't already have labels for every active
+    # question. This makes the backfill naturally resumable: a retry skips
+    # everything that's already done and only processes what's missing.
     batch_size = settings.LABELING_TASK_BATCH_SIZE
     current_batch: list[int] = []
-    report_ids = (
-        Report.objects.order_by("id").values_list("id", flat=True).iterator(chunk_size=batch_size)
+    missing_iter = (
+        group.missing_reports()
+        .order_by("id")
+        .values_list("id", flat=True)
+        .iterator(chunk_size=batch_size)
     )
 
-    for report_id in report_ids:
+    dispatched_any = False
+    for report_id in missing_iter:
         current_batch.append(report_id)
         if len(current_batch) >= batch_size:
             process_label_group.defer(
@@ -148,6 +185,7 @@ def enqueue_label_group_backfill(label_group_id: int, backfill_job_id: int) -> N
                 overwrite_existing=False,
                 backfill_job_id=backfill_job.id,
             )
+            dispatched_any = True
             current_batch = []
 
     if current_batch:
@@ -157,3 +195,12 @@ def enqueue_label_group_backfill(label_group_id: int, backfill_job_id: int) -> N
             overwrite_existing=False,
             backfill_job_id=backfill_job.id,
         )
+        dispatched_any = True
+
+    if not dispatched_any:
+        # Every report is already labelled — finalize without dispatching work.
+        backfill_job.status = LabelBackfillJob.Status.SUCCESS
+        backfill_job.message = "All reports already labelled."
+        backfill_job.ended_at = timezone.now()
+        backfill_job.processed_reports = total_reports
+        backfill_job.save()

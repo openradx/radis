@@ -36,4 +36,9 @@ urlpatterns = [
         views.LabelBackfillCancelView.as_view(),
         name="label_backfill_cancel",
     ),
+    path(
+        "backfill/<int:pk>/retry/",
+        views.LabelBackfillRetryView.as_view(),
+        name="label_backfill_retry",
+    ),
 ]

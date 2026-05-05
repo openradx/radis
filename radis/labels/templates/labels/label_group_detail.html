@@ -54,15 +54,24 @@
                         </dd>
                     {% endif %}
                 </dl>
-                {% if backfill_job.is_cancelable %}
-                    <form method="post"
-                          action="{% url 'label_backfill_cancel' backfill_job.pk %}"
-                          class="mt-2"
-                          onSubmit="return confirm('Are you sure you want to cancel this backfill?');">
-                        {% csrf_token %}
-                        <button type="submit" class="btn btn-sm btn-warning">{% bootstrap_icon "stop-fill" %} Cancel Backfill</button>
-                    </form>
-                {% endif %}
+                <div class="d-flex gap-2 mt-2">
+                    {% if backfill_job.is_cancelable %}
+                        <form method="post"
+                              action="{% url 'label_backfill_cancel' backfill_job.pk %}"
+                              onSubmit="return confirm('Are you sure you want to cancel this backfill?');">
+                            {% csrf_token %}
+                            <button type="submit" class="btn btn-sm btn-warning">{% bootstrap_icon "stop-fill" %} Cancel Backfill</button>
+                        </form>
+                    {% endif %}
+                    {% if backfill_job.is_retryable %}
+                        <form method="post"
+                              action="{% url 'label_backfill_retry' backfill_job.pk %}"
+                              onSubmit="return confirm('Retry this backfill? Only reports without labels for the active questions will be processed.');">
+                            {% csrf_token %}
+                            <button type="submit" class="btn btn-sm btn-primary">{% bootstrap_icon "arrow-clockwise" %} Retry Backfill</button>
+                        </form>
+                    {% endif %}
+                </div>
             </div>
         </div>
     {% endif %}

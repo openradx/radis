@@ -4,6 +4,7 @@ from adit_radis_shared.common.types import AuthenticatedHttpRequest
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
 from django.core.exceptions import SuspiciousOperation
+from django.db import transaction
 from django.db.models import Prefetch, QuerySet
 from django.http import HttpResponse, HttpResponseRedirect
 from django.shortcuts import get_object_or_404, redirect
@@ -15,6 +16,7 @@ from django_tables2 import SingleTableView
 from .forms import LabelGroupForm, LabelQuestionForm
 from .models import LabelBackfillJob, LabelGroup, LabelQuestion
 from .tables import LabelGroupTable
+from .tasks import enqueue_label_group_backfill
 
 
 class StaffRequiredMixin(LoginRequiredMixin, UserPassesTestMixin):
@@ -169,5 +171,57 @@ class LabelBackfillCancelView(StaffRequiredMixin, View):
         messages.success(
             request,
             f"Backfill for {backfill_job.label_group.name} is being cancelled.",
+        )
+        return redirect("label_group_detail", pk=backfill_job.label_group_id)
+
+
+class LabelBackfillRetryView(StaffRequiredMixin, View):
+    def post(self, request: AuthenticatedHttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        backfill_job = get_object_or_404(LabelBackfillJob, pk=kwargs["pk"])
+
+        if not backfill_job.is_retryable:
+            raise SuspiciousOperation(
+                f"Backfill job {backfill_job.pk} with status "
+                f"{backfill_job.get_status_display()} cannot be retried."
+            )
+
+        # If another backfill for the same group is already active, retrying
+        # this one would just duplicate work — the active backfill's coordinator
+        # already picks up missing reports.
+        active_exists = (
+            LabelBackfillJob.objects.filter(
+                label_group_id=backfill_job.label_group_id,
+                status__in=[
+                    LabelBackfillJob.Status.PENDING,
+                    LabelBackfillJob.Status.IN_PROGRESS,
+                ],
+            )
+            .exclude(pk=backfill_job.pk)
+            .exists()
+        )
+        if active_exists:
+            messages.info(
+                request,
+                f"Another backfill for {backfill_job.label_group.name} is already in "
+                "progress; it will pick up any missing labels.",
+            )
+            return redirect("label_group_detail", pk=backfill_job.label_group_id)
+
+        backfill_job.status = LabelBackfillJob.Status.PENDING
+        backfill_job.message = ""
+        backfill_job.started_at = None
+        backfill_job.ended_at = None
+        backfill_job.save()
+
+        transaction.on_commit(
+            lambda: enqueue_label_group_backfill.defer(
+                label_group_id=backfill_job.label_group_id,
+                backfill_job_id=backfill_job.id,
+            )
+        )
+
+        messages.success(
+            request,
+            f"Retrying backfill for {backfill_job.label_group.name}.",
         )
         return redirect("label_group_detail", pk=backfill_job.label_group_id)

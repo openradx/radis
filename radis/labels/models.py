@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Callable
 
 from django.db import models
+from django.db.models import Count, Q, QuerySet
 
 from radis.reports.models import Report
 
@@ -51,6 +52,16 @@ class LabelBackfillJob(models.Model):
         ]
 
     @property
+    def is_retryable(self) -> bool:
+        # Failed and canceled jobs can always be retried; SUCCESS jobs can be
+        # retried after questions are added or labels become stale.
+        return self.status in [
+            self.Status.FAILURE,
+            self.Status.CANCELED,
+            self.Status.SUCCESS,
+        ]
+
+    @property
     def progress_percent(self) -> int:
         if self.total_reports == 0:
             return 0
@@ -73,6 +84,29 @@ class LabelGroup(models.Model):
 
     def __str__(self) -> str:
         return f"LabelGroup {self.name} [{self.pk}]"
+
+    def missing_reports(self) -> QuerySet[Report]:
+        """Reports that don't yet have a label for every active question in this group.
+
+        Used both by the backfill coordinator (to dispatch only outstanding work)
+        and by the finalization check (to detect when a backfill is complete).
+        Returns an empty queryset when the group has no active questions, since
+        there is no work the system can do in that case.
+        """
+        active_count = self.questions.filter(is_active=True).count()
+        if active_count == 0:
+            return Report.objects.none()
+
+        return Report.objects.annotate(
+            labelled_for_group=Count(
+                "labels__question",
+                filter=Q(
+                    labels__question__group=self,
+                    labels__question__is_active=True,
+                ),
+                distinct=True,
+            )
+        ).exclude(labelled_for_group=active_count)
 
 
 class LabelQuestion(models.Model):
