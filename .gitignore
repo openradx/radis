@@ -146,6 +146,7 @@ pyvenv.cfg
 # Override overlay (opt-in, copied from .example)
 docker-compose.override.yml
 
-# RADIS specific
+# Project specific
 backups/
 models/
+.docker-data/
