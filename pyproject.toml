@@ -115,7 +115,7 @@ filterwarnings = [
     'ignore:.*use of fork\(\) may lead to deadlocks.*:DeprecationWarning',
     "ignore:.*Converter 'drf_format_suffix' is already registered.*",
 ]
-timeout = 60
+timeout = "60"
 
 [tool.coverage.run]
 branch = true
