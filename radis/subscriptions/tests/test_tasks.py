@@ -18,7 +18,7 @@ def test_process_subscription_job_only_enqueues_tasks_after_job_is_pending(monke
     user = UserFactory.create(is_active=True)
     group = GroupFactory.create()
 
-    subscription = SubscriptionFactory.create(owner=user, group=group, query="")
+    subscription = SubscriptionFactory.create(owner=user, group=group)
     job = SubscriptionJobFactory.create(subscription=subscription, owner=user)
     job.status = SubscriptionJob.Status.PREPARING
     job.save()
