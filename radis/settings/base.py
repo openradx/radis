@@ -483,6 +483,12 @@ LABELS_BACKFILL_CRON = env("LABELS_BACKFILL_CRON", default="0 21 * * *")
 LABELING_TASK_BATCH_SIZE = 100
 LABELING_LLM_CONCURRENCY_LIMIT = 6
 
+# Procrastinate priorities. Higher = more urgent. Live labelling (a single
+# newly-ingested report) jumps ahead of backfill batches so dashboards
+# reflect fresh reports without waiting for a 500k-row backfill to drain.
+LABELS_LIVE_PRIORITY = 10
+LABELS_BACKFILL_PRIORITY = 0
+
 START_EXTRACTION_JOB_UNVERIFIED = False
 
 # Subscription

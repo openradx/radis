@@ -9,7 +9,7 @@ from django.utils import timezone
 from radis.reports.models import Report
 
 from ...models import BackfillJob, LabelingRun, QuestionSet
-from ...tasks import process_question_set_batch
+from ...tasks import _defer_batch
 
 
 class Command(BaseCommand):
@@ -75,10 +75,11 @@ class Command(BaseCommand):
             for report_batch in batched(report_ids, batch_size):
                 batch_list = list(report_batch)
                 for mode in modes:
-                    process_question_set_batch.defer(
+                    _defer_batch(
                         question_set_id=question_set.id,
                         report_ids=batch_list,
                         mode=mode,
+                        priority=settings.LABELS_BACKFILL_PRIORITY,
                         backfill_job_id=backfill_job.id,
                     )
 

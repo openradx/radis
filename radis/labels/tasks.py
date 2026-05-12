@@ -17,6 +17,9 @@ from .processors import LabelingProcessor
 logger = logging.getLogger(__name__)
 
 
+_PROCESS_BATCH_TASK_NAME = "radis.labels.tasks.process_question_set_batch"
+
+
 def _run_modes() -> list[str]:
     """Modes a labelling pass should produce. Defaults to DIRECT only.
 
@@ -24,6 +27,29 @@ def _run_modes() -> list[str]:
     report ends up with both modes available for evaluation.
     """
     return getattr(settings, "LABELS_RUN_MODES", [LabelingRun.Mode.DIRECT])
+
+
+def _defer_batch(
+    *, question_set_id: int, report_ids: list[int], mode: str, priority: int,
+    backfill_job_id: int | None = None,
+) -> None:
+    """Defer a labelling batch onto the llm queue with an explicit priority.
+
+    Centralized so live ingest (high priority) and backfill coordinators
+    (low priority) can't accidentally drift apart.
+    """
+    kwargs: dict = {
+        "question_set_id": question_set_id,
+        "report_ids": report_ids,
+        "mode": mode,
+    }
+    if backfill_job_id is not None:
+        kwargs["backfill_job_id"] = backfill_job_id
+    app.configure_task(
+        _PROCESS_BATCH_TASK_NAME,
+        allow_unknown=False,
+        priority=priority,
+    ).defer(**kwargs)
 
 
 @app.task(queue="llm")
@@ -118,10 +144,11 @@ def enqueue_labeling_for_reports(
     for question_set in active_sets:
         for mode in _run_modes():
             for report_batch in batched(report_ids, batch_size):
-                process_question_set_batch.defer(
+                _defer_batch(
                     question_set_id=question_set.id,
                     report_ids=list(report_batch),
                     mode=mode,
+                    priority=settings.LABELS_LIVE_PRIORITY,
                 )
 
 
@@ -235,10 +262,11 @@ def enqueue_question_set_backfill(question_set_id: int, backfill_job_id: int) ->
     def dispatch_batch(batch: list[int]) -> None:
         nonlocal dispatched_any
         for mode in modes:
-            process_question_set_batch.defer(
+            _defer_batch(
                 question_set_id=question_set.id,
                 report_ids=batch,
                 mode=mode,
+                priority=settings.LABELS_BACKFILL_PRIORITY,
                 backfill_job_id=backfill_job.id,
             )
         dispatched_any = True

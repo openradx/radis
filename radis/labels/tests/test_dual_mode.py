@@ -169,20 +169,34 @@ class TestEnqueueDispatchesPerMode:
         question_set, _ = _make_set_with_one_question()
         report = _make_report()
 
-        with patch(
-            "radis.labels.tasks.process_question_set_batch"
-        ) as mock_task:
-            mock_task.defer = MagicMock()
+        with patch("radis.labels.tasks._defer_batch") as mock_defer:
             from radis.labels.tasks import enqueue_labeling_for_reports
 
             enqueue_labeling_for_reports([report.id])
 
         # One task per (set, batch, mode). One set, one batch, two modes => 2 calls.
-        assert mock_task.defer.call_count == 2
+        assert mock_defer.call_count == 2
         modes_dispatched = {
-            call.kwargs["mode"] for call in mock_task.defer.call_args_list
+            call.kwargs["mode"] for call in mock_defer.call_args_list
         }
         assert modes_dispatched == {LabelingRun.Mode.DIRECT, LabelingRun.Mode.REASONED}
+
+    def test_live_enqueue_uses_live_priority(self, settings):
+        """Live ingest must run high-priority so dashboards don't wait for a
+        backfill to drain. The constant lives in settings.
+        """
+        settings.LABELS_RUN_MODES = [LabelingRun.Mode.DIRECT]
+        settings.LABELS_LIVE_PRIORITY = 99
+        question_set, _ = _make_set_with_one_question()
+        report = _make_report()
+
+        with patch("radis.labels.tasks._defer_batch") as mock_defer:
+            from radis.labels.tasks import enqueue_labeling_for_reports
+
+            enqueue_labeling_for_reports([report.id])
+
+        assert mock_defer.call_count == 1
+        assert mock_defer.call_args.kwargs["priority"] == 99
 
 
 @pytest.mark.django_db

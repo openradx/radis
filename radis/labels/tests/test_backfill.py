@@ -715,9 +715,8 @@ class TestQuestionSetDetailViewBackfill:
 
 @pytest.mark.django_db
 class TestLabelsBackfillCommand:
-    @patch("radis.labels.management.commands.labels_backfill.process_question_set_batch")
-    def test_command_creates_backfill_job(self, mock_task):
-        mock_task.defer = lambda **kw: None
+    @patch("radis.labels.management.commands.labels_backfill._defer_batch")
+    def test_command_creates_backfill_job(self, mock_defer):
         from django.core.management import call_command
 
         from radis.reports.models import Language, Report
