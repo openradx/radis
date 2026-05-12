@@ -481,7 +481,7 @@ EXTRACTION_LLM_CONCURRENCY_LIMIT = 6
 # scans for dirty sets and dispatches one backfill per set.
 LABELS_BACKFILL_CRON = env("LABELS_BACKFILL_CRON", default="0 21 * * *")
 LABELING_TASK_BATCH_SIZE = 100
-LABELING_LLM_CONCURRENCY_LIMIT = 6
+LABELING_LLM_CONCURRENCY_LIMIT = env.int("LABELING_LLM_CONCURRENCY_LIMIT", default=2)
 
 # Provider-specific extra body forwarded by ChatClient on every chat call.
 # Qwen3.6 emits chain-of-thought to a separate `reasoning` field by default

@@ -64,7 +64,7 @@ class ChatClient:
 
         kwargs: dict = {
             "model": self._llm_model_name,
-            "messages": [{"role": "system", "content": prompt}],
+            "messages": [{"role": "user", "content": prompt}],
             "response_format": schema,
         }
         if self._extra_body:
@@ -86,7 +86,7 @@ class ChatClient:
 
         kwargs: dict = {
             "model": self._llm_model_name,
-            "messages": [{"role": "system", "content": prompt}],
+            "messages": [{"role": "user", "content": prompt}],
         }
         if self._extra_body:
             kwargs["extra_body"] = self._extra_body
