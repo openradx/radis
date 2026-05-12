@@ -165,12 +165,12 @@ def labels_backfill_launcher(timestamp: int) -> None:
 
             backfill_job = BackfillJob.objects.create(question_set=question_set)
 
-            transaction.on_commit(
-                lambda jid=backfill_job.id, sid=question_set.id: enqueue_question_set_backfill.defer(
-                    question_set_id=sid,
-                    backfill_job_id=jid,
+            def _defer(jid=backfill_job.id, sid=question_set.id):
+                enqueue_question_set_backfill.defer(
+                    question_set_id=sid, backfill_job_id=jid
                 )
-            )
+
+            transaction.on_commit(_defer)
 
             logger.info(
                 "Dispatched nightly backfill for set %s (job=%s).",

@@ -16,6 +16,8 @@
                     {% if object.description %}<p class="mt-2 mb-0">{{ object.description }}</p>{% endif %}
                 </div>
                 <div class="d-flex gap-2">
+                    <a href="{% url 'question_set_eval' object.pk %}"
+                       class="btn btn-outline-secondary">Eval</a>
                     <a href="{% url 'question_set_update' object.pk %}"
                        class="btn btn-outline-primary {% if is_locked %}disabled{% endif %}"
                        {% if is_locked %}aria-disabled="true"{% endif %}>Edit Set</a>

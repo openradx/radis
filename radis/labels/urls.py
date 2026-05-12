@@ -41,4 +41,14 @@ urlpatterns = [
         views.BackfillRetryView.as_view(),
         name="backfill_retry",
     ),
+    path(
+        "<int:pk>/eval/",
+        views.QuestionSetEvalView.as_view(),
+        name="question_set_eval",
+    ),
+    path(
+        "eval/<int:pk>/",
+        views.EvalSampleDetailView.as_view(),
+        name="eval_sample_detail",
+    ),
 ]

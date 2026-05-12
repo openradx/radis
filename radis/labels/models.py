@@ -380,3 +380,35 @@ def is_question_set_locked(question_set_id: int) -> bool:
         question_set_id=question_set_id,
         status__in=[BackfillJob.Status.PENDING, BackfillJob.Status.IN_PROGRESS],
     ).exists()
+
+
+class EvalSample(models.Model):
+    """A frozen, named sample of reports used for evaluation runs.
+
+    The sample is captured up-front so the seed step (which enqueues
+    labelling for missing runs) and the report step (which computes the
+    comparison metrics) operate on exactly the same set of reports across
+    invocations. Reports are pinned via M2M; deleting a report removes it
+    from samples automatically.
+    """
+
+    id: int
+    name = models.CharField(max_length=200, unique=True)
+    description = models.TextField(blank=True, default="")
+    question_set = models.ForeignKey[QuestionSet](
+        QuestionSet, on_delete=models.CASCADE, related_name="eval_samples"
+    )
+    target_size = models.PositiveIntegerField()
+    seed_value = models.IntegerField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    reports = models.ManyToManyField(Report, related_name="eval_samples")
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self) -> str:
+        return f"EvalSample {self.name} [{self.pk}]"
+
+    @property
+    def actual_size(self) -> int:
+        return self.reports.count()

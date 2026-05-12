@@ -1,0 +1,103 @@
+{% extends "labels/labels_layout.html" %}
+{% block title %}
+    Evaluation
+{% endblock title %}
+{% block heading %}
+    <c-page-heading title="Auto Labels — Evaluation" />
+{% endblock heading %}
+{% block content %}
+    {% if sample is None %}
+        <div class="alert alert-info">
+            No EvalSample has been created for this question set yet. Run
+            <code>uv run cli manage labels_eval_seed --question-set-id {{ question_set_id }}</code>
+            to seed one.
+        </div>
+    {% else %}
+        <div class="card mb-3">
+            <div class="card-body">
+                <h5 class="card-title mb-1">{{ sample.name }}</h5>
+                <p class="mb-1">
+                    Question set:
+                    <a href="{% url 'question_set_detail' sample.question_set_id %}">{{ sample.question_set.name }}</a>
+                </p>
+                <p class="mb-1">Reports pinned: {{ sample.actual_size }} / target {{ sample.target_size }}</p>
+                {% if sample.description %}<p class="mb-0">{{ sample.description }}</p>{% endif %}
+            </div>
+        </div>
+        {% if report.overall.n_compared %}
+            <div class="card mb-3">
+                <div class="card-body">
+                    <h6 class="card-title">Overall DIRECT vs REASONED agreement</h6>
+                    <p class="mb-0">
+                        {{ report.overall.n_agree }} / {{ report.overall.n_compared }}
+                        ({{ report.overall.agreement_rate|floatformat:3 }})
+                    </p>
+                </div>
+            </div>
+        {% else %}
+            <div class="alert alert-warning">
+                No reports in this sample have both DIRECT and REASONED runs yet.
+                The labelling pipeline may still be running — re-load once it completes.
+            </div>
+        {% endif %}
+        <h5>Per question</h5>
+        <table class="table table-sm">
+            <thead>
+                <tr>
+                    <th>Question</th>
+                    <th class="text-end">Compared</th>
+                    <th class="text-end">Agree</th>
+                    <th class="text-end">Agreement</th>
+                    <th class="text-end">Mean conf. DIRECT</th>
+                    <th class="text-end">Mean conf. REASONED</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in report.per_question %}
+                    <tr>
+                        <td>{{ row.label }}</td>
+                        <td class="text-end">{{ row.n_compared }}</td>
+                        <td class="text-end">{{ row.n_agree }}</td>
+                        <td class="text-end">
+                            {% if row.n_compared %}{{ row.agreement_rate|floatformat:3 }}{% else %}—{% endif %}
+                        </td>
+                        <td class="text-end">
+                            {% if row.direct_mean_confidence %}{{ row.direct_mean_confidence|floatformat:2 }}{% else %}—{% endif %}
+                        </td>
+                        <td class="text-end">
+                            {% if row.reasoned_mean_confidence %}{{ row.reasoned_mean_confidence|floatformat:2 }}{% else %}—{% endif %}
+                        </td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        <h5 class="mt-4">Top disagreements</h5>
+        {% if report.disagreements %}
+            {% for item in report.disagreements %}
+                <div class="card mb-2">
+                    <div class="card-body">
+                        <h6 class="card-title mb-1">{{ item.report_document_id }} — {{ item.question_label }}</h6>
+                        <p class="mb-1">
+                            <strong>DIRECT:</strong> {{ item.direct_choice }}
+                            {% if item.direct_confidence %}(conf {{ item.direct_confidence|floatformat:2 }}){% endif %}
+                            {% if item.direct_rationale %}— <em>{{ item.direct_rationale }}</em>{% endif %}
+                        </p>
+                        <p class="mb-1">
+                            <strong>REASONED:</strong> {{ item.reasoned_choice }}
+                            {% if item.reasoned_confidence %}(conf {{ item.reasoned_confidence|floatformat:2 }}){% endif %}
+                            {% if item.reasoned_rationale %}— <em>{{ item.reasoned_rationale }}</em>{% endif %}
+                        </p>
+                        {% if item.reasoning_text %}
+                            <details>
+                                <summary>Reasoning step output</summary>
+                                <pre class="small text-muted mt-2">{{ item.reasoning_text }}</pre>
+                            </details>
+                        {% endif %}
+                    </div>
+                </div>
+            {% endfor %}
+        {% else %}
+            <p class="text-muted">No disagreements yet.</p>
+        {% endif %}
+    {% endif %}
+{% endblock content %}

@@ -18,12 +18,14 @@ from .forms import QuestionForm, QuestionSetForm
 from .models import (
     AnswerOption,
     BackfillJob,
+    EvalSample,
     Question,
     QuestionSet,
     is_question_set_locked,
 )
 from .tables import QuestionSetTable
 from .tasks import enqueue_question_set_backfill
+from .utils.eval_metrics import compute_eval
 
 
 class StaffRequiredMixin(LoginRequiredMixin, UserPassesTestMixin):
@@ -246,6 +248,38 @@ class BackfillCancelView(StaffRequiredMixin, View):
             f"Backfill for {backfill_job.question_set.name} canceled.",
         )
         return redirect("question_set_detail", pk=backfill_job.question_set_id)
+
+
+class QuestionSetEvalView(LoginRequiredMixin, DetailView):
+    """Inline DIRECT vs REASONED comparison for the most recent EvalSample
+    belonging to this set. If no sample exists, prompts to run the seed
+    command.
+    """
+
+    model = QuestionSet
+    template_name = "labels/eval_report.html"
+
+    def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
+        ctx = super().get_context_data(**kwargs)
+        question_set: QuestionSet = self.object  # type: ignore[assignment]
+        sample = question_set.eval_samples.order_by("-created_at").first()
+        ctx["sample"] = sample
+        ctx["question_set_id"] = question_set.id
+        ctx["report"] = compute_eval(sample) if sample is not None else None
+        return ctx
+
+
+class EvalSampleDetailView(LoginRequiredMixin, DetailView):
+    model = EvalSample
+    template_name = "labels/eval_report.html"
+
+    def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
+        ctx = super().get_context_data(**kwargs)
+        sample: EvalSample = self.object  # type: ignore[assignment]
+        ctx["sample"] = sample
+        ctx["question_set_id"] = sample.question_set_id
+        ctx["report"] = compute_eval(sample)
+        return ctx
 
 
 class BackfillRetryView(StaffRequiredMixin, View):

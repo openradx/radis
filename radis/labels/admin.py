@@ -1,6 +1,14 @@
 from django.contrib import admin
 
-from .models import Answer, AnswerOption, BackfillJob, LabelingRun, Question, QuestionSet
+from .models import (
+    Answer,
+    AnswerOption,
+    BackfillJob,
+    EvalSample,
+    LabelingRun,
+    Question,
+    QuestionSet,
+)
 
 
 class AnswerOptionInline(admin.TabularInline):
@@ -38,6 +46,14 @@ class AnswerAdmin(admin.ModelAdmin):
     list_display = ("report", "question", "option", "confidence", "verified", "created_at")
     list_filter = ("verified", "question__question_set")
     search_fields = ("report__document_id", "question__label", "option__label")
+    ordering = ("-created_at",)
+
+
+@admin.register(EvalSample)
+class EvalSampleAdmin(admin.ModelAdmin):
+    list_display = ("name", "question_set", "target_size", "actual_size", "created_at")
+    list_filter = ("question_set",)
+    search_fields = ("name",)
     ordering = ("-created_at",)
 
 
