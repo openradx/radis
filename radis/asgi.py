@@ -16,8 +16,10 @@ os.environ.setdefault("DJANGO_SETTINGS_MODULE", "radis.settings.development")
 
 # Initialize OpenTelemetry before Django loads to ensure all requests are traced
 from adit_radis_shared.telemetry import setup_opentelemetry  # noqa: E402
+from opentelemetry.instrumentation.django import DjangoInstrumentor  # noqa: E402
+from opentelemetry.instrumentation.psycopg import PsycopgInstrumentor  # noqa: E402
 
-setup_opentelemetry()
+setup_opentelemetry(instrumentors=[DjangoInstrumentor, PsycopgInstrumentor])
 
 from django.core.asgi import get_asgi_application  # noqa: E402
 
