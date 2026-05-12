@@ -2,25 +2,24 @@
 {% load crispy from crispy_forms_tags %}
 {% block title %}
     {% if form.instance.pk %}
-        Update Question
+        Update Question Set
     {% else %}
-        Create Question
+        Create Question Set
     {% endif %}
 {% endblock title %}
 {% block heading %}
-    <c-page-heading title="Labels" />
+    <c-page-heading title="Auto Labels" />
 {% endblock heading %}
 {% block content %}
     <form method="post">
         {% crispy form %}
         <div class="d-flex gap-2">
-            <a href="{% url 'label_group_detail' group.pk %}"
-               class="btn btn-secondary">Cancel</a>
+            <a href="{% url 'question_set_list' %}" class="btn btn-secondary">Cancel</a>
             <button type="submit" class="btn btn-primary">
                 {% if form.instance.pk %}
                     Save Changes
                 {% else %}
-                    Create Question
+                    Create Set
                 {% endif %}
             </button>
         </div>

@@ -36,7 +36,7 @@ def register_app() -> None:
 
     register_main_menu_item(
         MainMenuItem(
-            url_name="label_group_list",
+            url_name="question_set_list",
             label="Auto Labels",
         )
     )

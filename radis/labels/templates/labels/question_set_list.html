@@ -2,14 +2,14 @@
 {% load render_table from django_tables2 %}
 {% load bootstrap_icon from common_extras %}
 {% block title %}
-    Labels
+    Auto Labels
 {% endblock title %}
 {% block heading %}
-    <c-page-heading title="Labels">
+    <c-page-heading title="Auto Labels">
     <c-slot name="right">
-    <a href="{% url 'label_group_create' %}" class="btn btn-primary">
+    <a href="{% url 'question_set_create' %}" class="btn btn-primary">
         {% bootstrap_icon "plus-lg" %}
-        Add Group
+        Add Question Set
     </a>
     </c-slot>
     </c-page-heading>

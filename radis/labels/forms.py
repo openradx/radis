@@ -2,22 +2,16 @@ from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Column, Layout, Row
 from django import forms
 
-from .models import LabelGroup, LabelQuestion
+from .models import Question, QuestionSet
 
 
-class LabelGroupForm(forms.ModelForm):
+class QuestionSetForm(forms.ModelForm):
     class Meta:
-        model = LabelGroup
-        fields = [
-            "name",
-            "description",
-            "is_active",
-            "order",
-        ]
+        model = QuestionSet
+        fields = ["name", "description", "is_active", "order"]
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-
         self.helper = FormHelper()
         self.helper.form_tag = False
         self.helper.layout = Layout(
@@ -28,18 +22,13 @@ class LabelGroupForm(forms.ModelForm):
         )
 
 
-class LabelQuestionForm(forms.ModelForm):
+class QuestionForm(forms.ModelForm):
     class Meta:
-        model = LabelQuestion
-        fields = [
-            "label",
-            "question",
-            "is_active",
-            "order",
-        ]
+        model = Question
+        fields = ["label", "question", "is_active", "order"]
 
     def __init__(self, *args, **kwargs):
-        self.group = kwargs.pop("group", None)
+        self.question_set = kwargs.pop("question_set", None)
         super().__init__(*args, **kwargs)
 
         self.helper = FormHelper()
@@ -55,12 +44,16 @@ class LabelQuestionForm(forms.ModelForm):
 
     def clean_label(self):
         label = self.cleaned_data.get("label", "")
-        if not label or not self.group:
+        if not label or not self.question_set:
             return label
 
-        existing = LabelQuestion.objects.filter(group=self.group, label__iexact=label)
+        existing = Question.objects.filter(
+            question_set=self.question_set, label__iexact=label
+        )
         if self.instance and self.instance.pk:
             existing = existing.exclude(pk=self.instance.pk)
         if existing.exists():
-            raise forms.ValidationError("A question with this label already exists in this group.")
+            raise forms.ValidationError(
+                "A question with this label already exists in this set."
+            )
         return label

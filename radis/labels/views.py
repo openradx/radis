@@ -14,10 +14,16 @@ from django.views import View
 from django.views.generic import CreateView, DeleteView, DetailView, UpdateView
 from django_tables2 import SingleTableView
 
-from .forms import LabelGroupForm, LabelQuestionForm
-from .models import LabelBackfillJob, LabelGroup, LabelQuestion
-from .tables import LabelGroupTable
-from .tasks import enqueue_label_group_backfill
+from .forms import QuestionForm, QuestionSetForm
+from .models import (
+    AnswerOption,
+    BackfillJob,
+    Question,
+    QuestionSet,
+    is_question_set_locked,
+)
+from .tables import QuestionSetTable
+from .tasks import enqueue_question_set_backfill
 
 
 class StaffRequiredMixin(LoginRequiredMixin, UserPassesTestMixin):
@@ -27,138 +33,191 @@ class StaffRequiredMixin(LoginRequiredMixin, UserPassesTestMixin):
         return self.request.user.is_staff
 
 
-class LabelGroupListView(LoginRequiredMixin, SingleTableView):
-    model = LabelGroup
-    table_class = LabelGroupTable
-    template_name = "labels/label_group_list.html"
+class _SetLockGuardMixin:
+    """Reject edits to a question set (or any of its questions/options) while a
+    backfill is in progress for that set. The lock is purely DB-derived from
+    BackfillJob.status so no separate flag can drift.
+    """
+
+    locked_question_set_id: int | None = None
+
+    def _guard_locked(self, request, question_set_id: int) -> HttpResponse | None:
+        if is_question_set_locked(question_set_id):
+            messages.warning(
+                request,
+                "A backfill is running for this question set. Edits are locked "
+                "until it finishes.",
+            )
+            return redirect("question_set_detail", pk=question_set_id)
+        return None
+
+
+class QuestionSetListView(LoginRequiredMixin, SingleTableView):
+    model = QuestionSet
+    table_class = QuestionSetTable
+    template_name = "labels/question_set_list.html"
     paginate_by = 30
     request: AuthenticatedHttpRequest
 
-    def get_queryset(self) -> QuerySet[LabelGroup]:
-        return LabelGroup.objects.all().order_by("order", "name")
+    def get_queryset(self) -> QuerySet[QuestionSet]:
+        return QuestionSet.objects.all().order_by("order", "name")
 
 
-class LabelGroupDetailView(LoginRequiredMixin, DetailView):
-    model = LabelGroup
-    template_name = "labels/label_group_detail.html"
+class QuestionSetDetailView(LoginRequiredMixin, DetailView):
+    model = QuestionSet
+    template_name = "labels/question_set_detail.html"
 
-    def get_queryset(self) -> QuerySet[LabelGroup]:
-        return LabelGroup.objects.prefetch_related(
+    def get_queryset(self) -> QuerySet[QuestionSet]:
+        return QuestionSet.objects.prefetch_related(
             Prefetch(
                 "questions",
-                queryset=LabelQuestion.objects.prefetch_related("choices").order_by(
-                    "order", "label"
-                ),
+                queryset=Question.objects.prefetch_related(
+                    Prefetch("options", queryset=AnswerOption.objects.order_by("order", "label"))
+                ).order_by("order", "label"),
             )
         )
 
     def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
         context = super().get_context_data(**kwargs)
         context["backfill_job"] = (
-            LabelBackfillJob.objects.filter(label_group=self.object).order_by("-created_at").first()
+            BackfillJob.objects.filter(question_set=self.object)
+            .order_by("-created_at")
+            .first()
         )
+        context["is_locked"] = self.object.is_locked
         return context
 
 
-class LabelGroupCreateView(StaffRequiredMixin, CreateView):
-    template_name = "labels/label_group_form.html"
-    form_class = LabelGroupForm
-    success_url = reverse_lazy("label_group_list")
+class QuestionSetCreateView(StaffRequiredMixin, CreateView):
+    template_name = "labels/question_set_form.html"
+    form_class = QuestionSetForm
+    success_url = reverse_lazy("question_set_list")
 
 
-class LabelGroupUpdateView(StaffRequiredMixin, UpdateView):
-    template_name = "labels/label_group_form.html"
-    form_class = LabelGroupForm
-    model = LabelGroup
+class QuestionSetUpdateView(StaffRequiredMixin, _SetLockGuardMixin, UpdateView):
+    template_name = "labels/question_set_form.html"
+    form_class = QuestionSetForm
+    model = QuestionSet
+
+    def dispatch(self, request, *args, **kwargs):
+        guard = self._guard_locked(request, kwargs["pk"])
+        if guard is not None:
+            return guard
+        return super().dispatch(request, *args, **kwargs)
 
     def get_success_url(self) -> str:
-        return reverse("label_group_detail", kwargs={"pk": self.object.pk})
+        return reverse("question_set_detail", kwargs={"pk": self.object.pk})
 
 
-class LabelGroupDeleteView(StaffRequiredMixin, DeleteView):
-    model = LabelGroup
-    success_url = reverse_lazy("label_group_list")
-    template_name = "labels/label_group_confirm_delete.html"
+class QuestionSetDeleteView(StaffRequiredMixin, _SetLockGuardMixin, DeleteView):
+    model = QuestionSet
+    success_url = reverse_lazy("question_set_list")
+    template_name = "labels/question_set_confirm_delete.html"
+
+    def dispatch(self, request, *args, **kwargs):
+        guard = self._guard_locked(request, kwargs["pk"])
+        if guard is not None:
+            return guard
+        return super().dispatch(request, *args, **kwargs)
 
 
-class LabelQuestionCreateView(StaffRequiredMixin, CreateView):
-    template_name = "labels/label_question_form.html"
-    form_class = LabelQuestionForm
-    model = LabelQuestion
+class QuestionCreateView(StaffRequiredMixin, _SetLockGuardMixin, CreateView):
+    template_name = "labels/question_form.html"
+    form_class = QuestionForm
+    model = Question
     request: AuthenticatedHttpRequest
 
     def dispatch(self, request, *args, **kwargs):
-        self.group = LabelGroup.objects.get(pk=kwargs["group_pk"])
+        guard = self._guard_locked(request, kwargs["question_set_pk"])
+        if guard is not None:
+            return guard
+        self.question_set = QuestionSet.objects.get(pk=kwargs["question_set_pk"])
         return super().dispatch(request, *args, **kwargs)
 
     def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
         ctx = super().get_context_data(**kwargs)
-        ctx["group"] = self.group
+        ctx["question_set"] = self.question_set
         return ctx
 
     def get_form_kwargs(self) -> dict[str, Any]:
         kwargs = super().get_form_kwargs()
-        kwargs["group"] = self.group
+        kwargs["question_set"] = self.question_set
         return kwargs
 
     def form_valid(self, form) -> HttpResponse:
-        form.instance.group = self.group
+        form.instance.question_set = self.question_set
         self.object = form.save()
         return HttpResponseRedirect(self.get_success_url())
 
     def get_success_url(self) -> str:
-        return reverse("label_group_detail", kwargs={"pk": self.group.pk})
+        return reverse("question_set_detail", kwargs={"pk": self.question_set.pk})
 
 
-class LabelQuestionUpdateView(StaffRequiredMixin, UpdateView):
-    template_name = "labels/label_question_form.html"
-    form_class = LabelQuestionForm
-    model = LabelQuestion
+class QuestionUpdateView(StaffRequiredMixin, _SetLockGuardMixin, UpdateView):
+    template_name = "labels/question_form.html"
+    form_class = QuestionForm
+    model = Question
     request: AuthenticatedHttpRequest
 
     def dispatch(self, request, *args, **kwargs):
-        self.group = LabelGroup.objects.get(pk=kwargs["group_pk"])
+        guard = self._guard_locked(request, kwargs["question_set_pk"])
+        if guard is not None:
+            return guard
+        self.question_set = QuestionSet.objects.get(pk=kwargs["question_set_pk"])
         return super().dispatch(request, *args, **kwargs)
 
-    def get_queryset(self) -> QuerySet[LabelQuestion]:
-        return LabelQuestion.objects.filter(group=self.group).prefetch_related("choices")
+    def get_queryset(self) -> QuerySet[Question]:
+        return Question.objects.filter(question_set=self.question_set).prefetch_related(
+            "options"
+        )
 
     def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
         ctx = super().get_context_data(**kwargs)
-        ctx["group"] = self.group
+        ctx["question_set"] = self.question_set
         return ctx
 
     def get_form_kwargs(self) -> dict[str, Any]:
         kwargs = super().get_form_kwargs()
-        kwargs["group"] = self.group
+        kwargs["question_set"] = self.question_set
         return kwargs
 
     def form_valid(self, form) -> HttpResponse:
-        self.object = form.save()
+        # An edit to label/question text invalidates older answers, so bump
+        # the version. Old answers retain their snapshot of the prior version
+        # and remain attributable.
+        instance = form.save(commit=False)
+        original = Question.objects.get(pk=instance.pk)
+        if (instance.label != original.label) or (instance.question != original.question):
+            instance.version = original.version + 1
+        instance.save()
+        self.object = instance
         return HttpResponseRedirect(self.get_success_url())
 
     def get_success_url(self) -> str:
-        return reverse("label_group_detail", kwargs={"pk": self.group.pk})
+        return reverse("question_set_detail", kwargs={"pk": self.question_set.pk})
 
 
-class LabelQuestionDeleteView(StaffRequiredMixin, DeleteView):
-    model = LabelQuestion
-    template_name = "labels/label_question_confirm_delete.html"
+class QuestionDeleteView(StaffRequiredMixin, _SetLockGuardMixin, DeleteView):
+    model = Question
+    template_name = "labels/question_confirm_delete.html"
 
     def dispatch(self, request, *args, **kwargs):
-        self.group = LabelGroup.objects.get(pk=kwargs["group_pk"])
+        guard = self._guard_locked(request, kwargs["question_set_pk"])
+        if guard is not None:
+            return guard
+        self.question_set = QuestionSet.objects.get(pk=kwargs["question_set_pk"])
         return super().dispatch(request, *args, **kwargs)
 
-    def get_queryset(self) -> QuerySet[LabelQuestion]:
-        return LabelQuestion.objects.filter(group=self.group)
+    def get_queryset(self) -> QuerySet[Question]:
+        return Question.objects.filter(question_set=self.question_set)
 
     def get_success_url(self) -> str:
-        return reverse("label_group_detail", kwargs={"pk": self.group.pk})
+        return reverse("question_set_detail", kwargs={"pk": self.question_set.pk})
 
 
-class LabelBackfillCancelView(StaffRequiredMixin, View):
+class BackfillCancelView(StaffRequiredMixin, View):
     def post(self, request: AuthenticatedHttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
-        backfill_job = get_object_or_404(LabelBackfillJob, pk=kwargs["pk"])
+        backfill_job = get_object_or_404(BackfillJob, pk=kwargs["pk"])
 
         if not backfill_job.is_cancelable:
             raise SuspiciousOperation(
@@ -168,33 +227,30 @@ class LabelBackfillCancelView(StaffRequiredMixin, View):
 
         # Snapshot how much work was done before the cancel so the progress
         # display freezes at that point instead of showing 0%.
-        remaining = backfill_job.label_group.missing_reports().count()
+        remaining = backfill_job.question_set.missing_reports().count()
         processed_at_cancel = max(backfill_job.total_reports - remaining, 0)
 
         # Conditional UPDATE: if a worker has already finalized the job, the
         # cancel quietly no-ops rather than fighting the terminal state.
-        LabelBackfillJob.objects.filter(
+        BackfillJob.objects.filter(
             pk=backfill_job.pk,
-            status__in=[
-                LabelBackfillJob.Status.PENDING,
-                LabelBackfillJob.Status.IN_PROGRESS,
-            ],
+            status__in=[BackfillJob.Status.PENDING, BackfillJob.Status.IN_PROGRESS],
         ).update(
-            status=LabelBackfillJob.Status.CANCELED,
+            status=BackfillJob.Status.CANCELED,
             ended_at=timezone.now(),
             processed_reports=processed_at_cancel,
         )
 
         messages.success(
             request,
-            f"Backfill for {backfill_job.label_group.name} canceled.",
+            f"Backfill for {backfill_job.question_set.name} canceled.",
         )
-        return redirect("label_group_detail", pk=backfill_job.label_group_id)
+        return redirect("question_set_detail", pk=backfill_job.question_set_id)
 
 
-class LabelBackfillRetryView(StaffRequiredMixin, View):
+class BackfillRetryView(StaffRequiredMixin, View):
     def post(self, request: AuthenticatedHttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
-        backfill_job = get_object_or_404(LabelBackfillJob, pk=kwargs["pk"])
+        backfill_job = get_object_or_404(BackfillJob, pk=kwargs["pk"])
 
         if not backfill_job.is_retryable:
             raise SuspiciousOperation(
@@ -202,16 +258,10 @@ class LabelBackfillRetryView(StaffRequiredMixin, View):
                 f"{backfill_job.get_status_display()} cannot be retried."
             )
 
-        # If another backfill for the same group is already active, retrying
-        # this one would just duplicate work — the active backfill's coordinator
-        # already picks up missing reports.
         active_exists = (
-            LabelBackfillJob.objects.filter(
-                label_group_id=backfill_job.label_group_id,
-                status__in=[
-                    LabelBackfillJob.Status.PENDING,
-                    LabelBackfillJob.Status.IN_PROGRESS,
-                ],
+            BackfillJob.objects.filter(
+                question_set_id=backfill_job.question_set_id,
+                status__in=[BackfillJob.Status.PENDING, BackfillJob.Status.IN_PROGRESS],
             )
             .exclude(pk=backfill_job.pk)
             .exists()
@@ -219,26 +269,26 @@ class LabelBackfillRetryView(StaffRequiredMixin, View):
         if active_exists:
             messages.info(
                 request,
-                f"Another backfill for {backfill_job.label_group.name} is already in "
+                f"Another backfill for {backfill_job.question_set.name} is already in "
                 "progress; it will pick up any missing labels.",
             )
-            return redirect("label_group_detail", pk=backfill_job.label_group_id)
+            return redirect("question_set_detail", pk=backfill_job.question_set_id)
 
-        backfill_job.status = LabelBackfillJob.Status.PENDING
+        backfill_job.status = BackfillJob.Status.PENDING
         backfill_job.message = ""
         backfill_job.started_at = None
         backfill_job.ended_at = None
         backfill_job.save()
 
         transaction.on_commit(
-            lambda: enqueue_label_group_backfill.defer(
-                label_group_id=backfill_job.label_group_id,
+            lambda: enqueue_question_set_backfill.defer(
+                question_set_id=backfill_job.question_set_id,
                 backfill_job_id=backfill_job.id,
             )
         )
 
         messages.success(
             request,
-            f"Retrying backfill for {backfill_job.label_group.name}.",
+            f"Retrying backfill for {backfill_job.question_set.name}.",
         )
-        return redirect("label_group_detail", pk=backfill_job.label_group_id)
+        return redirect("question_set_detail", pk=backfill_job.question_set_id)

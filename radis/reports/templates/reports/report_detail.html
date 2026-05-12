@@ -68,39 +68,39 @@
             </tbody>
         </table>
     {% endif %}
-    {% if report.labels.exists %}
+    {% if report.answers.exists %}
         <div class="card mb-3">
             <div class="card-body">
                 <h5 class="card-title">Labels</h5>
                 <table class="table table-sm table-borderless w-auto mb-0 definition-table">
                     <tbody>
-                        {% for label in report.labels.all %}
+                        {% for answer in report.answers.all %}
                             <tr>
                                 <th class="pe-3">
-                                    {{ label.question.group.name }} - {{ label.question.label }}
+                                    {{ answer.question.question_set.name }} - {{ answer.question.label }}
                                 </th>
-                                <td class="pe-3">{{ label.choice.label }}</td>
+                                <td class="pe-3">{{ answer.option.label }}</td>
                                 <td class="text-muted">
-                                    {% if label.confidence is not None %}
-                                        {{ label.confidence|floatformat:2 }}
+                                    {% if answer.confidence is not None %}
+                                        {{ answer.confidence|floatformat:2 }}
                                     {% else %}
                                         n/a
                                     {% endif %}
                                 </td>
                             </tr>
-                            {% if label.rationale %}
+                            {% if answer.rationale %}
                                 <tr>
                                     <td></td>
                                     <td colspan="2" class="text-muted small">
-                                        {{ label.rationale }}
+                                        {{ answer.rationale }}
                                     </td>
                                 </tr>
                             {% endif %}
-                            {% if label.question.question %}
+                            {% if answer.question.question %}
                                 <tr>
                                     <td></td>
                                     <td colspan="2" class="text-muted small">
-                                        Prompt: {{ label.question.question }}
+                                        Prompt: {{ answer.question.question }}
                                     </td>
                                 </tr>
                             {% endif %}

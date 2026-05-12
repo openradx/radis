@@ -3,42 +3,42 @@ from django.urls import path
 from . import views
 
 urlpatterns = [
-    path("", views.LabelGroupListView.as_view(), name="label_group_list"),
-    path("create/", views.LabelGroupCreateView.as_view(), name="label_group_create"),
-    path("<int:pk>/", views.LabelGroupDetailView.as_view(), name="label_group_detail"),
+    path("", views.QuestionSetListView.as_view(), name="question_set_list"),
+    path("create/", views.QuestionSetCreateView.as_view(), name="question_set_create"),
+    path("<int:pk>/", views.QuestionSetDetailView.as_view(), name="question_set_detail"),
     path(
         "<int:pk>/update/",
-        views.LabelGroupUpdateView.as_view(),
-        name="label_group_update",
+        views.QuestionSetUpdateView.as_view(),
+        name="question_set_update",
     ),
     path(
         "<int:pk>/delete/",
-        views.LabelGroupDeleteView.as_view(),
-        name="label_group_delete",
+        views.QuestionSetDeleteView.as_view(),
+        name="question_set_delete",
     ),
     path(
-        "<int:group_pk>/questions/create/",
-        views.LabelQuestionCreateView.as_view(),
-        name="label_question_create",
+        "<int:question_set_pk>/questions/create/",
+        views.QuestionCreateView.as_view(),
+        name="question_create",
     ),
     path(
-        "<int:group_pk>/questions/<int:pk>/update/",
-        views.LabelQuestionUpdateView.as_view(),
-        name="label_question_update",
+        "<int:question_set_pk>/questions/<int:pk>/update/",
+        views.QuestionUpdateView.as_view(),
+        name="question_update",
     ),
     path(
-        "<int:group_pk>/questions/<int:pk>/delete/",
-        views.LabelQuestionDeleteView.as_view(),
-        name="label_question_delete",
+        "<int:question_set_pk>/questions/<int:pk>/delete/",
+        views.QuestionDeleteView.as_view(),
+        name="question_delete",
     ),
     path(
         "backfill/<int:pk>/cancel/",
-        views.LabelBackfillCancelView.as_view(),
-        name="label_backfill_cancel",
+        views.BackfillCancelView.as_view(),
+        name="backfill_cancel",
     ),
     path(
         "backfill/<int:pk>/retry/",
-        views.LabelBackfillRetryView.as_view(),
-        name="label_backfill_retry",
+        views.BackfillRetryView.as_view(),
+        name="backfill_retry",
     ),
 ]

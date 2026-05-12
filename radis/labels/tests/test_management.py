@@ -4,13 +4,13 @@ from pathlib import Path
 import pytest
 from django.core.management import call_command
 
-from radis.labels.models import LabelChoice, LabelGroup, LabelQuestion
+from radis.labels.models import AnswerOption, Question, QuestionSet
 
 
 @pytest.mark.django_db
 def test_labels_seed_command_creates_objects(tmp_path: Path):
     payload = {
-        "groups": [
+        "question_sets": [
             {
                 "name": "Embolism",
                 "questions": [
@@ -27,11 +27,11 @@ def test_labels_seed_command_creates_objects(tmp_path: Path):
 
     call_command("labels_seed", file=str(seed_file))
 
-    group = LabelGroup.objects.get(name="Embolism")
-    question = LabelQuestion.objects.get(group=group, label="Pulmonary embolism")
-    choices = LabelChoice.objects.filter(question=question)
+    question_set = QuestionSet.objects.get(name="Embolism")
+    question = Question.objects.get(question_set=question_set, label="Pulmonary embolism")
+    options = AnswerOption.objects.filter(question=question)
 
-    assert group.name == "Embolism"
+    assert question_set.name == "Embolism"
     assert question.question == "Pulmonary embolism present?"
-    assert choices.count() == 3
-    assert choices.filter(value="cannot_decide", is_unknown=True).exists()
+    assert options.count() == 3
+    assert options.filter(value="cannot_decide", is_unknown=True).exists()

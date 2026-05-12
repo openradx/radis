@@ -4,7 +4,13 @@ import pytest
 from adit_radis_shared.accounts.factories import UserFactory
 from django.test import Client
 
-from radis.labels.models import LabelBackfillJob, LabelGroup, LabelQuestion, ReportLabel
+from radis.labels.models import (
+    Answer,
+    BackfillJob,
+    LabelingRun,
+    Question,
+    QuestionSet,
+)
 from radis.labels.tasks import _maybe_finalize
 from radis.reports.models import Language, Report
 
@@ -22,113 +28,121 @@ def _make_report(document_id: str = "doc-1") -> Report:
     )
 
 
-def _make_question(group: LabelGroup, label: str) -> LabelQuestion:
-    """Create a question and its default 'unknown' choice for label assignment."""
-    with patch("radis.labels.signals.enqueue_label_group_backfill"):
-        question = LabelQuestion.objects.create(group=group, label=label)
+def _make_question(question_set: QuestionSet, label: str) -> Question:
+    """Create a question (signal auto-creates the default answer options)."""
+    with patch("radis.labels.signals.enqueue_question_set_backfill"):
+        question = Question.objects.create(question_set=question_set, label=label)
     return question
 
 
-def _label_report_for_question(report: Report, question: LabelQuestion) -> ReportLabel:
-    """Persist a ReportLabel using the question's first choice."""
-    choice = question.choices.first()
-    assert choice is not None, "Default choices should be created by signal"
-    return ReportLabel.objects.create(report=report, question=question, choice=choice)
+def _record_direct_run(report: Report, question_set: QuestionSet) -> LabelingRun:
+    """Create a successful DIRECT-mode run + answers for every active question.
+
+    This is the "report is fully labelled for this set" condition used
+    throughout the missing-reports / finalize logic.
+    """
+    run = LabelingRun.objects.create(
+        report=report,
+        question_set=question_set,
+        mode=LabelingRun.Mode.DIRECT,
+        status=LabelingRun.Status.SUCCESS,
+    )
+    for question in question_set.questions.filter(is_active=True):
+        option = question.options.first()
+        assert option is not None, "Default options should be created by signal"
+        Answer.objects.create(
+            run=run,
+            report=report,
+            question=question,
+            question_version=question.version,
+            option=option,
+        )
+    return run
+
 
 # -- Model tests --
 
 
 @pytest.mark.django_db
-class TestLabelBackfillJobModel:
-    def _create_job(self, **kwargs) -> LabelBackfillJob:
-        group = LabelGroup.objects.create(name="Findings")
-        defaults = {"label_group": group}
+class TestBackfillJobModel:
+    def _create_job(self, **kwargs) -> BackfillJob:
+        question_set = QuestionSet.objects.create(name="Findings")
+        defaults = {"question_set": question_set}
         defaults.update(kwargs)
-        return LabelBackfillJob.objects.create(**defaults)
+        return BackfillJob.objects.create(**defaults)
 
     def test_default_status_is_pending(self):
         job = self._create_job()
-        assert job.status == LabelBackfillJob.Status.PENDING
+        assert job.status == BackfillJob.Status.PENDING
 
     def test_str(self):
         job = self._create_job()
-        assert str(job) == f"LabelBackfillJob [{job.pk}]"
+        assert str(job) == f"BackfillJob [{job.pk}]"
 
     def test_is_cancelable_pending(self):
-        job = self._create_job(status=LabelBackfillJob.Status.PENDING)
+        job = self._create_job(status=BackfillJob.Status.PENDING)
         assert job.is_cancelable is True
 
     def test_is_cancelable_in_progress(self):
-        job = self._create_job(status=LabelBackfillJob.Status.IN_PROGRESS)
+        job = self._create_job(status=BackfillJob.Status.IN_PROGRESS)
         assert job.is_cancelable is True
 
     def test_is_not_cancelable_success(self):
-        job = self._create_job(status=LabelBackfillJob.Status.SUCCESS)
+        job = self._create_job(status=BackfillJob.Status.SUCCESS)
         assert job.is_cancelable is False
 
     def test_is_not_cancelable_canceled(self):
-        job = self._create_job(status=LabelBackfillJob.Status.CANCELED)
-        assert job.is_cancelable is False
-
-    def test_is_not_cancelable_canceling(self):
-        job = self._create_job(status=LabelBackfillJob.Status.CANCELING)
+        job = self._create_job(status=BackfillJob.Status.CANCELED)
         assert job.is_cancelable is False
 
     def test_is_not_cancelable_failure(self):
-        job = self._create_job(status=LabelBackfillJob.Status.FAILURE)
+        job = self._create_job(status=BackfillJob.Status.FAILURE)
         assert job.is_cancelable is False
 
     def test_is_active_pending(self):
-        job = self._create_job(status=LabelBackfillJob.Status.PENDING)
+        job = self._create_job(status=BackfillJob.Status.PENDING)
         assert job.is_active is True
 
     def test_is_active_in_progress(self):
-        job = self._create_job(status=LabelBackfillJob.Status.IN_PROGRESS)
+        job = self._create_job(status=BackfillJob.Status.IN_PROGRESS)
         assert job.is_active is True
 
     def test_is_not_active_terminal_states(self):
         for status in [
-            LabelBackfillJob.Status.SUCCESS,
-            LabelBackfillJob.Status.FAILURE,
-            LabelBackfillJob.Status.CANCELED,
-            LabelBackfillJob.Status.CANCELING,
+            BackfillJob.Status.SUCCESS,
+            BackfillJob.Status.FAILURE,
+            BackfillJob.Status.CANCELED,
         ]:
             job = self._create_job(status=status)
             assert job.is_active is False, f"Expected is_active=False for status={status}"
 
     def test_is_retryable_for_terminal_states(self):
         for status in [
-            LabelBackfillJob.Status.FAILURE,
-            LabelBackfillJob.Status.CANCELED,
-            LabelBackfillJob.Status.SUCCESS,
+            BackfillJob.Status.FAILURE,
+            BackfillJob.Status.CANCELED,
+            BackfillJob.Status.SUCCESS,
         ]:
             job = self._create_job(status=status)
             assert job.is_retryable is True, f"Expected is_retryable=True for status={status}"
 
     def test_is_not_retryable_for_active_states(self):
-        for status in [
-            LabelBackfillJob.Status.PENDING,
-            LabelBackfillJob.Status.IN_PROGRESS,
-            LabelBackfillJob.Status.CANCELING,
-        ]:
+        for status in [BackfillJob.Status.PENDING, BackfillJob.Status.IN_PROGRESS]:
             job = self._create_job(status=status)
             assert job.is_retryable is False, f"Expected is_retryable=False for status={status}"
 
     def test_progress_percent_zero_total(self):
-        # Use SUCCESS so processed_count returns the snapshot, not derived live
         job = self._create_job(
             total_reports=0,
             processed_reports=0,
-            status=LabelBackfillJob.Status.SUCCESS,
+            status=BackfillJob.Status.SUCCESS,
         )
         assert job.progress_percent == 0
 
     def test_progress_percent_terminal_uses_snapshot(self):
-        # Terminal jobs trust the processed_reports snapshot
         job = self._create_job(
             total_reports=200,
             processed_reports=50,
-            status=LabelBackfillJob.Status.CANCELED,
+            status=BackfillJob.Status.CANCELED,
         )
         assert job.progress_percent == 25
 
@@ -136,7 +150,7 @@ class TestLabelBackfillJobModel:
         job = self._create_job(
             total_reports=100,
             processed_reports=100,
-            status=LabelBackfillJob.Status.SUCCESS,
+            status=BackfillJob.Status.SUCCESS,
         )
         assert job.progress_percent == 100
 
@@ -144,42 +158,41 @@ class TestLabelBackfillJobModel:
         job = self._create_job(
             total_reports=100,
             processed_reports=150,
-            status=LabelBackfillJob.Status.SUCCESS,
+            status=BackfillJob.Status.SUCCESS,
         )
         assert job.progress_percent == 100
 
     def test_progress_percent_active_derives_live(self):
-        # Active jobs ignore the (now-zero) snapshot and derive from missing_reports
-        group = LabelGroup.objects.create(name="LiveProgress")
-        question = _make_question(group, "Q1")
+        question_set = QuestionSet.objects.create(name="LiveProgress")
+        _make_question(question_set, "Q1")
         labelled = _make_report("doc-1")
         _make_report("doc-2")
-        _label_report_for_question(labelled, question)
+        _record_direct_run(labelled, question_set)
 
-        job = LabelBackfillJob.objects.create(
-            label_group=group,
-            status=LabelBackfillJob.Status.IN_PROGRESS,
+        job = BackfillJob.objects.create(
+            question_set=question_set,
+            status=BackfillJob.Status.IN_PROGRESS,
             total_reports=2,
             processed_reports=0,
         )
-        # 1 of 2 reports has labels for all active questions => 50%
+        # 1 of 2 reports has DIRECT runs => 50%
         assert job.processed_count == 1
         assert job.progress_percent == 50
 
     def test_ordering_by_created_at_descending(self):
-        group = LabelGroup.objects.create(name="TestGroup")
-        job1 = LabelBackfillJob.objects.create(label_group=group)
-        job2 = LabelBackfillJob.objects.create(label_group=group)
-        jobs = list(LabelBackfillJob.objects.all())
+        question_set = QuestionSet.objects.create(name="TestSet")
+        job1 = BackfillJob.objects.create(question_set=question_set)
+        job2 = BackfillJob.objects.create(question_set=question_set)
+        jobs = list(BackfillJob.objects.all())
         assert jobs[0] == job2
         assert jobs[1] == job1
 
-    def test_cascade_delete_with_group(self):
-        group = LabelGroup.objects.create(name="DeleteMe")
-        LabelBackfillJob.objects.create(label_group=group)
-        assert LabelBackfillJob.objects.count() == 1
-        group.delete()
-        assert LabelBackfillJob.objects.count() == 0
+    def test_cascade_delete_with_set(self):
+        question_set = QuestionSet.objects.create(name="DeleteMe")
+        BackfillJob.objects.create(question_set=question_set)
+        assert BackfillJob.objects.count() == 1
+        question_set.delete()
+        assert BackfillJob.objects.count() == 0
 
 
 # -- Signal dedup tests --
@@ -187,127 +200,129 @@ class TestLabelBackfillJobModel:
 
 @pytest.mark.django_db
 class TestSignalDedup:
-    @patch("radis.labels.signals.enqueue_label_group_backfill")
+    @patch("radis.labels.signals.enqueue_question_set_backfill")
     def test_creating_question_creates_backfill_job(self, mock_task):
         mock_task.defer = lambda **kw: None
-        group = LabelGroup.objects.create(name="Findings")
-        LabelQuestion.objects.create(group=group, label="PE present?")
+        question_set = QuestionSet.objects.create(name="Findings")
+        Question.objects.create(question_set=question_set, label="PE present?")
 
-        assert LabelBackfillJob.objects.filter(label_group=group).count() == 1
+        assert BackfillJob.objects.filter(question_set=question_set).count() == 1
 
-    @patch("radis.labels.signals.enqueue_label_group_backfill")
+    @patch("radis.labels.signals.enqueue_question_set_backfill")
     def test_second_question_skips_backfill_when_active(self, mock_task):
         mock_task.defer = lambda **kw: None
-        group = LabelGroup.objects.create(name="Findings")
-        LabelQuestion.objects.create(group=group, label="PE present?")
-        LabelQuestion.objects.create(group=group, label="Pneumonia present?")
+        question_set = QuestionSet.objects.create(name="Findings")
+        Question.objects.create(question_set=question_set, label="PE present?")
+        Question.objects.create(question_set=question_set, label="Pneumonia present?")
 
-        # Only one backfill job should exist
-        assert LabelBackfillJob.objects.filter(label_group=group).count() == 1
+        assert BackfillJob.objects.filter(question_set=question_set).count() == 1
 
-    @patch("radis.labels.signals.enqueue_label_group_backfill")
+    @patch("radis.labels.signals.enqueue_question_set_backfill")
     def test_new_question_after_completed_backfill_creates_new_job(self, mock_task):
         mock_task.defer = lambda **kw: None
-        group = LabelGroup.objects.create(name="Findings")
-        LabelQuestion.objects.create(group=group, label="PE present?")
+        question_set = QuestionSet.objects.create(name="Findings")
+        Question.objects.create(question_set=question_set, label="PE present?")
 
-        # Simulate first backfill completing
-        job = LabelBackfillJob.objects.get(label_group=group)
-        job.status = LabelBackfillJob.Status.SUCCESS
+        job = BackfillJob.objects.get(question_set=question_set)
+        job.status = BackfillJob.Status.SUCCESS
         job.save()
 
-        LabelQuestion.objects.create(group=group, label="Pneumonia present?")
-        assert LabelBackfillJob.objects.filter(label_group=group).count() == 2
+        Question.objects.create(question_set=question_set, label="Pneumonia present?")
+        assert BackfillJob.objects.filter(question_set=question_set).count() == 2
 
-    @patch("radis.labels.signals.enqueue_label_group_backfill")
+    @patch("radis.labels.signals.enqueue_question_set_backfill")
     def test_inactive_question_does_not_trigger_backfill(self, mock_task):
         mock_task.defer = lambda **kw: None
-        group = LabelGroup.objects.create(name="Findings")
-        LabelQuestion.objects.create(group=group, label="Draft Q", is_active=False)
+        question_set = QuestionSet.objects.create(name="Findings")
+        Question.objects.create(
+            question_set=question_set, label="Draft Q", is_active=False
+        )
 
-        assert LabelBackfillJob.objects.filter(label_group=group).count() == 0
+        assert BackfillJob.objects.filter(question_set=question_set).count() == 0
 
-    @patch("radis.labels.signals.enqueue_label_group_backfill")
+    @patch("radis.labels.signals.enqueue_question_set_backfill")
     def test_updating_question_does_not_trigger_backfill(self, mock_task):
         mock_task.defer = lambda **kw: None
-        group = LabelGroup.objects.create(name="Findings")
-        question = LabelQuestion.objects.create(group=group, label="PE present?")
+        question_set = QuestionSet.objects.create(name="Findings")
+        question = Question.objects.create(question_set=question_set, label="PE present?")
 
-        # Clear the job created by the initial create
-        LabelBackfillJob.objects.all().delete()
+        BackfillJob.objects.all().delete()
 
         question.label = "Updated label"
         question.save()
-        assert LabelBackfillJob.objects.filter(label_group=group).count() == 0
+        assert BackfillJob.objects.filter(question_set=question_set).count() == 0
 
-    @patch("radis.labels.signals.enqueue_label_group_backfill")
+    @patch("radis.labels.signals.enqueue_question_set_backfill")
     @pytest.mark.django_db(transaction=True)
-    def test_dedup_across_different_groups(self, mock_task):
+    def test_dedup_across_different_sets(self, mock_task):
         mock_task.defer = lambda **kw: None
-        group1 = LabelGroup.objects.create(name="Group A")
-        group2 = LabelGroup.objects.create(name="Group B")
+        set_a = QuestionSet.objects.create(name="Set A")
+        set_b = QuestionSet.objects.create(name="Set B")
 
-        LabelQuestion.objects.create(group=group1, label="Q1")
-        LabelQuestion.objects.create(group=group2, label="Q2")
+        Question.objects.create(question_set=set_a, label="Q1")
+        Question.objects.create(question_set=set_b, label="Q2")
 
-        # Each group should get its own backfill
-        assert LabelBackfillJob.objects.filter(label_group=group1).count() == 1
-        assert LabelBackfillJob.objects.filter(label_group=group2).count() == 1
+        assert BackfillJob.objects.filter(question_set=set_a).count() == 1
+        assert BackfillJob.objects.filter(question_set=set_b).count() == 1
 
 
-# -- LabelGroup.missing_reports tests --
+# -- QuestionSet.missing_reports tests --
 
 
 @pytest.mark.django_db
-class TestLabelGroupMissingReports:
-    def test_empty_group_returns_no_missing_reports(self):
-        # No active questions => nothing the system can label => empty result
-        group = LabelGroup.objects.create(name="EmptyGroup")
+class TestQuestionSetMissingReports:
+    def test_empty_set_returns_no_missing_reports(self):
+        question_set = QuestionSet.objects.create(name="EmptySet")
         _make_report("doc-1")
-        assert list(group.missing_reports()) == []
+        assert list(question_set.missing_reports()) == []
 
     def test_unlabelled_report_is_missing(self):
-        group = LabelGroup.objects.create(name="G")
-        _make_question(group, "Q1")
+        question_set = QuestionSet.objects.create(name="S")
+        _make_question(question_set, "Q1")
         report = _make_report("doc-1")
-        assert list(group.missing_reports()) == [report]
+        assert list(question_set.missing_reports()) == [report]
 
     def test_fully_labelled_report_is_not_missing(self):
-        group = LabelGroup.objects.create(name="G")
-        question = _make_question(group, "Q1")
+        question_set = QuestionSet.objects.create(name="S")
+        _make_question(question_set, "Q1")
         report = _make_report("doc-1")
-        _label_report_for_question(report, question)
-        assert list(group.missing_reports()) == []
+        _record_direct_run(report, question_set)
+        assert list(question_set.missing_reports()) == []
 
-    def test_partially_labelled_report_is_missing(self):
-        group = LabelGroup.objects.create(name="G")
-        q1 = _make_question(group, "Q1")
-        _make_question(group, "Q2")
+    def test_report_without_run_is_missing_even_with_other_set_runs(self):
+        set_a = QuestionSet.objects.create(name="SetA")
+        _make_question(set_a, "QA")
+        set_b = QuestionSet.objects.create(name="SetB")
+        _make_question(set_b, "QB")
         report = _make_report("doc-1")
-        _label_report_for_question(report, q1)
-        # Has a label for Q1 but not Q2 => still missing
-        assert list(group.missing_reports()) == [report]
+        _record_direct_run(report, set_a)
+        assert list(set_b.missing_reports()) == [report]
 
     def test_inactive_questions_do_not_count_toward_completion(self):
-        group = LabelGroup.objects.create(name="G")
-        active_q = _make_question(group, "Q1")
-        # Create an inactive question that has no labels — should not affect missing
-        with patch("radis.labels.signals.enqueue_label_group_backfill"):
-            LabelQuestion.objects.create(group=group, label="QInactive", is_active=False)
+        question_set = QuestionSet.objects.create(name="S")
+        active_q = _make_question(question_set, "Q1")
+        with patch("radis.labels.signals.enqueue_question_set_backfill"):
+            Question.objects.create(
+                question_set=question_set, label="QInactive", is_active=False
+            )
         report = _make_report("doc-1")
-        _label_report_for_question(report, active_q)
-        # Only the active question matters; report is fully labelled wrt active questions
-        assert list(group.missing_reports()) == []
-
-    def test_label_for_other_group_does_not_count(self):
-        group_a = LabelGroup.objects.create(name="GroupA")
-        question_a = _make_question(group_a, "QA")
-        group_b = LabelGroup.objects.create(name="GroupB")
-        _make_question(group_b, "QB")
-        report = _make_report("doc-1")
-        # Label exists for group A, not group B => report still missing for group B
-        _label_report_for_question(report, question_a)
-        assert list(group_b.missing_reports()) == [report]
+        # Run for active questions only.
+        run = LabelingRun.objects.create(
+            report=report,
+            question_set=question_set,
+            mode=LabelingRun.Mode.DIRECT,
+            status=LabelingRun.Status.SUCCESS,
+        )
+        option = active_q.options.first()
+        assert option is not None
+        Answer.objects.create(
+            run=run,
+            report=report,
+            question=active_q,
+            question_version=active_q.version,
+            option=option,
+        )
+        assert list(question_set.missing_reports()) == []
 
 
 # -- _maybe_finalize tests --
@@ -318,97 +333,87 @@ class TestMaybeFinalize:
     def _setup_in_progress(
         self,
         with_question: bool = True,
-        status=LabelBackfillJob.Status.IN_PROGRESS,
+        status=BackfillJob.Status.IN_PROGRESS,
         total: int = 100,
-    ) -> tuple[LabelBackfillJob, LabelGroup]:
-        group = LabelGroup.objects.create(name="G")
+    ) -> tuple[BackfillJob, QuestionSet]:
+        question_set = QuestionSet.objects.create(name="S")
         if with_question:
-            _make_question(group, "Q1")
-        job = LabelBackfillJob.objects.create(
-            label_group=group,
+            _make_question(question_set, "Q1")
+        job = BackfillJob.objects.create(
+            question_set=question_set,
             status=status,
             total_reports=total,
             processed_reports=0,
         )
-        return job, group
+        return job, question_set
 
     def test_noop_for_terminal_status(self):
         job, _ = self._setup_in_progress(
-            with_question=False, status=LabelBackfillJob.Status.SUCCESS
+            with_question=False, status=BackfillJob.Status.SUCCESS
         )
         _maybe_finalize(job.id)
         job.refresh_from_db()
-        assert job.status == LabelBackfillJob.Status.SUCCESS
+        assert job.status == BackfillJob.Status.SUCCESS
         assert job.ended_at is None
 
     def test_noop_when_missing_reports_remain(self):
         job, _ = self._setup_in_progress(with_question=True)
-        _make_report("doc-1")  # unlabelled => missing
+        _make_report("doc-1")
         _maybe_finalize(job.id)
         job.refresh_from_db()
-        assert job.status == LabelBackfillJob.Status.IN_PROGRESS
+        assert job.status == BackfillJob.Status.IN_PROGRESS
         assert job.ended_at is None
 
     def test_finalizes_to_success_when_no_missing_reports(self):
-        job, group = self._setup_in_progress(with_question=True)
-        question = group.questions.first()
-        assert question is not None
+        job, question_set = self._setup_in_progress(with_question=True)
         report = _make_report("doc-1")
-        _label_report_for_question(report, question)
+        _record_direct_run(report, question_set)
         _maybe_finalize(job.id)
         job.refresh_from_db()
-        assert job.status == LabelBackfillJob.Status.SUCCESS
+        assert job.status == BackfillJob.Status.SUCCESS
         assert job.ended_at is not None
         assert job.processed_reports == job.total_reports
 
     def test_does_not_finalize_canceled_job(self):
-        # Cancellation is finalized synchronously by the cancel view; the worker
-        # helper must not re-finalize a job already in a terminal state.
         job, _ = self._setup_in_progress(
-            with_question=False, status=LabelBackfillJob.Status.CANCELED
+            with_question=False, status=BackfillJob.Status.CANCELED
         )
         _maybe_finalize(job.id)
         job.refresh_from_db()
-        assert job.status == LabelBackfillJob.Status.CANCELED
+        assert job.status == BackfillJob.Status.CANCELED
 
     def test_handles_missing_job_gracefully(self):
-        # Should not raise
         _maybe_finalize(99999)
 
     def test_concurrent_cancel_is_not_overwritten(self):
         """If a concurrent cancel flips status to CANCELED, finalize must no-op."""
-        job, _ = self._setup_in_progress(with_question=False)  # no work, can finalize
+        job, _ = self._setup_in_progress(with_question=False)
 
-        # Patch the in-memory read so the helper sees IN_PROGRESS,
-        # then the DB row transitions to CANCELED before the UPDATE fires.
-        original_get = LabelBackfillJob.objects.get
+        original_get = BackfillJob.objects.get
 
         def get_then_cancel(*args, **kwargs):
             job_obj = original_get(*args, **kwargs)
-            # Simulate a concurrent cancel write hitting the DB.
-            LabelBackfillJob.objects.filter(id=job_obj.id).update(
-                status=LabelBackfillJob.Status.CANCELED
+            BackfillJob.objects.filter(id=job_obj.id).update(
+                status=BackfillJob.Status.CANCELED
             )
             return job_obj
 
-        with patch.object(LabelBackfillJob.objects, "get", side_effect=get_then_cancel):
+        with patch.object(BackfillJob.objects, "get", side_effect=get_then_cancel):
             _maybe_finalize(job.id)
 
         job.refresh_from_db()
-        # The IN_PROGRESS-only conditional UPDATE doesn't match CANCELED, so the
-        # cancel is preserved and the worker silently steps aside.
-        assert job.status == LabelBackfillJob.Status.CANCELED
+        assert job.status == BackfillJob.Status.CANCELED
 
 
 # -- Cancel view tests --
 
 
 @pytest.mark.django_db
-class TestLabelBackfillCancelView:
-    def _create_job(self, status=LabelBackfillJob.Status.IN_PROGRESS) -> LabelBackfillJob:
-        group = LabelGroup.objects.create(name="TestGroup")
-        return LabelBackfillJob.objects.create(
-            label_group=group,
+class TestBackfillCancelView:
+    def _create_job(self, status=BackfillJob.Status.IN_PROGRESS) -> BackfillJob:
+        question_set = QuestionSet.objects.create(name="TestSet")
+        return BackfillJob.objects.create(
+            question_set=question_set,
             status=status,
             total_reports=100,
         )
@@ -422,42 +427,39 @@ class TestLabelBackfillCancelView:
     def test_cancel_sets_canceled_status(self, client: Client):
         user = UserFactory.create(is_active=True, is_staff=True)
         client.force_login(user)
-        job = self._create_job(status=LabelBackfillJob.Status.IN_PROGRESS)
+        job = self._create_job(status=BackfillJob.Status.IN_PROGRESS)
 
         response = client.post(f"/labels/backfill/{job.pk}/cancel/")
         assert response.status_code == 302
 
         job.refresh_from_db()
-        # Cancellation is now synchronous: the view marks the job CANCELED
-        # immediately so in-flight workers can quietly bail out.
-        assert job.status == LabelBackfillJob.Status.CANCELED
+        assert job.status == BackfillJob.Status.CANCELED
         assert job.ended_at is not None
 
     def test_cancel_pending_job(self, client: Client):
         user = UserFactory.create(is_active=True, is_staff=True)
         client.force_login(user)
-        job = self._create_job(status=LabelBackfillJob.Status.PENDING)
+        job = self._create_job(status=BackfillJob.Status.PENDING)
 
         response = client.post(f"/labels/backfill/{job.pk}/cancel/")
         assert response.status_code == 302
 
         job.refresh_from_db()
-        assert job.status == LabelBackfillJob.Status.CANCELED
+        assert job.status == BackfillJob.Status.CANCELED
 
     def test_cancel_snapshots_progress_at_cancel_time(self, client: Client):
         user = UserFactory.create(is_active=True, is_staff=True)
         client.force_login(user)
 
-        group = LabelGroup.objects.create(name="ProgressGroup")
-        question = _make_question(group, "Q1")
-        # 2 reports total, 1 already labelled
+        question_set = QuestionSet.objects.create(name="ProgressSet")
+        _make_question(question_set, "Q1")
         labelled = _make_report("doc-labelled")
         _make_report("doc-unlabelled")
-        _label_report_for_question(labelled, question)
+        _record_direct_run(labelled, question_set)
 
-        job = LabelBackfillJob.objects.create(
-            label_group=group,
-            status=LabelBackfillJob.Status.IN_PROGRESS,
+        job = BackfillJob.objects.create(
+            question_set=question_set,
+            status=BackfillJob.Status.IN_PROGRESS,
             total_reports=2,
             processed_reports=0,
         )
@@ -465,24 +467,23 @@ class TestLabelBackfillCancelView:
         client.post(f"/labels/backfill/{job.pk}/cancel/")
         job.refresh_from_db()
 
-        # Snapshot freezes the progress display at "1 of 2" instead of "0 of 2".
         assert job.processed_reports == 1
 
     def test_cancel_rejected_for_non_staff(self, client: Client):
         user = UserFactory.create(is_active=True, is_staff=False)
         client.force_login(user)
-        job = self._create_job(status=LabelBackfillJob.Status.IN_PROGRESS)
+        job = self._create_job(status=BackfillJob.Status.IN_PROGRESS)
 
         response = client.post(f"/labels/backfill/{job.pk}/cancel/")
         assert response.status_code == 403
 
         job.refresh_from_db()
-        assert job.status == LabelBackfillJob.Status.IN_PROGRESS
+        assert job.status == BackfillJob.Status.IN_PROGRESS
 
     def test_cancel_already_completed_returns_400(self, client: Client):
         user = UserFactory.create(is_active=True, is_staff=True)
         client.force_login(user)
-        job = self._create_job(status=LabelBackfillJob.Status.SUCCESS)
+        job = self._create_job(status=BackfillJob.Status.SUCCESS)
 
         response = client.post(f"/labels/backfill/{job.pk}/cancel/")
         assert response.status_code == 400
@@ -494,14 +495,14 @@ class TestLabelBackfillCancelView:
         response = client.post("/labels/backfill/99999/cancel/")
         assert response.status_code == 404
 
-    def test_cancel_redirects_to_group_detail(self, client: Client):
+    def test_cancel_redirects_to_set_detail(self, client: Client):
         user = UserFactory.create(is_active=True, is_staff=True)
         client.force_login(user)
         job = self._create_job()
 
         response = client.post(f"/labels/backfill/{job.pk}/cancel/")
         assert response.status_code == 302
-        assert f"/labels/{job.label_group_id}/" in response["Location"]
+        assert f"/labels/{job.question_set_id}/" in response["Location"]
 
     def test_get_not_allowed(self, client: Client):
         user = UserFactory.create(is_active=True, is_staff=True)
@@ -516,11 +517,11 @@ class TestLabelBackfillCancelView:
 
 
 @pytest.mark.django_db
-class TestLabelBackfillRetryView:
-    def _create_job(self, status=LabelBackfillJob.Status.FAILURE) -> LabelBackfillJob:
-        group = LabelGroup.objects.create(name="TestGroup")
-        return LabelBackfillJob.objects.create(
-            label_group=group,
+class TestBackfillRetryView:
+    def _create_job(self, status=BackfillJob.Status.FAILURE) -> BackfillJob:
+        question_set = QuestionSet.objects.create(name="TestSet")
+        return BackfillJob.objects.create(
+            question_set=question_set,
             status=status,
             total_reports=100,
             processed_reports=80,
@@ -541,71 +542,68 @@ class TestLabelBackfillRetryView:
         assert response.status_code == 403
 
         job.refresh_from_db()
-        assert job.status == LabelBackfillJob.Status.FAILURE
+        assert job.status == BackfillJob.Status.FAILURE
 
     def test_retry_resets_failed_job_to_pending(self, client: Client):
         user = UserFactory.create(is_active=True, is_staff=True)
         client.force_login(user)
-        job = self._create_job(status=LabelBackfillJob.Status.FAILURE)
+        job = self._create_job(status=BackfillJob.Status.FAILURE)
 
-        with patch("radis.labels.views.enqueue_label_group_backfill") as mock_task:
+        with patch("radis.labels.views.enqueue_question_set_backfill") as mock_task:
             mock_task.defer = lambda **kw: None
             response = client.post(f"/labels/backfill/{job.pk}/retry/")
 
         assert response.status_code == 302
         job.refresh_from_db()
-        assert job.status == LabelBackfillJob.Status.PENDING
+        assert job.status == BackfillJob.Status.PENDING
         assert job.started_at is None
         assert job.ended_at is None
 
     def test_retry_canceled_job_to_pending(self, client: Client):
         user = UserFactory.create(is_active=True, is_staff=True)
         client.force_login(user)
-        job = self._create_job(status=LabelBackfillJob.Status.CANCELED)
+        job = self._create_job(status=BackfillJob.Status.CANCELED)
 
-        with patch("radis.labels.views.enqueue_label_group_backfill") as mock_task:
+        with patch("radis.labels.views.enqueue_question_set_backfill") as mock_task:
             mock_task.defer = lambda **kw: None
             client.post(f"/labels/backfill/{job.pk}/retry/")
 
         job.refresh_from_db()
-        assert job.status == LabelBackfillJob.Status.PENDING
+        assert job.status == BackfillJob.Status.PENDING
 
     def test_retry_in_progress_job_returns_400(self, client: Client):
         user = UserFactory.create(is_active=True, is_staff=True)
         client.force_login(user)
-        job = self._create_job(status=LabelBackfillJob.Status.IN_PROGRESS)
+        job = self._create_job(status=BackfillJob.Status.IN_PROGRESS)
 
         response = client.post(f"/labels/backfill/{job.pk}/retry/")
         assert response.status_code == 400
 
         job.refresh_from_db()
-        assert job.status == LabelBackfillJob.Status.IN_PROGRESS
+        assert job.status == BackfillJob.Status.IN_PROGRESS
 
     def test_retry_skipped_when_other_active_backfill_exists(self, client: Client):
         user = UserFactory.create(is_active=True, is_staff=True)
         client.force_login(user)
 
-        group = LabelGroup.objects.create(name="TestGroup")
-        failed_job = LabelBackfillJob.objects.create(
-            label_group=group,
-            status=LabelBackfillJob.Status.FAILURE,
+        question_set = QuestionSet.objects.create(name="TestSet")
+        failed_job = BackfillJob.objects.create(
+            question_set=question_set,
+            status=BackfillJob.Status.FAILURE,
             total_reports=100,
         )
-        # Another backfill for the same group is already active
-        LabelBackfillJob.objects.create(
-            label_group=group,
-            status=LabelBackfillJob.Status.IN_PROGRESS,
+        BackfillJob.objects.create(
+            question_set=question_set,
+            status=BackfillJob.Status.IN_PROGRESS,
             total_reports=100,
         )
 
-        with patch("radis.labels.views.enqueue_label_group_backfill") as mock_task:
+        with patch("radis.labels.views.enqueue_question_set_backfill") as mock_task:
             response = client.post(f"/labels/backfill/{failed_job.pk}/retry/")
 
         assert response.status_code == 302
-        # The failed job should NOT be reset, since the other backfill will pick up missing labels
         failed_job.refresh_from_db()
-        assert failed_job.status == LabelBackfillJob.Status.FAILURE
-        # Coordinator should not have been deferred
+        assert failed_job.status == BackfillJob.Status.FAILURE
         assert not mock_task.defer.called
 
     def test_retry_get_not_allowed(self, client: Client):
@@ -628,20 +626,20 @@ class TestLabelBackfillRetryView:
 
 
 @pytest.mark.django_db
-class TestLabelGroupDetailViewBackfill:
+class TestQuestionSetDetailViewBackfill:
     def test_detail_view_includes_backfill_job(self, client: Client):
         user = UserFactory.create(is_active=True)
         client.force_login(user)
 
-        group = LabelGroup.objects.create(name="Findings")
-        job = LabelBackfillJob.objects.create(
-            label_group=group,
-            status=LabelBackfillJob.Status.IN_PROGRESS,
+        question_set = QuestionSet.objects.create(name="Findings")
+        job = BackfillJob.objects.create(
+            question_set=question_set,
+            status=BackfillJob.Status.IN_PROGRESS,
             total_reports=500,
             processed_reports=200,
         )
 
-        response = client.get(f"/labels/{group.pk}/")
+        response = client.get(f"/labels/{question_set.pk}/")
         assert response.status_code == 200
         assert response.context["backfill_job"] == job
 
@@ -649,25 +647,25 @@ class TestLabelGroupDetailViewBackfill:
         user = UserFactory.create(is_active=True)
         client.force_login(user)
 
-        group = LabelGroup.objects.create(name="Findings")
-        LabelBackfillJob.objects.create(
-            label_group=group,
-            status=LabelBackfillJob.Status.SUCCESS,
+        question_set = QuestionSet.objects.create(name="Findings")
+        BackfillJob.objects.create(
+            question_set=question_set,
+            status=BackfillJob.Status.SUCCESS,
         )
-        job2 = LabelBackfillJob.objects.create(
-            label_group=group,
-            status=LabelBackfillJob.Status.IN_PROGRESS,
+        job2 = BackfillJob.objects.create(
+            question_set=question_set,
+            status=BackfillJob.Status.IN_PROGRESS,
         )
 
-        response = client.get(f"/labels/{group.pk}/")
+        response = client.get(f"/labels/{question_set.pk}/")
         assert response.context["backfill_job"] == job2
 
     def test_detail_view_no_backfill_job(self, client: Client):
         user = UserFactory.create(is_active=True)
         client.force_login(user)
 
-        group = LabelGroup.objects.create(name="Findings")
-        response = client.get(f"/labels/{group.pk}/")
+        question_set = QuestionSet.objects.create(name="Findings")
+        response = client.get(f"/labels/{question_set.pk}/")
         assert response.context["backfill_job"] is None
 
 
@@ -676,14 +674,14 @@ class TestLabelGroupDetailViewBackfill:
 
 @pytest.mark.django_db
 class TestLabelsBackfillCommand:
-    @patch("radis.labels.tasks.process_label_group")
+    @patch("radis.labels.management.commands.labels_backfill.process_question_set_batch")
     def test_command_creates_backfill_job(self, mock_task):
         mock_task.defer = lambda **kw: None
         from django.core.management import call_command
 
         from radis.reports.models import Language, Report
 
-        group = LabelGroup.objects.create(name="Findings")
+        question_set = QuestionSet.objects.create(name="Findings")
         lang = Language.objects.create(code="en")
         Report.objects.create(
             document_id="doc-1",
@@ -694,10 +692,10 @@ class TestLabelsBackfillCommand:
             language=lang,
         )
 
-        call_command("labels_backfill", group=str(group.id))
+        call_command("labels_backfill", question_set=str(question_set.id))
 
-        job = LabelBackfillJob.objects.get(label_group=group)
-        assert job.status == LabelBackfillJob.Status.IN_PROGRESS
+        job = BackfillJob.objects.get(question_set=question_set)
+        assert job.status == BackfillJob.Status.IN_PROGRESS
         assert job.total_reports == 1
         assert job.started_at is not None
 
@@ -709,34 +707,67 @@ class TestBackfillStatusCssFilter:
     def test_pending(self):
         from radis.labels.templatetags.labels_extras import backfill_status_css
 
-        assert backfill_status_css(LabelBackfillJob.Status.PENDING) == "text-secondary"
+        assert backfill_status_css(BackfillJob.Status.PENDING) == "text-secondary"
 
     def test_in_progress(self):
         from radis.labels.templatetags.labels_extras import backfill_status_css
 
-        assert backfill_status_css(LabelBackfillJob.Status.IN_PROGRESS) == "text-info"
+        assert backfill_status_css(BackfillJob.Status.IN_PROGRESS) == "text-info"
 
     def test_success(self):
         from radis.labels.templatetags.labels_extras import backfill_status_css
 
-        assert backfill_status_css(LabelBackfillJob.Status.SUCCESS) == "text-success"
+        assert backfill_status_css(BackfillJob.Status.SUCCESS) == "text-success"
 
     def test_failure(self):
         from radis.labels.templatetags.labels_extras import backfill_status_css
 
-        assert backfill_status_css(LabelBackfillJob.Status.FAILURE) == "text-danger"
-
-    def test_canceling(self):
-        from radis.labels.templatetags.labels_extras import backfill_status_css
-
-        assert backfill_status_css(LabelBackfillJob.Status.CANCELING) == "text-muted"
+        assert backfill_status_css(BackfillJob.Status.FAILURE) == "text-danger"
 
     def test_canceled(self):
         from radis.labels.templatetags.labels_extras import backfill_status_css
 
-        assert backfill_status_css(LabelBackfillJob.Status.CANCELED) == "text-muted"
+        assert backfill_status_css(BackfillJob.Status.CANCELED) == "text-muted"
 
     def test_unknown_status(self):
         from radis.labels.templatetags.labels_extras import backfill_status_css
 
         assert backfill_status_css("XX") == ""
+
+
+# -- Lock guard test --
+
+
+@pytest.mark.django_db
+class TestQuestionSetLock:
+    def test_is_locked_when_active_backfill_exists(self):
+        question_set = QuestionSet.objects.create(name="LockedSet")
+        BackfillJob.objects.create(
+            question_set=question_set, status=BackfillJob.Status.IN_PROGRESS
+        )
+        assert question_set.is_locked is True
+
+    def test_is_not_locked_for_terminal_backfill(self):
+        question_set = QuestionSet.objects.create(name="DoneSet")
+        BackfillJob.objects.create(
+            question_set=question_set, status=BackfillJob.Status.SUCCESS
+        )
+        assert question_set.is_locked is False
+
+    def test_question_update_view_blocks_when_locked(self, client: Client):
+        user = UserFactory.create(is_active=True, is_staff=True)
+        client.force_login(user)
+        question_set = QuestionSet.objects.create(name="LockedSet")
+        question = _make_question(question_set, "Q1")
+        BackfillJob.objects.create(
+            question_set=question_set, status=BackfillJob.Status.IN_PROGRESS
+        )
+
+        response = client.post(
+            f"/labels/{question_set.pk}/questions/{question.pk}/update/",
+            {"label": "Q1 renamed", "question": "", "is_active": True, "order": 0},
+        )
+        # Locked => redirect back to detail with a warning, no save.
+        assert response.status_code == 302
+        question.refresh_from_db()
+        assert question.label == "Q1"

@@ -2,37 +2,31 @@ import pytest
 from adit_radis_shared.accounts.factories import UserFactory
 from django.test import Client
 
-from radis.labels.models import LabelChoice, LabelGroup, LabelQuestion
+from radis.labels.models import AnswerOption, Question, QuestionSet
 
 
-def create_group():
-    return LabelGroup.objects.create(name="Findings")
-
-
-# -- List view (login required, no staff check) --
+def create_set():
+    return QuestionSet.objects.create(name="Findings")
 
 
 @pytest.mark.django_db
-def test_label_group_list_requires_login(client: Client):
+def test_question_set_list_requires_login(client: Client):
     response = client.get("/labels/")
     assert response.status_code == 302
     assert "/accounts/login/" in response["Location"]
 
 
 @pytest.mark.django_db
-def test_label_group_list_view(client: Client):
+def test_question_set_list_view(client: Client):
     user = UserFactory.create(is_active=True)
-    create_group()
+    create_set()
     client.force_login(user)
     response = client.get("/labels/")
     assert response.status_code == 200
 
 
-# -- Group create (staff required) --
-
-
 @pytest.mark.django_db
-def test_label_group_create_view(client: Client):
+def test_question_set_create_view(client: Client):
     user = UserFactory.create(is_active=True, is_staff=True)
     client.force_login(user)
     response = client.post(
@@ -45,11 +39,11 @@ def test_label_group_create_view(client: Client):
         },
     )
     assert response.status_code == 302
-    assert LabelGroup.objects.filter(name="Protocols").exists()
+    assert QuestionSet.objects.filter(name="Protocols").exists()
 
 
 @pytest.mark.django_db
-def test_label_group_create_rejected_for_non_staff(client: Client):
+def test_question_set_create_rejected_for_non_staff(client: Client):
     user = UserFactory.create(is_active=True, is_staff=False)
     client.force_login(user)
     response = client.post(
@@ -57,20 +51,17 @@ def test_label_group_create_rejected_for_non_staff(client: Client):
         {"name": "Should Fail", "is_active": True, "order": 1},
     )
     assert response.status_code == 403
-    assert not LabelGroup.objects.filter(name="Should Fail").exists()
-
-
-# -- Question create (staff required) --
+    assert not QuestionSet.objects.filter(name="Should Fail").exists()
 
 
 @pytest.mark.django_db
-def test_label_question_create_view_with_choices(client: Client):
+def test_question_create_view_with_default_options(client: Client):
     user = UserFactory.create(is_active=True, is_staff=True)
-    group = create_group()
+    question_set = create_set()
     client.force_login(user)
 
     response = client.post(
-        f"/labels/{group.pk}/questions/create/",
+        f"/labels/{question_set.pk}/questions/create/",
         {
             "label": "Pulmonary embolism",
             "question": "Pulmonary embolism present?",
@@ -80,51 +71,45 @@ def test_label_question_create_view_with_choices(client: Client):
     )
 
     assert response.status_code == 302
-    question = LabelQuestion.objects.get(group=group, label="Pulmonary embolism")
-    assert LabelChoice.objects.filter(question=question).count() == 3
+    question = Question.objects.get(question_set=question_set, label="Pulmonary embolism")
+    assert AnswerOption.objects.filter(question=question).count() == 3
 
 
 @pytest.mark.django_db
-def test_label_question_create_rejected_for_non_staff(client: Client):
+def test_question_create_rejected_for_non_staff(client: Client):
     user = UserFactory.create(is_active=True, is_staff=False)
-    group = create_group()
+    question_set = create_set()
     client.force_login(user)
 
     response = client.post(
-        f"/labels/{group.pk}/questions/create/",
+        f"/labels/{question_set.pk}/questions/create/",
         {"label": "Should Fail", "question": "Nope", "is_active": True, "order": 1},
     )
     assert response.status_code == 403
-    assert not LabelQuestion.objects.filter(label="Should Fail").exists()
-
-
-# -- Group update (staff required) --
+    assert not Question.objects.filter(label="Should Fail").exists()
 
 
 @pytest.mark.django_db
-def test_label_group_update_rejected_for_non_staff(client: Client):
+def test_question_set_update_rejected_for_non_staff(client: Client):
     user = UserFactory.create(is_active=True, is_staff=False)
-    group = create_group()
+    question_set = create_set()
     client.force_login(user)
 
     response = client.post(
-        f"/labels/{group.pk}/update/",
+        f"/labels/{question_set.pk}/update/",
         {"name": "Hacked", "is_active": True, "order": 1},
     )
     assert response.status_code == 403
-    group.refresh_from_db()
-    assert group.name == "Findings"
-
-
-# -- Group delete (staff required) --
+    question_set.refresh_from_db()
+    assert question_set.name == "Findings"
 
 
 @pytest.mark.django_db
-def test_label_group_delete_rejected_for_non_staff(client: Client):
+def test_question_set_delete_rejected_for_non_staff(client: Client):
     user = UserFactory.create(is_active=True, is_staff=False)
-    group = create_group()
+    question_set = create_set()
     client.force_login(user)
 
-    response = client.post(f"/labels/{group.pk}/delete/")
+    response = client.post(f"/labels/{question_set.pk}/delete/")
     assert response.status_code == 403
-    assert LabelGroup.objects.filter(pk=group.pk).exists()
+    assert QuestionSet.objects.filter(pk=question_set.pk).exists()

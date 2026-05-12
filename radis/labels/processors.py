@@ -1,44 +1,60 @@
 from __future__ import annotations
 
 import logging
+import time
 from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from string import Template
 
 from django import db
 from django.conf import settings
-from django.db.models import Prefetch
+from django.db import transaction
+from django.utils import timezone
 
 from radis.chats.utils.chat_client import ChatClient
 from radis.reports.models import Report
 
-from .models import LabelChoice, LabelGroup, LabelQuestion, ReportLabel
-from .utils.processor_utils import generate_labeling_schema, generate_questions_for_prompt
+from .models import Answer, AnswerOption, LabelingRun, Question, QuestionSet
+from .schemas import QuestionSetSchema
+from .utils.processor_utils import (
+    build_labeling_response_schema,
+    question_set_schema_for_run,
+    render_questions_block,
+)
 
 logger = logging.getLogger(__name__)
 
 
-class LabelGroupProcessor:
-    def __init__(self, group: LabelGroup) -> None:
-        self.group = group
-        self.client = ChatClient()
+class LabelingProcessor:
+    """Run labelling for one ``QuestionSet`` over a batch of reports in one mode.
 
-    def process_reports(self, report_ids: list[int], overwrite_existing: bool = False) -> None:
+    Currently implements the DIRECT mode (single structured-output call per
+    report). The REASONED mode (two-call) is added in the dual-mode commit;
+    the processor's per-mode shape is designed so adding it doesn't require
+    re-plumbing the surrounding fanout/exception/persistence logic.
+    """
+
+    def __init__(self, question_set: QuestionSet, mode: str = LabelingRun.Mode.DIRECT) -> None:
+        self.question_set = question_set
+        self.mode = mode
+        self.client = ChatClient()
+        self._model_name = settings.LLM_MODEL_NAME
+
+    def process_reports(self, report_ids: list[int]) -> None:
         if not report_ids:
             return
 
-        questions = list(self.group.questions.filter(is_active=True).prefetch_related("choices"))
+        questions = list(
+            self.question_set.questions.filter(is_active=True).prefetch_related("options")
+        )
         if not questions:
-            logger.info("No active label questions for group %s", self.group)
+            logger.info("No active questions for set %s", self.question_set)
             return
 
-        choice_maps, unknown_choices = _build_choice_maps(questions)
+        schema_mirror = question_set_schema_for_run(self.question_set)
 
-        labels_qs = ReportLabel.objects.filter(question__group=self.group)
-        reports = (
-            Report.objects.filter(id__in=report_ids)
-            .prefetch_related(Prefetch("labels", queryset=labels_qs, to_attr="labels_for_group"))
-            .only("id", "body")
-        )
+        option_maps, unknown_options = _build_option_maps(questions)
+
+        reports = Report.objects.filter(id__in=report_ids).only("id", "body")
 
         with ThreadPoolExecutor(max_workers=settings.LABELING_LLM_CONCURRENCY_LIMIT) as executor:
             futures: list[Future] = []
@@ -49,9 +65,9 @@ class LabelGroupProcessor:
                         self._process_report,
                         report,
                         questions,
-                        choice_maps,
-                        unknown_choices,
-                        overwrite_existing,
+                        option_maps,
+                        unknown_options,
+                        schema_mirror,
                     )
                     futures.append(future)
                     future_report_ids[future] = report.id
@@ -62,7 +78,10 @@ class LabelGroupProcessor:
                     except Exception:
                         report_id = future_report_ids.get(future)
                         logger.exception(
-                            "Labeling failed for report %s in group %s", report_id, self.group
+                            "Labeling failed for report %s in set %s (mode=%s)",
+                            report_id,
+                            self.question_set,
+                            self.mode,
                         )
             finally:
                 db.close_old_connections()
@@ -70,91 +89,117 @@ class LabelGroupProcessor:
     def _process_report(
         self,
         report: Report,
-        questions: list[LabelQuestion],
-        choice_maps: dict[int, dict[str, LabelChoice]],
-        unknown_choices: dict[int, LabelChoice | None],
-        overwrite_existing: bool,
+        questions: list[Question],
+        option_maps: dict[int, dict[str, AnswerOption]],
+        unknown_options: dict[int, AnswerOption | None],
+        schema_mirror: QuestionSetSchema,
     ) -> None:
-        if overwrite_existing:
-            missing_questions = questions
-        else:
-            labels_for_group = getattr(report, "labels_for_group", [])
-            existing_question_ids = {label.question_id for label in labels_for_group}
-            missing_questions = [
-                question for question in questions if question.id not in existing_question_ids
-            ]
-        missing_questions = [
-            question for question in missing_questions if choice_maps.get(question.id)
-        ]
-        if not missing_questions:
-            return
+        # A run row represents the LLM exchange. Create it up-front in PENDING
+        # so a crash mid-call still leaves an attributable record; subsequent
+        # state transitions land via an explicit UPDATE.
+        run = LabelingRun.objects.create(
+            report=report,
+            question_set=self.question_set,
+            mode=self.mode,
+            status=LabelingRun.Status.IN_PROGRESS,
+            model_name=self._model_name,
+        )
 
-        schema = generate_labeling_schema(missing_questions)
+        try:
+            self._run_llm_and_persist(
+                run, report, questions, option_maps, unknown_options, schema_mirror
+            )
+        except Exception as exc:
+            LabelingRun.objects.filter(pk=run.pk).update(
+                status=LabelingRun.Status.FAILURE,
+                error_message=str(exc)[:4000],
+                completed_at=timezone.now(),
+            )
+            raise
+        finally:
+            db.close_old_connections()
+
+    def _run_llm_and_persist(
+        self,
+        run: LabelingRun,
+        report: Report,
+        questions: list[Question],
+        option_maps: dict[int, dict[str, AnswerOption]],
+        unknown_options: dict[int, AnswerOption | None],
+        schema_mirror: QuestionSetSchema,
+    ) -> None:
+        response_schema = build_labeling_response_schema(schema_mirror)
         prompt = Template(settings.LABELS_SYSTEM_PROMPT).substitute(
             {
                 "report": report.body,
-                "questions": generate_questions_for_prompt(missing_questions),
+                "questions": render_questions_block(schema_mirror),
             }
         )
 
-        result = self.client.extract_data(prompt.strip(), schema)
+        started = time.monotonic()
+        result = self.client.extract_data(prompt.strip(), response_schema)
+        latency_ms = int((time.monotonic() - started) * 1000)
 
-        for index, question in enumerate(missing_questions):
-            field_name = f"question_{index}"
-            answer = getattr(result, field_name)
-            choice = _resolve_choice(
-                answer.choice,
-                choice_maps[question.id],
-                unknown_choices.get(question.id),
+        # Persist run output and answers atomically so we never end up with
+        # a SUCCESS run whose answers failed to write.
+        with transaction.atomic():
+            for index, question in enumerate(questions):
+                field_name = f"question_{index}"
+                answer = getattr(result, field_name)
+                option = _resolve_option(
+                    answer.choice,
+                    option_maps[question.id],
+                    unknown_options.get(question.id),
+                )
+                Answer.objects.create(
+                    run=run,
+                    report=report,
+                    question=question,
+                    question_version=question.version,
+                    option=option,
+                    confidence=_normalize_confidence(answer.confidence),
+                    rationale=(answer.rationale or "").strip(),
+                    verified=False,
+                )
+
+            LabelingRun.objects.filter(pk=run.pk).update(
+                status=LabelingRun.Status.SUCCESS,
+                raw_response=result.model_dump(),
+                latency_ms=latency_ms,
+                completed_at=timezone.now(),
             )
-            confidence = _normalize_confidence(answer.confidence)
-            rationale = (answer.rationale or "").strip()
-
-            ReportLabel.objects.update_or_create(
-                report=report,
-                question=question,
-                defaults={
-                    "choice": choice,
-                    "confidence": confidence,
-                    "rationale": rationale,
-                    "verified": False,
-                },
-            )
-
-        db.close_old_connections()
 
 
-def _build_choice_maps(
-    questions: list[LabelQuestion],
-) -> tuple[dict[int, dict[str, LabelChoice]], dict[int, LabelChoice | None]]:
-    choice_maps: dict[int, dict[str, LabelChoice]] = {}
-    unknown_choices: dict[int, LabelChoice | None] = {}
+def _build_option_maps(
+    questions: list[Question],
+) -> tuple[dict[int, dict[str, AnswerOption]], dict[int, AnswerOption | None]]:
+    option_maps: dict[int, dict[str, AnswerOption]] = {}
+    unknown_options: dict[int, AnswerOption | None] = {}
 
     for question in questions:
-        choices = list(question.choices.all())
-        if not choices:
-            logger.warning("LabelQuestion %s has no choices, skipping.", question)
-            choice_maps[question.id] = {}
-            unknown_choices[question.id] = None
+        options = list(question.options.all())
+        if not options:
+            logger.warning("Question %s has no answer options, skipping.", question)
+            option_maps[question.id] = {}
+            unknown_options[question.id] = None
             continue
-        choice_maps[question.id] = {choice.value: choice for choice in choices}
-        unknown_choice = next((choice for choice in choices if choice.is_unknown), None)
-        unknown_choices[question.id] = unknown_choice
+        option_maps[question.id] = {option.value: option for option in options}
+        unknown_options[question.id] = next((o for o in options if o.is_unknown), None)
 
-    return choice_maps, unknown_choices
+    return option_maps, unknown_options
 
 
-def _resolve_choice(
+def _resolve_option(
     value: str,
-    choices: dict[str, LabelChoice],
-    unknown_choice: LabelChoice | None,
-) -> LabelChoice:
-    choice = choices.get(value)
-    if choice is not None:
-        return choice
-    if unknown_choice is not None:
-        return unknown_choice
-    return next(iter(choices.values()))
+    options: dict[str, AnswerOption],
+    unknown_option: AnswerOption | None,
+) -> AnswerOption:
+    option = options.get(value)
+    if option is not None:
+        return option
+    if unknown_option is not None:
+        return unknown_option
+    return next(iter(options.values()))
 
 
 def _normalize_confidence(confidence: float | None) -> float | None:

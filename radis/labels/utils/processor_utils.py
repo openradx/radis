@@ -1,55 +1,34 @@
+"""Thin wrappers that adapt the canonical Pydantic schemas to the labelling
+processor. The actual schema construction lives in ``radis.labels.schemas``;
+this module exists so the processor only has to import one place.
+"""
+
 from __future__ import annotations
 
-from typing import Any, Literal
+from pydantic import BaseModel
 
-from pydantic import BaseModel, create_model
+from ..models import QuestionSet
+from ..schemas import (
+    QuestionSetSchema,
+    build_answer_schema,
+    question_set_from_orm,
+    render_questions_for_prompt,
+)
 
-from ..models import LabelQuestion
 
+def question_set_schema_for_run(question_set: QuestionSet) -> QuestionSetSchema:
+    """Build the Pydantic mirror of a ``QuestionSet`` for use in one LLM run.
 
-def _generate_label_answer_schema(index: int, question: LabelQuestion) -> type[BaseModel]:
-    """Create a strict answer schema for one question.
-
-    We enforce that `choice` is exactly one of the configured choice values using `Literal[...]`.
-    This mirrors how the `selectionOutputType` branch enforces allowed options for extraction
-    fields.
+    The caller is responsible for prefetching ``questions__options`` before
+    invoking this; we do not re-query inside to keep N+1 obvious at the call
+    site.
     """
-
-    choice_values = tuple(
-        choice.value
-        for choice in question.choices.all()
-        if isinstance(choice.value, str) and choice.value
-    )
-    if not choice_values:
-        raise ValueError(
-            f"LabelQuestion {question.pk or '<unsaved>'} has no valid choices configured."
-        )
-
-    ChoiceType = Literal[*choice_values]
-    return create_model(
-        f"LabelAnswer_{index}",
-        choice=(ChoiceType, ...),
-        confidence=(float | None, None),
-        rationale=(str | None, None),
-    )
+    return question_set_from_orm(question_set)
 
 
-def generate_labeling_schema(questions: list[LabelQuestion]) -> type[BaseModel]:
-    field_definitions: dict[str, Any] = {}
-    for index, question in enumerate(questions):
-        AnswerSchema = _generate_label_answer_schema(index, question)
-        field_definitions[f"question_{index}"] = (AnswerSchema, ...)
-
-    return create_model("LabelingModel", **field_definitions)
+def build_labeling_response_schema(schema: QuestionSetSchema) -> type[BaseModel]:
+    return build_answer_schema(schema)
 
 
-def generate_questions_for_prompt(questions: list[LabelQuestion]) -> str:
-    prompt = ""
-    for index, question in enumerate(questions):
-        choices = ", ".join(
-            [f"{choice.value} ({choice.label})" for choice in question.choices.all()]
-        )
-        prompt += f"question_{index}: {question.question}\n"
-        prompt += f"choices (return exactly one choice value): {choices}\n"
-
-    return prompt
+def render_questions_block(schema: QuestionSetSchema) -> str:
+    return render_questions_for_prompt(schema)

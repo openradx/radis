@@ -26,6 +26,6 @@ def handle_reports_updated(reports: Iterable[Report]) -> None:
         return
 
     def on_commit() -> None:
-        enqueue_labeling_for_reports(report_ids, overwrite_existing=True)
+        enqueue_labeling_for_reports(report_ids)
 
     transaction.on_commit(on_commit)

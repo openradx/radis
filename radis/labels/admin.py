@@ -1,43 +1,51 @@
 from django.contrib import admin
 
-from .models import LabelBackfillJob, LabelChoice, LabelGroup, LabelQuestion, ReportLabel
+from .models import Answer, AnswerOption, BackfillJob, LabelingRun, Question, QuestionSet
 
 
-class LabelChoiceInline(admin.TabularInline):
-    model = LabelChoice
+class AnswerOptionInline(admin.TabularInline):
+    model = AnswerOption
     extra = 0
 
 
-@admin.register(LabelGroup)
-class LabelGroupAdmin(admin.ModelAdmin):
-    list_display = ("name", "is_active", "order")
+@admin.register(QuestionSet)
+class QuestionSetAdmin(admin.ModelAdmin):
+    list_display = ("name", "is_active", "order", "last_edited_at")
     list_filter = ("is_active",)
     search_fields = ("name",)
     ordering = ("order", "name")
 
 
-@admin.register(LabelQuestion)
-class LabelQuestionAdmin(admin.ModelAdmin):
-    list_display = ("label", "question", "group", "is_active", "order")
-    list_filter = ("group", "is_active")
+@admin.register(Question)
+class QuestionAdmin(admin.ModelAdmin):
+    list_display = ("label", "question", "question_set", "is_active", "order", "version")
+    list_filter = ("question_set", "is_active")
     search_fields = ("label", "question")
-    ordering = ("group__order", "order", "label")
-    inlines = (LabelChoiceInline,)
+    ordering = ("question_set__order", "order", "label")
+    inlines = (AnswerOptionInline,)
 
 
-@admin.register(ReportLabel)
-class ReportLabelAdmin(admin.ModelAdmin):
-    list_display = ("report", "question", "choice", "confidence", "verified", "created_at")
-    list_filter = ("verified", "question__group")
-    search_fields = ("report__document_id", "question__name", "choice__label")
+@admin.register(LabelingRun)
+class LabelingRunAdmin(admin.ModelAdmin):
+    list_display = ("id", "report", "question_set", "mode", "status", "created_at")
+    list_filter = ("question_set", "mode", "status")
+    search_fields = ("report__document_id",)
     ordering = ("-created_at",)
 
 
-@admin.register(LabelBackfillJob)
-class LabelBackfillJobAdmin(admin.ModelAdmin):
+@admin.register(Answer)
+class AnswerAdmin(admin.ModelAdmin):
+    list_display = ("report", "question", "option", "confidence", "verified", "created_at")
+    list_filter = ("verified", "question__question_set")
+    search_fields = ("report__document_id", "question__label", "option__label")
+    ordering = ("-created_at",)
+
+
+@admin.register(BackfillJob)
+class BackfillJobAdmin(admin.ModelAdmin):
     list_display = (
         "id",
-        "label_group",
+        "question_set",
         "status",
         "processed_reports",
         "total_reports",

@@ -5,7 +5,7 @@
     {{ object.name }}
 {% endblock title %}
 {% block heading %}
-    <c-page-heading title="Labels" />
+    <c-page-heading title="Auto Labels" />
 {% endblock heading %}
 {% block content %}
     <div class="card mb-3">
@@ -16,12 +16,19 @@
                     {% if object.description %}<p class="mt-2 mb-0">{{ object.description }}</p>{% endif %}
                 </div>
                 <div class="d-flex gap-2">
-                    <a href="{% url 'label_group_update' object.pk %}"
-                       class="btn btn-outline-primary">Edit Group</a>
-                    <a href="{% url 'label_group_delete' object.pk %}"
-                       class="btn btn-outline-danger">Delete Group</a>
+                    <a href="{% url 'question_set_update' object.pk %}"
+                       class="btn btn-outline-primary {% if is_locked %}disabled{% endif %}"
+                       {% if is_locked %}aria-disabled="true"{% endif %}>Edit Set</a>
+                    <a href="{% url 'question_set_delete' object.pk %}"
+                       class="btn btn-outline-danger {% if is_locked %}disabled{% endif %}"
+                       {% if is_locked %}aria-disabled="true"{% endif %}>Delete Set</a>
                 </div>
             </div>
+            {% if is_locked %}
+                <div class="alert alert-info mt-3 mb-0">
+                    A backfill is running for this set. Edits are locked until it finishes.
+                </div>
+            {% endif %}
         </div>
     </div>
     {% if backfill_job %}
@@ -57,7 +64,7 @@
                 <div class="d-flex gap-2 mt-2">
                     {% if backfill_job.is_cancelable %}
                         <form method="post"
-                              action="{% url 'label_backfill_cancel' backfill_job.pk %}"
+                              action="{% url 'backfill_cancel' backfill_job.pk %}"
                               onSubmit="return confirm('Are you sure you want to cancel this backfill?');">
                             {% csrf_token %}
                             <button type="submit" class="btn btn-sm btn-warning">{% bootstrap_icon "stop-fill" %} Cancel Backfill</button>
@@ -65,7 +72,7 @@
                     {% endif %}
                     {% if backfill_job.is_retryable %}
                         <form method="post"
-                              action="{% url 'label_backfill_retry' backfill_job.pk %}"
+                              action="{% url 'backfill_retry' backfill_job.pk %}"
                               onSubmit="return confirm('Retry this backfill? Only reports without labels for the active questions will be processed.');">
                             {% csrf_token %}
                             <button type="submit" class="btn btn-sm btn-primary">{% bootstrap_icon "arrow-clockwise" %} Retry Backfill</button>
@@ -77,8 +84,9 @@
     {% endif %}
     <div class="d-flex justify-content-between align-items-center mb-2">
         <h5 class="mb-0">Questions</h5>
-        <a href="{% url 'label_question_create' object.pk %}"
-           class="btn btn-primary">
+        <a href="{% url 'question_create' object.pk %}"
+           class="btn btn-primary {% if is_locked %}disabled{% endif %}"
+           {% if is_locked %}aria-disabled="true"{% endif %}>
             {% bootstrap_icon "plus-lg" %}
             Add Question
         </a>
@@ -89,24 +97,29 @@
                 <div class="list-group-item">
                     <div class="d-flex justify-content-between align-items-start">
                         <div>
-                            <div class="fw-semibold">{{ question.label }}</div>
+                            <div class="fw-semibold">
+                                {{ question.label }}
+                                <span class="badge text-bg-secondary ms-1">v{{ question.version }}</span>
+                            </div>
                             {% if question.question %}<div class="text-muted">{{ question.question }}</div>{% endif %}
                         </div>
                         <div class="d-flex gap-2">
-                            <a href="{% url 'label_question_update' object.pk question.pk %}"
-                               class="btn btn-sm btn-outline-primary">Edit</a>
-                            <a href="{% url 'label_question_delete' object.pk question.pk %}"
-                               class="btn btn-sm btn-outline-danger">Delete</a>
+                            <a href="{% url 'question_update' object.pk question.pk %}"
+                               class="btn btn-sm btn-outline-primary {% if is_locked %}disabled{% endif %}"
+                               {% if is_locked %}aria-disabled="true"{% endif %}>Edit</a>
+                            <a href="{% url 'question_delete' object.pk question.pk %}"
+                               class="btn btn-sm btn-outline-danger {% if is_locked %}disabled{% endif %}"
+                               {% if is_locked %}aria-disabled="true"{% endif %}>Delete</a>
                         </div>
                     </div>
-                    {% if question.choices.exists %}
+                    {% if question.options.exists %}
                         <div class="mt-2">
-                            <div class="small text-muted">Choices</div>
+                            <div class="small text-muted">Answer options</div>
                             <div class="d-flex flex-wrap gap-2">
-                                {% for choice in question.choices.all %}
+                                {% for option in question.options.all %}
                                     <span class="badge text-bg-light">
-                                        {{ choice.value }} · {{ choice.label }}
-                                        {% if choice.is_unknown %}(Unknown){% endif %}
+                                        {{ option.value }} · {{ option.label }}
+                                        {% if option.is_unknown %}(Unknown){% endif %}
                                     </span>
                                 {% endfor %}
                             </div>
