@@ -1,0 +1,72 @@
+{
+  "question_sets": [
+    {
+      "name": "Acute Findings",
+      "description": "Clinically actionable yes/no findings used in everyday radiology triage and screening. Each question is binary because the goal is to be able to aggregate counts and screen reports for review.",
+      "is_active": true,
+      "order": 1,
+      "questions": [
+        {
+          "label": "Pulmonary embolism",
+          "question": "Is acute pulmonary embolism described in this report?",
+          "is_active": true,
+          "order": 1
+        },
+        {
+          "label": "Pneumothorax",
+          "question": "Is a pneumothorax (of any size) described in this report?",
+          "is_active": true,
+          "order": 2
+        },
+        {
+          "label": "Pleural effusion",
+          "question": "Is a pleural effusion described in this report?",
+          "is_active": true,
+          "order": 3
+        },
+        {
+          "label": "Pneumonia",
+          "question": "Are findings consistent with pneumonia or pulmonary infection described in this report?",
+          "is_active": true,
+          "order": 4
+        },
+        {
+          "label": "Acute intracranial hemorrhage",
+          "question": "Is an acute intracranial hemorrhage described in this report?",
+          "is_active": true,
+          "order": 5
+        },
+        {
+          "label": "Acute ischemic stroke",
+          "question": "Are findings of acute ischemic stroke or large vessel occlusion described in this report?",
+          "is_active": true,
+          "order": 6
+        },
+        {
+          "label": "Acute fracture",
+          "question": "Is an acute fracture described in this report?",
+          "is_active": true,
+          "order": 7
+        },
+        {
+          "label": "Suspicious mass",
+          "question": "Is a mass or lesion described that is suspicious for malignancy?",
+          "is_active": true,
+          "order": 8
+        },
+        {
+          "label": "Free intraperitoneal air or fluid",
+          "question": "Is free intraperitoneal air or free fluid described in this report?",
+          "is_active": true,
+          "order": 9
+        },
+        {
+          "label": "Critical follow-up recommended",
+          "question": "Does the report recommend urgent follow-up, urgent clinical action, or communicate a critical finding?",
+          "is_active": true,
+          "order": 10
+        }
+      ]
+    }
+  ]
+}

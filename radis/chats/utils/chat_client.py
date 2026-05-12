@@ -51,17 +51,25 @@ class ChatClient:
 
         self._client = openai.OpenAI(base_url=base_url, api_key=api_key)
         self._llm_model_name = settings.LLM_MODEL_NAME
+        # Server-side extra body forwarded with every chat call. Provider
+        # quirks (e.g. Qwen3.6's enable_thinking flag) belong here so they
+        # apply uniformly to extract_data and complete_text without each
+        # caller needing to remember them. Empty dict if unset.
+        self._extra_body: dict = getattr(settings, "LLM_EXTRA_BODY", {}) or {}
 
     def extract_data(self, prompt: str, schema: type[BaseModel]) -> BaseModel:
         logger.debug("Sending prompt and schema to LLM to extract data.")
         logger.debug("Prompt:\n%s", prompt)
         logger.debug("Schema:\n%s", schema.model_json_schema())
 
-        completion = self._client.beta.chat.completions.parse(
-            model=self._llm_model_name,
-            messages=[{"role": "system", "content": prompt}],
-            response_format=schema,
-        )
+        kwargs: dict = {
+            "model": self._llm_model_name,
+            "messages": [{"role": "system", "content": prompt}],
+            "response_format": schema,
+        }
+        if self._extra_body:
+            kwargs["extra_body"] = self._extra_body
+        completion = self._client.beta.chat.completions.parse(**kwargs)
         event = completion.choices[0].message.parsed
         assert event
         logger.debug("Received from LLM: %s", event)
@@ -76,10 +84,13 @@ class ChatClient:
         logger.debug("Sending prompt to LLM for plain-text completion.")
         logger.debug("Prompt:\n%s", prompt)
 
-        completion = self._client.chat.completions.create(
-            model=self._llm_model_name,
-            messages=[{"role": "system", "content": prompt}],
-        )
+        kwargs: dict = {
+            "model": self._llm_model_name,
+            "messages": [{"role": "system", "content": prompt}],
+        }
+        if self._extra_body:
+            kwargs["extra_body"] = self._extra_body
+        completion = self._client.chat.completions.create(**kwargs)
         content = completion.choices[0].message.content
         assert content is not None
         logger.debug("Received from LLM: %s", content)

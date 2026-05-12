@@ -483,6 +483,13 @@ LABELS_BACKFILL_CRON = env("LABELS_BACKFILL_CRON", default="0 21 * * *")
 LABELING_TASK_BATCH_SIZE = 100
 LABELING_LLM_CONCURRENCY_LIMIT = 6
 
+# Provider-specific extra body forwarded by ChatClient on every chat call.
+# Qwen3.6 emits chain-of-thought to a separate `reasoning` field by default
+# and leaves message.content empty; passing chat_template_kwargs.enable_thinking
+# = False keeps the actual response in message.content where every downstream
+# parser expects it. Harmless on providers that ignore unknown extra_body.
+LLM_EXTRA_BODY = {"chat_template_kwargs": {"enable_thinking": False}}
+
 # Procrastinate priorities. Higher = more urgent. Live labelling (a single
 # newly-ingested report) jumps ahead of backfill batches so dashboards
 # reflect fresh reports without waiting for a 500k-row backfill to drain.
