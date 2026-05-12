@@ -29,10 +29,12 @@ def _make_report(document_id: str = "doc-1") -> Report:
 
 
 def _make_question(question_set: QuestionSet, label: str) -> Question:
-    """Create a question (signal auto-creates the default answer options)."""
-    with patch("radis.labels.signals.enqueue_question_set_backfill"):
-        question = Question.objects.create(question_set=question_set, label=label)
-    return question
+    """Create a question (signal auto-creates the default answer options).
+
+    Backfill scheduling no longer fires on save (it moved to the nightly
+    launcher), so this helper no longer needs to patch the task module.
+    """
+    return Question.objects.create(question_set=question_set, label=label)
 
 
 def _record_complete_runs(report: Report, question_set: QuestionSet) -> list[LabelingRun]:
@@ -204,72 +206,115 @@ class TestBackfillJobModel:
         assert BackfillJob.objects.count() == 0
 
 
-# -- Signal dedup tests --
+# -- Signal behavior --
 
 
 @pytest.mark.django_db
-class TestSignalDedup:
-    @patch("radis.labels.signals.enqueue_question_set_backfill")
-    def test_creating_question_creates_backfill_job(self, mock_task):
-        mock_task.defer = lambda **kw: None
+class TestQuestionSignals:
+    """Question save side effects. Backfill scheduling does NOT happen on
+    save anymore — that's the nightly launcher's job."""
+
+    def test_creating_question_does_not_immediately_fire_backfill(self):
         question_set = QuestionSet.objects.create(name="Findings")
         Question.objects.create(question_set=question_set, label="PE present?")
-
-        assert BackfillJob.objects.filter(question_set=question_set).count() == 1
-
-    @patch("radis.labels.signals.enqueue_question_set_backfill")
-    def test_second_question_skips_backfill_when_active(self, mock_task):
-        mock_task.defer = lambda **kw: None
-        question_set = QuestionSet.objects.create(name="Findings")
-        Question.objects.create(question_set=question_set, label="PE present?")
-        Question.objects.create(question_set=question_set, label="Pneumonia present?")
-
-        assert BackfillJob.objects.filter(question_set=question_set).count() == 1
-
-    @patch("radis.labels.signals.enqueue_question_set_backfill")
-    def test_new_question_after_completed_backfill_creates_new_job(self, mock_task):
-        mock_task.defer = lambda **kw: None
-        question_set = QuestionSet.objects.create(name="Findings")
-        Question.objects.create(question_set=question_set, label="PE present?")
-
-        job = BackfillJob.objects.get(question_set=question_set)
-        job.status = BackfillJob.Status.SUCCESS
-        job.save()
-
-        Question.objects.create(question_set=question_set, label="Pneumonia present?")
-        assert BackfillJob.objects.filter(question_set=question_set).count() == 2
-
-    @patch("radis.labels.signals.enqueue_question_set_backfill")
-    def test_inactive_question_does_not_trigger_backfill(self, mock_task):
-        mock_task.defer = lambda **kw: None
-        question_set = QuestionSet.objects.create(name="Findings")
-        Question.objects.create(
-            question_set=question_set, label="Draft Q", is_active=False
-        )
 
         assert BackfillJob.objects.filter(question_set=question_set).count() == 0
 
-    @patch("radis.labels.signals.enqueue_question_set_backfill")
-    def test_updating_question_does_not_trigger_backfill(self, mock_task):
-        mock_task.defer = lambda **kw: None
+    def test_creating_question_creates_default_answer_options(self):
         question_set = QuestionSet.objects.create(name="Findings")
         question = Question.objects.create(question_set=question_set, label="PE present?")
 
-        BackfillJob.objects.all().delete()
+        assert question.options.count() == 3
+        assert question.options.filter(is_unknown=True).count() == 1
 
-        question.label = "Updated label"
-        question.save()
+    def test_question_save_bumps_last_edited_at(self):
+        question_set = QuestionSet.objects.create(name="Findings")
+        assert question_set.last_edited_at is None
+
+        Question.objects.create(question_set=question_set, label="PE present?")
+        question_set.refresh_from_db()
+        assert question_set.last_edited_at is not None
+
+
+# -- Nightly launcher --
+
+
+@pytest.mark.django_db
+class TestLabelsBackfillLauncher:
+    """The nightly launcher dispatches one backfill per dirty set, respects
+    the same lock that the cancel/retry views respect, and treats a set
+    with no outstanding work as a no-op.
+    """
+
+    def _run_launcher(self):
+        # The decorated launcher is a Procrastinate task wrapper; the original
+        # callable is exposed on `.func`. Call that synchronously in tests.
+        from radis.labels.tasks import labels_backfill_launcher
+
+        labels_backfill_launcher.func(timestamp=0)
+
+    @patch("radis.labels.tasks.enqueue_question_set_backfill")
+    def test_dispatches_for_dirty_set(self, mock_task):
+        mock_task.defer = lambda **kw: None
+        question_set = QuestionSet.objects.create(name="Dirty")
+        _make_question(question_set, "Q1")
+        _make_report("doc-1")  # makes set "dirty" — has missing reports
+
+        self._run_launcher()
+
+        assert BackfillJob.objects.filter(
+            question_set=question_set, status=BackfillJob.Status.PENDING
+        ).count() == 1
+
+    @patch("radis.labels.tasks.enqueue_question_set_backfill")
+    def test_skips_set_with_no_outstanding_work(self, mock_task):
+        mock_task.defer = lambda **kw: None
+        question_set = QuestionSet.objects.create(name="Clean")
+        _make_question(question_set, "Q1")
+        report = _make_report("doc-1")
+        _record_complete_runs(report, question_set)  # all modes complete
+
+        self._run_launcher()
+
         assert BackfillJob.objects.filter(question_set=question_set).count() == 0
 
-    @patch("radis.labels.signals.enqueue_question_set_backfill")
-    @pytest.mark.django_db(transaction=True)
-    def test_dedup_across_different_sets(self, mock_task):
+    @patch("radis.labels.tasks.enqueue_question_set_backfill")
+    def test_skips_locked_set(self, mock_task):
+        mock_task.defer = lambda **kw: None
+        question_set = QuestionSet.objects.create(name="Locked")
+        _make_question(question_set, "Q1")
+        _make_report("doc-1")
+        # Existing IN_PROGRESS backfill = lock — launcher must not stack.
+        BackfillJob.objects.create(
+            question_set=question_set, status=BackfillJob.Status.IN_PROGRESS
+        )
+
+        self._run_launcher()
+
+        # Still just the one we pre-created.
+        assert BackfillJob.objects.filter(question_set=question_set).count() == 1
+
+    @patch("radis.labels.tasks.enqueue_question_set_backfill")
+    def test_skips_inactive_set(self, mock_task):
+        mock_task.defer = lambda **kw: None
+        question_set = QuestionSet.objects.create(name="Inactive", is_active=False)
+        _make_question(question_set, "Q1")
+        _make_report("doc-1")
+
+        self._run_launcher()
+
+        assert BackfillJob.objects.filter(question_set=question_set).count() == 0
+
+    @patch("radis.labels.tasks.enqueue_question_set_backfill")
+    def test_dispatches_per_set(self, mock_task):
         mock_task.defer = lambda **kw: None
         set_a = QuestionSet.objects.create(name="Set A")
         set_b = QuestionSet.objects.create(name="Set B")
+        _make_question(set_a, "QA")
+        _make_question(set_b, "QB")
+        _make_report("doc-1")
 
-        Question.objects.create(question_set=set_a, label="Q1")
-        Question.objects.create(question_set=set_b, label="Q2")
+        self._run_launcher()
 
         assert BackfillJob.objects.filter(question_set=set_a).count() == 1
         assert BackfillJob.objects.filter(question_set=set_b).count() == 1
@@ -310,10 +355,9 @@ class TestQuestionSetMissingReports:
     def test_inactive_questions_do_not_count_toward_completion(self):
         question_set = QuestionSet.objects.create(name="S")
         _make_question(question_set, "Q1")
-        with patch("radis.labels.signals.enqueue_question_set_backfill"):
-            Question.objects.create(
-                question_set=question_set, label="QInactive", is_active=False
-            )
+        Question.objects.create(
+            question_set=question_set, label="QInactive", is_active=False
+        )
         report = _make_report("doc-1")
         # Runs cover only the active question. The helper iterates active
         # questions for every required mode, so the inactive question is

@@ -38,10 +38,9 @@ def _make_report(document_id: str = "doc-1") -> Report:
 def _make_set_with_one_question(name: str = "Findings") -> tuple[QuestionSet, Question]:
     question_set = QuestionSet.objects.create(name=name)
     # Signal auto-creates the 3 default options on Question.save.
-    with patch("radis.labels.signals.enqueue_question_set_backfill"):
-        question = Question.objects.create(
-            question_set=question_set, label="PE present?"
-        )
+    question = Question.objects.create(
+        question_set=question_set, label="PE present?"
+    )
     return question_set, question
 
 

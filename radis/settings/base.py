@@ -475,9 +475,11 @@ EXTRACTION_TASK_BATCH_SIZE = 100
 EXTRACTION_LLM_CONCURRENCY_LIMIT = 6
 
 # Labels
-LABELS_AUTO_BACKFILL_ON_NEW_QUESTION = env.bool(
-    "LABELS_AUTO_BACKFILL_ON_NEW_QUESTION", default=True
-)
+# Backfills are scheduled nightly so they don't compete with live ingest or
+# staff edit sessions. Editing a question set during business hours is
+# debounced to the next cron tick instead of firing per-save; the cron tick
+# scans for dirty sets and dispatches one backfill per set.
+LABELS_BACKFILL_CRON = env("LABELS_BACKFILL_CRON", default="0 21 * * *")
 LABELING_TASK_BATCH_SIZE = 100
 LABELING_LLM_CONCURRENCY_LIMIT = 6
 

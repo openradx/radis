@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 from itertools import batched
 
 from django.conf import settings
+from django.db import transaction
 from django.utils import timezone
 from procrastinate.contrib.django import app
 
@@ -121,6 +123,60 @@ def enqueue_labeling_for_reports(
                     report_ids=list(report_batch),
                     mode=mode,
                 )
+
+
+@app.periodic(cron=settings.LABELS_BACKFILL_CRON)
+@app.task()
+def labels_backfill_launcher(timestamp: int) -> None:
+    """Nightly: scan every active question set for outstanding labelling
+    work and dispatch one backfill per dirty set.
+
+    "Dirty" means ``missing_reports()`` returns at least one row — this
+    catches all cases (new questions added, new reports ingested without
+    a labelling run, prior backfill that failed, question version bump)
+    without enumerating them.
+
+    The dispatch is wrapped in a per-set ``select_for_update`` so two
+    overlapping launcher runs (e.g. if a previous tick is still finishing
+    when the next one fires) cannot both create a backfill for the same
+    set. The lock is also what makes the staff-edit guard in views.py
+    safe: while a backfill is pending or in progress, edits are rejected
+    and the launcher will not stack a second backfill on top.
+    """
+    logger.info("Labels backfill launcher tick (timestamp=%s)", datetime.fromtimestamp(timestamp))
+
+    for question_set in QuestionSet.objects.filter(is_active=True):
+        if not question_set.missing_reports().exists():
+            continue
+
+        with transaction.atomic():
+            QuestionSet.objects.select_for_update().filter(id=question_set.id).first()
+
+            already_active = BackfillJob.objects.filter(
+                question_set=question_set,
+                status__in=[BackfillJob.Status.PENDING, BackfillJob.Status.IN_PROGRESS],
+            ).exists()
+            if already_active:
+                logger.info(
+                    "Skipping launcher dispatch for set %s — backfill already active.",
+                    question_set,
+                )
+                continue
+
+            backfill_job = BackfillJob.objects.create(question_set=question_set)
+
+            transaction.on_commit(
+                lambda jid=backfill_job.id, sid=question_set.id: enqueue_question_set_backfill.defer(
+                    question_set_id=sid,
+                    backfill_job_id=jid,
+                )
+            )
+
+            logger.info(
+                "Dispatched nightly backfill for set %s (job=%s).",
+                question_set,
+                backfill_job.id,
+            )
 
 
 @app.task
