@@ -35,29 +35,38 @@ def _make_question(question_set: QuestionSet, label: str) -> Question:
     return question
 
 
-def _record_direct_run(report: Report, question_set: QuestionSet) -> LabelingRun:
-    """Create a successful DIRECT-mode run + answers for every active question.
+def _record_complete_runs(report: Report, question_set: QuestionSet) -> list[LabelingRun]:
+    """Create a SUCCESS run + answers for every mode currently configured.
 
     This is the "report is fully labelled for this set" condition used
-    throughout the missing-reports / finalize logic.
+    throughout the missing-reports / finalize logic. ``missing_reports``
+    requires *every* mode in ``settings.LABELS_RUN_MODES`` to have a SUCCESS
+    run with answers for every active question, so tests that want a fully
+    labelled report should call this helper, not record one mode by hand.
     """
-    run = LabelingRun.objects.create(
-        report=report,
-        question_set=question_set,
-        mode=LabelingRun.Mode.DIRECT,
-        status=LabelingRun.Status.SUCCESS,
-    )
-    for question in question_set.questions.filter(is_active=True):
-        option = question.options.first()
-        assert option is not None, "Default options should be created by signal"
-        Answer.objects.create(
-            run=run,
+    from django.conf import settings
+
+    runs: list[LabelingRun] = []
+    modes = getattr(settings, "LABELS_RUN_MODES", [LabelingRun.Mode.DIRECT])
+    for mode in modes:
+        run = LabelingRun.objects.create(
             report=report,
-            question=question,
-            question_version=question.version,
-            option=option,
+            question_set=question_set,
+            mode=mode,
+            status=LabelingRun.Status.SUCCESS,
         )
-    return run
+        for question in question_set.questions.filter(is_active=True):
+            option = question.options.first()
+            assert option is not None, "Default options should be created by signal"
+            Answer.objects.create(
+                run=run,
+                report=report,
+                question=question,
+                question_version=question.version,
+                option=option,
+            )
+        runs.append(run)
+    return runs
 
 
 # -- Model tests --
@@ -167,7 +176,7 @@ class TestBackfillJobModel:
         _make_question(question_set, "Q1")
         labelled = _make_report("doc-1")
         _make_report("doc-2")
-        _record_direct_run(labelled, question_set)
+        _record_complete_runs(labelled, question_set)
 
         job = BackfillJob.objects.create(
             question_set=question_set,
@@ -286,7 +295,7 @@ class TestQuestionSetMissingReports:
         question_set = QuestionSet.objects.create(name="S")
         _make_question(question_set, "Q1")
         report = _make_report("doc-1")
-        _record_direct_run(report, question_set)
+        _record_complete_runs(report, question_set)
         assert list(question_set.missing_reports()) == []
 
     def test_report_without_run_is_missing_even_with_other_set_runs(self):
@@ -295,33 +304,21 @@ class TestQuestionSetMissingReports:
         set_b = QuestionSet.objects.create(name="SetB")
         _make_question(set_b, "QB")
         report = _make_report("doc-1")
-        _record_direct_run(report, set_a)
+        _record_complete_runs(report, set_a)
         assert list(set_b.missing_reports()) == [report]
 
     def test_inactive_questions_do_not_count_toward_completion(self):
         question_set = QuestionSet.objects.create(name="S")
-        active_q = _make_question(question_set, "Q1")
+        _make_question(question_set, "Q1")
         with patch("radis.labels.signals.enqueue_question_set_backfill"):
             Question.objects.create(
                 question_set=question_set, label="QInactive", is_active=False
             )
         report = _make_report("doc-1")
-        # Run for active questions only.
-        run = LabelingRun.objects.create(
-            report=report,
-            question_set=question_set,
-            mode=LabelingRun.Mode.DIRECT,
-            status=LabelingRun.Status.SUCCESS,
-        )
-        option = active_q.options.first()
-        assert option is not None
-        Answer.objects.create(
-            run=run,
-            report=report,
-            question=active_q,
-            question_version=active_q.version,
-            option=option,
-        )
+        # Runs cover only the active question. The helper iterates active
+        # questions for every required mode, so the inactive question is
+        # naturally excluded — and missing_reports must agree.
+        _record_complete_runs(report, question_set)
         assert list(question_set.missing_reports()) == []
 
 
@@ -367,7 +364,7 @@ class TestMaybeFinalize:
     def test_finalizes_to_success_when_no_missing_reports(self):
         job, question_set = self._setup_in_progress(with_question=True)
         report = _make_report("doc-1")
-        _record_direct_run(report, question_set)
+        _record_complete_runs(report, question_set)
         _maybe_finalize(job.id)
         job.refresh_from_db()
         assert job.status == BackfillJob.Status.SUCCESS
@@ -455,7 +452,7 @@ class TestBackfillCancelView:
         _make_question(question_set, "Q1")
         labelled = _make_report("doc-labelled")
         _make_report("doc-unlabelled")
-        _record_direct_run(labelled, question_set)
+        _record_complete_runs(labelled, question_set)
 
         job = BackfillJob.objects.create(
             question_set=question_set,

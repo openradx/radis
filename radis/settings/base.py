@@ -375,6 +375,9 @@ $questions
 """
 
 # Labels
+# DIRECT mode: one structured-output call per report. The LLM is asked to
+# return choices straight away, constrained by the dynamically-built Literal
+# enum in the response schema.
 LABELS_SYSTEM_PROMPT = """
 You are an AI medical assistant with extensive knowledge in radiology and general medicine.
 You have been trained on a wide range of medical literature, including the latest research
@@ -391,6 +394,51 @@ $report
 Questions:
 $questions
 """
+
+# REASONED mode: two-call sequence. First, the model is asked to produce
+# free-form reasoning grounded in the report (no schema constraints — schema
+# constraints during reasoning have been shown to flatten useful chain-of-
+# thought). Then a second structured call assigns the choices using the
+# reasoning as context. The first prompt is the one below; the second prompt
+# is LABELS_REASONED_STRUCTURED_PROMPT.
+LABELS_REASONING_PROMPT = """
+You are an AI medical assistant with extensive knowledge in radiology and general medicine.
+You will be asked to assign labels to the radiology report below based on a list of questions.
+Before any labels are assigned, think step by step about what the report says regarding each
+question. Quote or reference specific phrases from the report. Do not output final choices —
+only reasoning that will help another step assign them.
+
+Radiology Report:
+$report
+
+Questions to consider:
+$questions
+"""
+
+LABELS_REASONED_STRUCTURED_PROMPT = """
+You are an AI medical assistant with extensive knowledge in radiology and general medicine.
+Given the radiology report, the questions, and the reasoning produced in a prior step, assign
+a single choice to each question based only on the report. You may refine the reasoning but
+should remain consistent with it.
+For each question return: choice (one of the provided choice values), confidence (0.0 to 1.0),
+and rationale (short justification grounded in the report).
+If there is not enough evidence, select the choice value that represents \"Unknown\".
+
+Radiology Report:
+$report
+
+Questions:
+$questions
+
+Reasoning from prior step:
+$reasoning
+"""
+
+# Modes the labelling pipeline produces per report. Defaults to both so every
+# report ends up with one DIRECT run and one REASONED run, which is what
+# evaluation needs. Override in production to drop a mode for cost control —
+# the data model handles missing modes fine.
+LABELS_RUN_MODES = env.list("LABELS_RUN_MODES", default=["DI", "RE"])
 
 # Extraction
 OUTPUT_FIELDS_SYSTEM_PROMPT = """

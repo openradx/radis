@@ -66,3 +66,21 @@ class ChatClient:
         assert event
         logger.debug("Received from LLM: %s", event)
         return event
+
+    def complete_text(self, prompt: str) -> str:
+        """Plain-text completion. Used by labelling's REASONED mode to elicit
+        free-form chain-of-thought before the structured-output call. Schema
+        constraints during reasoning tend to flatten useful CoT, so this is
+        kept deliberately schema-free.
+        """
+        logger.debug("Sending prompt to LLM for plain-text completion.")
+        logger.debug("Prompt:\n%s", prompt)
+
+        completion = self._client.chat.completions.create(
+            model=self._llm_model_name,
+            messages=[{"role": "system", "content": prompt}],
+        )
+        content = completion.choices[0].message.content
+        assert content is not None
+        logger.debug("Received from LLM: %s", content)
+        return content

@@ -129,15 +129,36 @@ class LabelingProcessor:
         schema_mirror: QuestionSetSchema,
     ) -> None:
         response_schema = build_labeling_response_schema(schema_mirror)
-        prompt = Template(settings.LABELS_SYSTEM_PROMPT).substitute(
-            {
-                "report": report.body,
-                "questions": render_questions_block(schema_mirror),
-            }
-        )
+        questions_block = render_questions_block(schema_mirror)
 
         started = time.monotonic()
-        result = self.client.extract_data(prompt.strip(), response_schema)
+
+        # REASONED mode is a two-call sequence: free-form reasoning first
+        # (so chain-of-thought is not constrained by the structured-output
+        # schema), then a structured call that lands the actual choices
+        # given the report + reasoning as context.
+        reasoning_text = ""
+        if self.mode == LabelingRun.Mode.REASONED:
+            reasoning_prompt = Template(settings.LABELS_REASONING_PROMPT).substitute(
+                {"report": report.body, "questions": questions_block}
+            )
+            reasoning_text = self.client.complete_text(reasoning_prompt.strip())
+
+            structured_prompt = Template(
+                settings.LABELS_REASONED_STRUCTURED_PROMPT
+            ).substitute(
+                {
+                    "report": report.body,
+                    "questions": questions_block,
+                    "reasoning": reasoning_text,
+                }
+            )
+        else:
+            structured_prompt = Template(settings.LABELS_SYSTEM_PROMPT).substitute(
+                {"report": report.body, "questions": questions_block}
+            )
+
+        result = self.client.extract_data(structured_prompt.strip(), response_schema)
         latency_ms = int((time.monotonic() - started) * 1000)
 
         # Persist run output and answers atomically so we never end up with
@@ -165,6 +186,7 @@ class LabelingProcessor:
             LabelingRun.objects.filter(pk=run.pk).update(
                 status=LabelingRun.Status.SUCCESS,
                 raw_response=result.model_dump(),
+                reasoning_text=reasoning_text,
                 latency_ms=latency_ms,
                 completed_at=timezone.now(),
             )
