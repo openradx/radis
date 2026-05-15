@@ -75,3 +75,27 @@ def test_embed_reports_propagates_client_error():
         MockClient.return_value.embed_documents.side_effect = EmbeddingClientError("boom")
         with pytest.raises(EmbeddingClientError):
             embed_reports.__wrapped__([report.pk])
+
+
+@pytest.mark.django_db
+def test_embed_reports_closes_client_on_success():
+    report = ReportFactory.create()
+    fake_vec = [1.0] + [0.0] * 1023
+
+    with patch("radis.pgsearch.tasks.EmbeddingClient") as MockClient:
+        MockClient.return_value.embed_documents.return_value = [fake_vec]
+        embed_reports.__wrapped__([report.pk])
+
+    MockClient.return_value.close.assert_called_once()
+
+
+@pytest.mark.django_db
+def test_embed_reports_closes_client_on_error():
+    from radis.pgsearch.utils.embedding_client import EmbeddingClientError
+
+    report = ReportFactory.create()
+    with patch("radis.pgsearch.tasks.EmbeddingClient") as MockClient:
+        MockClient.return_value.embed_documents.side_effect = EmbeddingClientError("boom")
+        with pytest.raises(EmbeddingClientError):
+            embed_reports.__wrapped__([report.pk])
+    MockClient.return_value.close.assert_called_once()

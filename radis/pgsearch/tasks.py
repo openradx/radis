@@ -51,12 +51,15 @@ def embed_reports(report_ids: list[int]) -> None:
     client = EmbeddingClient()
     batch_size = django_settings.EMBEDDING_BATCH_SIZE
 
-    for start in range(0, len(rsvs), batch_size):
-        chunk = rsvs[start : start + batch_size]
-        texts = [rsv.report.body for rsv in chunk]
-        vectors = client.embed_documents(texts)
-        for rsv, vec in zip(chunk, vectors, strict=True):
-            ReportSearchVector.objects.filter(pk=rsv.pk).update(embedding=vec)
+    try:
+        for start in range(0, len(rsvs), batch_size):
+            chunk = rsvs[start : start + batch_size]
+            texts = [rsv.report.body for rsv in chunk]
+            vectors = client.embed_documents(texts)
+            for rsv, vec in zip(chunk, vectors, strict=True):
+                ReportSearchVector.objects.filter(pk=rsv.pk).update(embedding=vec)
+    finally:
+        client.close()
 
 
 def enqueue_embed_reports(
