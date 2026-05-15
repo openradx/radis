@@ -4,7 +4,7 @@ import pytest
 from django.contrib.auth.models import Group
 
 from radis.pgsearch.models import ReportSearchVector
-from radis.pgsearch.providers import search
+from radis.pgsearch.providers import retrieve, search
 from radis.pgsearch.utils.embedding_client import EmbeddingClientError
 from radis.reports.factories import ReportFactory
 from radis.search.site import Search, SearchFilters
@@ -136,3 +136,23 @@ def test_empty_summary_falls_back_to_body_head(group, settings):
     # Summary is non-empty (fell back to body head) and is plain text (no <em>).
     assert doc.summary
     assert "<em>" not in doc.summary
+
+
+def test_retrieve_returns_hybrid_ordered_document_ids(group, reports_with_embeddings, settings):
+    r0, r1, r2 = reports_with_embeddings
+    dim = settings.EMBEDDING_DIM
+    with patch("radis.pgsearch.providers.EmbeddingClient") as MockClient:
+        MockClient.return_value.embed_query.return_value = _unit_vec(0, dim)
+        doc_ids = list(retrieve(_make_search("pneumothorax", group.pk)))
+
+    # r2 (both sides) first, then any order containing r0 and r1.
+    assert doc_ids[0] == r2.document_id
+    assert set(doc_ids) >= {r0.document_id, r1.document_id, r2.document_id}
+
+
+def test_retrieve_falls_back_to_fts_on_embedding_error(group, reports_with_embeddings):
+    r0, _, r2 = reports_with_embeddings
+    with patch("radis.pgsearch.providers.EmbeddingClient") as MockClient:
+        MockClient.return_value.embed_query.side_effect = EmbeddingClientError("down")
+        doc_ids = list(retrieve(_make_search("pneumothorax", group.pk)))
+    assert set(doc_ids) == {r0.document_id, r2.document_id}

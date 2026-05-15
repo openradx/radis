@@ -6,6 +6,7 @@ from django.contrib.postgres.search import SearchHeadline, SearchQuery, SearchRa
 from django.db.models import F, Q
 from pgvector.django import CosineDistance
 
+from radis.reports.models import Report
 from radis.search.site import ReportDocument, Search, SearchFilters, SearchResult
 from radis.search.utils.query_parser import (
     BinaryNode,
@@ -194,23 +195,44 @@ def count(search: Search) -> int:
 def retrieve(search: Search) -> Iterator[str]:
     query_str = _build_query_string(search.query)
     language = _resolve_language(search.filters)
-    query = SearchQuery(query_str, search_type="raw", config=language)
     filter_query = _build_filter_query(search.filters)
-    results = (
-        ReportSearchVector.objects.filter(filter_query)
-        .filter(search_vector=query)
-        .annotate(
-            rank=SearchRank(
-                F("search_vector"),
-                query,
-            )
-        )
-        .select_related("report")
-        .order_by("-rank")
-        .values_list("report__document_id", flat=True)
-    )
+    tsquery = SearchQuery(query_str, search_type="raw", config=language)
 
-    return results.iterator()
+    query_text = QueryParser.unparse(search.query)
+    try:
+        query_vec = EmbeddingClient().embed_query(query_text)
+    except EmbeddingClientError as e:
+        logger.warning("Hybrid retrieve falling back to FTS-only: %s", e)
+        query_vec = None
+
+    vec_rank: dict[int, int] = {}
+    if query_vec is not None:
+        vec_ids = list(
+            ReportSearchVector.objects.filter(filter_query)
+            .exclude(embedding__isnull=True)
+            .annotate(distance=CosineDistance("embedding", query_vec))
+            .order_by("distance", "report_id")
+            .values_list("report_id", flat=True)[: settings.HYBRID_VECTOR_TOP_K]
+        )
+        vec_rank = {rid: i + 1 for i, rid in enumerate(vec_ids)}
+
+    fts_rows = list(
+        ReportSearchVector.objects.filter(filter_query)
+        .filter(search_vector=tsquery)
+        .annotate(rank=SearchRank(F("search_vector"), tsquery))
+        .order_by("-rank", "report_id")
+        .values("report_id", "rank")[: settings.HYBRID_FTS_MAX_RESULTS]
+    )
+    fts_rank = {row["report_id"]: i + 1 for i, row in enumerate(fts_rows)}
+
+    ordered_ids = rrf_fuse(vec_rank, fts_rank, k=settings.HYBRID_RRF_K)
+    if not ordered_ids:
+        return iter([])
+
+    id_to_doc = dict(
+        Report.objects.filter(pk__in=ordered_ids).values_list("pk", "document_id")
+    )
+    return (id_to_doc[rid] for rid in ordered_ids if rid in id_to_doc)
 
 
 def filter(filter: SearchFilters) -> Iterator[str]:
