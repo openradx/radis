@@ -104,15 +104,15 @@ class EmbeddingClient:
         self._headers: dict[str, str] = {}
         if settings.EMBEDDING_PROVIDER_API_KEY:
             self._headers["Authorization"] = f"Bearer {settings.EMBEDDING_PROVIDER_API_KEY}"
+        self._http = _build_http_client()
 
     def embed_documents(self, texts: list[str]) -> list[list[float]]:
         truncated = _truncate(texts, self._max_chars)
         payload = self._backend.build_payload(self._model, truncated)
-        with _build_http_client() as http:
-            try:
-                response = http.post(self._url, json=payload, headers=self._headers)
-            except httpx.HTTPError as e:
-                raise EmbeddingClientError(f"HTTP error contacting {self._url}: {e}") from e
+        try:
+            response = self._http.post(self._url, json=payload, headers=self._headers)
+        except httpx.HTTPError as e:
+            raise EmbeddingClientError(f"HTTP error contacting {self._url}: {e}") from e
         if response.status_code >= 400:
             raise EmbeddingClientError(
                 f"Embedding service returned {response.status_code}: {response.text[:200]}"

@@ -63,10 +63,6 @@ def test_backends_registry_keys():
     assert set(BACKENDS.keys()) == {"openai", "ollama"}
 
 
-def _mock_transport(handler):
-    """Build an httpx MockTransport that delegates to a handler(request)."""
-    return httpx.MockTransport(handler)
-
 
 @override_settings(
     EMBEDDING_BACKEND="openai",
@@ -93,7 +89,7 @@ def test_embed_documents_posts_payload_and_normalizes(monkeypatch):
         )
 
     monkeypatch.setattr(
-        ec, "_build_http_client", lambda: httpx.Client(transport=_mock_transport(handler))
+        ec, "_build_http_client", lambda: httpx.Client(transport=httpx.MockTransport(handler))
     )
 
     client = ec.EmbeddingClient()
@@ -128,7 +124,7 @@ def test_provider_path_override(monkeypatch):
         return httpx.Response(200, json={"data": [{"embedding": [1.0, 0.0]}]})
 
     monkeypatch.setattr(
-        ec, "_build_http_client", lambda: httpx.Client(transport=_mock_transport(handler))
+        ec, "_build_http_client", lambda: httpx.Client(transport=httpx.MockTransport(handler))
     )
     ec.EmbeddingClient().embed_documents(["x"])
     assert seen["url"] == "http://embed.example/api/embeddings"
@@ -155,7 +151,7 @@ def test_embed_query_prepends_instruction(monkeypatch):
         return httpx.Response(200, json={"data": [{"embedding": [1.0, 0.0]}]})
 
     monkeypatch.setattr(
-        ec, "_build_http_client", lambda: httpx.Client(transport=_mock_transport(handler))
+        ec, "_build_http_client", lambda: httpx.Client(transport=httpx.MockTransport(handler))
     )
     ec.EmbeddingClient().embed_query("hello")
     assert seen["body"]["input"] == ["INST: hello"]
@@ -182,7 +178,7 @@ def test_truncates_long_input(monkeypatch):
         return httpx.Response(200, json={"data": [{"embedding": [1.0, 0.0]}]})
 
     monkeypatch.setattr(
-        ec, "_build_http_client", lambda: httpx.Client(transport=_mock_transport(handler))
+        ec, "_build_http_client", lambda: httpx.Client(transport=httpx.MockTransport(handler))
     )
     ec.EmbeddingClient().embed_documents(["abcdefghij"])
     assert seen["body"]["input"] == ["abcde"]
@@ -206,7 +202,7 @@ def test_dim_mismatch_raises(monkeypatch):
         return httpx.Response(200, json={"data": [{"embedding": [1.0, 0.0, 3.0]}]})
 
     monkeypatch.setattr(
-        ec, "_build_http_client", lambda: httpx.Client(transport=_mock_transport(handler))
+        ec, "_build_http_client", lambda: httpx.Client(transport=httpx.MockTransport(handler))
     )
     with pytest.raises(ec.EmbeddingClientError):
         ec.EmbeddingClient().embed_documents(["x"])
@@ -230,7 +226,7 @@ def test_5xx_raises(monkeypatch):
         return httpx.Response(503, text="service unavailable")
 
     monkeypatch.setattr(
-        ec, "_build_http_client", lambda: httpx.Client(transport=_mock_transport(handler))
+        ec, "_build_http_client", lambda: httpx.Client(transport=httpx.MockTransport(handler))
     )
     with pytest.raises(ec.EmbeddingClientError):
         ec.EmbeddingClient().embed_documents(["x"])
