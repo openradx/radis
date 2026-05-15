@@ -63,6 +63,8 @@ def test_hybrid_returns_fts_only_hit(group, reports_with_embeddings, settings):
     # returns docs, but their distances are large. FTS for "pneumothorax"
     # picks up r0 and r2.
     with patch("radis.pgsearch.providers.EmbeddingClient") as MockClient:
+        MockClient.return_value.__enter__.return_value = MockClient.return_value
+        MockClient.return_value.__exit__.return_value = None
         MockClient.return_value.embed_query.return_value = _unit_vec(50, dim)
         result = search(_make_search("pneumothorax", group.pk))
 
@@ -76,6 +78,8 @@ def test_hybrid_returns_vector_only_hit(group, reports_with_embeddings, settings
     # Query vector at dim 0 — closest to r1 and r2. FTS for "pneumothorax"
     # excludes r1 lexically; vector side must surface it.
     with patch("radis.pgsearch.providers.EmbeddingClient") as MockClient:
+        MockClient.return_value.__enter__.return_value = MockClient.return_value
+        MockClient.return_value.__exit__.return_value = None
         MockClient.return_value.embed_query.return_value = _unit_vec(0, dim)
         result = search(_make_search("pneumothorax", group.pk))
 
@@ -87,6 +91,8 @@ def test_hybrid_both_sides_match_ranks_first(group, reports_with_embeddings, set
     _, _, r2 = reports_with_embeddings
     dim = settings.EMBEDDING_DIM
     with patch("radis.pgsearch.providers.EmbeddingClient") as MockClient:
+        MockClient.return_value.__enter__.return_value = MockClient.return_value
+        MockClient.return_value.__exit__.return_value = None
         MockClient.return_value.embed_query.return_value = _unit_vec(0, dim)
         result = search(_make_search("pneumothorax", group.pk))
 
@@ -98,6 +104,8 @@ def test_hybrid_both_sides_match_ranks_first(group, reports_with_embeddings, set
 def test_embedding_failure_falls_back_to_fts(group, reports_with_embeddings):
     r0, _, r2 = reports_with_embeddings
     with patch("radis.pgsearch.providers.EmbeddingClient") as MockClient:
+        MockClient.return_value.__enter__.return_value = MockClient.return_value
+        MockClient.return_value.__exit__.return_value = None
         MockClient.return_value.embed_query.side_effect = EmbeddingClientError("down")
         result = search(_make_search("pneumothorax", group.pk))
 
@@ -112,6 +120,8 @@ def test_reports_with_null_embedding_still_returned_via_fts(group, settings):
     r.groups.add(group)
     # Leave embedding NULL.
     with patch("radis.pgsearch.providers.EmbeddingClient") as MockClient:
+        MockClient.return_value.__enter__.return_value = MockClient.return_value
+        MockClient.return_value.__exit__.return_value = None
         MockClient.return_value.embed_query.return_value = _unit_vec(0, dim)
         result = search(_make_search("pneumothorax", group.pk))
 
@@ -129,6 +139,8 @@ def test_empty_summary_falls_back_to_body_head(group, settings):
     ReportSearchVector.objects.filter(report=r).update(embedding=_unit_vec(0, dim))
 
     with patch("radis.pgsearch.providers.EmbeddingClient") as MockClient:
+        MockClient.return_value.__enter__.return_value = MockClient.return_value
+        MockClient.return_value.__exit__.return_value = None
         MockClient.return_value.embed_query.return_value = _unit_vec(0, dim)
         result = search(_make_search("pneumothorax", group.pk))
 
@@ -142,6 +154,8 @@ def test_retrieve_returns_hybrid_ordered_document_ids(group, reports_with_embedd
     r0, r1, r2 = reports_with_embeddings
     dim = settings.EMBEDDING_DIM
     with patch("radis.pgsearch.providers.EmbeddingClient") as MockClient:
+        MockClient.return_value.__enter__.return_value = MockClient.return_value
+        MockClient.return_value.__exit__.return_value = None
         MockClient.return_value.embed_query.return_value = _unit_vec(0, dim)
         doc_ids = list(retrieve(_make_search("pneumothorax", group.pk)))
 
@@ -153,6 +167,8 @@ def test_retrieve_returns_hybrid_ordered_document_ids(group, reports_with_embedd
 def test_retrieve_falls_back_to_fts_on_embedding_error(group, reports_with_embeddings):
     r0, _, r2 = reports_with_embeddings
     with patch("radis.pgsearch.providers.EmbeddingClient") as MockClient:
+        MockClient.return_value.__enter__.return_value = MockClient.return_value
+        MockClient.return_value.__exit__.return_value = None
         MockClient.return_value.embed_query.side_effect = EmbeddingClientError("down")
         doc_ids = list(retrieve(_make_search("pneumothorax", group.pk)))
     assert set(doc_ids) == {r0.document_id, r2.document_id}

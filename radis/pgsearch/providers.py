@@ -103,7 +103,8 @@ def search(search: Search) -> SearchResult:
     query_text = QueryParser.unparse(search.query)
     query_vec: list[float] | None
     try:
-        query_vec = EmbeddingClient().embed_query(query_text)
+        with EmbeddingClient() as ec:
+            query_vec = ec.embed_query(query_text)
     except EmbeddingClientError as e:
         logger.warning("Hybrid search falling back to FTS-only: %s", e)
         query_vec = None
@@ -200,7 +201,8 @@ def retrieve(search: Search) -> Iterator[str]:
 
     query_text = QueryParser.unparse(search.query)
     try:
-        query_vec = EmbeddingClient().embed_query(query_text)
+        with EmbeddingClient() as ec:
+            query_vec = ec.embed_query(query_text)
     except EmbeddingClientError as e:
         logger.warning("Hybrid retrieve falling back to FTS-only: %s", e)
         query_vec = None
