@@ -1,14 +1,17 @@
 import logging
-from typing import Iterator, cast
+from typing import Iterator, Literal, cast
 
+from django.conf import settings
 from django.contrib.postgres.search import SearchHeadline, SearchQuery, SearchRank
 from django.db.models import F, Q
+from pgvector.django import CosineDistance
 
-from radis.search.site import Search, SearchFilters, SearchResult
+from radis.search.site import ReportDocument, Search, SearchFilters, SearchResult
 from radis.search.utils.query_parser import (
     BinaryNode,
     ParensNode,
     QueryNode,
+    QueryParser,
     TermNode,
     UnaryNode,
     is_search_token_char,
@@ -16,6 +19,8 @@ from radis.search.utils.query_parser import (
 
 from .models import ReportSearchVector
 from .utils.document_utils import AnnotatedReportSearchVector, document_from_pgsearch_response
+from .utils.embedding_client import EmbeddingClient, EmbeddingClientError
+from .utils.fusion import rrf_fuse, summary_with_fallback
 from .utils.language_utils import code_to_language
 
 logger = logging.getLogger(__name__)
@@ -90,44 +95,91 @@ def _build_filter_query(filters: SearchFilters) -> Q:
 def search(search: Search) -> SearchResult:
     query_str = _build_query_string(search.query)
     language = _resolve_language(search.filters)
-    query = SearchQuery(query_str, search_type="raw", config=language)
     filter_query = _build_filter_query(search.filters)
-    results = (
-        ReportSearchVector.objects.filter(filter_query)
-        .filter(search_vector=query)
-        .annotate(
-            rank=SearchRank(
-                F("search_vector"),
-                query,
-            )
+    tsquery = SearchQuery(query_str, search_type="raw", config=language)
+
+    # Vector side: query embedding (sync HTTP); fall back gracefully on failure.
+    query_text = QueryParser.unparse(search.query)
+    query_vec: list[float] | None
+    try:
+        query_vec = EmbeddingClient().embed_query(query_text)
+    except EmbeddingClientError as e:
+        logger.warning("Hybrid search falling back to FTS-only: %s", e)
+        query_vec = None
+
+    vec_rank: dict[int, int] = {}
+    if query_vec is not None:
+        vec_ids = list(
+            ReportSearchVector.objects.filter(filter_query)
+            .exclude(embedding__isnull=True)
+            .annotate(distance=CosineDistance("embedding", query_vec))
+            .order_by("distance", "report_id")
+            .values_list("report_id", flat=True)[: settings.HYBRID_VECTOR_TOP_K]
         )
+        vec_rank = {rid: i + 1 for i, rid in enumerate(vec_ids)}
+
+    # FTS side: bounded set, ts_rank only (no headline at this stage).
+    fts_rows = list(
+        ReportSearchVector.objects.filter(filter_query)
+        .filter(search_vector=tsquery)
+        .annotate(rank=SearchRank(F("search_vector"), tsquery))
+        .order_by("-rank", "report_id")
+        .values("report_id", "rank")[: settings.HYBRID_FTS_MAX_RESULTS]
+    )
+    fts_rank = {row["report_id"]: i + 1 for i, row in enumerate(fts_rows)}
+
+    # Fusion.
+    ordered_ids = rrf_fuse(vec_rank, fts_rank, k=settings.HYBRID_RRF_K)
+    total_count = len(ordered_ids)
+    total_relation: Literal["exact", "at_least", "approximately"] = (
+        "at_least"
+        if (
+            len(fts_rows) >= settings.HYBRID_FTS_MAX_RESULTS
+            or len(vec_rank) >= settings.HYBRID_VECTOR_TOP_K
+        )
+        else "exact"
+    )
+
+    if search.limit is None:
+        page_ids = ordered_ids[search.offset :]
+    else:
+        page_ids = ordered_ids[search.offset : search.offset + search.limit]
+
+    # Headline + hydration for the page slice only.
+    page_rows = (
+        ReportSearchVector.objects.filter(report_id__in=page_ids)
         .annotate(
             summary=SearchHeadline(
                 "report__body",
-                query,
+                tsquery,
                 config=language,
                 start_sel="<em>",
                 stop_sel="</em>",
                 min_words=10,
                 max_words=20,
                 max_fragments=10,
-            )
+            ),
+            rank=SearchRank(F("search_vector"), tsquery),
         )
         .select_related("report")
-        .order_by("-rank")
     )
+    by_id = {r.report_id: r for r in page_rows}
 
-    total_count = results.count()
-    if search.limit is None:
-        results = results[search.offset :]
-    else:
-        results = results[search.offset : search.offset + search.limit]
-    documents = [
-        document_from_pgsearch_response(cast(AnnotatedReportSearchVector, result))
-        for result in results
-    ]
+    documents: list[ReportDocument] = []
+    for rid in page_ids:
+        rsv = by_id.get(rid)
+        if rsv is None:
+            continue
+        rsv.summary = summary_with_fallback(  # type: ignore[attr-defined]
+            rsv.report.body, rsv.summary or "", max_words=30  # type: ignore[attr-defined]
+        )
+        documents.append(
+            document_from_pgsearch_response(cast(AnnotatedReportSearchVector, rsv))
+        )
 
-    return SearchResult(total_count=total_count, total_relation="exact", documents=documents)
+    return SearchResult(
+        total_count=total_count, total_relation=total_relation, documents=documents
+    )
 
 
 def count(search: Search) -> int:
