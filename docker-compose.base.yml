@@ -55,7 +55,7 @@ services:
     hostname: llm_worker.local
 
   postgres:
-    image: postgres:17
+    image: pgvector/pgvector:pg17
     hostname: postgres.local
     volumes:
       - postgres_data:/var/lib/postgresql/data
