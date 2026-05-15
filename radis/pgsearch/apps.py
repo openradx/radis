@@ -11,6 +11,8 @@ class PgSearchConfig(AppConfig):
 
 
 def register_app():
+    from django.conf import settings
+
     from radis.extractions.site import (
         ExtractionRetrievalProvider,
         register_extraction_retrieval_provider,
@@ -29,7 +31,9 @@ def register_app():
         SearchProvider(
             name="PG Search",
             search=search,
-            max_results=1000,
+            max_results=max(
+                settings.HYBRID_VECTOR_TOP_K, settings.HYBRID_FTS_MAX_RESULTS
+            ),
         )
     )
 
