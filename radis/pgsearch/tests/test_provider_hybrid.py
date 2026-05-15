@@ -10,6 +10,8 @@ from radis.reports.factories import ReportFactory
 from radis.search.site import Search, SearchFilters
 from radis.search.utils.query_parser import QueryParser
 
+pytestmark = pytest.mark.django_db
+
 
 def _unit_vec(idx: int, dim: int) -> list[float]:
     """Deterministic unit vector that points in dimension `idx`."""
@@ -104,7 +106,6 @@ def test_embedding_failure_falls_back_to_fts(group, reports_with_embeddings):
     assert set(ids) == {r0.document_id, r2.document_id}
 
 
-@pytest.mark.django_db
 def test_reports_with_null_embedding_still_returned_via_fts(group, settings):
     dim = settings.EMBEDDING_DIM
     r = ReportFactory.create(body="pneumothorax findings")
