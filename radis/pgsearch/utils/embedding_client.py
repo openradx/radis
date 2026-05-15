@@ -134,3 +134,12 @@ class EmbeddingClient:
     def embed_query(self, text: str) -> list[float]:
         prefixed = f"{self._instruction}{text}" if self._instruction else text
         return self.embed_documents([prefixed])[0]
+
+    def close(self) -> None:
+        self._http.close()
+
+    def __enter__(self) -> "EmbeddingClient":
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+        self.close()

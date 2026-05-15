@@ -230,3 +230,61 @@ def test_5xx_raises(monkeypatch):
     )
     with pytest.raises(ec.EmbeddingClientError):
         ec.EmbeddingClient().embed_documents(["x"])
+
+
+@override_settings(
+    EMBEDDING_BACKEND="openai",
+    EMBEDDING_PROVIDER_URL="http://embed.example",
+    EMBEDDING_PROVIDER_PATH="",
+    EMBEDDING_PROVIDER_API_KEY="",
+    EMBEDDING_MODEL_NAME="qwen3",
+    EMBEDDING_DIM=2,
+    EMBEDDING_REQUEST_TIMEOUT=10,
+    EMBEDDING_MAX_INPUT_CHARS=100,
+    EMBEDDING_QUERY_INSTRUCTION="",
+)
+def test_close_releases_http_client(monkeypatch):
+    from radis.pgsearch.utils import embedding_client as ec
+
+    closed = {"value": False}
+
+    class TrackingClient:
+        def post(self, *args, **kwargs):
+            raise AssertionError("not used in this test")
+
+        def close(self):
+            closed["value"] = True
+
+    monkeypatch.setattr(ec, "_build_http_client", lambda: TrackingClient())
+    client = ec.EmbeddingClient()
+    client.close()
+    assert closed["value"] is True
+
+
+@override_settings(
+    EMBEDDING_BACKEND="openai",
+    EMBEDDING_PROVIDER_URL="http://embed.example",
+    EMBEDDING_PROVIDER_PATH="",
+    EMBEDDING_PROVIDER_API_KEY="",
+    EMBEDDING_MODEL_NAME="qwen3",
+    EMBEDDING_DIM=2,
+    EMBEDDING_REQUEST_TIMEOUT=10,
+    EMBEDDING_MAX_INPUT_CHARS=100,
+    EMBEDDING_QUERY_INSTRUCTION="",
+)
+def test_context_manager_closes_http_client(monkeypatch):
+    from radis.pgsearch.utils import embedding_client as ec
+
+    closed = {"value": False}
+
+    class TrackingClient:
+        def post(self, *args, **kwargs):
+            raise AssertionError("not used in this test")
+
+        def close(self):
+            closed["value"] = True
+
+    monkeypatch.setattr(ec, "_build_http_client", lambda: TrackingClient())
+    with ec.EmbeddingClient():
+        pass
+    assert closed["value"] is True
