@@ -324,3 +324,13 @@ def test_search_view_form_validation_errors(client: Client):
         response = client.get("/search/", search_params)
         assert response.status_code == 200
         assert "form" in response.context
+
+
+@pytest.mark.django_db
+def test_search_view_returns_200_when_embedding_provider_unset(client: Client, settings):
+    """SearchView returns 200 via FTS-only fallback when EMBEDDING_PROVIDER_URL is unset."""
+    settings.EMBEDDING_PROVIDER_URL = ""
+    user = create_test_user_with_active_group()
+    client.force_login(user)
+    response = client.get("/search/?query=pneumothorax")
+    assert response.status_code == 200
