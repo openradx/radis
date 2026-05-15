@@ -17,6 +17,12 @@ x-app: &default-app
     DJANGO_SERVER_EMAIL: ${DJANGO_SERVER_EMAIL:?}
     EXTERNAL_LLM_PROVIDER_URL: ${EXTERNAL_LLM_PROVIDER_URL:-}
     EXTERNAL_LLM_PROVIDER_API_KEY: ${EXTERNAL_LLM_PROVIDER_API_KEY:-}
+    EMBEDDING_BACKEND: ${EMBEDDING_BACKEND:-openai}
+    EMBEDDING_PROVIDER_URL: ${EMBEDDING_PROVIDER_URL:-}
+    EMBEDDING_PROVIDER_PATH: ${EMBEDDING_PROVIDER_PATH:-}
+    EMBEDDING_PROVIDER_API_KEY: ${EMBEDDING_PROVIDER_API_KEY:-}
+    EMBEDDING_MODEL_NAME: ${EMBEDDING_MODEL_NAME:-Qwen/Qwen3-Embedding-4B}
+    EMBEDDING_DIM: ${EMBEDDING_DIM:-1024}
     IS_DOCKER_CONTAINER: 1
     HTTP_PROXY: ${HTTP_PROXY:-}
     HTTPS_PROXY: ${HTTPS_PROXY:-}
@@ -53,6 +59,10 @@ services:
   llm_worker:
     <<: *default-app
     hostname: llm_worker.local
+
+  embeddings_worker:
+    <<: *default-app
+    hostname: embeddings_worker.local
 
   postgres:
     image: pgvector/pgvector:pg17
