@@ -110,15 +110,18 @@ def search(search: Search) -> SearchResult:
         query_vec = None
 
     vec_rank: dict[int, int] = {}
+    vec_distance: dict[int, float] = {}
     if query_vec is not None:
-        vec_ids = list(
+        vec_rows = list(
             ReportSearchVector.objects.filter(filter_query)
             .exclude(embedding__isnull=True)
             .annotate(distance=CosineDistance("embedding", query_vec))
             .order_by("distance", "report_id")
-            .values_list("report_id", flat=True)[: settings.HYBRID_VECTOR_TOP_K]
+            .values_list("report_id", "distance")[: settings.HYBRID_VECTOR_TOP_K]
         )
-        vec_rank = {rid: i + 1 for i, rid in enumerate(vec_ids)}
+        for i, (rid, dist) in enumerate(vec_rows):
+            vec_rank[rid] = i + 1
+            vec_distance[rid] = float(dist)
 
     # FTS side: bounded set, ts_rank only (no headline at this stage).
     fts_rows = list(
@@ -131,7 +134,9 @@ def search(search: Search) -> SearchResult:
     fts_rank = {row["report_id"]: i + 1 for i, row in enumerate(fts_rows)}
 
     # Fusion.
-    ordered_ids = rrf_fuse(vec_rank, fts_rank, k=settings.HYBRID_RRF_K)
+    ordered_pairs = rrf_fuse(vec_rank, fts_rank, k=settings.HYBRID_RRF_K)
+    ordered_ids = [rid for rid, _ in ordered_pairs]
+    rrf_score_by_id = {rid: score for rid, score in ordered_pairs}
     total_count = len(ordered_ids)
     total_relation: Literal["exact", "at_least", "approximately"] = (
         "at_least"
@@ -176,7 +181,11 @@ def search(search: Search) -> SearchResult:
             rsv.report.body, rsv.summary or "", max_words=30  # type: ignore[attr-defined]
         )
         documents.append(
-            document_from_pgsearch_response(cast(AnnotatedReportSearchVector, rsv))
+            document_from_pgsearch_response(
+                cast(AnnotatedReportSearchVector, rsv),
+                cosine_distance=vec_distance.get(rid),
+                rrf_score=rrf_score_by_id.get(rid, 0.0),
+            )
         )
 
     return SearchResult(
@@ -227,7 +236,7 @@ def retrieve(search: Search) -> Iterator[str]:
     )
     fts_rank = {row["report_id"]: i + 1 for i, row in enumerate(fts_rows)}
 
-    ordered_ids = rrf_fuse(vec_rank, fts_rank, k=settings.HYBRID_RRF_K)
+    ordered_ids = [rid for rid, _ in rrf_fuse(vec_rank, fts_rank, k=settings.HYBRID_RRF_K)]
     if not ordered_ids:
         return iter([])
 

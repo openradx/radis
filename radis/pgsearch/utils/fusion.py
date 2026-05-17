@@ -2,11 +2,12 @@ def rrf_fuse(
     vec_rank: dict[int, int],
     fts_rank: dict[int, int],
     k: int,
-) -> list[int]:
+) -> list[tuple[int, float]]:
     """Reciprocal Rank Fusion.
 
     vec_rank and fts_rank map report_id -> 1-based rank position in each retriever.
-    Returns report ids ordered by descending RRF score, with stable id tiebreak.
+    Returns (report_id, fused_score) tuples ordered by descending score,
+    with stable ascending-id tiebreak.
     """
     all_ids = set(vec_rank) | set(fts_rank)
 
@@ -18,7 +19,9 @@ def rrf_fuse(
             s += 1.0 / (k + fts_rank[rid])
         return s
 
-    return sorted(all_ids, key=lambda rid: (-score(rid), rid))
+    scored = [(rid, score(rid)) for rid in all_ids]
+    scored.sort(key=lambda pair: (-pair[1], pair[0]))
+    return scored
 
 
 def summary_with_fallback(body: str, summary: str, max_words: int) -> str:

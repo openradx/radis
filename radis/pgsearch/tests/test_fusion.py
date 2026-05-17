@@ -1,3 +1,5 @@
+import pytest
+
 from radis.pgsearch.utils.fusion import rrf_fuse, summary_with_fallback
 
 
@@ -9,25 +11,25 @@ def test_rrf_both_sides_have_hits_overlap():
     #   2: 1/(61)+1/(61)    = 0.03279
     #   3: 1/(63)+1/(62)    = 0.03200
     #   4: 1/(63)           = 0.01587
-    assert rrf_fuse(vec_rank, fts_rank, k=60) == [2, 3, 1, 4]
+    assert [rid for rid, _ in rrf_fuse(vec_rank, fts_rank, k=60)] == [2, 3, 1, 4]
 
 
 def test_rrf_disjoint_universes():
     vec_rank = {1: 1}
     fts_rank = {2: 1}
-    assert rrf_fuse(vec_rank, fts_rank, k=60) == [1, 2]
+    assert [rid for rid, _ in rrf_fuse(vec_rank, fts_rank, k=60)] == [1, 2]
 
 
 def test_rrf_only_fts():
     vec_rank: dict[int, int] = {}
     fts_rank = {10: 1, 20: 2, 30: 3}
-    assert rrf_fuse(vec_rank, fts_rank, k=60) == [10, 20, 30]
+    assert [rid for rid, _ in rrf_fuse(vec_rank, fts_rank, k=60)] == [10, 20, 30]
 
 
 def test_rrf_only_vec():
     vec_rank = {10: 1, 20: 2, 30: 3}
     fts_rank: dict[int, int] = {}
-    assert rrf_fuse(vec_rank, fts_rank, k=60) == [10, 20, 30]
+    assert [rid for rid, _ in rrf_fuse(vec_rank, fts_rank, k=60)] == [10, 20, 30]
 
 
 def test_rrf_empty():
@@ -39,7 +41,19 @@ def test_rrf_tiebreak_by_id():
     vec_rank = {2: 1}
     fts_rank = {1: 1}
     # Both contribute 1/61. Tiebreak by id ascending.
-    assert rrf_fuse(vec_rank, fts_rank, k=60) == [1, 2]
+    assert [rid for rid, _ in rrf_fuse(vec_rank, fts_rank, k=60)] == [1, 2]
+
+
+def test_rrf_returns_scores_descending_with_tiebreak():
+    vec_rank = {1: 1}
+    fts_rank = {1: 1, 2: 2}
+    pairs = rrf_fuse(vec_rank, fts_rank, k=60)
+    # id 1: in both, score = 1/61 + 1/61 = 2/61
+    # id 2: in fts only, score = 1/62
+    assert pairs[0][0] == 1
+    assert pairs[1][0] == 2
+    assert pairs[0][1] == pytest.approx(2.0 / 61.0)
+    assert pairs[1][1] == pytest.approx(1.0 / 62.0)
 
 
 def test_summary_with_fallback_keeps_nonempty():

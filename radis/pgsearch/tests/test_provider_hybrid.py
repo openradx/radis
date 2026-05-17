@@ -172,3 +172,26 @@ def test_retrieve_falls_back_to_fts_on_embedding_error(group, reports_with_embed
         MockClient.return_value.embed_query.side_effect = EmbeddingClientError("down")
         doc_ids = list(retrieve(_make_search("pneumothorax", group.pk)))
     assert set(doc_ids) == {r0.document_id, r2.document_id}
+
+
+def test_documents_carry_cosine_distance_and_rrf_score(
+    group, reports_with_embeddings, settings
+):
+    """Verify cosine_distance is set for vector-side hits and rrf_score reflects fusion."""
+    _, _, r2 = reports_with_embeddings
+    dim = settings.EMBEDDING_DIM
+    with patch("radis.pgsearch.providers.EmbeddingClient") as MockClient:
+        MockClient.return_value.__enter__.return_value = MockClient.return_value
+        MockClient.return_value.__exit__.return_value = None
+        MockClient.return_value.embed_query.return_value = _unit_vec(0, dim)
+        result = search(_make_search("pneumothorax", group.pk))
+
+    # r2 is in both vector top-K and FTS hits, so its rrf_score should be the largest.
+    top = result.documents[0]
+    assert top.document_id == r2.document_id
+    assert top.cosine_distance is not None
+    assert top.cosine_distance >= 0.0
+    assert top.rrf_score > 0.0
+    # All later documents have a strictly lower or equal rrf_score.
+    for prev, curr in zip(result.documents, result.documents[1:]):
+        assert curr.rrf_score <= prev.rrf_score
