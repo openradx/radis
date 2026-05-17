@@ -195,17 +195,44 @@ def test_truncates_long_input(monkeypatch):
     EMBEDDING_MAX_INPUT_CHARS=100,
     EMBEDDING_QUERY_INSTRUCTION="",
 )
-def test_dim_mismatch_raises(monkeypatch):
+def test_dim_too_small_raises(monkeypatch):
     from radis.pgsearch.utils import embedding_client as ec
 
     def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, json={"data": [{"embedding": [1.0, 0.0, 3.0]}]})
+        # Returns dim=1, expected dim=2 -> too small, must raise.
+        return httpx.Response(200, json={"data": [{"embedding": [1.0]}]})
 
     monkeypatch.setattr(
         ec, "_build_http_client", lambda: httpx.Client(transport=httpx.MockTransport(handler))
     )
     with pytest.raises(ec.EmbeddingClientError):
         ec.EmbeddingClient().embed_documents(["x"])
+
+
+@override_settings(
+    EMBEDDING_BACKEND="openai",
+    EMBEDDING_PROVIDER_URL="http://embed.example",
+    EMBEDDING_PROVIDER_PATH="",
+    EMBEDDING_PROVIDER_API_KEY="",
+    EMBEDDING_MODEL_NAME="qwen3",
+    EMBEDDING_DIM=2,
+    EMBEDDING_REQUEST_TIMEOUT=10,
+    EMBEDDING_MAX_INPUT_CHARS=100,
+    EMBEDDING_QUERY_INSTRUCTION="",
+)
+def test_oversized_embedding_truncates_and_renormalizes(monkeypatch):
+    from radis.pgsearch.utils import embedding_client as ec
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        # Returns dim=4 ([3,4,99,99]); EMBEDDING_DIM=2 keeps [3,4], norm 5 -> [0.6, 0.8].
+        return httpx.Response(200, json={"data": [{"embedding": [3.0, 4.0, 99.0, 99.0]}]})
+
+    monkeypatch.setattr(
+        ec, "_build_http_client", lambda: httpx.Client(transport=httpx.MockTransport(handler))
+    )
+    vectors = ec.EmbeddingClient().embed_documents(["x"])
+    assert len(vectors) == 1
+    assert vectors[0] == pytest.approx([0.6, 0.8])
 
 
 @override_settings(

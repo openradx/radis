@@ -124,11 +124,14 @@ class EmbeddingClient:
         raw = self._backend.parse_response(body)
         normalized: list[list[float]] = []
         for vec in raw:
-            if len(vec) != self._dim:
+            if len(vec) < self._dim:
                 raise EmbeddingClientError(
-                    f"Embedding dim mismatch: got {len(vec)}, expected {self._dim}"
+                    f"Embedding dim too small: got {len(vec)}, expected at least {self._dim}"
                 )
-            normalized.append(_l2_normalize(list(vec)))
+            # Matryoshka truncation: keep first EMBEDDING_DIM components, then re-normalize.
+            # Qwen3-Embedding is trained to retain quality at truncated dimensions.
+            truncated = list(vec[: self._dim])
+            normalized.append(_l2_normalize(truncated))
         return normalized
 
     def embed_query(self, text: str) -> list[float]:
