@@ -170,7 +170,7 @@ def search(search: Search) -> SearchResult:
         )
         .select_related("report")
     )
-    by_id = {r.report_id: r for r in page_rows}
+    by_id = {r.report.pk: r for r in page_rows}
 
     documents: list[ReportDocument] = []
     for rid in page_ids:
