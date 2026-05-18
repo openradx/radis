@@ -114,6 +114,7 @@ def search(search: Search) -> SearchResult:
     if query_vec is not None:
         vec_rows = list(
             ReportSearchVector.objects.filter(filter_query)
+            .distinct()
             .exclude(embedding__isnull=True)
             .annotate(distance=CosineDistance("embedding", query_vec))
             .order_by("distance", "report_id")
@@ -126,6 +127,7 @@ def search(search: Search) -> SearchResult:
     # FTS side: bounded set, ts_rank only (no headline at this stage).
     fts_rows = list(
         ReportSearchVector.objects.filter(filter_query)
+        .distinct()
         .filter(search_vector=tsquery)
         .annotate(rank=SearchRank(F("search_vector"), tsquery))
         .order_by("-rank", "report_id")
@@ -135,8 +137,8 @@ def search(search: Search) -> SearchResult:
 
     # Fusion.
     ordered_pairs = rrf_fuse(vec_rank, fts_rank, k=settings.HYBRID_RRF_K)
-    ordered_ids = [rid for rid, _ in ordered_pairs]
-    rrf_score_by_id = {rid: score for rid, score in ordered_pairs}
+    rrf_score_by_id = dict(ordered_pairs)
+    ordered_ids = list(rrf_score_by_id)
     total_count = len(ordered_ids)
     total_relation: Literal["exact", "at_least", "approximately"] = (
         "at_least"
@@ -220,6 +222,7 @@ def retrieve(search: Search) -> Iterator[str]:
     if query_vec is not None:
         vec_ids = list(
             ReportSearchVector.objects.filter(filter_query)
+            .distinct()
             .exclude(embedding__isnull=True)
             .annotate(distance=CosineDistance("embedding", query_vec))
             .order_by("distance", "report_id")
@@ -229,6 +232,7 @@ def retrieve(search: Search) -> Iterator[str]:
 
     fts_rows = list(
         ReportSearchVector.objects.filter(filter_query)
+        .distinct()
         .filter(search_vector=tsquery)
         .annotate(rank=SearchRank(F("search_vector"), tsquery))
         .order_by("-rank", "report_id")

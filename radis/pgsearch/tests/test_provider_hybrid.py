@@ -195,3 +195,31 @@ def test_documents_carry_cosine_distance_and_rrf_score(
     # All later documents have a strictly lower or equal rrf_score.
     for prev, curr in zip(result.documents, result.documents[1:]):
         assert curr.rrf_score <= prev.rrf_score
+
+
+def test_m2m_filter_does_not_duplicate_results(group, settings):
+    """Reports with multiple modalities must appear exactly once when the modality
+    filter joins the M2M table. Without `.distinct()` on the queryset, joining on
+    report__modalities__code__in produces one row per matching modality, which
+    inflates rank position and corrupts top-K slicing."""
+    dim = settings.EMBEDDING_DIM
+    r = ReportFactory.create(body="pneumothorax findings", modalities=["CT", "MR", "DX"])
+    r.groups.add(group)
+    ReportSearchVector.objects.filter(report=r).update(embedding=_unit_vec(0, dim))
+
+    node, _ = QueryParser().parse("pneumothorax")
+    assert node is not None
+    s = Search(
+        query=node,
+        filters=SearchFilters(group=group.pk, modalities=["CT", "MR", "DX"]),
+        offset=0,
+        limit=10,
+    )
+    with patch("radis.pgsearch.providers.EmbeddingClient") as MockClient:
+        MockClient.return_value.__enter__.return_value = MockClient.return_value
+        MockClient.return_value.__exit__.return_value = None
+        MockClient.return_value.embed_query.return_value = _unit_vec(0, dim)
+        result = search(s)
+
+    matching = [d for d in result.documents if d.document_id == r.document_id]
+    assert len(matching) == 1, f"Expected 1 occurrence, got {len(matching)}"
