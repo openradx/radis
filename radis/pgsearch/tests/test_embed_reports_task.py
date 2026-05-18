@@ -103,3 +103,14 @@ def test_embed_reports_closes_client_on_error():
         with pytest.raises(EmbeddingClientError):
             embed_reports([report.pk])
     MockClient.return_value.close.assert_called_once()
+
+
+@pytest.mark.django_db
+def test_embed_reports_raises_on_invalid_batch_size(settings):
+    from django.core.exceptions import ImproperlyConfigured
+
+    settings.EMBEDDING_BATCH_SIZE = 0
+    report = ReportFactory.create()
+    with patch("radis.pgsearch.tasks.EmbeddingClient"):
+        with pytest.raises(ImproperlyConfigured, match="EMBEDDING_BATCH_SIZE must be > 0"):
+            embed_reports([report.pk])

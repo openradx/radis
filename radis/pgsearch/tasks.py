@@ -1,6 +1,7 @@
 import logging
 
 from django.conf import settings as django_settings
+from django.core.exceptions import ImproperlyConfigured
 from procrastinate.contrib.django import app
 from procrastinate.types import JSONValue
 
@@ -48,16 +49,21 @@ def embed_reports(report_ids: list[int]) -> None:
     if not rsvs:
         return
 
-    client = EmbeddingClient()
     batch_size = django_settings.EMBEDDING_BATCH_SIZE
+    if batch_size <= 0:
+        raise ImproperlyConfigured(
+            f"EMBEDDING_BATCH_SIZE must be > 0, got {batch_size}"
+        )
 
+    client = EmbeddingClient()
     try:
         for start in range(0, len(rsvs), batch_size):
             chunk = rsvs[start : start + batch_size]
             texts = [rsv.report.body for rsv in chunk]
             vectors = client.embed_documents(texts)
             for rsv, vec in zip(chunk, vectors, strict=True):
-                ReportSearchVector.objects.filter(pk=rsv.pk).update(embedding=vec)
+                rsv.embedding = vec
+            ReportSearchVector.objects.bulk_update(chunk, fields=["embedding"])
     finally:
         client.close()
 
