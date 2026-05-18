@@ -315,3 +315,46 @@ def test_context_manager_closes_http_client(monkeypatch):
     with ec.EmbeddingClient():
         pass
     assert closed["value"] is True
+
+
+@override_settings(
+    EMBEDDING_BACKEND="openai",
+    EMBEDDING_PROVIDER_URL="http://embed.example",
+    EMBEDDING_PROVIDER_PATH="v1/embeddings",  # missing leading slash
+    EMBEDDING_PROVIDER_API_KEY="",
+    EMBEDDING_MODEL_NAME="qwen3",
+    EMBEDDING_DIM=2,
+    EMBEDDING_REQUEST_TIMEOUT=10,
+    EMBEDDING_MAX_INPUT_CHARS=100,
+    EMBEDDING_QUERY_INSTRUCTION="",
+)
+def test_provider_path_without_leading_slash_raises():
+    from radis.pgsearch.utils import embedding_client as ec
+
+    with pytest.raises(ec.EmbeddingClientError, match="must start with '/'"):
+        ec.EmbeddingClient()
+
+
+@override_settings(
+    EMBEDDING_BACKEND="openai",
+    EMBEDDING_PROVIDER_URL="http://embed.example",
+    EMBEDDING_PROVIDER_PATH="",
+    EMBEDDING_PROVIDER_API_KEY="",
+    EMBEDDING_MODEL_NAME="qwen3",
+    EMBEDDING_DIM=2,
+    EMBEDDING_REQUEST_TIMEOUT=10,
+    EMBEDDING_MAX_INPUT_CHARS=100,
+    EMBEDDING_QUERY_INSTRUCTION="",
+)
+def test_response_count_mismatch_raises(monkeypatch):
+    from radis.pgsearch.utils import embedding_client as ec
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        # Requested 2 inputs, backend returns only 1.
+        return httpx.Response(200, json={"data": [{"embedding": [1.0, 0.0]}]})
+
+    monkeypatch.setattr(
+        ec, "_build_http_client", lambda: httpx.Client(transport=httpx.MockTransport(handler))
+    )
+    with pytest.raises(ec.EmbeddingClientError, match="count mismatch"):
+        ec.EmbeddingClient().embed_documents(["a", "b"])

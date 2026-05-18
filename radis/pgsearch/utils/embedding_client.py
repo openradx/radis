@@ -93,6 +93,10 @@ class EmbeddingClient:
                 f"known: {sorted(BACKENDS)}"
             ) from e
         path = settings.EMBEDDING_PROVIDER_PATH or self._backend.path
+        if not path.startswith("/"):
+            raise EmbeddingClientError(
+                f"EMBEDDING_PROVIDER_PATH must start with '/'; got {path!r}"
+            )
         base = settings.EMBEDDING_PROVIDER_URL.rstrip("/")
         if not base:
             raise EmbeddingClientError("EMBEDDING_PROVIDER_URL is not configured")
@@ -107,8 +111,8 @@ class EmbeddingClient:
         self._http = _build_http_client()
 
     def embed_documents(self, texts: list[str]) -> list[list[float]]:
-        truncated = _truncate(texts, self._max_chars)
-        payload = self._backend.build_payload(self._model, truncated)
+        truncated_texts = _truncate(texts, self._max_chars)
+        payload = self._backend.build_payload(self._model, truncated_texts)
         try:
             response = self._http.post(self._url, json=payload, headers=self._headers)
         except httpx.HTTPError as e:
@@ -122,21 +126,33 @@ class EmbeddingClient:
         except ValueError as e:
             raise EmbeddingClientError(f"Embedding response is not JSON: {e}") from e
         raw = self._backend.parse_response(body)
+        if len(raw) != len(truncated_texts):
+            raise EmbeddingClientError(
+                f"Embedding count mismatch: requested {len(truncated_texts)}, "
+                f"backend returned {len(raw)}"
+            )
         normalized: list[list[float]] = []
         for vec in raw:
             if len(vec) < self._dim:
                 raise EmbeddingClientError(
                     f"Embedding dim too small: got {len(vec)}, expected at least {self._dim}"
                 )
-            # Matryoshka truncation: keep first EMBEDDING_DIM components, then re-normalize.
-            # Qwen3-Embedding is trained to retain quality at truncated dimensions.
-            truncated = list(vec[: self._dim])
-            normalized.append(_l2_normalize(truncated))
+            if len(vec) > self._dim:
+                # Matryoshka truncation: keep first EMBEDDING_DIM components, then re-normalize.
+                # Qwen3-Embedding is trained to retain quality at truncated dimensions.
+                normalized.append(_l2_normalize(list(vec[: self._dim])))
+            else:
+                # Length already matches; still normalize since we can't assume
+                # all providers return unit vectors.
+                normalized.append(_l2_normalize(list(vec)))
         return normalized
 
     def embed_query(self, text: str) -> list[float]:
         prefixed = f"{self._instruction}{text}" if self._instruction else text
-        return self.embed_documents([prefixed])[0]
+        vectors = self.embed_documents([prefixed])
+        if not vectors:
+            raise EmbeddingClientError("Embedding service returned no vectors for query")
+        return vectors[0]
 
     def close(self) -> None:
         self._http.close()
