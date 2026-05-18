@@ -193,7 +193,7 @@ def test_documents_carry_cosine_distance_and_rrf_score(
     assert top.cosine_distance >= 0.0
     assert top.rrf_score > 0.0
     # All later documents have a strictly lower or equal rrf_score.
-    for prev, curr in zip(result.documents, result.documents[1:]):
+    for prev, curr in zip(result.documents, result.documents[1:], strict=False):
         assert curr.rrf_score <= prev.rrf_score
 
 
