@@ -76,3 +76,19 @@ def test_backfill_uses_backfill_priority():
     ) as enqueue:
         call_command("backfill_embeddings", stdout=StringIO())
     assert enqueue.call_args.kwargs["priority"] == settings.EMBEDDING_BACKFILL_PRIORITY
+
+
+@pytest.mark.django_db
+def test_backfill_rejects_zero_batch_size():
+    from django.core.management.base import CommandError
+
+    with pytest.raises(CommandError, match="--batch-size must be > 0"):
+        call_command("backfill_embeddings", batch_size=0, stdout=StringIO())
+
+
+@pytest.mark.django_db
+def test_backfill_rejects_negative_limit():
+    from django.core.management.base import CommandError
+
+    with pytest.raises(CommandError, match="--limit must be >= 0"):
+        call_command("backfill_embeddings", limit=-1, stdout=StringIO())
