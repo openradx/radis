@@ -43,14 +43,63 @@ class LabelingProcessor:
         if not report_ids:
             return
 
-        questions = list(
+        active_questions = list(
             self.question_set.questions.filter(is_active=True).prefetch_related("options")
         )
-        if not questions:
+        if not active_questions:
             logger.info("No active questions for set %s", self.question_set)
             return
 
+        # MEDIUM #1 fix. Drop active questions whose Pydantic schema cannot
+        # be built before any LLM work is scheduled. The commonest cause is
+        # an active question with zero AnswerOptions — its strict
+        # ``Literal`` enum would be ``Literal[()]`` which Pydantic refuses
+        # to construct. Pre-fix the schema build raised at the top of
+        # ``_run_llm_and_persist``, taking the entire report's
+        # ``transaction.atomic`` block down with it; one misconfigured
+        # question broke labelling for every other question in the batch.
+        #
+        # The principle is the user's: if a Pydantic schema can't be built
+        # for a question, the question is invalid and excluded from this
+        # run. The other questions in the set still get answered. The
+        # invalid question stays unanswered (and stays in ``missing_reports()``
+        # until its configuration is fixed) — visible to ops via the WARN
+        # log per drop. We DO NOT mark the question inactive on disk: the
+        # invariant we enforce is "don't schedule" not "punish data".
+        questions: list[Question] = []
+        for question in active_questions:
+            if not list(question.options.all()):
+                logger.warning(
+                    "Skipping active question %s in set %s for this run — "
+                    "no AnswerOptions configured. The question will stay "
+                    "unanswered (and the report unfinished) until options "
+                    "are added.",
+                    question,
+                    self.question_set,
+                )
+                continue
+            questions.append(question)
+
+        if not questions:
+            logger.warning(
+                "All active questions in set %s are invalid (no options). "
+                "Skipping labelling for reports %s.",
+                self.question_set,
+                report_ids,
+            )
+            return
+
+        # Build the canonical schema mirror, then prune to the valid
+        # questions so ``build_answer_schema`` / ``render_questions_for_prompt``
+        # use the same enumeration order the processor will read responses
+        # from. The schema and the processor iterate by index; keeping
+        # both filtered to the same set is what makes ``question_{index}``
+        # lookups in the response object resolve to the right Question.
         schema_mirror = question_set_schema_for_run(self.question_set)
+        valid_labels = {q.label for q in questions}
+        schema_mirror.questions = [
+            q for q in schema_mirror.questions if q.label in valid_labels
+        ]
 
         option_maps, unknown_options = _build_option_maps(questions)
 
@@ -216,12 +265,33 @@ def _resolve_option(
     options: dict[str, AnswerOption],
     unknown_option: AnswerOption | None,
 ) -> AnswerOption:
+    """Map the LLM's returned ``value`` to a persisted ``AnswerOption``.
+
+    Resolution order:
+      1. Exact match on ``value`` (the common path; strict ``Literal``
+         in the response schema guarantees this branch in normal flow).
+      2. Fall back to the ``is_unknown`` option if the question has one.
+      3. Raise ``ValueError`` — see below.
+
+    Pre-MEDIUM-#1 the fallback was ``next(iter(options.values()))``, which
+    silently assigned an arbitrary answer when neither the exact value
+    nor an ``is_unknown`` option was available. With empty-option questions
+    now filtered out at ``process_reports`` entry, this fallback is
+    unreachable in normal flow; we raise instead so the LabelingRun goes
+    to FAILURE with a useful error message rather than silently writing
+    a wrong answer to a question whose schema we couldn't honor.
+    """
     option = options.get(value)
     if option is not None:
         return option
     if unknown_option is not None:
         return unknown_option
-    return next(iter(options.values()))
+    raise ValueError(
+        f"Cannot resolve LLM-returned value {value!r} for question — "
+        f"no exact match and no is_unknown option configured. "
+        f"This indicates a schema-options mismatch that should have been "
+        f"caught at process_reports entry; treating as run failure."
+    )
 
 
 def _normalize_confidence(confidence: float | None) -> float | None:

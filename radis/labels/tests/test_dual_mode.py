@@ -199,6 +199,113 @@ class TestEnqueueDispatchesPerMode:
         assert mock_defer.call_args.kwargs["priority"] == 99
 
 
+# -- MEDIUM #1 regression: invalid-question filter --
+
+
+@pytest.mark.django_db(transaction=True)
+class TestInvalidQuestionsFilteredBeforeDispatch:
+    """A Question with zero AnswerOptions cannot be encoded into the
+    LLM's response schema (``Literal[()]`` is not a thing). Pre-MEDIUM-#1
+    the schema build would raise inside ``_run_llm_and_persist``, the
+    transaction.atomic block would roll back, and the entire report's
+    labelling would fail — one broken question killed the whole batch.
+
+    The fix is to filter active-but-empty-option questions out at
+    ``process_reports`` entry. These tests pin both branches: a single
+    bad question alongside good ones, and an all-bad set.
+    """
+
+    def _add_question_without_options(
+        self, question_set: QuestionSet, label: str
+    ) -> Question:
+        """Create a Question whose default options are then deleted, so
+        the question is left active with zero options. The default-options
+        signal fires on save, so we delete after the fact.
+        """
+        question = Question.objects.create(question_set=question_set, label=label)
+        question.options.all().delete()
+        return question
+
+    def test_empty_options_question_is_skipped_other_questions_succeed(self):
+        """Two active questions: one valid, one with no options. The
+        processor must label only the valid one and write the Answer.
+        The broken question stays unanswered (and the report stays
+        ``missing_reports``-incomplete) — that's the visible signal to
+        ops that a config fix is needed.
+        """
+        question_set = QuestionSet.objects.create(name="MixedSet")
+        good = Question.objects.create(question_set=question_set, label="GoodQ")
+        bad = self._add_question_without_options(question_set, "BadQ")
+        report = _make_report()
+
+        processor = LabelingProcessor(question_set, mode=LabelingRun.Mode.DIRECT)
+        processor.client.extract_data = MagicMock(  # type: ignore[method-assign]
+            return_value=_fake_response_for_one_question("yes")
+        )
+        processor.client.complete_text = MagicMock()  # type: ignore[method-assign]
+
+        processor.process_reports([report.id])
+
+        # The valid question got an Answer; the broken one did not.
+        assert Answer.objects.filter(question=good).count() == 1
+        assert Answer.objects.filter(question=bad).count() == 0
+
+        # The run still succeeded — the broken question didn't crash the batch.
+        run = LabelingRun.objects.get(report=report, question_set=question_set)
+        assert run.status == LabelingRun.Status.SUCCESS
+
+    def test_all_questions_empty_options_skips_entire_batch(self):
+        """If every active question is invalid there is nothing to ask
+        the LLM about. The processor logs and returns without creating
+        any LabelingRun row. The report stays ``missing_reports``-incomplete
+        until the configuration is fixed; the next nightly tick will
+        try again (and skip again, until ops adds options).
+        """
+        question_set = QuestionSet.objects.create(name="AllBroken")
+        self._add_question_without_options(question_set, "BadA")
+        self._add_question_without_options(question_set, "BadB")
+        report = _make_report()
+
+        processor = LabelingProcessor(question_set, mode=LabelingRun.Mode.DIRECT)
+        processor.client.extract_data = MagicMock()  # type: ignore[method-assign]
+        processor.client.complete_text = MagicMock()  # type: ignore[method-assign]
+
+        processor.process_reports([report.id])
+
+        # No LLM call should have been made for either method.
+        assert processor.client.extract_data.call_count == 0
+        assert processor.client.complete_text.call_count == 0
+        # No LabelingRun row should have been created — there was nothing
+        # to attempt, so no record to attribute success or failure to.
+        assert LabelingRun.objects.filter(report=report).count() == 0
+        assert Answer.objects.filter(report=report).count() == 0
+
+    def test_empty_options_question_does_not_crash_other_modes(self):
+        """REASONED mode does two LLM calls per report (reasoning then
+        structured). The invalid-question filter must apply to both —
+        if it leaked into the structured-call schema, the entire run
+        would fail. Mirror of the DIRECT test for REASONED.
+        """
+        question_set = QuestionSet.objects.create(name="MixedReasoned")
+        good = Question.objects.create(question_set=question_set, label="GoodQ")
+        self._add_question_without_options(question_set, "BadQ")
+        report = _make_report()
+
+        processor = LabelingProcessor(question_set, mode=LabelingRun.Mode.REASONED)
+        processor.client.complete_text = MagicMock(  # type: ignore[method-assign]
+            return_value="reasoning text"
+        )
+        processor.client.extract_data = MagicMock(  # type: ignore[method-assign]
+            return_value=_fake_response_for_one_question("yes")
+        )
+
+        processor.process_reports([report.id])
+
+        assert Answer.objects.filter(question=good).count() == 1
+        run = LabelingRun.objects.get(report=report, question_set=question_set)
+        assert run.status == LabelingRun.Status.SUCCESS
+
+
 @pytest.mark.django_db
 class TestBothModesCoexistForSameReport:
     def test_two_runs_one_report(self):
