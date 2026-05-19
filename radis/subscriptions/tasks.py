@@ -93,8 +93,6 @@ def process_subscription_job(job_id: int) -> None:
         for document_id in document_ids:
             task.reports.add(Report.objects.get(document_id=document_id))
 
-        task.delay()
-
     logger.debug("Starting SubscriptionTasks done.")
 
     job.subscription.last_refreshed = timezone.now()
@@ -103,6 +101,15 @@ def process_subscription_job(job_id: int) -> None:
     job.status = SubscriptionJob.Status.PENDING
     job.queued_job_id = None
     job.save()
+
+    # Important invariant:
+    # Do not enqueue tasks while the job is still PREPARING, otherwise a worker can pick them up
+    # and `AnalysisTaskProcessor.start()` will assert because it expects the job to be
+    # PENDING/IN_PROGRESS.
+    tasks_to_enqueue = job.tasks.filter(status=SubscriptionTask.Status.PENDING)
+    for task in tasks_to_enqueue:
+        if not task.is_queued:
+            task.delay()
 
 
 @app.periodic(cron=settings.SUBSCRIPTION_CRON)

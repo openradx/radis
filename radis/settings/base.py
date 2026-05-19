@@ -12,6 +12,7 @@ https://docs.djangoproject.com/en/3.0/ref/settings/
 
 from pathlib import Path
 
+from adit_radis_shared.telemetry import add_otel_logging_handler, is_telemetry_active
 from environs import env
 
 # During development and calling `manage.py` from the host we have to load the .env file manually.
@@ -44,6 +45,10 @@ SECRET_KEY = env.str("DJANGO_SECRET_KEY")
 ALLOWED_HOSTS = env.list("DJANGO_ALLOWED_HOSTS")
 
 CSRF_TRUSTED_ORIGINS = env.list("DJANGO_CSRF_TRUSTED_ORIGINS")
+
+_stack_name = env.str("STACK_NAME", default="")
+SESSION_COOKIE_NAME = f"sessionid_{_stack_name}" if _stack_name else "sessionid"
+CSRF_COOKIE_NAME = f"csrftoken_{_stack_name}" if _stack_name else "csrftoken"
 
 INSTALLED_APPS = [
     "daphne",
@@ -154,6 +159,11 @@ MESSAGE_STORAGE = "django.contrib.messages.storage.session.SessionStorage"
 postgres_dev_port = env.int("POSTGRES_DEV_PORT", default=5432)
 database_url = f"postgres://postgres:postgres@localhost:{postgres_dev_port}/postgres"
 DATABASES = {"default": env.dj_db_url("DATABASE_URL", default=database_url)}
+
+# pgsearch indexing tuning (bulk upsert/backfill)
+PGSEARCH_BULK_INDEX_CHUNK_SIZE = env.int("PGSEARCH_BULK_INDEX_CHUNK_SIZE", default=5000)
+PGSEARCH_BULK_INSERT_BATCH_SIZE = env.int("PGSEARCH_BULK_INSERT_BATCH_SIZE", default=1000)
+PGSEARCH_SYNC_INDEXING = env.bool("PGSEARCH_SYNC_INDEXING", default=False)
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.0/ref/settings/#default-auto-field
@@ -267,6 +277,9 @@ LOGGING = {
     "root": {"handlers": ["console"], "level": "ERROR"},
 }
 
+if is_telemetry_active():
+    add_otel_logging_handler(LOGGING)
+
 # Internationalization
 # https://docs.djangoproject.com/en/3.0/topics/i18n/
 
@@ -297,12 +310,24 @@ DJANGO_TABLES2_TEMPLATE = "common/_django_tables2.html"
 # Cave, changing the salt after some tokens were already generated makes them all invalid!
 TOKEN_AUTHENTICATION_SALT = env.str("TOKEN_AUTHENTICATION_SALT")
 
-# django-dbbackup
-DBBACKUP_STORAGE = "django.core.files.storage.FileSystemStorage"
-DBBACKUP_STORAGE_OPTIONS = {
-    "location": env.str("DBBACKUP_STORAGE_LOCATION", default="/tmp/backups-radis")
+# Django default storage and django-dbbackup
+STORAGES = {
+    "default": {
+        "BACKEND": "django.core.files.storage.FileSystemStorage",
+    },
+    "staticfiles": {
+        "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
+    },
+    "dbbackup": {
+        "BACKEND": "django.core.files.storage.FileSystemStorage",
+        "OPTIONS": {
+            "location": env.str("DBBACKUP_STORAGE_LOCATION", default="/tmp/backups-radis")
+        },
+    },
 }
 DBBACKUP_CLEANUP_KEEP = 30
+BACKUP_ENABLED = env.bool("BACKUP_ENABLED", default=True)
+BACKUP_CRON = env.str("BACKUP_CRON", default="0 3 * * *")
 
 # Used by django-filter
 FILTERS_EMPTY_CHOICE_LABEL = "Show All"

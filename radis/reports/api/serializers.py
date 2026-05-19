@@ -3,6 +3,7 @@ from typing import Any
 from django.db import transaction
 from rest_framework import serializers, validators
 from rest_framework.exceptions import ValidationError
+from rest_framework.relations import PrimaryKeyRelatedField
 
 from ..models import Language, Metadata, Modality, Report
 
@@ -50,6 +51,15 @@ class ReportSerializer(serializers.ModelSerializer):
         super().__init__(*args, **kwargs)
         if self.context.get("skip_document_id_unique"):
             self._strip_unique_validator("document_id")
+        request = self.context.get("request")
+        if request is not None and "groups" in self.fields:
+            groups_field = self.fields["groups"]
+            if isinstance(groups_field, PrimaryKeyRelatedField):
+                if groups_field.queryset is not None:
+                    if request.user.is_superuser:
+                        groups_field.queryset = groups_field.queryset.all()
+                    else:
+                        groups_field.queryset = request.user.groups.all()
 
     class Meta:
         model = Report

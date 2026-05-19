@@ -20,7 +20,11 @@ def get_available_search_configs() -> set[str]:
     try:
         return _get_available_search_configs_cached()
     except DatabaseError as exc:
-        logger.warning("Failed to read pg_ts_config; falling back to simple. %s", exc)
+        logger.error(
+            "Failed to read pg_ts_config; falling back to simple. %s",
+            exc,
+            exc_info=True,
+        )
         return set()
 
 

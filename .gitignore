@@ -143,6 +143,10 @@ pyvenv.cfg
 # Certificate files
 *.pem
 
-# RADIS specific
+# Override overlay (opt-in, copied from .example)
+docker-compose.override.yml
+
+# Project specific
 backups/
 models/
+.docker-data/
