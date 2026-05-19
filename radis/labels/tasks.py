@@ -9,8 +9,6 @@ from django.db import transaction
 from django.utils import timezone
 from procrastinate.contrib.django import app
 
-from radis.reports.models import Report
-
 from .models import BackfillJob, LabelingRun, QuestionSet
 from .processors import LabelingProcessor
 
@@ -288,7 +286,25 @@ def enqueue_question_set_backfill(question_set_id: int, backfill_job_id: int) ->
         logger.warning("Backfill job %s not found, aborting.", backfill_job_id)
         return
 
-    total_reports = Report.objects.count()
+    # ``total_reports`` is the *work this run is committing to* — the count
+    # of reports that lack complete labelling for the set at the moment the
+    # coordinator wakes up. Not the corpus size (HIGH #4 fix).
+    #
+    # The old code used ``Report.objects.count()`` here. That made the
+    # progress display lie whenever the set was partially labelled before
+    # the backfill started: a set with 90% prior coverage reported the bar
+    # at 90% before a single LLM call had fired this run. Using the missing
+    # count makes the bar advance from 0% → 100% over the actual work this
+    # run does, which is what the UI is implicitly promising.
+    #
+    # Side effect worth noting: if new reports get ingested during the run,
+    # the live-ingest path dispatches them onto the high-priority queue
+    # and they show up in subsequent ``missing_reports()`` checks. The
+    # finalize condition (``missing_reports().exists()``) waits for those
+    # too, so the backfill stays IN_PROGRESS a bit longer to absorb them.
+    # ``processed_count`` clamps to ``total_reports`` so the bar pegs at
+    # 100% rather than wandering past it.
+    total_reports = question_set.missing_reports().count()
     backfill_job.status = BackfillJob.Status.IN_PROGRESS
     backfill_job.started_at = timezone.now()
     backfill_job.ended_at = None
@@ -298,8 +314,12 @@ def enqueue_question_set_backfill(question_set_id: int, backfill_job_id: int) ->
     backfill_job.save()
 
     if total_reports == 0:
+        # No missing reports at start → nothing to do. Finalize immediately
+        # rather than spinning up an empty dispatch loop. (The bottom
+        # ``dispatched_any`` branch would also catch this, but exiting
+        # early avoids constructing the iterator.)
         backfill_job.status = BackfillJob.Status.SUCCESS
-        backfill_job.message = "No reports to process."
+        backfill_job.message = "All reports already labelled."
         backfill_job.ended_at = timezone.now()
         backfill_job.save()
         return

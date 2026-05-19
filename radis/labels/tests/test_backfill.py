@@ -1294,3 +1294,161 @@ class TestBackfillDispatchRaces:
         assert BackfillJob.objects.filter(question_set=question_set).count() == 1
         manual_job.refresh_from_db()
         assert manual_job.status == BackfillJob.Status.PENDING
+
+
+# -- Coordinator total_reports semantics (HIGH #4 regression) --
+
+
+@pytest.mark.django_db
+class TestCoordinatorTotalReports:
+    """The coordinator (``enqueue_question_set_backfill``) sets
+    ``BackfillJob.total_reports`` at the start of every run. The value is
+    the denominator the progress bar uses; getting it wrong made the bar
+    lie about what fraction of *this run's work* was done.
+
+    HIGH #4 fix: the old value was ``Report.objects.count()`` (corpus
+    size). A partially-labelled set would start its backfill with the
+    bar already at non-zero %. The new value is
+    ``question_set.missing_reports().count()`` — the actual work this
+    run is committing to. These tests pin that contract.
+    """
+
+    @patch("radis.labels.tasks._defer_batch")
+    def test_total_reports_equals_missing_count_not_corpus_count(self, mock_defer):
+        """Three reports total. Two already fully labelled. Backfill must
+        commit to one report of work, not three.
+        """
+        from radis.labels.tasks import enqueue_question_set_backfill
+
+        question_set = QuestionSet.objects.create(name="PartialSet")
+        _make_question(question_set, "Q1")
+        labelled_a = _make_report("doc-a")
+        labelled_b = _make_report("doc-b")
+        _make_report("doc-missing")
+        _record_complete_runs(labelled_a, question_set)
+        _record_complete_runs(labelled_b, question_set)
+
+        job = BackfillJob.objects.create(question_set=question_set)
+        enqueue_question_set_backfill.func(
+            question_set_id=question_set.id, backfill_job_id=job.id
+        )
+
+        job.refresh_from_db()
+        # Old buggy value would have been 3 (corpus count).
+        assert job.total_reports == 1
+
+    @patch("radis.labels.tasks._defer_batch")
+    def test_progress_starts_at_zero_for_partially_labelled_set(self, mock_defer):
+        """The progress bar must start at 0% even when the set was 50%+
+        labelled before this run kicked off. This is the user-visible
+        promise the HIGH #4 fix delivers.
+        """
+        from radis.labels.tasks import enqueue_question_set_backfill
+
+        question_set = QuestionSet.objects.create(name="Half")
+        _make_question(question_set, "Q1")
+        labelled = _make_report("doc-labelled")
+        _make_report("doc-unlabelled")
+        _record_complete_runs(labelled, question_set)
+
+        job = BackfillJob.objects.create(question_set=question_set)
+        enqueue_question_set_backfill.func(
+            question_set_id=question_set.id, backfill_job_id=job.id
+        )
+
+        job.refresh_from_db()
+        # Progress is derived live: total_reports - missing = 1 - 1 = 0.
+        assert job.progress_percent == 0
+        assert job.processed_count == 0
+
+    @patch("radis.labels.tasks._defer_batch")
+    def test_total_reports_zero_when_fully_labelled_skips_dispatch(self, mock_defer):
+        """If everything is already labelled at coordinator wake, the job
+        flips straight to SUCCESS without dispatching anything. Same
+        semantic as before, but the new code path goes through the
+        early-exit branch instead of the bottom dispatched_any branch.
+        """
+        from radis.labels.tasks import enqueue_question_set_backfill
+
+        question_set = QuestionSet.objects.create(name="AllDone")
+        _make_question(question_set, "Q1")
+        report = _make_report("doc-1")
+        _record_complete_runs(report, question_set)
+
+        job = BackfillJob.objects.create(question_set=question_set)
+        enqueue_question_set_backfill.func(
+            question_set_id=question_set.id, backfill_job_id=job.id
+        )
+
+        job.refresh_from_db()
+        assert job.status == BackfillJob.Status.SUCCESS
+        assert job.total_reports == 0
+        assert not mock_defer.called
+
+    @patch("radis.labels.tasks._defer_batch")
+    def test_total_reports_unaffected_by_unrelated_corpus_growth(self, mock_defer):
+        """Two question sets share the corpus. Set A is fully labelled,
+        Set B has one missing report. A backfill on Set B must not be
+        affected by the size of A's coverage (or by reports that don't
+        apply to B).
+
+        This is the regression that demonstrates HIGH #4 most clearly:
+        under the old corpus-count semantics, ``total_reports`` on B
+        would include reports that B's backfill never touches.
+        """
+        from radis.labels.tasks import enqueue_question_set_backfill
+
+        set_a = QuestionSet.objects.create(name="A")
+        set_b = QuestionSet.objects.create(name="B")
+        _make_question(set_a, "QA")
+        _make_question(set_b, "QB")
+
+        report_for_a = _make_report("doc-a")
+        report_for_b = _make_report("doc-b")
+        _record_complete_runs(report_for_a, set_a)
+        # report_for_b not labelled for either set.
+
+        job = BackfillJob.objects.create(question_set=set_b)
+        enqueue_question_set_backfill.func(
+            question_set_id=set_b.id, backfill_job_id=job.id
+        )
+
+        job.refresh_from_db()
+        # missing_reports for set_b = {report_for_a, report_for_b}
+        # (set_b has no runs for either). Corpus = 2.
+        # Here the two happen to be equal, but the *reasoning* is
+        # different: total_reports is computed against set_b's missing,
+        # not the corpus. We use a separate scenario below to nail this.
+        assert job.total_reports == 2
+
+    @patch("radis.labels.tasks._defer_batch")
+    def test_total_reports_excludes_unrelated_reports_via_other_set_labels(
+        self, mock_defer
+    ):
+        """A scenario where corpus count and missing count diverge — set B
+        is fully labelled, set A has one missing report. Backfill on B
+        must show total_reports = 0, not 2 (the corpus size).
+        """
+        from radis.labels.tasks import enqueue_question_set_backfill
+
+        set_a = QuestionSet.objects.create(name="A")
+        set_b = QuestionSet.objects.create(name="B")
+        _make_question(set_a, "QA")
+        _make_question(set_b, "QB")
+        report_x = _make_report("doc-x")
+        report_y = _make_report("doc-y")
+        # Both reports labelled for set B; only report_x labelled for set A.
+        _record_complete_runs(report_x, set_a)
+        _record_complete_runs(report_x, set_b)
+        _record_complete_runs(report_y, set_b)
+
+        job = BackfillJob.objects.create(question_set=set_b)
+        enqueue_question_set_backfill.func(
+            question_set_id=set_b.id, backfill_job_id=job.id
+        )
+
+        job.refresh_from_db()
+        # missing_reports for set_b = {} (both reports complete for B).
+        # Corpus = 2. Old buggy value would have been 2.
+        assert job.total_reports == 0
+        assert job.status == BackfillJob.Status.SUCCESS
