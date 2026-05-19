@@ -483,6 +483,21 @@ LABELS_BACKFILL_CRON = env("LABELS_BACKFILL_CRON", default="0 21 * * *")
 LABELING_TASK_BATCH_SIZE = 100
 LABELING_LLM_CONCURRENCY_LIMIT = env.int("LABELING_LLM_CONCURRENCY_LIMIT", default=2)
 
+# Per-request timeout (seconds) handed to the OpenAI client constructor.
+# Caps how long a single LLM call can pin a worker thread before raising.
+#
+# Why this is a setting: the OpenAI client's default is 10 minutes, which
+# is the worst possible value for our use case. A hung vLLM proxy or a
+# rare Qwen reasoning blowup would otherwise occupy a worker thread for
+# 10 minutes before procrastinate could reassign the batch. With a cap
+# of 60s the worker fails fast, the LabelingRun is marked FAILURE with a
+# useful error_message, and the next batch can run.
+#
+# Tune down for tight provider SLOs; tune up only if you expect very
+# long structured-output completions (large schemas, very large reports).
+# The value applies to both ChatClient and AsyncChatClient.
+LLM_REQUEST_TIMEOUT_SECONDS = env.float("LLM_REQUEST_TIMEOUT_SECONDS", default=60.0)
+
 # Provider-specific extra body forwarded by ChatClient on every chat call.
 # Qwen3.6 emits chain-of-thought to a separate `reasoning` field by default
 # and leaves message.content empty; passing chat_template_kwargs.enable_thinking
