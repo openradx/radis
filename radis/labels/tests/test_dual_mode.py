@@ -306,6 +306,100 @@ class TestInvalidQuestionsFilteredBeforeDispatch:
         assert run.status == LabelingRun.Status.SUCCESS
 
 
+# -- MEDIUM #2 regression: NaN-safe confidence --
+
+
+class TestNormalizeConfidenceNaNSafe:
+    """``_normalize_confidence`` must return ``None`` on NaN.
+
+    Pre-MEDIUM-#2 the bounds checks let NaN pass through unchanged
+    (because NaN < 0 and NaN > 1 are both False), and the NaN was
+    written to ``Answer.confidence``. Downstream ``eval_metrics``
+    averaged the column and produced "nan" cells in the Markdown
+    report. The fix is one ``math.isnan`` check; these tests pin it.
+    """
+
+    def test_nan_returns_none(self):
+        from radis.labels.processors import _normalize_confidence
+
+        assert _normalize_confidence(float("nan")) is None
+
+    def test_negative_nan_returns_none(self):
+        """NaN has no sign in any useful sense, but the helper must
+        still return None whether the input is +nan or -nan.
+        """
+        from radis.labels.processors import _normalize_confidence
+
+        assert _normalize_confidence(float("-nan")) is None
+
+    def test_none_returns_none_back_compat(self):
+        """Regression guard: the None branch must still work after the
+        NaN check is added.
+        """
+        from radis.labels.processors import _normalize_confidence
+
+        assert _normalize_confidence(None) is None
+
+    def test_negative_clamps_to_zero(self):
+        from radis.labels.processors import _normalize_confidence
+
+        assert _normalize_confidence(-0.5) == 0.0
+
+    def test_over_one_clamps_to_one(self):
+        from radis.labels.processors import _normalize_confidence
+
+        assert _normalize_confidence(1.5) == 1.0
+
+    def test_valid_value_passes_through(self):
+        from radis.labels.processors import _normalize_confidence
+
+        assert _normalize_confidence(0.73) == 0.73
+
+    def test_inf_clamps_to_one(self):
+        """Infinity is technically not "NaN" but is also not a useful
+        confidence value. The existing >1 branch handles it.
+        """
+        from radis.labels.processors import _normalize_confidence
+
+        assert _normalize_confidence(float("inf")) == 1.0
+
+    def test_negative_inf_clamps_to_zero(self):
+        from radis.labels.processors import _normalize_confidence
+
+        assert _normalize_confidence(float("-inf")) == 0.0
+
+
+@pytest.mark.django_db(transaction=True)
+class TestNaNConfidenceDoesNotPropagateToAnswerOrEval:
+    """End-to-end regression: an LLM that returns NaN confidence (some
+    quantized models do this) must not produce a NaN in
+    ``Answer.confidence`` or in the eval-report Markdown. The
+    ``_normalize_confidence`` fix runs at write time so the NaN is
+    sanitized before persistence.
+    """
+
+    def test_nan_from_llm_lands_as_none_in_answer(self):
+        question_set, _ = _make_set_with_one_question()
+        report = _make_report()
+
+        processor = LabelingProcessor(question_set, mode=LabelingRun.Mode.DIRECT)
+
+        # Fake response whose confidence is NaN.
+        nan_response = _fake_response_for_one_question("yes")
+        nan_response.question_0.confidence = float("nan")
+        processor.client.extract_data = MagicMock(  # type: ignore[method-assign]
+            return_value=nan_response
+        )
+        processor.client.complete_text = MagicMock()  # type: ignore[method-assign]
+
+        processor.process_reports([report.id])
+
+        answer = Answer.objects.get(report=report)
+        # The confidence column is nullable; None is the right "we don't
+        # have a useful confidence" sentinel.
+        assert answer.confidence is None
+
+
 @pytest.mark.django_db
 class TestBothModesCoexistForSameReport:
     def test_two_runs_one_report(self):

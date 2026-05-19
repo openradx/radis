@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import math
 import time
 from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from string import Template
@@ -295,7 +296,22 @@ def _resolve_option(
 
 
 def _normalize_confidence(confidence: float | None) -> float | None:
-    if confidence is None:
+    """Clamp the LLM's reported confidence to ``[0.0, 1.0]`` or ``None``.
+
+    MEDIUM #2 fix: ``NaN`` previously passed straight through. The bounds
+    checks ``confidence < 0`` and ``confidence > 1`` both return ``False``
+    for NaN — IEEE 754 says NaN compares as not-less-than and not-greater-than
+    everything — so the function returned NaN unchanged. Downstream the NaN
+    was written to ``Answer.confidence`` and corrupted ``eval_metrics``
+    mean-confidence math: ``(0.9 + 0.85 + NaN) / 3 = NaN``, and the
+    rendered Markdown report had "nan" cells.
+
+    We treat NaN the same as ``None`` — "the model didn't give us a usable
+    confidence." The Answer row stores ``None`` and downstream code (which
+    already handles the None branch for models that decline to report
+    confidence) does the right thing.
+    """
+    if confidence is None or math.isnan(confidence):
         return None
     if confidence < 0:
         return 0.0
