@@ -1,5 +1,10 @@
 """Stratified report sampler for the labels evaluation harness.
 
+**Developer-only.** Pairs with :mod:`radis.labels.utils.eval_metrics`;
+both modules exist so developers can validate prompts and model choices
+against a frozen sample. Neither is part of the user-facing labelling
+pipeline.
+
 The default strategy buckets reports by ``study_datetime`` year and samples
 each bucket proportional to its share of the corpus, with a small per-year
 floor so rare years aren't crowded out. Future strata (modality, study

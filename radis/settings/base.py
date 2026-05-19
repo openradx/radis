@@ -487,7 +487,15 @@ LABELING_LLM_CONCURRENCY_LIMIT = env.int("LABELING_LLM_CONCURRENCY_LIMIT", defau
 # Qwen3.6 emits chain-of-thought to a separate `reasoning` field by default
 # and leaves message.content empty; passing chat_template_kwargs.enable_thinking
 # = False keeps the actual response in message.content where every downstream
-# parser expects it. Harmless on providers that ignore unknown extra_body.
+# parser expects it.
+#
+# The nice property: we get uniform behavior across vendors. Qwen now puts
+# its output in message.content like every other model; providers that don't
+# recognize this extra key (OpenAI, Anthropic via proxy, llama.cpp, vLLM with
+# non-Qwen models, etc.) silently ignore it. The labelling pipeline never
+# has to branch on which backend is configured — REASONED mode achieves
+# chain-of-thought via prompting rather than vendor-specific routing flags,
+# so the same code path works everywhere.
 LLM_EXTRA_BODY = {"chat_template_kwargs": {"enable_thinking": False}}
 
 # Procrastinate priorities. Higher = more urgent. Live labelling (a single

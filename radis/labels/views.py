@@ -251,9 +251,14 @@ class BackfillCancelView(StaffRequiredMixin, View):
 
 
 class QuestionSetEvalView(LoginRequiredMixin, DetailView):
-    """Inline DIRECT vs REASONED comparison for the most recent EvalSample
-    belonging to this set. If no sample exists, prompts to run the seed
-    command.
+    """Developer-only: inline DIRECT vs REASONED comparison for the most
+    recent EvalSample belonging to this set. If no sample exists, prompts
+    to run the seed command.
+
+    This view is part of the evaluation harness used to validate prompts
+    and model choices. It is intentionally not surfaced in the main
+    navigation. The route exists for developer-driven inspection of
+    DIRECT vs REASONED disagreements and is reachable only by URL.
     """
 
     model = QuestionSet
@@ -270,6 +275,13 @@ class QuestionSetEvalView(LoginRequiredMixin, DetailView):
 
 
 class EvalSampleDetailView(LoginRequiredMixin, DetailView):
+    """Developer-only: render the evaluation report for a specific
+    EvalSample by primary key.
+
+    Part of the evaluation harness used to validate prompts and model
+    choices. Not surfaced in the main navigation; reachable only by URL.
+    """
+
     model = EvalSample
     template_name = "labels/eval_report.html"
 

@@ -1,5 +1,13 @@
 """Compute side-by-side metrics for DIRECT vs REASONED labelling runs.
 
+**Developer-only.** This module powers the evaluation harness developers
+use to validate prompts and model choices. It is not part of the
+user-facing labelling pipeline; production users see only ``Answer`` rows
+and the labels card on the report detail page. The eval harness is
+reachable via the ``labels_eval_seed`` / ``labels_eval_report``
+management commands and the eval views in ``views.py`` (also marked
+developer-only).
+
 The harness reads ``Answer`` rows for the sample's reports, picks the
 *latest* SUCCESS answer per (report, question, mode), and produces:
 

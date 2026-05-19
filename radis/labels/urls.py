@@ -41,6 +41,12 @@ urlpatterns = [
         views.BackfillRetryView.as_view(),
         name="backfill_retry",
     ),
+    # --- Developer-only evaluation routes ---
+    # These are part of the evaluation harness used to validate prompts and
+    # model choices (see radis/labels/utils/eval_metrics.py and the
+    # labels_eval_seed / labels_eval_report management commands). They are
+    # intentionally not surfaced in the main navigation and are reachable
+    # only by URL.
     path(
         "<int:pk>/eval/",
         views.QuestionSetEvalView.as_view(),

@@ -1,6 +1,11 @@
 """Create an EvalSample, pick reports stratified by year, and enqueue any
 missing labelling runs.
 
+**Developer-only.** This command is part of the evaluation harness used to
+validate prompts and model choices; it is not intended for production
+operators. Pair with ``labels_eval_report`` to produce a Markdown summary
+once the labelling runs complete.
+
 Usage::
 
     uv run cli shell  # then in shell:
@@ -27,7 +32,11 @@ from ...utils.eval_sampler import estimate_calls, sample_reports
 
 
 class Command(BaseCommand):
-    help = "Create an EvalSample for a QuestionSet and enqueue missing labelling."
+    help = (
+        "[DEV ONLY] Create an EvalSample for a QuestionSet and enqueue missing "
+        "labelling. Part of the developer evaluation harness; not for "
+        "production use."
+    )
 
     def add_arguments(self, parser):
         parser.add_argument(

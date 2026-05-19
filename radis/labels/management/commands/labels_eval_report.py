@@ -1,5 +1,10 @@
 """Compute DIRECT vs REASONED comparison metrics for an EvalSample.
 
+**Developer-only.** This command is part of the evaluation harness used to
+validate prompts and model choices; it is not intended for production
+operators. Run ``labels_eval_seed`` first to create the sample and enqueue
+labelling runs.
+
 Writes a Markdown report to ``evals/<question_set>_<timestamp>.md`` (under
 the project root) and echoes a summary to stdout.
 """
@@ -16,7 +21,11 @@ from ...utils.eval_metrics import compute_eval, render_markdown
 
 
 class Command(BaseCommand):
-    help = "Compute DIRECT vs REASONED metrics for an EvalSample and write a Markdown report."
+    help = (
+        "[DEV ONLY] Compute DIRECT vs REASONED metrics for an EvalSample and "
+        "write a Markdown report. Part of the developer evaluation harness; "
+        "not for production use."
+    )
 
     def add_arguments(self, parser):
         parser.add_argument("--sample-id", dest="sample_id", type=int, default=None)
