@@ -65,7 +65,20 @@ class Command(BaseCommand):
             question_set = QuestionSet.objects.create(name=schema.name, **defaults)
 
         for question_schema in schema.questions:
-            Question.objects.update_or_create(
+            # HIGH #6 fix: a re-seed that updates the question text changes
+            # the LLM prompt, so ``Question.version`` must bump and the
+            # next labelling run produces ``Answer.question_version`` rows
+            # tagged with the new version. ``update_or_create``'s defaults
+            # would otherwise overwrite the text silently and prior answers
+            # would become indistinguishable from new ones in the database.
+            existing = Question.objects.filter(
+                question_set=question_set, label=question_schema.label
+            ).first()
+            text_changed = existing is not None and (
+                existing.question != question_schema.question
+            )
+
+            question, _ = Question.objects.update_or_create(
                 question_set=question_set,
                 label=question_schema.label,
                 defaults={
@@ -74,4 +87,7 @@ class Command(BaseCommand):
                     "order": question_schema.order,
                 },
             )
+
+            if text_changed:
+                question.bump_version()
         return question_set
