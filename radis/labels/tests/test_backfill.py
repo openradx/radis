@@ -559,6 +559,22 @@ class TestBackfillCancelView:
 
 @pytest.mark.django_db
 class TestBackfillRetryView:
+    """Retry semantics changed in the dispatch-helper rewrite (HIGH #2 fix):
+
+    The old behavior was to reset the existing BackfillJob row in-place to
+    PENDING and re-defer the coordinator on it. The new behavior is to leave
+    the original terminal row as audit history and create a *new* PENDING
+    BackfillJob through ``dispatch_backfill_for_set``. The lock semantics
+    enforced by the helper close the retry-vs-launcher TOCTOU window the
+    older code had.
+
+    These tests assert the new contract:
+      * the original job is untouched on success (still FAILURE / CANCELED);
+      * a fresh BackfillJob row gets created;
+      * the race-vs-active-backfill case surfaces the "already running"
+        message without creating a new row.
+    """
+
     def _create_job(self, status=BackfillJob.Status.FAILURE) -> BackfillJob:
         question_set = QuestionSet.objects.create(name="TestSet")
         return BackfillJob.objects.create(
@@ -584,33 +600,47 @@ class TestBackfillRetryView:
 
         job.refresh_from_db()
         assert job.status == BackfillJob.Status.FAILURE
+        # Failed retry must not have created a sibling job.
+        assert BackfillJob.objects.filter(question_set=job.question_set).count() == 1
 
-    def test_retry_resets_failed_job_to_pending(self, client: Client):
+    def test_retry_failure_creates_fresh_pending_job(self, client: Client):
         user = UserFactory.create(is_active=True, is_staff=True)
         client.force_login(user)
         job = self._create_job(status=BackfillJob.Status.FAILURE)
 
-        with patch("radis.labels.views.enqueue_question_set_backfill") as mock_task:
+        with patch("radis.labels.tasks.enqueue_question_set_backfill") as mock_task:
             mock_task.defer = lambda **kw: None
             response = client.post(f"/labels/backfill/{job.pk}/retry/")
 
         assert response.status_code == 302
-        job.refresh_from_db()
-        assert job.status == BackfillJob.Status.PENDING
-        assert job.started_at is None
-        assert job.ended_at is None
 
-    def test_retry_canceled_job_to_pending(self, client: Client):
+        # Original row is preserved as audit history.
+        job.refresh_from_db()
+        assert job.status == BackfillJob.Status.FAILURE
+
+        # A new PENDING row was created via dispatch_backfill_for_set.
+        jobs = list(
+            BackfillJob.objects.filter(question_set=job.question_set).order_by("created_at")
+        )
+        assert len(jobs) == 2
+        assert jobs[0] == job
+        assert jobs[1].status == BackfillJob.Status.PENDING
+
+    def test_retry_canceled_creates_fresh_pending_job(self, client: Client):
         user = UserFactory.create(is_active=True, is_staff=True)
         client.force_login(user)
         job = self._create_job(status=BackfillJob.Status.CANCELED)
 
-        with patch("radis.labels.views.enqueue_question_set_backfill") as mock_task:
+        with patch("radis.labels.tasks.enqueue_question_set_backfill") as mock_task:
             mock_task.defer = lambda **kw: None
             client.post(f"/labels/backfill/{job.pk}/retry/")
 
         job.refresh_from_db()
-        assert job.status == BackfillJob.Status.PENDING
+        assert job.status == BackfillJob.Status.CANCELED
+        # New PENDING sibling exists.
+        assert BackfillJob.objects.filter(
+            question_set=job.question_set, status=BackfillJob.Status.PENDING
+        ).count() == 1
 
     def test_retry_in_progress_job_returns_400(self, client: Client):
         user = UserFactory.create(is_active=True, is_staff=True)
@@ -622,8 +652,15 @@ class TestBackfillRetryView:
 
         job.refresh_from_db()
         assert job.status == BackfillJob.Status.IN_PROGRESS
+        # Must not have created a sibling.
+        assert BackfillJob.objects.filter(question_set=job.question_set).count() == 1
 
     def test_retry_skipped_when_other_active_backfill_exists(self, client: Client):
+        """HIGH #2 regression guard. If a launcher (or another caller) created
+        an active backfill between the user clicking Retry and the request
+        landing, the helper's lock + already_active check must surface the
+        "already running" message rather than queueing a duplicate.
+        """
         user = UserFactory.create(is_active=True, is_staff=True)
         client.force_login(user)
 
@@ -633,18 +670,25 @@ class TestBackfillRetryView:
             status=BackfillJob.Status.FAILURE,
             total_reports=100,
         )
-        BackfillJob.objects.create(
+        active_job = BackfillJob.objects.create(
             question_set=question_set,
             status=BackfillJob.Status.IN_PROGRESS,
             total_reports=100,
         )
 
-        with patch("radis.labels.views.enqueue_question_set_backfill") as mock_task:
+        with patch("radis.labels.tasks.enqueue_question_set_backfill") as mock_task:
             response = client.post(f"/labels/backfill/{failed_job.pk}/retry/")
 
         assert response.status_code == 302
+        # Original terminal row untouched.
         failed_job.refresh_from_db()
         assert failed_job.status == BackfillJob.Status.FAILURE
+        # Pre-existing active job untouched.
+        active_job.refresh_from_db()
+        assert active_job.status == BackfillJob.Status.IN_PROGRESS
+        # Critical: no new row was created.
+        assert BackfillJob.objects.filter(question_set=question_set).count() == 2
+        # No coordinator deferred.
         assert not mock_task.defer.called
 
     def test_retry_get_not_allowed(self, client: Client):
@@ -715,29 +759,84 @@ class TestQuestionSetDetailViewBackfill:
 
 @pytest.mark.django_db
 class TestLabelsBackfillCommand:
-    @patch("radis.labels.management.commands.labels_backfill._defer_batch")
-    def test_command_creates_backfill_job(self, mock_defer):
+    """The CLI is now the same dispatch path as the manual launch button —
+    it goes through ``dispatch_backfill_for_set``, which respects the per-set
+    lock and only fires if there is outstanding work.
+
+    HIGH #1 regression guard: previously the command enqueued every report
+    regardless of existing coverage (a re-run on a fully-labelled set burnt
+    LLM cost and produced duplicate runs). These tests assert the new
+    contract.
+    """
+
+    @patch("radis.labels.tasks.enqueue_question_set_backfill")
+    def test_command_creates_pending_backfill_job(self, mock_task):
         from django.core.management import call_command
 
-        from radis.reports.models import Language, Report
-
+        mock_task.defer = lambda **kw: None
         question_set = QuestionSet.objects.create(name="Findings")
-        lang = Language.objects.create(code="en")
-        Report.objects.create(
-            document_id="doc-1",
-            body="Test report body",
-            patient_birth_date="2000-01-01",
-            patient_sex="M",
-            study_datetime="2024-01-15T10:00:00Z",
-            language=lang,
+        _make_question(question_set, "Q1")
+        _make_report("doc-1")
+
+        call_command("labels_backfill", question_set=str(question_set.id))
+
+        # Helper creates a PENDING job; the coordinator (mocked here) would
+        # flip it to IN_PROGRESS, but we only assert the helper's product.
+        job = BackfillJob.objects.get(question_set=question_set)
+        assert job.status == BackfillJob.Status.PENDING
+
+    @patch("radis.labels.tasks.enqueue_question_set_backfill")
+    def test_command_is_noop_on_fully_labelled_set(self, mock_task):
+        """HIGH #1 regression: re-running the CLI on a set with no missing
+        reports must not create a duplicate job and must not defer any
+        coordinator task. The old CLI happily enqueued every report.
+        """
+        from django.core.management import call_command
+
+        mock_task.defer = lambda **kw: None
+        question_set = QuestionSet.objects.create(name="AlreadyDone")
+        _make_question(question_set, "Q1")
+        report = _make_report("doc-1")
+        _record_complete_runs(report, question_set)  # full coverage in every mode
+
+        call_command("labels_backfill", question_set=str(question_set.id))
+
+        assert BackfillJob.objects.filter(question_set=question_set).count() == 0
+        assert not mock_task.defer.called
+
+    @patch("radis.labels.tasks.enqueue_question_set_backfill")
+    def test_command_skips_when_backfill_already_active(self, mock_task):
+        """HIGH #1 corollary: the CLI must not stack on top of an in-flight
+        backfill. The helper's lock + dedup check is the enforcement; the
+        CLI surfaces it as a "already active" warning.
+        """
+        from django.core.management import call_command
+
+        mock_task.defer = lambda **kw: None
+        question_set = QuestionSet.objects.create(name="Running")
+        _make_question(question_set, "Q1")
+        _make_report("doc-1")
+        BackfillJob.objects.create(
+            question_set=question_set, status=BackfillJob.Status.IN_PROGRESS
         )
 
         call_command("labels_backfill", question_set=str(question_set.id))
 
-        job = BackfillJob.objects.get(question_set=question_set)
-        assert job.status == BackfillJob.Status.IN_PROGRESS
-        assert job.total_reports == 1
-        assert job.started_at is not None
+        # The pre-existing IN_PROGRESS row is the only one — no sibling created.
+        assert BackfillJob.objects.filter(question_set=question_set).count() == 1
+
+    @patch("radis.labels.tasks.enqueue_question_set_backfill")
+    def test_command_skips_inactive_set(self, mock_task):
+        from django.core.management import call_command
+
+        mock_task.defer = lambda **kw: None
+        question_set = QuestionSet.objects.create(name="Inactive", is_active=False)
+        _make_question(question_set, "Q1")
+        _make_report("doc-1")
+
+        call_command("labels_backfill", question_set=str(question_set.id))
+
+        assert BackfillJob.objects.filter(question_set=question_set).count() == 0
 
 
 # -- Templatetag tests --
@@ -811,3 +910,387 @@ class TestQuestionSetLock:
         assert response.status_code == 302
         question.refresh_from_db()
         assert question.label == "Q1"
+
+
+# -- dispatch_backfill_for_set helper tests --
+
+
+@pytest.mark.django_db
+class TestDispatchBackfillForSet:
+    """The helper is the single entry point for kicking off a backfill from
+    any caller (launcher, manual launch view, retry view, CLI). These tests
+    pin its contract so a future refactor that breaks the dedup, the lock
+    pattern, or the on-commit defer surfaces as a failure.
+    """
+
+    @patch("radis.labels.tasks.enqueue_question_set_backfill")
+    def test_creates_pending_job_when_none_active(self, mock_task):
+        from radis.labels.tasks import dispatch_backfill_for_set
+
+        mock_task.defer = lambda **kw: None
+        question_set = QuestionSet.objects.create(name="FreshSet")
+
+        job = dispatch_backfill_for_set(question_set)
+
+        assert job is not None
+        assert job.status == BackfillJob.Status.PENDING
+        assert job.question_set == question_set
+
+    @patch("radis.labels.tasks.enqueue_question_set_backfill")
+    def test_returns_none_when_pending_job_already_exists(self, mock_task):
+        """Dedup must trigger for PENDING jobs (not just IN_PROGRESS) —
+        otherwise two near-simultaneous Launch clicks could both create a
+        PENDING row before either coordinator advances to IN_PROGRESS.
+        """
+        from radis.labels.tasks import dispatch_backfill_for_set
+
+        mock_task.defer = lambda **kw: None
+        question_set = QuestionSet.objects.create(name="AlreadyPending")
+        BackfillJob.objects.create(
+            question_set=question_set, status=BackfillJob.Status.PENDING
+        )
+
+        job = dispatch_backfill_for_set(question_set)
+
+        assert job is None
+        assert BackfillJob.objects.filter(question_set=question_set).count() == 1
+
+    @patch("radis.labels.tasks.enqueue_question_set_backfill")
+    def test_returns_none_when_in_progress_job_exists(self, mock_task):
+        from radis.labels.tasks import dispatch_backfill_for_set
+
+        mock_task.defer = lambda **kw: None
+        question_set = QuestionSet.objects.create(name="Running")
+        BackfillJob.objects.create(
+            question_set=question_set, status=BackfillJob.Status.IN_PROGRESS
+        )
+
+        job = dispatch_backfill_for_set(question_set)
+
+        assert job is None
+        assert BackfillJob.objects.filter(question_set=question_set).count() == 1
+
+    @patch("radis.labels.tasks.enqueue_question_set_backfill")
+    def test_terminal_jobs_do_not_block_new_dispatch(self, mock_task):
+        """A SUCCESS / FAILURE / CANCELED row is audit history, not a lock
+        on future backfills. The helper must still create a new PENDING
+        job when invoked, regardless of how many terminal siblings exist.
+        """
+        from radis.labels.tasks import dispatch_backfill_for_set
+
+        mock_task.defer = lambda **kw: None
+        question_set = QuestionSet.objects.create(name="WithHistory")
+        for status in [
+            BackfillJob.Status.SUCCESS,
+            BackfillJob.Status.FAILURE,
+            BackfillJob.Status.CANCELED,
+        ]:
+            BackfillJob.objects.create(question_set=question_set, status=status)
+
+        job = dispatch_backfill_for_set(question_set)
+
+        assert job is not None
+        assert job.status == BackfillJob.Status.PENDING
+        assert BackfillJob.objects.filter(question_set=question_set).count() == 4
+
+    def test_calls_select_for_update_on_the_set_row(self):
+        """The lock primitive is load-bearing — without it, two concurrent
+        callers can both pass the dedup check before either inserts. This
+        test asserts the helper actually issues ``select_for_update`` so a
+        future refactor that drops the lock surfaces as a failure.
+        """
+        from radis.labels.tasks import dispatch_backfill_for_set
+
+        question_set = QuestionSet.objects.create(name="LockedQueries")
+
+        with patch(
+            "radis.labels.tasks.QuestionSet.objects",
+            wraps=QuestionSet.objects,
+        ) as mock_objects:
+            with patch("radis.labels.tasks.enqueue_question_set_backfill") as mock_task:
+                mock_task.defer = lambda **kw: None
+                dispatch_backfill_for_set(question_set)
+
+        mock_objects.select_for_update.assert_called()
+
+    @patch("radis.labels.tasks.enqueue_question_set_backfill")
+    def test_defers_coordinator_on_commit(self, mock_task):
+        """When the helper succeeds, the coordinator task must be deferred
+        for the new job after the surrounding transaction commits. We use
+        ``django_db(transaction=True)`` so on_commit hooks actually fire.
+        """
+        from django.db import transaction
+
+        from radis.labels.tasks import dispatch_backfill_for_set
+
+        question_set = QuestionSet.objects.create(name="DefersCoord")
+
+        with transaction.atomic():
+            job = dispatch_backfill_for_set(question_set)
+
+        assert job is not None
+        # transaction.atomic() commits on exit — on_commit fires here.
+        mock_task.defer.assert_called_once()
+        called_kwargs = mock_task.defer.call_args.kwargs
+        assert called_kwargs["question_set_id"] == question_set.id
+        assert called_kwargs["backfill_job_id"] == job.id
+
+
+# -- Manual launch view tests --
+
+
+@pytest.mark.django_db
+class TestBackfillLaunchView:
+    """The manual "Run backfill now" button.
+
+    The view is an opt-in override for the nightly cron — staff who finished
+    editing and want labelling to start now click this. The button is hidden
+    in the template while the set is locked, so under normal use the view
+    only ever sees the happy path. The tests cover both the happy path and
+    every guard (auth, inactive set, no-work set, already-running) because
+    those guards are the security boundary even when the button isn't shown.
+    """
+
+    def _make_dispatchable_set(self) -> QuestionSet:
+        question_set = QuestionSet.objects.create(name="LaunchSet")
+        _make_question(question_set, "Q1")
+        _make_report("doc-1")
+        return question_set
+
+    def test_requires_login(self, client: Client):
+        question_set = self._make_dispatchable_set()
+        response = client.post(f"/labels/{question_set.pk}/backfill/launch/")
+        assert response.status_code == 302
+        assert "/accounts/login/" in response["Location"]
+
+    def test_rejected_for_non_staff(self, client: Client):
+        user = UserFactory.create(is_active=True, is_staff=False)
+        client.force_login(user)
+        question_set = self._make_dispatchable_set()
+
+        response = client.post(f"/labels/{question_set.pk}/backfill/launch/")
+
+        assert response.status_code == 403
+        assert BackfillJob.objects.filter(question_set=question_set).count() == 0
+
+    @patch("radis.labels.tasks.enqueue_question_set_backfill")
+    def test_happy_path_creates_pending_job_and_redirects(self, mock_task, client: Client):
+        mock_task.defer = lambda **kw: None
+        user = UserFactory.create(is_active=True, is_staff=True)
+        client.force_login(user)
+        question_set = self._make_dispatchable_set()
+
+        response = client.post(f"/labels/{question_set.pk}/backfill/launch/")
+
+        assert response.status_code == 302
+        assert f"/labels/{question_set.pk}/" in response["Location"]
+        job = BackfillJob.objects.get(question_set=question_set)
+        assert job.status == BackfillJob.Status.PENDING
+
+    @patch("radis.labels.tasks.enqueue_question_set_backfill")
+    def test_get_not_allowed(self, mock_task, client: Client):
+        user = UserFactory.create(is_active=True, is_staff=True)
+        client.force_login(user)
+        question_set = self._make_dispatchable_set()
+
+        response = client.get(f"/labels/{question_set.pk}/backfill/launch/")
+
+        assert response.status_code == 405
+        assert BackfillJob.objects.filter(question_set=question_set).count() == 0
+
+    @patch("radis.labels.tasks.enqueue_question_set_backfill")
+    def test_inactive_set_does_not_dispatch(self, mock_task, client: Client):
+        mock_task.defer = lambda **kw: None
+        user = UserFactory.create(is_active=True, is_staff=True)
+        client.force_login(user)
+        question_set = QuestionSet.objects.create(name="Inactive", is_active=False)
+        _make_question(question_set, "Q1")
+        _make_report("doc-1")
+
+        response = client.post(f"/labels/{question_set.pk}/backfill/launch/")
+
+        assert response.status_code == 302
+        assert BackfillJob.objects.filter(question_set=question_set).count() == 0
+
+    @patch("radis.labels.tasks.enqueue_question_set_backfill")
+    def test_no_work_does_not_dispatch(self, mock_task, client: Client):
+        """If the set is already fully labelled, the button should no-op
+        with an info message rather than creating a useless coordinator
+        that flips straight to SUCCESS.
+        """
+        mock_task.defer = lambda **kw: None
+        user = UserFactory.create(is_active=True, is_staff=True)
+        client.force_login(user)
+        question_set = QuestionSet.objects.create(name="Done")
+        _make_question(question_set, "Q1")
+        report = _make_report("doc-1")
+        _record_complete_runs(report, question_set)
+
+        response = client.post(f"/labels/{question_set.pk}/backfill/launch/")
+
+        assert response.status_code == 302
+        assert BackfillJob.objects.filter(question_set=question_set).count() == 0
+        assert not mock_task.defer.called
+
+    @patch("radis.labels.tasks.enqueue_question_set_backfill")
+    def test_already_running_does_not_dispatch(self, mock_task, client: Client):
+        """The button is hidden in the UI when ``is_locked`` is True, but
+        the server still has to guard against direct POSTs. The helper's
+        dedup must surface as a no-op + info message, not a duplicate job.
+        """
+        mock_task.defer = lambda **kw: None
+        user = UserFactory.create(is_active=True, is_staff=True)
+        client.force_login(user)
+        question_set = self._make_dispatchable_set()
+        active_job = BackfillJob.objects.create(
+            question_set=question_set, status=BackfillJob.Status.IN_PROGRESS
+        )
+
+        response = client.post(f"/labels/{question_set.pk}/backfill/launch/")
+
+        assert response.status_code == 302
+        # No new job created; the pre-existing active job is untouched.
+        assert BackfillJob.objects.filter(question_set=question_set).count() == 1
+        active_job.refresh_from_db()
+        assert active_job.status == BackfillJob.Status.IN_PROGRESS
+
+
+# -- Race-condition regression tests --
+
+
+@pytest.mark.django_db
+class TestBackfillDispatchRaces:
+    """Race-condition guards for every code path that can dispatch a backfill.
+
+    These tests target the bugs the helper closed (HIGH #1 and HIGH #2) by
+    asserting the helper's dedup holds even in adversarial orderings. They
+    are unit-level — concurrent transactions across threads with a real DB
+    lock are deferred to integration tests — but they're enough to catch a
+    future refactor that drops the lock or moves the dedup check outside
+    the atomic block.
+    """
+
+    @patch("radis.labels.tasks.enqueue_question_set_backfill")
+    def test_two_sequential_dispatches_only_one_creates_job(self, mock_task):
+        """Sanity: two callers, second one sees the first's job. Sequential
+        is the easy case; the helper must already handle this correctly.
+        """
+        from radis.labels.tasks import dispatch_backfill_for_set
+
+        mock_task.defer = lambda **kw: None
+        question_set = QuestionSet.objects.create(name="Seq")
+
+        first = dispatch_backfill_for_set(question_set)
+        second = dispatch_backfill_for_set(question_set)
+
+        assert first is not None
+        assert second is None
+        assert BackfillJob.objects.filter(question_set=question_set).count() == 1
+
+    @patch("radis.labels.tasks.enqueue_question_set_backfill")
+    def test_retry_view_does_not_stack_on_launcher_concurrent_create(
+        self, mock_task, client: Client
+    ):
+        """HIGH #2: simulate the launcher creating a BackfillJob in the
+        instant between the user clicking Retry and the dispatch firing.
+
+        We model the race by inserting an IN_PROGRESS BackfillJob *before*
+        calling the retry endpoint — same end state the race produces. The
+        retry view must see it (via the helper's lock + dedup) and not
+        create a duplicate.
+        """
+        mock_task.defer = lambda **kw: None
+        user = UserFactory.create(is_active=True, is_staff=True)
+        client.force_login(user)
+
+        question_set = QuestionSet.objects.create(name="RetryRace")
+        failed_job = BackfillJob.objects.create(
+            question_set=question_set,
+            status=BackfillJob.Status.FAILURE,
+        )
+        # Simulate the launcher winning the race.
+        launcher_job = BackfillJob.objects.create(
+            question_set=question_set, status=BackfillJob.Status.IN_PROGRESS
+        )
+
+        response = client.post(f"/labels/backfill/{failed_job.pk}/retry/")
+
+        assert response.status_code == 302
+        # Only the two pre-existing rows remain — no duplicate sibling.
+        rows = BackfillJob.objects.filter(question_set=question_set).order_by("pk")
+        assert [r.pk for r in rows] == [failed_job.pk, launcher_job.pk]
+        # The launcher's job stayed IN_PROGRESS; the helper bailed cleanly.
+        launcher_job.refresh_from_db()
+        assert launcher_job.status == BackfillJob.Status.IN_PROGRESS
+
+    @patch("radis.labels.tasks.enqueue_question_set_backfill")
+    def test_manual_launch_does_not_stack_on_launcher_concurrent_create(
+        self, mock_task, client: Client
+    ):
+        """Mirror of the retry-race test for the manual launch button.
+
+        Same shape: pre-existing IN_PROGRESS job simulates the launcher
+        winning the race against a user click. The launch view's helper
+        invocation must detect it under the lock.
+        """
+        mock_task.defer = lambda **kw: None
+        user = UserFactory.create(is_active=True, is_staff=True)
+        client.force_login(user)
+
+        question_set = QuestionSet.objects.create(name="LaunchRace")
+        _make_question(question_set, "Q1")
+        _make_report("doc-1")
+        launcher_job = BackfillJob.objects.create(
+            question_set=question_set, status=BackfillJob.Status.IN_PROGRESS
+        )
+
+        response = client.post(f"/labels/{question_set.pk}/backfill/launch/")
+
+        assert response.status_code == 302
+        assert BackfillJob.objects.filter(question_set=question_set).count() == 1
+        launcher_job.refresh_from_db()
+        assert launcher_job.status == BackfillJob.Status.IN_PROGRESS
+
+    @patch("radis.labels.tasks.enqueue_question_set_backfill")
+    def test_cli_does_not_stack_on_launcher_concurrent_create(self, mock_task):
+        """HIGH #1 corollary: the CLI's invocation of the helper must obey
+        the same lock + dedup as the views. A concurrent active backfill
+        from any source (launcher, launch button, prior CLI invocation)
+        causes the CLI to skip the set cleanly.
+        """
+        from django.core.management import call_command
+
+        mock_task.defer = lambda **kw: None
+        question_set = QuestionSet.objects.create(name="CLIRace")
+        _make_question(question_set, "Q1")
+        _make_report("doc-1")
+        BackfillJob.objects.create(
+            question_set=question_set, status=BackfillJob.Status.IN_PROGRESS
+        )
+
+        call_command("labels_backfill", question_set=str(question_set.id))
+
+        assert BackfillJob.objects.filter(question_set=question_set).count() == 1
+
+    @patch("radis.labels.tasks.enqueue_question_set_backfill")
+    def test_launcher_does_not_stack_on_manual_launch_concurrent_create(self, mock_task):
+        """Mirror: the nightly launcher's pre-lock ``missing_reports().exists()``
+        is a cheap optimization. The real dedup must happen under the lock,
+        so even if a manual launch landed between the pre-check and the
+        lock, the launcher must still detect it.
+        """
+        mock_task.defer = lambda **kw: None
+        question_set = QuestionSet.objects.create(name="LauncherRace")
+        _make_question(question_set, "Q1")
+        _make_report("doc-1")
+        manual_job = BackfillJob.objects.create(
+            question_set=question_set, status=BackfillJob.Status.PENDING
+        )
+
+        from radis.labels.tasks import labels_backfill_launcher
+
+        labels_backfill_launcher.func(timestamp=0)
+
+        assert BackfillJob.objects.filter(question_set=question_set).count() == 1
+        manual_job.refresh_from_db()
+        assert manual_job.status == BackfillJob.Status.PENDING

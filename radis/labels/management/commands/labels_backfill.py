@@ -1,45 +1,50 @@
+"""Launch backfill jobs for question sets with outstanding labelling work.
+
+This command is the CLI equivalent of the "Run backfill now" button in the
+UI. It shares the dispatch path with the nightly launcher, the manual
+launch view, and the Retry button via :func:`dispatch_backfill_for_set`,
+which means all four callers obey the same per-set lock and dedup
+contract — running this command while a backfill is in flight is safe and
+will simply log a "already active" notice rather than stacking a parallel
+job.
+
+History (HIGH #1 of the 2026-05-19 review): the previous version of this
+command enqueued every report in the corpus regardless of existing
+coverage. Running it on a fully-labelled set would re-label every report,
+producing duplicate ``LabelingRun`` and ``Answer`` rows and burning the
+LLM bill for nothing. It also did not take the dispatch lock, so it could
+stack on top of an in-flight nightly. The rewrite routes through the
+coordinator (which dispatches ``missing_reports()`` only) so re-running
+on a fully-labelled set is now a no-op.
+"""
+
 from __future__ import annotations
 
-from itertools import batched
-
-from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
-from django.utils import timezone
 
-from radis.reports.models import Report
-
-from ...models import BackfillJob, LabelingRun, QuestionSet
-from ...tasks import _defer_batch
+from ...models import QuestionSet
+from ...tasks import dispatch_backfill_for_set
 
 
 class Command(BaseCommand):
-    help = "Enqueue labeling tasks for existing reports."
+    help = (
+        "Launch backfill jobs for question sets with outstanding labelling "
+        "work. Safe to run while other backfills are in flight (each set is "
+        "deduplicated under a row lock)."
+    )
 
     def add_arguments(self, parser):
         parser.add_argument(
             "--set",
             dest="question_set",
-            help="QuestionSet name or ID. If omitted, all active sets are used.",
-        )
-        parser.add_argument(
-            "--batch-size",
-            dest="batch_size",
-            type=int,
-            default=None,
-            help="Override the task batch size.",
-        )
-        parser.add_argument(
-            "--limit",
-            dest="limit",
-            type=int,
-            default=None,
-            help="Limit the number of reports to enqueue.",
+            help=(
+                "QuestionSet name or numeric ID. If omitted, every active set "
+                "with outstanding work gets a backfill dispatched."
+            ),
         )
 
     def handle(self, *args, **options):
         value = options.get("question_set")
-        batch_size = options.get("batch_size")
-        limit = options.get("limit")
 
         if value:
             question_sets = [self._get_set(value)]
@@ -50,43 +55,46 @@ class Command(BaseCommand):
             self.stdout.write(self.style.WARNING("No active question sets found."))
             return
 
-        report_ids_qs = Report.objects.order_by("id").values_list("id", flat=True)
-        if limit:
-            report_ids_qs = report_ids_qs[:limit]
-        report_ids = list(report_ids_qs)
-
-        if not report_ids:
-            self.stdout.write(self.style.WARNING("No reports found."))
-            return
-
-        if batch_size is None:
-            batch_size = settings.LABELING_TASK_BATCH_SIZE
-
-        modes = getattr(settings, "LABELS_RUN_MODES", [LabelingRun.Mode.DIRECT])
-
         for question_set in question_sets:
-            backfill_job = BackfillJob.objects.create(
-                question_set=question_set,
-                status=BackfillJob.Status.IN_PROGRESS,
-                started_at=timezone.now(),
-                total_reports=len(report_ids),
-            )
-
-            for report_batch in batched(report_ids, batch_size):
-                batch_list = list(report_batch)
-                for mode in modes:
-                    _defer_batch(
-                        question_set_id=question_set.id,
-                        report_ids=batch_list,
-                        mode=mode,
-                        priority=settings.LABELS_BACKFILL_PRIORITY,
-                        backfill_job_id=backfill_job.id,
+            # We mirror BackfillLaunchView's guards here. The helper itself
+            # only enforces the lock + dedup; "the set is inactive" and "the
+            # set has no missing reports" are caller-level decisions about
+            # what counts as a useful invocation, surfaced as CLI messages.
+            if not question_set.is_active:
+                self.stdout.write(
+                    self.style.NOTICE(
+                        f"Skipping '{question_set.name}' — set is inactive."
                     )
+                )
+                continue
+
+            if not question_set.missing_reports().exists():
+                self.stdout.write(
+                    self.style.NOTICE(
+                        f"Skipping '{question_set.name}' — no outstanding labelling work."
+                    )
+                )
+                continue
+
+            backfill_job = dispatch_backfill_for_set(question_set)
+            if backfill_job is None:
+                # A backfill for this set is already pending or in progress.
+                # The CLI defers to the existing job rather than queueing a
+                # duplicate; this preserves HIGH #1's "no duplicate runs"
+                # property when the CLI is invoked alongside the nightly
+                # launcher or a clicked Launch button.
+                self.stdout.write(
+                    self.style.WARNING(
+                        f"A backfill for '{question_set.name}' is already "
+                        "active; skipping."
+                    )
+                )
+                continue
 
             self.stdout.write(
                 self.style.SUCCESS(
-                    f"Enqueued labeling for {len(report_ids)} reports "
-                    f"in set '{question_set.name}' (backfill job #{backfill_job.id})."
+                    f"Started backfill job #{backfill_job.id} for "
+                    f"'{question_set.name}'."
                 )
             )
 

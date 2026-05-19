@@ -4,7 +4,6 @@ from adit_radis_shared.common.types import AuthenticatedHttpRequest
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
 from django.core.exceptions import SuspiciousOperation
-from django.db import transaction
 from django.db.models import Prefetch, QuerySet
 from django.http import HttpResponse, HttpResponseRedirect
 from django.shortcuts import get_object_or_404, redirect
@@ -24,7 +23,7 @@ from .models import (
     is_question_set_locked,
 )
 from .tables import QuestionSetTable
-from .tasks import enqueue_question_set_backfill
+from .tasks import dispatch_backfill_for_set
 from .utils.eval_metrics import compute_eval
 
 
@@ -295,24 +294,46 @@ class EvalSampleDetailView(LoginRequiredMixin, DetailView):
 
 
 class BackfillRetryView(StaffRequiredMixin, View):
+    """Re-launch a backfill for a question set whose prior job ended in a
+    terminal state.
+
+    "Retry" is functionally identical to a fresh launch — the coordinator
+    iterates ``missing_reports()`` either way, which naturally skips any
+    reports that were already labelled. The button is offered as a separate
+    affordance only because it's the natural place for the staff member to
+    click after seeing a FAILURE / CANCELED / SUCCESS card.
+
+    The actual dispatch goes through :func:`dispatch_backfill_for_set`, which
+    creates a *new* ``BackfillJob`` row under the per-set lock. The previous
+    terminal row stays in the database as audit history — you can see all
+    retries on the set by querying ``BackfillJob`` ordered by ``created_at``.
+
+    Race fix vs HIGH #2 of the 2026-05-19 review: the older version did an
+    ``active_exists`` check **outside** any lock, then in-place reset the
+    row to PENDING. The window between those two operations let the nightly
+    launcher slip in and create a second active backfill — both would then
+    dispatch the same batches and produce duplicate LabelingRun / Answer
+    rows. The helper's ``select_for_update`` closes that window: if the
+    launcher wins the race, the helper returns ``None`` and we surface the
+    "already running" message rather than queueing a duplicate.
+    """
+
     def post(self, request: AuthenticatedHttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
         backfill_job = get_object_or_404(BackfillJob, pk=kwargs["pk"])
 
+        # Pre-flight check on the *original* job state. The helper itself
+        # doesn't care which job the user is retrying — it just creates a
+        # new row if no active backfill exists. We do this check here so a
+        # user clicking Retry on a still-running job gets a clear 400 error
+        # rather than a silent "we made you a new job, here it is."
         if not backfill_job.is_retryable:
             raise SuspiciousOperation(
                 f"Backfill job {backfill_job.pk} with status "
                 f"{backfill_job.get_status_display()} cannot be retried."
             )
 
-        active_exists = (
-            BackfillJob.objects.filter(
-                question_set_id=backfill_job.question_set_id,
-                status__in=[BackfillJob.Status.PENDING, BackfillJob.Status.IN_PROGRESS],
-            )
-            .exclude(pk=backfill_job.pk)
-            .exists()
-        )
-        if active_exists:
+        new_job = dispatch_backfill_for_set(backfill_job.question_set)
+        if new_job is None:
             messages.info(
                 request,
                 f"Another backfill for {backfill_job.question_set.name} is already in "
@@ -320,21 +341,62 @@ class BackfillRetryView(StaffRequiredMixin, View):
             )
             return redirect("question_set_detail", pk=backfill_job.question_set_id)
 
-        backfill_job.status = BackfillJob.Status.PENDING
-        backfill_job.message = ""
-        backfill_job.started_at = None
-        backfill_job.ended_at = None
-        backfill_job.save()
-
-        transaction.on_commit(
-            lambda: enqueue_question_set_backfill.defer(
-                question_set_id=backfill_job.question_set_id,
-                backfill_job_id=backfill_job.id,
-            )
-        )
-
         messages.success(
             request,
             f"Retrying backfill for {backfill_job.question_set.name}.",
         )
         return redirect("question_set_detail", pk=backfill_job.question_set_id)
+
+
+class BackfillLaunchView(StaffRequiredMixin, View):
+    """Manually kick off a backfill for a question set, bypassing the nightly cron.
+
+    The nightly launcher is the safe default — it batches work off-peak and
+    debounces bursty staff edits into a single nightly pass. This view is
+    the explicit override for the case where a self-aware staff member has
+    finished editing and doesn't want to wait until 21:00 to see results.
+
+    Three guards before the helper sees the request:
+
+    * The set must be active. Inactive sets aren't labelled at all.
+    * There must be outstanding work (``missing_reports().exists()``).
+      Otherwise the helper would happily create a no-op coordinator that
+      flips straight to SUCCESS — harmless but wastes a row.
+    * No active backfill must exist. The helper enforces this under a
+      lock; we surface a friendly message rather than creating a duplicate.
+
+    The button rendering its trigger is hidden in the template while the
+    set is locked, so under normal use this view never sees a 409-like
+    situation. The guards are defensive.
+    """
+
+    def post(self, request: AuthenticatedHttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        question_set = get_object_or_404(QuestionSet, pk=kwargs["pk"])
+
+        if not question_set.is_active:
+            messages.warning(
+                request,
+                f"Question set '{question_set.name}' is inactive. Activate it before launching a backfill.",
+            )
+            return redirect("question_set_detail", pk=question_set.id)
+
+        if not question_set.missing_reports().exists():
+            messages.info(
+                request,
+                f"No outstanding labelling work for '{question_set.name}'. Nothing to do.",
+            )
+            return redirect("question_set_detail", pk=question_set.id)
+
+        backfill_job = dispatch_backfill_for_set(question_set)
+        if backfill_job is None:
+            messages.info(
+                request,
+                f"A backfill for '{question_set.name}' is already running.",
+            )
+            return redirect("question_set_detail", pk=question_set.id)
+
+        messages.success(
+            request,
+            f"Backfill started for '{question_set.name}'.",
+        )
+        return redirect("question_set_detail", pk=question_set.id)

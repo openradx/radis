@@ -18,6 +18,20 @@
                 <div class="d-flex gap-2">
                     <a href="{% url 'question_set_eval' object.pk %}"
                        class="btn btn-outline-secondary">Eval</a>
+                    {# Manual backfill launch — staff opt-in alternative to the nightly cron.
+                       Hidden while a backfill is already active (is_locked) so the user can't
+                       click a button that does nothing. Also hidden when the set is inactive
+                       or has no outstanding work, to avoid offering an action that would
+                       no-op. The launch view re-checks these conditions server-side; the
+                       template hides are UX, not security. #}
+                    {% if request.user.is_staff and object.is_active and not is_locked %}
+                        <form method="post"
+                              action="{% url 'backfill_launch' object.pk %}"
+                              onSubmit="return confirm('Launch labelling backfill for this set now? Only reports without complete coverage will be processed.');">
+                            {% csrf_token %}
+                            <button type="submit" class="btn btn-outline-success">{% bootstrap_icon "play-fill" %} Run backfill now</button>
+                        </form>
+                    {% endif %}
                     <a href="{% url 'question_set_update' object.pk %}"
                        class="btn btn-outline-primary {% if is_locked %}disabled{% endif %}"
                        {% if is_locked %}aria-disabled="true"{% endif %}>Edit Set</a>
