@@ -22,8 +22,29 @@ def register_reports_created_handler(handler: ReportsCreatedHandler) -> None:
 
 
 class ReportsUpdatedHandler(NamedTuple):
+    """Plugin hook fired when reports are updated in the PostgreSQL database.
+
+    The handler signature takes the list of updated reports and a
+    ``changed_fields`` set:
+
+    * ``None`` means "we don't know which fields changed" (conservative —
+      consumers should assume the body could have changed and re-process
+      accordingly). The bulk upsert path and the admin pass this.
+    * A non-None ``set[str]`` is the precise set of field names the caller
+      modified. Consumers that only care about body changes (the labels
+      app re-labelling pipeline) can skip work when the set is non-empty
+      but does not contain "body". The single-report API update path
+      passes this.
+
+    The plumbing exists for HIGH #5 of the 2026-05-19 labels review:
+    re-labelling on every report touch (including pure demographic
+    corrections) was burning LLM cost on changes that couldn't affect
+    answers. Consumers that want the old "always re-process" behavior
+    can simply ignore the extra argument.
+    """
+
     name: str
-    handle: Callable[[list[Report]], None]
+    handle: Callable[[list[Report], set[str] | None], None]
 
 
 reports_updated_handlers: list[ReportsUpdatedHandler] = []
