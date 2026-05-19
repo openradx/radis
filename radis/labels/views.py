@@ -1,11 +1,12 @@
 from typing import Any
 
 from adit_radis_shared.common.types import AuthenticatedHttpRequest
+from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
 from django.core.exceptions import SuspiciousOperation
 from django.db.models import Prefetch, QuerySet
-from django.http import HttpResponse, HttpResponseRedirect
+from django.http import Http404, HttpResponse, HttpResponseRedirect
 from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse, reverse_lazy
 from django.utils import timezone
@@ -86,6 +87,11 @@ class QuestionSetDetailView(LoginRequiredMixin, DetailView):
             .first()
         )
         context["is_locked"] = self.object.is_locked
+        # The "Eval" button on the detail page renders only when the
+        # developer harness is enabled (see LABELS_EVAL_ENABLED). When
+        # disabled, the URL reverse would fail because the route is not
+        # registered, so the template must skip the button entirely.
+        context["labels_eval_enabled"] = settings.LABELS_EVAL_ENABLED
         return context
 
 
@@ -249,15 +255,36 @@ class BackfillCancelView(StaffRequiredMixin, View):
         return redirect("question_set_detail", pk=backfill_job.question_set_id)
 
 
-class QuestionSetEvalView(LoginRequiredMixin, DetailView):
+class _EvalEnabledMixin:
+    """Defense-in-depth gate on the eval views.
+
+    The URL conf in urls.py already only registers the eval routes when
+    ``settings.LABELS_EVAL_ENABLED`` is True, so in production the route
+    table doesn't even contain these views. This mixin is the second
+    layer: if the routes ever do get registered by mistake (a future
+    refactor moves them out from under the conditional, an experiment
+    branch leaves them on, a misconfigured environment), the view still
+    raises ``Http404`` and no data leaks.
+
+    We read the setting at dispatch time (not class-definition time) so
+    tests can toggle it with ``override_settings``.
+    """
+
+    def dispatch(self, request, *args, **kwargs):
+        if not getattr(settings, "LABELS_EVAL_ENABLED", False):
+            raise Http404("Evaluation views are disabled in this environment.")
+        return super().dispatch(request, *args, **kwargs)  # type: ignore[misc]
+
+
+class QuestionSetEvalView(_EvalEnabledMixin, LoginRequiredMixin, DetailView):
     """Developer-only: inline DIRECT vs REASONED comparison for the most
     recent EvalSample belonging to this set. If no sample exists, prompts
     to run the seed command.
 
-    This view is part of the evaluation harness used to validate prompts
-    and model choices. It is intentionally not surfaced in the main
-    navigation. The route exists for developer-driven inspection of
-    DIRECT vs REASONED disagreements and is reachable only by URL.
+    Gated on ``settings.LABELS_EVAL_ENABLED`` at two layers — the URL
+    conf only registers this route when the flag is True, and the
+    ``_EvalEnabledMixin`` re-checks the flag at dispatch as defense in
+    depth. In production both gates close; the view is unreachable.
     """
 
     model = QuestionSet
@@ -273,12 +300,12 @@ class QuestionSetEvalView(LoginRequiredMixin, DetailView):
         return ctx
 
 
-class EvalSampleDetailView(LoginRequiredMixin, DetailView):
+class EvalSampleDetailView(_EvalEnabledMixin, LoginRequiredMixin, DetailView):
     """Developer-only: render the evaluation report for a specific
     EvalSample by primary key.
 
-    Part of the evaluation harness used to validate prompts and model
-    choices. Not surfaced in the main navigation; reachable only by URL.
+    Same two-layer gate as ``QuestionSetEvalView`` — URL conf inclusion
+    plus dispatch-time ``Http404`` if ``LABELS_EVAL_ENABLED`` is False.
     """
 
     model = EvalSample

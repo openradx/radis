@@ -14,6 +14,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from pathlib import Path
 
+from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 
 from ...models import EvalSample
@@ -45,6 +46,17 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
+        # Refuse to run in environments where the evaluation harness is
+        # disabled (see settings.LABELS_EVAL_ENABLED). Mirrors the URL
+        # conf and view dispatch gates; this is the management-command
+        # leg of the same three-layer defense.
+        if not getattr(settings, "LABELS_EVAL_ENABLED", False):
+            raise CommandError(
+                "Evaluation harness is disabled in this environment "
+                "(LABELS_EVAL_ENABLED=False). Set LABELS_EVAL_ENABLED=True "
+                "in the .env to enable it."
+            )
+
         sample = self._resolve_sample(options)
 
         report = compute_eval(sample, top_disagreements=options["top"])

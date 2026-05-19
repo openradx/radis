@@ -296,3 +296,135 @@ class TestEvalViews:
         assert response.status_code == 200
         assert response.context["sample"] == sample
         assert response.context["report"]["overall"]["n_compared"] == 1
+
+
+# -- LABELS_EVAL_ENABLED gate regression tests --
+
+
+@pytest.mark.django_db
+class TestEvalGateDisabled:
+    """Pin the three-layer gate the LABELS_EVAL_ENABLED setting provides:
+
+    1. URL conf: in production the eval routes are not added to urlpatterns.
+       Tests run under development settings where the flag is True, so the
+       URL is registered — we don't reload urlconf here. Production
+       verification is by inspection: ``if settings.LABELS_EVAL_ENABLED:``
+       in urls.py.
+    2. View dispatch: even if a route is somehow registered, the view's
+       ``_EvalEnabledMixin.dispatch`` checks the live setting and raises
+       Http404. These tests cover that layer with ``override_settings``.
+    3. Management commands: both eval commands refuse to run when the
+       flag is False. Covered by the command tests below.
+
+    Together the three layers make the eval harness effectively
+    nonexistent in production deployments.
+    """
+
+    def test_question_set_eval_view_404s_when_flag_off(self, client: Client, settings):
+        """View-level dispatch gate: even though the URL is registered
+        (test runner uses dev settings where the flag is True at
+        urlconf-load time), the view raises Http404 if the live setting
+        is False. This is the defense-in-depth layer.
+        """
+        settings.LABELS_EVAL_ENABLED = False
+        user = UserFactory.create(is_active=True)
+        client.force_login(user)
+        question_set = QuestionSet.objects.create(name="Findings")
+
+        response = client.get(f"/labels/{question_set.pk}/eval/")
+        assert response.status_code == 404
+
+    def test_eval_sample_detail_view_404s_when_flag_off(self, client: Client, settings):
+        settings.LABELS_EVAL_ENABLED = False
+        user = UserFactory.create(is_active=True)
+        client.force_login(user)
+        question_set = QuestionSet.objects.create(name="Findings")
+        sample = EvalSample.objects.create(
+            name="gated", question_set=question_set, target_size=1
+        )
+
+        response = client.get(f"/labels/eval/{sample.pk}/")
+        assert response.status_code == 404
+
+    def test_question_set_detail_does_not_render_eval_button_when_flag_off(
+        self, client: Client, settings
+    ):
+        """Template-level gate: the Eval button on the question-set
+        detail page reads ``labels_eval_enabled`` from context. When the
+        flag is False, the button must not render — otherwise a click
+        would 404 (URL still routed in dev tests) or break {% url %}
+        resolution (in prod where the route is unregistered).
+        """
+        settings.LABELS_EVAL_ENABLED = False
+        user = UserFactory.create(is_active=True)
+        client.force_login(user)
+        question_set = QuestionSet.objects.create(name="Findings")
+
+        response = client.get(f"/labels/{question_set.pk}/")
+        assert response.status_code == 200
+        # The button text "Eval" must not appear in the rendered body.
+        # We also pin the context var so a future template refactor that
+        # forgets to honor it surfaces here too.
+        assert response.context["labels_eval_enabled"] is False
+        assert b">Eval<" not in response.content
+
+    def test_question_set_detail_renders_eval_button_when_flag_on(
+        self, client: Client, settings
+    ):
+        """Mirror of the previous test — when the flag is True the button
+        renders. This pins the context var wiring and the template
+        conditional together so a regression on either layer fails.
+        """
+        settings.LABELS_EVAL_ENABLED = True
+        user = UserFactory.create(is_active=True)
+        client.force_login(user)
+        question_set = QuestionSet.objects.create(name="Findings")
+
+        response = client.get(f"/labels/{question_set.pk}/")
+        assert response.status_code == 200
+        assert response.context["labels_eval_enabled"] is True
+        assert b">Eval<" in response.content
+
+
+@pytest.mark.django_db
+class TestEvalCommandGateDisabled:
+    """Management command gate: both eval commands raise CommandError when
+    LABELS_EVAL_ENABLED is False. Prevents a developer or operator from
+    accidentally invoking them in a production shell.
+    """
+
+    def test_labels_eval_seed_refuses_when_flag_off(self, settings):
+        from django.core.management import CommandError, call_command
+
+        settings.LABELS_EVAL_ENABLED = False
+        question_set = QuestionSet.objects.create(name="Findings")
+        _make_question(question_set, "PE?")
+        _make_report("doc-1")
+
+        with pytest.raises(CommandError, match="harness is disabled"):
+            call_command(
+                "labels_eval_seed",
+                question_set_id=question_set.id,
+                sample_size=1,
+                name="should-not-create",
+            )
+
+        # And the sample must not have been created.
+        assert not EvalSample.objects.filter(name="should-not-create").exists()
+
+    def test_labels_eval_report_refuses_when_flag_off(self, settings):
+        from django.core.management import CommandError, call_command
+
+        settings.LABELS_EVAL_ENABLED = False
+        # The sample existing is enough to argue the command would have
+        # done something useful if it weren't gated.
+        question_set = QuestionSet.objects.create(name="Findings")
+        EvalSample.objects.create(
+            name="should-not-render", question_set=question_set, target_size=1
+        )
+
+        with pytest.raises(CommandError, match="harness is disabled"):
+            call_command(
+                "labels_eval_report",
+                sample_name="should-not-render",
+            )

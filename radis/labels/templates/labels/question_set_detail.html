@@ -16,8 +16,16 @@
                     {% if object.description %}<p class="mt-2 mb-0">{{ object.description }}</p>{% endif %}
                 </div>
                 <div class="d-flex gap-2">
-                    <a href="{% url 'question_set_eval' object.pk %}"
-                       class="btn btn-outline-secondary">Eval</a>
+                    {# The Eval button is part of the developer evaluation
+                       harness. It renders only when LABELS_EVAL_ENABLED is
+                       True (typically development only). When the harness
+                       is disabled the URL pattern is not registered, so
+                       {% url 'question_set_eval' %} would raise — keep
+                       this {% if %} in sync with the URL conditional. #}
+                    {% if labels_eval_enabled %}
+                        <a href="{% url 'question_set_eval' object.pk %}"
+                           class="btn btn-outline-secondary">Eval</a>
+                    {% endif %}
                     {# Manual backfill launch — staff opt-in alternative to the nightly cron.
                        Hidden while a backfill is already active (is_locked) so the user can't
                        click a button that does nothing. Also hidden when the set is inactive

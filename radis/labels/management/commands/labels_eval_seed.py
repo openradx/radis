@@ -71,6 +71,17 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
+        # Refuse to run in environments where the evaluation harness is
+        # disabled (see settings.LABELS_EVAL_ENABLED). The URL routes and
+        # the views are also gated; this is the management-command leg
+        # of the same three-layer defense.
+        if not getattr(settings, "LABELS_EVAL_ENABLED", False):
+            raise CommandError(
+                "Evaluation harness is disabled in this environment "
+                "(LABELS_EVAL_ENABLED=False). Set LABELS_EVAL_ENABLED=True "
+                "in the .env to enable it."
+            )
+
         try:
             question_set = QuestionSet.objects.get(pk=options["question_set_id"])
         except QuestionSet.DoesNotExist as exc:

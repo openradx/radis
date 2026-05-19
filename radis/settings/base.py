@@ -519,6 +519,31 @@ LLM_EXTRA_BODY = {"chat_template_kwargs": {"enable_thinking": False}}
 LABELS_LIVE_PRIORITY = 10
 LABELS_BACKFILL_PRIORITY = 0
 
+# Master switch for the developer evaluation harness (the DIRECT vs
+# REASONED comparison views, the labels_eval_seed / labels_eval_report
+# management commands, and the "Eval" button on the question-set detail
+# page). The harness exists to validate prompts and model choices; it is
+# not part of the user-facing labelling pipeline and exposes raw
+# document_id / LLM rationale data that ordinary radiology users should
+# not see.
+#
+# Defaults to False (production-safe). Set LABELS_EVAL_ENABLED=True in
+# the .env of any environment where developers need the harness —
+# typically only development. The flag gates three layers of defense:
+#
+# 1. URL conf: the eval routes are only added to urlpatterns when True.
+#    A direct GET in production returns 404 from the URL resolver, not
+#    from the view — the route literally does not exist.
+# 2. View dispatch: each eval view re-checks the flag and raises Http404
+#    if False. Defense in depth in case URLs ever get registered by
+#    mistake.
+# 3. Management commands: both commands refuse to run when False with a
+#    CommandError, preventing accidental invocation in a prod shell.
+#
+# The dev settings override this to True (see radis/settings/development.py)
+# so the test suite picks it up automatically.
+LABELS_EVAL_ENABLED = env.bool("LABELS_EVAL_ENABLED", default=False)
+
 START_EXTRACTION_JOB_UNVERIFIED = False
 
 # Subscription
