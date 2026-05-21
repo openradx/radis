@@ -255,7 +255,7 @@ def process_labeling_task(task_id: int) -> None:
 
 Throughput is bounded by LLM concurrency. With one `llm_worker` running one task at a time, the task's internal `ThreadPoolExecutor` provides `LABELING_LLM_CONCURRENCY_LIMIT` parallel slots. Each slot processes one report at a time, and each report incurs one LLM call per question group.
 
-```
+```text
 reports_per_sec = concurrency / (groups_per_report × seconds_per_call)
 ```
 
@@ -353,7 +353,7 @@ Added via a one-line edit to the existing `ReportAdmin.inlines` — the only cro
 
 A Labels region is added to the existing report detail template (the template that renders `Report.body`), wrapped as a Cotton component:
 
-```
+```html
 <c-report-labels :report="report" />
 ```
 
