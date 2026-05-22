@@ -1,7 +1,7 @@
 from django.utils import timezone
 from procrastinate.contrib.django import app
 
-from radis.core.models import AnalysisJob
+from radis.core.models import AnalysisJob, AnalysisTask
 
 from .models import LabelingJob, LabelingTask
 from .processors import LabelingTaskProcessor
@@ -43,5 +43,13 @@ def process_labeling_job(job_id: int) -> None:
 
 
 def enqueue_all_pending_tasks(job: LabelingJob) -> None:
-    """Implemented in Task 21."""
-    raise NotImplementedError("Implemented in Task 21")
+    pending = job.tasks.filter(status=AnalysisTask.Status.PENDING)
+    deferrer = app.configure_task(
+        "radis.labels.tasks.process_labeling_task",
+        allow_unknown=False,
+        priority=job.default_priority,
+    )
+    for task in pending.iterator(chunk_size=500):
+        queued_job_id = deferrer.defer(task_id=task.id)
+        task.queued_job_id = queued_job_id
+        task.save(update_fields=["queued_job_id"])

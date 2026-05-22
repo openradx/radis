@@ -1,12 +1,13 @@
 from unittest.mock import patch
 
-from radis.core.models import AnalysisJob
+from radis.core.models import AnalysisJob, AnalysisTask
 from radis.labels.factories import (
     LabelingJobFactory,
     LabelingTaskFactory,
     QuestionFactory,
 )
 from radis.labels.tasks import (
+    enqueue_all_pending_tasks,
     label_report_batch,
     process_labeling_job,
     process_labeling_task,
@@ -53,3 +54,17 @@ class TestProcessLabelingJob:
         # Pre-existing tasks were deleted; new ones created for the 2 reports.
         # With default batch size 100 that's 1 new task.
         assert job.tasks.count() == 1
+
+
+def test_enqueue_defers_one_procrastinate_job_per_pending_task():
+    job = LabelingJobFactory(status=AnalysisJob.Status.PENDING)
+    t1 = LabelingTaskFactory(job=job, status=AnalysisTask.Status.PENDING)
+    t2 = LabelingTaskFactory(job=job, status=AnalysisTask.Status.PENDING)
+    LabelingTaskFactory(job=job, status=AnalysisTask.Status.SUCCESS)  # skipped
+    with patch("radis.labels.tasks.app") as app_mock:
+        deferrer = app_mock.configure_task.return_value
+        deferrer.defer.side_effect = [101, 102]
+        enqueue_all_pending_tasks(job)
+    assert deferrer.defer.call_count == 2
+    deferred_ids = sorted(c.kwargs["task_id"] for c in deferrer.defer.call_args_list)
+    assert deferred_ids == sorted([t1.id, t2.id])
