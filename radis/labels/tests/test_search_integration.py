@@ -1,3 +1,5 @@
+from unittest.mock import patch
+
 import pytest
 
 from radis.labels.factories import AnswerFactory, QuestionFactory
@@ -54,6 +56,69 @@ class TestLabelFilterTranslation:
         assert list(
             ReportSearchVector.objects.filter(q).values_list("report_id", flat=True)
         ) == []
+
+
+class TestSearchViewPipesLabels:
+    """Regression: SearchView must forward form.cleaned_data['labels'] into SearchFilters.
+
+    These tests bypass the full Django request stack (debug-toolbar middleware in the
+    development settings makes a real client.get() brittle) and instead drive the view's
+    ``get`` method directly so we can capture the SearchFilters handed to the provider.
+    """
+
+    @pytest.mark.django_db
+    def test_get_constructs_search_filters_with_labels_from_form(self):
+        from unittest.mock import MagicMock
+
+        from adit_radis_shared.accounts.factories import GroupFactory, UserFactory
+        from django.test import RequestFactory
+
+        from radis.search.site import SearchProvider, SearchResult
+        from radis.search.views import SearchView
+
+        QuestionFactory(label="pneumonia", group="lung", active=True)
+
+        user = UserFactory.create(is_active=True)
+        group = GroupFactory.create()
+        user.groups.add(group)
+        user.active_group = group
+        user.save()
+
+        captured = {}
+
+        def mock_search(search):
+            captured["filters"] = search.filters
+            return SearchResult(total_count=0, total_relation="exact", documents=[])
+
+        provider = SearchProvider(name="Test", search=mock_search, max_results=1000)
+
+        request = RequestFactory().get(
+            "/search/", {"query": "anything", "labels": ["pneumonia"]}
+        )
+        request.user = user
+
+        view = SearchView()
+        view.request = request
+
+        # Stub out render so we don't depend on template/middleware behaviour.
+        with patch("radis.search.views.search_provider", provider), patch(
+            "radis.search.views.render", return_value=MagicMock()
+        ):
+            view.get(request)
+
+        assert "filters" in captured, "search provider was not invoked"
+        assert captured["filters"].labels == ["pneumonia"]
+
+    @pytest.mark.django_db
+    def test_form_exposes_labels_in_cleaned_data(self):
+        """Sanity check: the form actually puts labels into cleaned_data."""
+        from radis.search.forms import SearchForm
+
+        QuestionFactory(label="pneumonia", group="lung", active=True)
+
+        form = SearchForm({"query": "x", "labels": ["pneumonia"]})
+        assert form.is_valid(), form.errors
+        assert form.cleaned_data["labels"] == ["pneumonia"]
 
 
 class TestFacetCounts:
