@@ -1,8 +1,14 @@
 import pytest
 from django.db import IntegrityError
 
-from radis.labels.factories import AnswerFactory, QuestionFactory
-from radis.labels.models import Answer, Question
+from radis.core.models import AnalysisJob, AnalysisTask
+from radis.labels.factories import (
+    AnswerFactory,
+    LabelingJobFactory,
+    LabelingTaskFactory,
+    QuestionFactory,
+)
+from radis.labels.models import Answer, LabelingJob, LabelingTask, Question
 from radis.reports.factories import ReportFactory
 
 
@@ -60,11 +66,6 @@ class TestAnswer:
         assert not Answer.objects.filter(report_id=r_id).exists()
 
 
-from radis.core.models import AnalysisJob, AnalysisTask
-from radis.labels.factories import LabelingJobFactory, LabelingTaskFactory
-from radis.labels.models import LabelingJob, LabelingTask
-
-
 class TestLabelingJobModel:
     def test_inherits_from_analysis_job(self):
         assert issubclass(LabelingJob, AnalysisJob)
@@ -80,7 +81,6 @@ class TestLabelingTaskModel:
         assert issubclass(LabelingTask, AnalysisTask)
 
     def test_reports_m2m(self):
-        from radis.reports.factories import ReportFactory
         r = ReportFactory()
         t = LabelingTaskFactory()
         t.reports.add(r)
