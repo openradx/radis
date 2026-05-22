@@ -2,7 +2,7 @@ import logging
 from typing import Iterator, cast
 
 from django.contrib.postgres.search import SearchHeadline, SearchQuery, SearchRank
-from django.db.models import F, Q
+from django.db.models import Count, F, Q, QuerySet
 
 from radis.search.site import Search, SearchFilters, SearchResult
 from radis.search.utils.query_parser import (
@@ -83,8 +83,32 @@ def _build_filter_query(filters: SearchFilters) -> Q:
         fq &= Q(report__created_at__gte=filters.created_after)
     if filters.created_before:
         fq &= Q(report__created_at__lte=filters.created_before)
+    if filters.labels:
+        from radis.labels.models import Answer
+
+        for label in filters.labels:
+            fq &= Q(
+                id__in=Answer.objects.filter(
+                    question__label=label,
+                    value__in=["YES", "MAYBE"],
+                ).values("report_id")
+            )
 
     return fq
+
+
+def facet_label_counts(
+    reports_qs: QuerySet, top_n: int = 20
+) -> list[tuple[str, int]]:
+    from radis.labels.models import Answer
+
+    return list(
+        Answer.objects.filter(report__in=reports_qs, value__in=["YES", "MAYBE"])
+        .values("question__label")
+        .annotate(c=Count("report", distinct=True))
+        .order_by("-c", "question__label")[:top_n]
+        .values_list("question__label", "c")
+    )
 
 
 def search(search: Search) -> SearchResult:
