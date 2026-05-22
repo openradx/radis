@@ -1,6 +1,8 @@
 from datetime import timedelta
 
+import pytest
 from django.template import Context, Template
+from django.urls import reverse
 from django_cotton.compiler_regex import CottonCompiler
 
 from radis.reports.factories import ReportFactory
@@ -54,3 +56,36 @@ class TestReportLabelsComponent:
         r = ReportFactory()
         out = _render(r)
         assert "pending" in out.lower()
+
+
+@pytest.mark.django_db
+def test_report_detail_renders_labels(admin_client, admin_group):
+    r = ReportFactory()
+    r.groups.add(admin_group)
+    q = QuestionFactory(label="pneumonia", group="lung")
+    AnswerFactory(report=r, question=q, value="YES")
+    resp = admin_client.get(reverse("report_detail", kwargs={"pk": r.id}))
+    assert resp.status_code == 200
+    assert b"pneumonia" in resp.content
+
+
+@pytest.fixture
+def admin_group(db):
+    from adit_radis_shared.accounts.factories import GroupFactory
+
+    return GroupFactory()
+
+
+@pytest.fixture
+def admin_client(client, admin_group):
+    from django.contrib.auth import get_user_model
+
+    User = get_user_model()
+    user = User.objects.create_superuser(
+        username="admin", email="admin@example.com", password="pw"
+    )
+    user.groups.add(admin_group)
+    user.active_group = admin_group
+    user.save()
+    client.force_login(user)
+    return client

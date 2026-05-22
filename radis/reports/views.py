@@ -34,9 +34,25 @@ class ReportDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
         return self.request.user.active_group is not None
 
     def get_queryset(self) -> QuerySet[Report]:
+        from django.db.models import Prefetch
+
+        from radis.labels.models import Answer
+
         active_group = self.request.user.active_group
         assert active_group
-        return super().get_queryset().filter(groups=active_group)
+        return (
+            super()
+            .get_queryset()
+            .filter(groups=active_group)
+            .prefetch_related(
+                Prefetch(
+                    "answers",
+                    queryset=Answer.objects.exclude(value="NO")
+                    .select_related("question")
+                    .order_by("question__group", "question__label"),
+                )
+            )
+        )
 
 
 class ReportBodyView(ReportDetailView):
