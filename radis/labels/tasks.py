@@ -1,15 +1,16 @@
+from django.utils import timezone
 from procrastinate.contrib.django import app
 
-from .services import label_reports_in_parallel
+from radis.core.models import AnalysisJob
+
+from .models import LabelingJob, LabelingTask
+from .processors import LabelingTaskProcessor
+from .services import create_labeling_tasks_streaming, label_reports_in_parallel
 
 
 @app.task(queue="llm")
 def label_report_batch(report_ids: list[int]) -> None:
     label_reports_in_parallel(report_ids)
-
-
-from .models import LabelingTask
-from .processors import LabelingTaskProcessor
 
 
 @app.task(queue="llm")
@@ -18,3 +19,29 @@ def process_labeling_task(task_id: int) -> None:
     LabelingTaskProcessor(task).start()
     task.queued_job_id = None
     task.save()
+
+
+@app.task()
+def process_labeling_job(job_id: int) -> None:
+    job = LabelingJob.objects.get(id=job_id)
+    job.tasks.all().delete()  # restart-safe under retry
+    job.status = AnalysisJob.Status.PREPARING
+    job.started_at = timezone.now()
+    job.save()
+
+    create_labeling_tasks_streaming(job)
+
+    job.refresh_from_db()
+    if job.status == AnalysisJob.Status.CANCELING:
+        # PREPARING was cancelled mid-stream; the cancel admin view will finalize state.
+        return
+
+    job.status = AnalysisJob.Status.PENDING
+    job.save()
+
+    enqueue_all_pending_tasks(job)
+
+
+def enqueue_all_pending_tasks(job: LabelingJob) -> None:
+    """Implemented in Task 21."""
+    raise NotImplementedError("Implemented in Task 21")

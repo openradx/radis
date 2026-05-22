@@ -65,8 +65,15 @@ class LabelingJob(AnalysisJob):
     urgent_priority = settings.LABELING_BACKFILL_PRIORITY
 
     def delay(self) -> None:
-        # Filled in Task 20.
-        raise NotImplementedError("Implemented in Task 20")
+        from procrastinate.contrib.django import app
+
+        queued_job_id = app.configure_task(
+            "radis.labels.tasks.process_labeling_job",
+            allow_unknown=False,
+            priority=self.default_priority,
+        ).defer(job_id=self.pk)
+        self.queued_job_id = queued_job_id
+        self.save()
 
 
 class LabelingTask(AnalysisTask):
