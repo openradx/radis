@@ -13,6 +13,8 @@ class Question(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    answers: models.QuerySet["Answer"]
+
     class Meta:
         indexes = [models.Index(fields=["active", "group"])]
         constraints = [
@@ -29,12 +31,10 @@ class Answer(models.Model):
         NO = "NO", "No"
         MAYBE = "MAYBE", "Maybe"
 
-    report = models.ForeignKey(
-        Report, on_delete=models.CASCADE, related_name="answers"
-    )
-    question = models.ForeignKey(
-        Question, on_delete=models.CASCADE, related_name="answers"
-    )
+    report_id: int
+    report = models.ForeignKey(Report, on_delete=models.CASCADE, related_name="answers")
+    question_id: int
+    question = models.ForeignKey(Question, on_delete=models.CASCADE, related_name="answers")
     value = models.CharField(max_length=5, choices=Value.choices)
     generated_at = models.DateTimeField(auto_now=True)
 
@@ -48,6 +48,9 @@ class Answer(models.Model):
             models.Index(fields=["question", "value"]),
             models.Index(fields=["report"]),
         ]
+
+    def __str__(self) -> str:
+        return f"{self.question_id}={self.value}"
 
 
 class LabelingJob(AnalysisJob):
@@ -77,7 +80,5 @@ class LabelingJob(AnalysisJob):
 
 
 class LabelingTask(AnalysisTask):
-    job = models.ForeignKey(
-        LabelingJob, on_delete=models.CASCADE, related_name="tasks"
-    )
+    job = models.ForeignKey(LabelingJob, on_delete=models.CASCADE, related_name="tasks")
     reports = models.ManyToManyField(Report, related_name="+")

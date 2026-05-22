@@ -1,6 +1,6 @@
 import re
 from string import Template
-from typing import Literal
+from typing import Any, Literal
 
 from django.conf import settings
 from pydantic import BaseModel, ConfigDict, create_model
@@ -27,14 +27,12 @@ def sanitize_label(label: str) -> str:
 
 
 def build_yes_no_maybe_schema(questions: list[Question]) -> type[BaseModel]:
-    fields: dict[str, tuple[type, object]] = {}
+    fields: dict[str, Any] = {}
     seen: dict[str, str] = {}
     for q in questions:
         key = sanitize_label(q.label)
         if key in seen:
-            raise ValueError(
-                f"Sanitized labels collide: {seen[key]!r} and {q.label!r} → {key!r}"
-            )
+            raise ValueError(f"Sanitized labels collide: {seen[key]!r} and {q.label!r} → {key!r}")
         seen[key] = q.label
         fields[key] = (Literal["YES", "NO", "MAYBE"], ...)
     return create_model(

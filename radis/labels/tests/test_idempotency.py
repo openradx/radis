@@ -8,8 +8,7 @@ from radis.reports.factories import ReportFactory
 
 def _existing(report):
     return {
-        a.question_id: a
-        for a in Answer.objects.filter(report=report).select_related("question")
+        a.question_id: a for a in Answer.objects.filter(report=report).select_related("question")
     }
 
 

@@ -25,6 +25,7 @@ class QuestionAdmin(admin.ModelAdmin):
         if not obj.text:
             return ""
         return obj.text[:80] + ("…" if len(obj.text) > 80 else "")
+
     text_preview.short_description = "Question"
 
     def answer_summary(self, obj: Question) -> str:
@@ -36,9 +37,8 @@ class QuestionAdmin(admin.ModelAdmin):
             maybe=Count("pk", filter=Q(value="MAYBE")),
             stale=Count("pk", filter=Q(generated_at__lt=obj.updated_at)),
         )
-        return format_html(
-            "{yes} Yes · {maybe} Maybe · {no} No · {stale} stale", **counts
-        )
+        return format_html("{yes} Yes · {maybe} Maybe · {no} No · {stale} stale", **counts)
+
     answer_summary.short_description = "Answers"
 
 
@@ -67,10 +67,12 @@ class AnswerAdmin(admin.ModelAdmin):
 
     def question_label(self, obj: Answer) -> str:
         return obj.question.label
+
     question_label.short_description = "Label"
 
     def is_stale(self, obj: Answer) -> bool:
         return obj.generated_at < obj.question.updated_at
+
     is_stale.boolean = True
 
     def has_add_permission(self, request, obj=None):
@@ -92,12 +94,22 @@ class AnswerInline(admin.TabularInline):
 @admin.register(LabelingJob)
 class LabelingJobAdmin(admin.ModelAdmin):
     list_display = (
-        "id", "status", "owner", "progress_detail",
-        "created_at", "started_at", "ended_at",
+        "id",
+        "status",
+        "owner",
+        "progress_detail",
+        "created_at",
+        "started_at",
+        "ended_at",
     )
     list_filter = ("status",)
     readonly_fields = (
-        "status", "owner", "message", "created_at", "started_at", "ended_at",
+        "status",
+        "owner",
+        "message",
+        "created_at",
+        "started_at",
+        "ended_at",
         "progress_detail",
     )
     fields = readonly_fields
@@ -121,9 +133,9 @@ class LabelingJobAdmin(admin.ModelAdmin):
 
     def changelist_view(self, request, extra_context=None):
         extra_context = extra_context or {}
-        extra_context["active_job"] = (
-            LabelingJob.objects.filter(status__in=LabelingJob.ACTIVE_STATUSES).first()
-        )
+        extra_context["active_job"] = LabelingJob.objects.filter(
+            status__in=LabelingJob.ACTIVE_STATUSES
+        ).first()
         return super().changelist_view(request, extra_context=extra_context)
 
     def progress_detail(self, obj: LabelingJob) -> str:

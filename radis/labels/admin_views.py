@@ -24,7 +24,7 @@ def run_backfill_view(request: HttpRequest) -> HttpResponseRedirect:
                 owner=request.user, status=AnalysisJob.Status.UNVERIFIED
             )
         job.delay()
-        messages.success(request, f"Backfill job #{job.id} started.")
+        messages.success(request, f"Backfill job #{job.pk} started.")
     except IntegrityError:
         messages.error(request, "Another backfill just started; please refresh.")
     return HttpResponseRedirect(target)
@@ -40,5 +40,5 @@ def cancel_backfill_view(request: HttpRequest, job_id: int) -> HttpResponseRedir
     else:
         job.status = AnalysisJob.Status.CANCELING
         job.save(update_fields=["status"])
-        messages.success(request, f"Backfill job #{job.id} canceling.")
+        messages.success(request, f"Backfill job #{job.pk} canceling.")
     return HttpResponseRedirect(target)

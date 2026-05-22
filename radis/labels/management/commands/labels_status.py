@@ -23,9 +23,7 @@ class Command(BaseCommand):
                     "answers",
                     filter=Q(
                         answers__question__active=True,
-                        answers__generated_at__gte=F(
-                            "answers__question__updated_at"
-                        ),
+                        answers__generated_at__gte=F("answers__question__updated_at"),
                     ),
                 )
             )

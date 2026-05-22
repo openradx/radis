@@ -1,20 +1,17 @@
 from unittest.mock import patch
 
 import pytest
-from django.contrib.auth import get_user_model
+from adit_radis_shared.accounts.factories import AdminUserFactory
 from django.urls import reverse
 
 from radis.core.models import AnalysisJob
 from radis.labels.factories import AnswerFactory, LabelingJobFactory, QuestionFactory
-
-User = get_user_model()
+from radis.reports.factories import ReportFactory
 
 
 @pytest.fixture
 def admin_client(client):
-    user = User.objects.create_superuser(
-        username="admin", email="admin@example.com", password="pw"
-    )
+    user = AdminUserFactory.create()
     client.force_login(user)
     return client
 
@@ -51,9 +48,6 @@ class TestAnswerAdmin:
         assert resp.status_code in (302, 403)
 
 
-from radis.reports.factories import ReportFactory
-
-
 def test_report_change_shows_answer_inline(admin_client):
     r = ReportFactory()
     AnswerFactory(report=r)
@@ -79,14 +73,14 @@ class TestRunCancelBackfill:
             resp = admin_client.post(reverse("admin:labels_run_backfill"))
         assert resp.status_code in (302, 303)
         from radis.labels.models import LabelingJob
+
         assert LabelingJob.objects.count() == 1
 
     def test_run_rejected_when_one_active(self, admin_client):
         LabelingJobFactory(status=AnalysisJob.Status.PENDING)
         resp = admin_client.post(reverse("admin:labels_run_backfill"), follow=True)
         assert resp.status_code == 200
-        assert (b"another" in resp.content.lower()
-                or b"already active" in resp.content.lower())
+        assert b"another" in resp.content.lower() or b"already active" in resp.content.lower()
 
     def test_cancel_sets_canceling(self, admin_client):
         job = LabelingJobFactory(status=AnalysisJob.Status.IN_PROGRESS)

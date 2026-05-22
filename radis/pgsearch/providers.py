@@ -97,9 +97,7 @@ def _build_filter_query(filters: SearchFilters) -> Q:
     return fq
 
 
-def facet_label_counts(
-    reports_qs: QuerySet, top_n: int = 20
-) -> list[tuple[str, int]]:
+def facet_label_counts(reports_qs: QuerySet, top_n: int = 20) -> list[tuple[str, int]]:
     from radis.labels.models import Answer
 
     return list(

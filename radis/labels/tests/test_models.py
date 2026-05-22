@@ -4,11 +4,10 @@ from django.db import IntegrityError
 from radis.core.models import AnalysisJob, AnalysisTask
 from radis.labels.factories import (
     AnswerFactory,
-    LabelingJobFactory,
     LabelingTaskFactory,
     QuestionFactory,
 )
-from radis.labels.models import Answer, LabelingJob, LabelingTask, Question
+from radis.labels.models import Answer, LabelingJob, LabelingTask
 from radis.reports.factories import ReportFactory
 
 

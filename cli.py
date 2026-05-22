@@ -135,9 +135,7 @@ def labels_status():
     """Print labeling coverage for the corpus."""
 
     helper = cli_helper.CommandHelper()
-    helper.execute_cmd(
-        f"{helper.build_compose_cmd()} exec web ./manage.py labels_status"
-    )
+    helper.execute_cmd(f"{helper.build_compose_cmd()} exec web ./manage.py labels_status")
 
 
 @app.command()

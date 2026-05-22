@@ -50,6 +50,6 @@ def enqueue_all_pending_tasks(job: LabelingJob) -> None:
         priority=job.default_priority,
     )
     for task in pending.iterator(chunk_size=500):
-        queued_job_id = deferrer.defer(task_id=task.id)
+        queued_job_id = deferrer.defer(task_id=task.pk)
         task.queued_job_id = queued_job_id
         task.save(update_fields=["queued_job_id"])

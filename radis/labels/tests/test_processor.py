@@ -23,8 +23,8 @@ class TestLabelingTaskProcessor:
         task = _task_with_reports(3)
         QuestionFactory(active=True, group="g")
         with patch("radis.labels.services.ChatClient") as ChatClientMock:
-            ChatClientMock.return_value.extract_data.side_effect = (
-                lambda p, S: S(**{f: "YES" for f in S.model_fields})
+            ChatClientMock.return_value.extract_data.side_effect = lambda p, S: S(
+                **{f: "YES" for f in S.model_fields}
             )
             LabelingTaskProcessor(task).start()
         task.refresh_from_db()

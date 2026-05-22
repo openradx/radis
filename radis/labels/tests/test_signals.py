@@ -2,15 +2,16 @@ from unittest.mock import patch
 
 import pytest
 
-from radis.reports.factories import ReportFactory
-from radis.reports.site import (
-    reports_created_handlers,
-    reports_updated_handlers,
-)
 from radis.labels.signals import (
     HANDLER_NAME,
     _label_reports_handler,
     register_report_handlers,
+)
+from radis.reports.factories import ReportFactory
+from radis.reports.models import Report
+from radis.reports.site import (
+    reports_created_handlers,
+    reports_updated_handlers,
 )
 
 
@@ -36,7 +37,7 @@ class TestHandlerChunking:
     )
     def test_chunks_correctly(self, n, expected_chunks, settings):
         settings.LABELING_TASK_BATCH_SIZE = 100
-        reports = [ReportFactory() for _ in range(n)]
+        reports: list[Report] = [ReportFactory() for _ in range(n)]
         with patch("radis.labels.signals.app") as app_mock:
             deferrer = app_mock.configure_task.return_value
             _label_reports_handler(reports)
@@ -45,13 +46,14 @@ class TestHandlerChunking:
     def test_uses_ingest_priority(self, settings):
         settings.LABELING_INGEST_PRIORITY = 7
         with patch("radis.labels.signals.app") as app_mock:
-            _label_reports_handler([ReportFactory()])
+            reports: list[Report] = [ReportFactory()]
+            _label_reports_handler(reports)
         _, kw = app_mock.configure_task.call_args
         assert kw["priority"] == 7
 
     def test_preserves_report_ids(self):
-        reports = [ReportFactory() for _ in range(5)]
-        ids = [r.id for r in reports]
+        reports: list[Report] = [ReportFactory() for _ in range(5)]
+        ids = [r.pk for r in reports]
         with patch("radis.labels.signals.app") as app_mock:
             deferrer = app_mock.configure_task.return_value
             _label_reports_handler(reports)

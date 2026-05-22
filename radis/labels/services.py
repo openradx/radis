@@ -47,7 +47,7 @@ def _group_answers_are_current(
     report_updated_at: datetime,
 ) -> bool:
     for q in questions:
-        a = existing.get(q.id)
+        a = existing.get(q.pk)
         if a is None:
             return False
         if a.generated_at < q.updated_at:
@@ -69,8 +69,7 @@ def label_report(report_id: int, client: ChatClient | None = None) -> None:
         return
 
     existing = {
-        a.question_id: a
-        for a in Answer.objects.filter(report=report).select_related("question")
+        a.question_id: a for a in Answer.objects.filter(report=report).select_related("question")
     }
     chat = client
     for group_str, questions in questions_by_group.items():
@@ -89,9 +88,7 @@ def label_reports_in_parallel(
 ) -> tuple[int, int]:
     chat = client or ChatClient()
     success = failure = 0
-    with ThreadPoolExecutor(
-        max_workers=settings.LABELING_LLM_CONCURRENCY_LIMIT
-    ) as executor:
+    with ThreadPoolExecutor(max_workers=settings.LABELING_LLM_CONCURRENCY_LIMIT) as executor:
         futures = [executor.submit(label_report, rid, chat) for rid in report_ids]
         for f in futures:
             try:
@@ -141,9 +138,7 @@ def create_labeling_tasks_streaming(job: LabelingJob) -> int:
             bucket = []
             # Cancellation check between buckets.
             current_status = (
-                LabelingJob.objects.filter(pk=job.pk)
-                .values_list("status", flat=True)
-                .first()
+                LabelingJob.objects.filter(pk=job.pk).values_list("status", flat=True).first()
             )
             if current_status == AnalysisJob.Status.CANCELING:
                 return total
@@ -157,7 +152,5 @@ def create_labeling_tasks_streaming(job: LabelingJob) -> int:
 
 def _flush_bucket(job: LabelingJob, report_ids: list[int]) -> None:
     with transaction.atomic():
-        task = LabelingTask.objects.create(
-            job=job, status=AnalysisTask.Status.PENDING
-        )
+        task = LabelingTask.objects.create(job=job, status=AnalysisTask.Status.PENDING)
         task.reports.set(report_ids)

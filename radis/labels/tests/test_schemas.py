@@ -27,7 +27,8 @@ class TestBuildSchema:
         q2 = QuestionFactory(label="effusion")
         Schema = build_yes_no_maybe_schema([q1, q2])
         inst = Schema(pneumonia="YES", effusion="MAYBE")
-        assert inst.pneumonia == "YES" and inst.effusion == "MAYBE"
+        dumped = inst.model_dump()
+        assert dumped["pneumonia"] == "YES" and dumped["effusion"] == "MAYBE"
 
     def test_rejects_unknown_value(self):
         Schema = build_yes_no_maybe_schema([QuestionFactory(label="x")])
@@ -40,9 +41,7 @@ class TestBuildSchema:
             Schema(x="YES", extra="YES")
 
     def test_rejects_missing_field(self):
-        Schema = build_yes_no_maybe_schema(
-            [QuestionFactory(label="x"), QuestionFactory(label="y")]
-        )
+        Schema = build_yes_no_maybe_schema([QuestionFactory(label="x"), QuestionFactory(label="y")])
         with pytest.raises(ValidationError):
             Schema(x="YES")
 

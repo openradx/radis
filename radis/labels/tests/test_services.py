@@ -85,8 +85,8 @@ class TestLabelReport:
         QuestionFactory(label="b", group="g1", active=True)
         QuestionFactory(label="c", group="g2", active=True)
         with patch("radis.labels.services.ChatClient") as ChatClientMock:
-            ChatClientMock.return_value.extract_data.side_effect = (
-                lambda prompt, Schema: Schema(**{f: "YES" for f in Schema.model_fields})
+            ChatClientMock.return_value.extract_data.side_effect = lambda prompt, Schema: Schema(
+                **{f: "YES" for f in Schema.model_fields}
             )
             label_report(r.id)
             assert ChatClientMock.return_value.extract_data.call_count == 2
@@ -95,8 +95,8 @@ class TestLabelReport:
         r = ReportFactory(body="b")
         q = QuestionFactory(label="x", group="g", active=True)
         with patch("radis.labels.services.ChatClient") as ChatClientMock:
-            ChatClientMock.return_value.extract_data.side_effect = (
-                lambda prompt, Schema: Schema(x="MAYBE")
+            ChatClientMock.return_value.extract_data.side_effect = lambda prompt, Schema: Schema(
+                x="MAYBE"
             )
             label_report(r.id)
         assert Answer.objects.get(report=r, question=q).value == "MAYBE"

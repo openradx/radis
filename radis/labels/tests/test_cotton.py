@@ -5,9 +5,9 @@ from django.template import Context, Template
 from django.urls import reverse
 from django_cotton.compiler_regex import CottonCompiler
 
-from radis.reports.factories import ReportFactory
 from radis.labels.factories import AnswerFactory, QuestionFactory
-from radis.labels.models import Answer, Question
+from radis.labels.models import Question
+from radis.reports.factories import ReportFactory
 
 _COTTON_COMPILER = CottonCompiler()
 
@@ -46,9 +46,7 @@ class TestReportLabelsComponent:
         r = ReportFactory()
         q = QuestionFactory(label="pneumonia", group="lung")
         a = AnswerFactory(report=r, question=q, value="YES")
-        Question.objects.filter(pk=q.pk).update(
-            updated_at=a.generated_at + timedelta(seconds=10)
-        )
+        Question.objects.filter(pk=q.pk).update(updated_at=a.generated_at + timedelta(seconds=10))
         out = _render(r)
         assert "stale" in out.lower() or "outdated" in out.lower()
 
@@ -78,12 +76,9 @@ def admin_group(db):
 
 @pytest.fixture
 def admin_client(client, admin_group):
-    from django.contrib.auth import get_user_model
+    from adit_radis_shared.accounts.factories import AdminUserFactory
 
-    User = get_user_model()
-    user = User.objects.create_superuser(
-        username="admin", email="admin@example.com", password="pw"
-    )
+    user = AdminUserFactory.create()
     user.groups.add(admin_group)
     user.active_group = admin_group
     user.save()

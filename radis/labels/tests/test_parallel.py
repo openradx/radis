@@ -2,10 +2,10 @@ from unittest.mock import patch
 
 import pytest
 
-from radis.reports.factories import ReportFactory
 from radis.labels.factories import QuestionFactory
 from radis.labels.models import Answer
 from radis.labels.services import label_reports_in_parallel
+from radis.reports.factories import ReportFactory
 
 
 @pytest.mark.django_db(transaction=True)

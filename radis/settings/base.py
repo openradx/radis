@@ -325,9 +325,7 @@ STORAGES = {
     },
     "dbbackup": {
         "BACKEND": "django.core.files.storage.FileSystemStorage",
-        "OPTIONS": {
-            "location": env.str("DBBACKUP_STORAGE_LOCATION", default="/tmp/backups-radis")
-        },
+        "OPTIONS": {"location": env.str("DBBACKUP_STORAGE_LOCATION", default="/tmp/backups-radis")},
     },
 }
 DBBACKUP_CLEANUP_KEEP = 30
@@ -466,13 +464,11 @@ SUBSCRIPTION_CRON = "* * * * *"
 SUBSCRIPTION_REFRESH_TASK_BATCH_SIZE = 100
 
 # Labeling feature
-LABELING_INGEST_PRIORITY   = env.int("LABELING_INGEST_PRIORITY",   default=1)
+LABELING_INGEST_PRIORITY = env.int("LABELING_INGEST_PRIORITY", default=1)
 LABELING_BACKFILL_PRIORITY = env.int("LABELING_BACKFILL_PRIORITY", default=0)
-LABELING_TASK_BATCH_SIZE       = env.int("LABELING_TASK_BATCH_SIZE",       default=100)
+LABELING_TASK_BATCH_SIZE = env.int("LABELING_TASK_BATCH_SIZE", default=100)
 LABELING_LLM_CONCURRENCY_LIMIT = env.int("LABELING_LLM_CONCURRENCY_LIMIT", default=6)
-LABELING_SYSTEM_PROMPT = env.str(
-    "LABELING_SYSTEM_PROMPT", default=DEFAULT_LABELING_SYSTEM_PROMPT
-)
+LABELING_SYSTEM_PROMPT = env.str("LABELING_SYSTEM_PROMPT", default=DEFAULT_LABELING_SYSTEM_PROMPT)
 
 # The priority for stalled jobs that are retried.
 STALLED_JOBS_RETRY_PRIORITY = 10

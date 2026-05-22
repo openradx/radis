@@ -33,9 +33,7 @@ class TestFindReportsNeedingWork:
         r = ReportFactory()
         q = QuestionFactory(active=True)
         a = AnswerFactory(report=r, question=q)
-        Question.objects.filter(pk=q.pk).update(
-            updated_at=a.generated_at + timedelta(seconds=10)
-        )
+        Question.objects.filter(pk=q.pk).update(updated_at=a.generated_at + timedelta(seconds=10))
         ids = list(find_reports_needing_work([r.id]))
         assert ids == [r.id]
 
@@ -60,15 +58,15 @@ def test_create_labeling_tasks_streaming_aborts_on_cancel(settings):
         ReportFactory()
 
     from radis.labels import services as services_mod
+
     real_flush = services_mod._flush_bucket
 
     def cancel_after_first(job, ids):
         real_flush(job, ids)
-        type(job).objects.filter(pk=job.pk).update(
-            status=AnalysisJob.Status.CANCELING
-        )
+        type(job).objects.filter(pk=job.pk).update(status=AnalysisJob.Status.CANCELING)
 
     from unittest.mock import patch
+
     with patch.object(services_mod, "_flush_bucket", side_effect=cancel_after_first):
         create_labeling_tasks_streaming(job)
     # Only the first bucket got flushed before cancellation was observed.

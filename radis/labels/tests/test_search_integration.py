@@ -53,9 +53,7 @@ class TestLabelFilterTranslation:
         # r1: YES pneumonia, NO effusion → excluded
         # r2: MAYBE pneumonia, no effusion answer → excluded
         # r3: no pneumonia answer, YES effusion → excluded
-        assert list(
-            ReportSearchVector.objects.filter(q).values_list("report_id", flat=True)
-        ) == []
+        assert list(ReportSearchVector.objects.filter(q).values_list("report_id", flat=True)) == []
 
 
 class TestSearchViewPipesLabels:
@@ -68,9 +66,11 @@ class TestSearchViewPipesLabels:
 
     @pytest.mark.django_db
     def test_get_constructs_search_filters_with_labels_from_form(self):
+        from typing import cast
         from unittest.mock import MagicMock
 
         from adit_radis_shared.accounts.factories import GroupFactory, UserFactory
+        from adit_radis_shared.common.types import AuthenticatedHttpRequest
         from django.test import RequestFactory
 
         from radis.search.site import SearchProvider, SearchResult
@@ -92,17 +92,19 @@ class TestSearchViewPipesLabels:
 
         provider = SearchProvider(name="Test", search=mock_search, max_results=1000)
 
-        request = RequestFactory().get(
+        wsgi_request = RequestFactory().get(
             "/search/", {"query": "anything", "labels": ["pneumonia"]}
         )
-        request.user = user
+        wsgi_request.user = user
+        request = cast(AuthenticatedHttpRequest, wsgi_request)
 
         view = SearchView()
         view.request = request
 
         # Stub out render so we don't depend on template/middleware behaviour.
-        with patch("radis.search.views.search_provider", provider), patch(
-            "radis.search.views.render", return_value=MagicMock()
+        with (
+            patch("radis.search.views.search_provider", provider),
+            patch("radis.search.views.render", return_value=MagicMock()),
         ):
             view.get(request)
 
@@ -123,8 +125,8 @@ class TestSearchViewPipesLabels:
 
 class TestFacetCounts:
     def test_counts(self, labeled_corpus):
-        from radis.reports.models import Report
         from radis.pgsearch.providers import facet_label_counts
+        from radis.reports.models import Report
 
         rqs = Report.objects.all()
         d = dict(facet_label_counts(rqs, top_n=10))
@@ -132,7 +134,7 @@ class TestFacetCounts:
         assert d.get("effusion") == 1
 
     def test_top_n(self, labeled_corpus):
-        from radis.reports.models import Report
         from radis.pgsearch.providers import facet_label_counts
+        from radis.reports.models import Report
 
         assert len(facet_label_counts(Report.objects.all(), top_n=1)) == 1
