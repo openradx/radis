@@ -192,9 +192,9 @@ One LLM call per question group per report. `upsert_answers` uses `update_or_cre
 
 ### Per-group idempotency
 
-To avoid redundant LLM calls when only a subset of questions has changed (e.g., the admin edits one question and a backfill is run), `label_report` checks each group before calling the LLM. A group is skipped iff **every** question in the group has an existing answer satisfying both conditions:
+To avoid redundant LLM calls when only a subset of questions has changed (the canonical case: an admin edits one question, the admin then runs a backfill — every report has one stale answer, but most groups remain fully current), `label_report` checks each group before calling the LLM. A group is skipped iff **every** question in the group has an existing answer satisfying both conditions:
 
-```
+```text
 answer.generated_at >= question.updated_at   AND
 answer.generated_at >= report.updated_at
 ```
@@ -220,13 +220,13 @@ def _group_answers_are_current(
 
 This is the **second layer of efficiency** in the system. The first layer is `find_reports_needing_work`, which scopes a backfill to reports with at least one missing or stale answer (avoiding work on fully-current reports entirely). The second layer is per-group skip inside `label_report` (avoiding LLM calls on already-current groups within reports that *do* need work). Both layers compose: a backfill triggered by a single question edit only touches reports that need work AND only makes LLM calls for groups that include the changed question.
 
-**Known trade-off — metadata-only report updates.** Any `Report.save()` bumps `report.updated_at`, even if `body` didn't change. The conservative comparison above will then re-label the report on the next ingest task or backfill pass. This is correctness-preserving (no stale labels ever shown) but slightly wasteful. Optimizing this would require either a separate `body_updated_at` column on `Report` or a body fingerprint stored on `Answer`; both add complexity and are out of scope for v1. Document the wastage in `KNOWLEDGE.md` so future maintainers know the lever exists.
+**Intentional semantics — any report upload triggers re-labeling.** Every Report write path bumps `report.updated_at`: `auto_now=True` on the model handles ORM/admin/single-report-API writes, and the bulk upsert (`_bulk_upsert_reports` in `radis/reports/api/viewsets.py`) explicitly sets `existing.updated_at = now` and includes it in the `bulk_update` field list. There is no path that updates a Report row without bumping `updated_at`. Therefore the per-group check's `answer.generated_at >= report.updated_at` clause **always fails on the ingest path** — re-uploaded reports are always re-labeled. This is intentional: an ETL re-upload is the pipeline's signal that the report should be re-evaluated. The per-group skip is therefore active only on the backfill path, where no Report writes occur between scope evaluation and processing.
 
 ### Skip conditions (per report, inside `label_report`)
 
 - `report.body` empty/whitespace → return immediately, no LLM calls.
 - No active questions → return immediately, no LLM calls.
-- Every group's answers already current (per-group idempotency, above) → no LLM calls for that group, but other groups may still run.
+- Per-group idempotency (above) → an individual group's LLM call is skipped when every answer in the group is current. On the ingest path this is effectively never; on the backfill path it's the common case for groups not containing the changed question.
 
 ### Failure handling
 
