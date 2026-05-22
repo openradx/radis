@@ -1,7 +1,9 @@
 import factory
 from factory.django import DjangoModelFactory
 
-from .models import Question
+from radis.reports.factories import ReportFactory
+
+from .models import Answer, Question
 
 
 class QuestionFactory(DjangoModelFactory):
@@ -12,3 +14,12 @@ class QuestionFactory(DjangoModelFactory):
     label = factory.Sequence(lambda n: f"label_{n}")
     group = "default"
     active = True
+
+
+class AnswerFactory(DjangoModelFactory):
+    class Meta:
+        model = Answer
+
+    report = factory.SubFactory(ReportFactory)
+    question = factory.SubFactory(QuestionFactory)
+    value = "YES"

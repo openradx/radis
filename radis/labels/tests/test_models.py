@@ -1,8 +1,9 @@
 import pytest
 from django.db import IntegrityError
 
-from radis.labels.factories import QuestionFactory
-from radis.labels.models import Question
+from radis.labels.factories import AnswerFactory, QuestionFactory
+from radis.labels.models import Answer, Question
+from radis.reports.factories import ReportFactory
 
 
 class TestQuestion:
@@ -25,3 +26,35 @@ class TestQuestion:
         q.save()
         q.refresh_from_db()
         assert q.updated_at > before
+
+
+class TestAnswer:
+    def test_value_choices(self):
+        assert set(Answer.Value.values) == {"YES", "NO", "MAYBE"}
+
+    def test_unique_per_report_question(self):
+        report = ReportFactory()
+        q = QuestionFactory()
+        AnswerFactory(report=report, question=q, value="YES")
+        with pytest.raises(IntegrityError):
+            AnswerFactory(report=report, question=q, value="NO")
+
+    def test_generated_at_bumps_on_save(self):
+        a = AnswerFactory(value="YES")
+        before = a.generated_at
+        a.value = "MAYBE"
+        a.save()
+        a.refresh_from_db()
+        assert a.generated_at > before
+
+    def test_cascade_with_question(self):
+        a = AnswerFactory()
+        q_id = a.question.id
+        a.question.delete()
+        assert not Answer.objects.filter(question_id=q_id).exists()
+
+    def test_cascade_with_report(self):
+        a = AnswerFactory()
+        r_id = a.report.id
+        a.report.delete()
+        assert not Answer.objects.filter(report_id=r_id).exists()
