@@ -1,8 +1,8 @@
 from django.contrib import admin
-from django.db.models import Count, Q
+from django.db.models import Count, F, Q
 from django.utils.html import format_html
 
-from .models import Question
+from .models import Answer, Question
 
 
 @admin.register(Question)
@@ -36,3 +36,41 @@ class QuestionAdmin(admin.ModelAdmin):
             "{yes} Yes · {maybe} Maybe · {no} No · {stale} stale", **counts
         )
     answer_summary.short_description = "Answers"
+
+
+class IsStaleFilter(admin.SimpleListFilter):
+    title = "stale"
+    parameter_name = "is_stale"
+
+    def lookups(self, request, model_admin):
+        return [("1", "Stale"), ("0", "Current")]
+
+    def queryset(self, request, queryset):
+        if self.value() == "1":
+            return queryset.filter(generated_at__lt=F("question__updated_at"))
+        if self.value() == "0":
+            return queryset.filter(generated_at__gte=F("question__updated_at"))
+        return queryset
+
+
+@admin.register(Answer)
+class AnswerAdmin(admin.ModelAdmin):
+    list_display = ("report", "question_label", "value", "is_stale", "generated_at")
+    list_filter = ("value", "question__group", "question", IsStaleFilter)
+    search_fields = ("report__document_id", "question__label")
+    raw_id_fields = ("report", "question")
+    readonly_fields = tuple(f.name for f in Answer._meta.fields)
+
+    def question_label(self, obj: Answer) -> str:
+        return obj.question.label
+    question_label.short_description = "Label"
+
+    def is_stale(self, obj: Answer) -> bool:
+        return obj.generated_at < obj.question.updated_at
+    is_stale.boolean = True
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
