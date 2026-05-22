@@ -130,6 +130,16 @@ def compose_down(
     commands.compose_down(profile=profiles, extra_args=extra_args)
 
 
+@app.command(name="labels-status")
+def labels_status():
+    """Print labeling coverage for the corpus."""
+
+    helper = cli_helper.CommandHelper()
+    helper.execute_cmd(
+        f"{helper.build_compose_cmd()} exec web ./manage.py labels_status"
+    )
+
+
 @app.command()
 def get_host_ip():
     """Get the IP of the Docker host"""
