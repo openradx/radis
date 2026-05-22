@@ -43,7 +43,9 @@ class SearchFilters:
         - patient_sex: Filter only reports that have the given sex
         - patient_age_from: Filter only reports where the patient is at least this age
         - patient_age_till: Filter only reports where the patient is at most this age
-        - labels: Filter only reports that carry at least one of the given Question labels
+        - labels: Filter only reports that carry all of the given Question labels
+          (intersection / AND semantics — selecting multiple labels narrows results
+          to reports having every selected label)
     """
 
     group: int  # TODO: Rename to group_id
