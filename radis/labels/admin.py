@@ -1,9 +1,11 @@
 from django.contrib import admin
 from django.db.models import Count, F, Q
+from django.urls import path
 from django.utils.html import format_html
 
 from radis.core.models import AnalysisTask
 
+from . import admin_views
 from .models import Answer, LabelingJob, Question
 
 
@@ -99,6 +101,30 @@ class LabelingJobAdmin(admin.ModelAdmin):
         "progress_detail",
     )
     fields = readonly_fields
+    change_list_template = "labels/admin/labelingjob_changelist.html"
+
+    def get_urls(self):
+        urls = super().get_urls()
+        custom = [
+            path(
+                "run/",
+                self.admin_site.admin_view(admin_views.run_backfill_view),
+                name="labels_run_backfill",
+            ),
+            path(
+                "<int:job_id>/cancel/",
+                self.admin_site.admin_view(admin_views.cancel_backfill_view),
+                name="labels_cancel_backfill",
+            ),
+        ]
+        return custom + urls
+
+    def changelist_view(self, request, extra_context=None):
+        extra_context = extra_context or {}
+        extra_context["active_job"] = (
+            LabelingJob.objects.filter(status__in=LabelingJob.ACTIVE_STATUSES).first()
+        )
+        return super().changelist_view(request, extra_context=extra_context)
 
     def progress_detail(self, obj: LabelingJob) -> str:
         if obj.pk is None:
