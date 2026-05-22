@@ -13,7 +13,7 @@ Two execution paths share the same labeling logic:
 1. **Ingest path** — Reports are created or updated by ETL pipelines (never one-at-a-time interactively). The reports app calls registered handlers with a `list[Report]` per ingest batch. The labels handler chunks the batch and enqueues one background `label_report_batch` task per chunk; each task labels its members in parallel against all active questions.
 2. **Backfill path** — An admin-triggered `LabelingJob` walks the existing report corpus and produces missing or stale answers. Only one backfill may be active at a time.
 
-Labels surface on the report detail page (badges) and in search (`label:` query filter + facet panel).
+Labels surface on the report detail page (badges) and in search (multi-select filter + facet panel).
 
 ## Goals
 
@@ -28,7 +28,8 @@ Labels surface on the report detail page (badges) and in search (`label:` query 
 - Manual label editing by end users.
 - Versioned answer history (only the latest answer per `(report, question)` is kept).
 - Per-question backfill targeting (backfill is system-wide).
-- A `label:foo:yes` search syntax that excludes `MAYBE` (revisit if requested).
+- A free-text query syntax for labels (e.g., `label:foo` operators in the search box). v1 uses a SearchFilters multi-select control instead, matching how existing filters (`modalities`, `language`, etc.) are exposed today. Adding a QueryParser-level `label:` token is a possible follow-up.
+- A YES-only filter modifier that excludes `MAYBE` results (revisit if requested).
 - Surfacing `NO` answers anywhere user-facing.
 - Performance dashboards beyond the live progress shown in the `LabelingJob` admin.
 - Localized prompts — questions and reports can be in any language and are passed verbatim to the LLM.
@@ -303,28 +304,33 @@ def process_labeling_job(job_id: int) -> None:
     enqueue_all_pending_tasks(job)
 ```
 
-`create_labeling_tasks_streaming` iterates `Report.objects.order_by("pk").iterator(chunk_size=1000)`. For each chunk it identifies reports needing work and bulk-creates `LabelingTask` rows of `LABELING_TASK_BATCH_SIZE` (default 100) reports each, committing per chunk.
+`create_labeling_tasks_streaming` iterates `Report.objects.order_by("pk").iterator(chunk_size=1000)`. For each chunk it calls `find_reports_needing_work(chunk_ids)` to identify reports with missing or stale answers, then bulk-creates `LabelingTask` rows of `LABELING_TASK_BATCH_SIZE` (default 100) reports each, committing per chunk.
 
-The "needs work" predicate is: the count of *non-stale, active-question* answers for the report is strictly less than the active question count. ORM sketch:
+`find_reports_needing_work(scope_ids: Iterable[int]) -> Iterator[int]` is the named function implementing the "needs work" predicate: the count of *non-stale, active-question* answers for the report is strictly less than the active question count. ORM sketch:
 
 ```python
-needs_work = (
-    Report.objects.filter(id__in=chunk_ids)
-    .annotate(
-        non_stale_count=Count(
-            "answers",
-            filter=Q(
-                answers__question__active=True,
-                answers__generated_at__gte=F("answers__question__updated_at"),
-            ),
+def find_reports_needing_work(scope_ids):
+    active_question_count = Question.objects.filter(active=True).count()
+    if active_question_count == 0:
+        return iter(())
+    return (
+        Report.objects.filter(id__in=scope_ids)
+        .annotate(
+            non_stale_count=Count(
+                "answers",
+                filter=Q(
+                    answers__question__active=True,
+                    answers__generated_at__gte=F("answers__question__updated_at"),
+                ),
+            )
         )
+        .filter(non_stale_count__lt=active_question_count)
+        .values_list("id", flat=True)
+        .iterator()
     )
-    .filter(non_stale_count__lt=active_question_count)
-    .values_list("id", flat=True)
-)
 ```
 
-Equality means "fully labeled and current"; anything less means at least one missing or stale answer.
+Equality means "fully labeled and current"; anything less means at least one missing or stale answer. This is the function referenced earlier as the "first layer of efficiency" in § "Per-group idempotency".
 
 ### Phase 2 — IN_PROGRESS (`llm` queue)
 
@@ -334,7 +340,13 @@ def process_labeling_task(task_id: int) -> None:
     LabelingTaskProcessor(LabelingTask.objects.get(id=task_id)).start()
 ```
 
-`LabelingTaskProcessor` subclasses `AnalysisTaskProcessor` and overrides `process_task`. It calls the same `label_reports_in_parallel(report_ids)` helper that the ingest batch task uses, so concurrency and per-report failure handling are identical between the two paths. Status updates and `update_job_state` come from the base class.
+`LabelingTaskProcessor` subclasses `AnalysisTaskProcessor` and overrides `process_task`. It calls `label_reports_in_parallel(report_ids)` (the same helper the ingest batch task uses) and converts the returned `(success_count, failure_count)` into a task status:
+
+- `failure == 0` → `task.status = SUCCESS` (and `task.message = ""`)
+- `failure > 0 and success > 0` → `task.status = WARNING` (with a message naming the failure count)
+- `failure > 0 and success == 0` → `task.status = FAILURE`
+
+The base class then calls `job.update_job_state()` which promotes the overall job status accordingly. The ingest path discards the return value (no `LabelingTask` to update); per-report failures there are observable only via the log and via the next backfill picking the reports up again.
 
 ### Cancellation and resumability
 
@@ -381,7 +393,7 @@ The backfill cockpit. Mostly read-only — the action is the Run/Cancel button o
 
 ```python
 class LabelingJobAdmin(admin.ModelAdmin):
-    list_display    = ("id", "status", "owner", "progress", "created_at", "started_at", "ended_at")
+    list_display    = ("id", "status", "owner", "progress_detail", "created_at", "started_at", "ended_at")
     list_filter     = ("status",)
     readonly_fields = ("status", "owner", "progress_detail", "message", "created_at", "started_at", "ended_at")
     change_list_template = "labels/admin/labelingjob_changelist.html"
@@ -461,44 +473,69 @@ Badges are grouped by `question.group` with a small group heading; empty groups 
 
 Data is fetched in one round-trip via `Report.objects.prefetch_related(Prefetch("answers", queryset=Answer.objects.filter(value__in=[YES, MAYBE]).select_related("question")))` on the detail view.
 
-### Search filter (`label:`)
+### Search filter (multi-select)
 
-Two pieces: a query syntax for power users and a UI control for everyone.
+Labels are exposed through the existing `SearchFilters`/`SearchForm` infrastructure — the same mechanism that already powers `modalities`, `language`, `patient_sex`, etc. No `QueryParser` extension. (Free-text `label:` syntax in the query box is listed as a possible follow-up in Non-Goals.)
 
-**Query syntax.** Extend `QueryParser` with `label:` as a known field filter:
-
-| Query                                | Meaning                                                                                   |
-| ------------------------------------ | ----------------------------------------------------------------------------------------- |
-| `label:pneumonia`                    | reports where some answer has `question.label="pneumonia"` AND `value IN (YES, MAYBE)`    |
-| `label:pneumonia AND label:effusion` | intersection                                                                              |
-| `label:pneumonia OR label:effusion`  | union                                                                                     |
-| `NOT label:pneumonia`                | reports without that label applied (no YES/MAYBE)                                         |
-
-`MAYBE` is included by default — consistent with "Maybe attaches the label."
-
-**Provider integration.** Each search provider translates the parsed `label:` AST node to its query language. In v1 only `radis.pgsearch` needs a translation. The positive case uses a JOIN through `answers`:
+**Form/filter shape.** Add a `labels: list[str]` field to `SearchFilters` (the dataclass in the search app whose existing fields are mapped to Q-objects by `_build_filter_query` in `radis/pgsearch/providers.py`). On the form, render it as a checkbox group inside the existing Filters card, populated dynamically from active `Question.label` values:
 
 ```python
-def translate_label_filter(label_value: str) -> Q:
-    return Q(
-        id__in=Answer.objects.filter(
-            question__label=label_value, value__in=["YES", "MAYBE"]
-        ).values("report_id")
+# radis/search/forms.py (sketch — actual field type matches existing form style)
+labels = forms.MultipleChoiceField(
+    required=False,
+    widget=forms.CheckboxSelectMultiple,
+    choices=[],
+)
+
+def __init__(self, *args, **kwargs):
+    super().__init__(*args, **kwargs)
+    self.fields["labels"].choices = [
+        (label, label)
+        for label in Question.objects
+        .filter(active=True)
+        .order_by("label")
+        .values_list("label", flat=True)
+        .distinct()
+    ]
+```
+
+**Provider integration.** Extend `_build_filter_query` in `radis/pgsearch/providers.py` with a `labels` block. Multiple selections AND together (matching the user mental model of "narrow"). Each clause is an `id__in=Subquery(...)` so the negation case (no matching answer exists) is correct should we later expose a "NOT this label" UI:
+
+```python
+if filters.labels:
+    from radis.labels.models import Answer
+    for label in filters.labels:
+        fq &= Q(
+            id__in=Answer.objects.filter(
+                question__label=label,
+                value__in=["YES", "MAYBE"],
+            ).values("report_id")
+        )
+```
+
+(Path through `report__` vs `id__` depends on whether `_build_filter_query` targets `Report` directly or `ReportSearchVector`; verify during implementation and match the existing filter blocks.) `MAYBE` is included by default — consistent with "Maybe attaches the label."
+
+Backed by the `(question, value)` index on `Answer`. Boolean composition is handled by chaining `Q` objects with `&` as the existing filter blocks already do.
+
+**Facet counts.** In the same filters card, each label-checkbox option is annotated with its count among the current result set:
+
+```python
+def facet_label_counts(reports_qs, top_n: int = 20) -> list[tuple[str, int]]:
+    return list(
+        Answer.objects
+        .filter(report__in=reports_qs, value__in=["YES", "MAYBE"])
+        .values("question__label")
+        .annotate(c=Count("report", distinct=True))
+        .order_by("-c", "question__label")[:top_n]
+        .values_list("question__label", "c")
     )
 ```
 
-Using `id__in=Subquery(...)` instead of a direct `answers__…` JOIN keeps the negation correct: `~Q(id__in=...)` cleanly means "no matching Answer row exists" rather than the wrong "some Answer row doesn't match". Backed by the `(question, value)` index on `Answer`. Boolean composition (AND/OR/NOT) is then handled by the existing parser-to-Q machinery without further special cases.
+One query, executed alongside the main search in the `SearchView.get_context_data`. The top-N cap keeps the panel bounded when many labels exist. Counts displayed next to each checkbox label (e.g., `pneumonia (1,243)`).
 
-**UI control.** A facet panel on the search results page:
+**Empty states.** No active questions → the labels block is hidden. Questions exist but no answers yet → counts are zero; the block shows "Labels are still being generated." in muted text.
 
-- Lists the top N most-applied labels among the current result set, with counts (`pneumonia 1,243 · effusion 892 · ...`).
-- Each label is a checkbox. Checking adds `label:X` to the search query (multiple → AND). Unchecking removes it.
-- Counts: `Answer.objects.filter(report__in=result_qs, value__in=["YES", "MAYBE"]).values("question__label").annotate(c=Count("report", distinct=True)).order_by("-c")[:N]`. One query, executed alongside the main search.
-- Rendered server-side; updates via HTMX on checkbox change.
-
-**Empty states.** No questions exist → facet panel hidden. Questions exist but no answers yet → "Labels are still being generated."
-
-**Non-goals here:** stale filter (`label:foo:stale`); combining label filters with semantic similarity scoring (label filter is a binary constraint, ranking is unchanged); surfacing NO anywhere.
+**Non-goals here:** combining label filters with semantic similarity scoring (label filter is a binary constraint, ranking is unchanged); surfacing NO anywhere; a "stale only" filter modifier.
 
 ## Settings
 
@@ -558,9 +595,9 @@ No new Procrastinate queue, no new container. The existing `llm_worker` drains t
 
 ### Database growth
 
-`Answer` table size ≈ reports × active questions (1M × 20 ≈ 20M rows). Indexes are declared on the initial migration so the indexes are built while the table is empty (fast). No future ALTER on `Answer` planned.
+`Answer` table size ≈ reports × active questions (1.5M × 20 ≈ 30M rows for the initial corpus). Indexes are declared on the initial migration so the indexes are built while the table is empty (fast). No future ALTER on `Answer` planned.
 
-Cascade deletes on Report and Question are CASCADE. Deleting a question with ~1M answers is heavy but is gated behind Django's standard delete confirmation.
+Cascade deletes on Report and Question are CASCADE. Deleting a question with ~1.5M answers is heavy but is gated behind Django's standard delete confirmation.
 
 ### Logging
 
@@ -588,12 +625,13 @@ Ops one-liner: `docker compose logs llm_worker | grep "radis.labels"`.
 
 Few and small, by design:
 
-1. `radis/reports/site.py` — register create/update handlers (existing extension point).
+1. `radis/reports/site.py` — register create/update handlers (existing extension point). The reports app already fires these handlers wrapped in `transaction.on_commit` from every write path (admin, single-API, bulk-upsert), so our handler runs after the row is visible.
 2. `radis/reports/admin.py` — add `AnswerInline` to `ReportAdmin.inlines` (one-line patch).
-3. `radis/search/parser.py` — register `label:` as a known field filter (existing extension point).
-4. `radis/pgsearch/` — translator for the `label:` AST node into a `Q` object.
-5. `radis/settings/base.py` — new settings block (additive).
-6. Templates — new Cotton component, included on the report detail template and the search facet panel.
+3. `radis/search/` (`forms.py` / `models.py`) — add `labels: list[str]` to `SearchFilters` and a `MultipleChoiceField` to the form, populated from active `Question.label` values.
+4. `radis/pgsearch/providers.py` — extend `_build_filter_query` with the labels block (`id__in=Subquery(...)` per selected label, ANDed). Add `facet_label_counts` helper.
+5. `radis/search/templates/search/search.html` (or the existing filters card include) — render the labels checkbox group with facet counts inside the Filters card.
+6. `radis/settings/base.py` — new settings block (additive).
+7. `radis/reports/templates/reports/report_detail.html` — include `<c-report-labels />`.
 
 ## Testing Strategy
 
@@ -630,14 +668,14 @@ Few and small, by design:
 
 ### Search integration tests
 
-- **Parser** (`test_parser_labels.py`) — `label:pneumonia`, `label:foo AND label:bar`, `NOT label:foo` produce the expected AST.
-- **pgsearch translator** (`test_label_filter.py`) — 3 reports × 2 questions in a real DB; the filter includes/excludes correctly.
-- **Facet counts** — 10 reports with a known matrix; aggregation returns the right `(label, count)` pairs in the right order.
+- **SearchFilters carries labels** (`test_search_filters.py`) — `SearchFilters(labels=["pneumonia"])` round-trips; default is empty list.
+- **pgsearch translator** (`test_label_filter.py`) — 3 reports × 2 questions in a real DB. `filters.labels=["pneumonia"]` includes reports with YES/MAYBE for pneumonia and excludes others. `filters.labels=["pneumonia", "effusion"]` returns only reports that have both labels applied (AND semantics).
+- **Facet counts** (`test_facet_counts.py`) — 10 reports with a known answer matrix; `facet_label_counts(result_qs, top_n=N)` returns the right `(label, count)` pairs in descending-count order, capped at N.
 
 ### UI tests (Playwright, `@pytest.mark.acceptance`)
 
 - **Report detail** — YES badge visible, MAYBE distinctly styled, NO not rendered; stale tooltip present.
-- **Search facet** — facet panel lists labels with counts; checking a label appends `label:X` to the query and updates the result list via HTMX.
+- **Search filters card** — labels block lists labels with counts; checking a label adds it to the URL `labels=` query param; result list narrows.
 
 ### One real-LLM acceptance test (`@pytest.mark.acceptance`, `cpu` profile)
 
@@ -653,8 +691,8 @@ Few and small, by design:
 
 - **LLM cost on the 1M-report backfill.** Multi-day run at the documented throughput; cost should be modeled before turning on for production. Mitigation: backfill is cancelable at any time.
 - **Question wording quality.** The system is only as good as the questions. No safeguards against vague or leading questions in v1; admins are expected to author carefully.
-- **`label:` token in user queries.** If a user's free-text search happens to contain `label:` (unlikely but possible), the parser will treat it as a field filter. Matches behavior of other field filters in the parser; acceptable.
 - **Report deletion blast radius.** A report deletion cascades to its `Answer` rows. Standard Django behavior; not unique to this feature.
+- **Label drift through question rewordings.** Two questions intentionally targeting the same clinical concept can produce different LLM answers if their wording differs. The unique-`label` constraint prevents this when both questions share a label, but admins are otherwise free to author overlapping questions. v1 does no automated detection.
 
 ## Out of Scope (Future Work)
 
