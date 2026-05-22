@@ -1,5 +1,7 @@
+from django.conf import settings
 from django.db import models
 
+from radis.core.models import AnalysisJob, AnalysisTask
 from radis.reports.models import Report
 
 
@@ -46,3 +48,29 @@ class Answer(models.Model):
             models.Index(fields=["question", "value"]),
             models.Index(fields=["report"]),
         ]
+
+
+class LabelingJob(AnalysisJob):
+    """Singleton backfill job. At most one row may be in an active status."""
+
+    ACTIVE_STATUSES = (
+        AnalysisJob.Status.UNVERIFIED,
+        AnalysisJob.Status.PREPARING,
+        AnalysisJob.Status.PENDING,
+        AnalysisJob.Status.IN_PROGRESS,
+        AnalysisJob.Status.CANCELING,
+    )
+
+    default_priority = settings.LABELING_BACKFILL_PRIORITY
+    urgent_priority = settings.LABELING_BACKFILL_PRIORITY
+
+    def delay(self) -> None:
+        # Filled in Task 20.
+        raise NotImplementedError("Implemented in Task 20")
+
+
+class LabelingTask(AnalysisTask):
+    job = models.ForeignKey(
+        LabelingJob, on_delete=models.CASCADE, related_name="tasks"
+    )
+    reports = models.ManyToManyField(Report, related_name="+")
