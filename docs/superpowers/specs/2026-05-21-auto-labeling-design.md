@@ -191,6 +191,16 @@ def label_report(report_id: int, client: ChatClient | None = None) -> None:
 
 One LLM call per question group per report. `upsert_answers` uses `update_or_create` per `(report, question)`. `generated_at` is bumped on every write via `auto_now=True`.
 
+**Helper names used in the code above** (all defined in `radis/labels/`):
+
+- `app` — `from procrastinate.contrib.django import app` (matches existing extractions/subscriptions pattern).
+- `logger` — `logger = logging.getLogger("radis.labels")` at the top of each module.
+- `_chunked(iterable, size)` — a small local utility that yields lists of length ≤ `size` (one-line implementation or `more_itertools.chunked`, implementer's choice).
+- `group_active_questions_by_group()` — `Question.objects.filter(active=True).order_by("group", "label")` collected into a `dict[str, list[Question]]` keyed by `group`.
+- `build_yes_no_maybe_schema(questions)` — builds a Pydantic model via `pydantic.create_model` with one `Literal["YES", "NO", "MAYBE"]` field per question, keyed by a sanitized label (lowercase, non-alphanumerics replaced with `_`, leading digits prefixed with `_`). Raises if two labels collide after sanitization.
+- `render_questions_prompt(body, questions)` — substitutes `$report` and `$questions` into `settings.LABELING_SYSTEM_PROMPT` via `string.Template`. The `$questions` substitution renders each question as `"- <label>: <text>"`.
+- `upsert_answers(report, questions, parsed)` — for each question in `questions`, `Answer.objects.update_or_create(report=report, question=q, defaults={"value": parsed[sanitize_label(q.label)]})`. Unknown keys in `parsed` are ignored.
+
 ### Per-group idempotency
 
 To avoid redundant LLM calls when only a subset of questions has changed (the canonical case: an admin edits one question, the admin then runs a backfill — every report has one stale answer, but most groups remain fully current), `label_report` checks each group before calling the LLM. A group is skipped iff **every** question in the group has an existing answer satisfying both conditions:
@@ -239,7 +249,7 @@ For your 1.5M-report initial bulk load arriving in batches of 100:
 
 - Procrastinate queue grows by ~15,000 rows total, not 1.5M.
 - Each `label_report_batch` task processes 100 reports concurrently (6-way thread pool) and finishes in roughly `(100 / 6) × 3 LLM-calls × ~3 s ≈ 150 s`.
-- Total LLM work for the initial load is identical to a per-report design: ~17 days at default concurrency. The batch shape doesn't change throughput — it only changes queue size, operational visibility, and retry granularity. Scaling throughput requires more `llm_worker` replicas or a faster LLM, which is operational rather than a design knob in this spec.
+- Total LLM work for the initial load is identical to a per-report design: ≈ 26 days at default concurrency (see § "Scale estimate" under Backfill for the formula). The batch shape doesn't change throughput — it only changes queue size, operational visibility, and retry granularity. Scaling throughput requires more `llm_worker` replicas or a faster LLM, which is operational rather than a design knob in this spec.
 - During the bulk-load window the `llm` queue is dominated by ingest tasks; the `llm` queue may backlog momentarily under sustained heavy ingest; this is documented as expected behavior, not a v1 blocker. Admin-triggered backfill runs at lower priority and effectively pauses until the queue catches up.
 
 After the initial load, the per-group idempotency check (above) keeps subsequent backfills cheap. A backfill triggered by editing one question in one group touches every report once (to evaluate the skip condition and write that group's answer) but only makes ~`1/N_groups` of the LLM calls of a naive design. For 3 typical groups that's a ~3× reduction in LLM cost; for 10 groups it's ~10×.
@@ -332,6 +342,8 @@ def find_reports_needing_work(scope_ids):
 
 Equality means "fully labeled and current"; anything less means at least one missing or stale answer. This is the function referenced earlier as the "first layer of efficiency" in § "Per-group idempotency".
 
+`enqueue_all_pending_tasks(job)` iterates `job.tasks.filter(status=PENDING).iterator(chunk_size=500)` and defers `process_labeling_task` for each, configured at `job.default_priority` (i.e., the backfill priority). Records the returned Procrastinate job id on each `LabelingTask.queued_job_id` for traceability.
+
 ### Phase 2 — IN_PROGRESS (`llm` queue)
 
 ```python
@@ -350,7 +362,8 @@ The base class then calls `job.update_job_state()` which promotes the overall jo
 
 ### Cancellation and resumability
 
-- **Cancel:** admin clicks Cancel → status flips to `CANCELING`. The base processor sees this on its per-task check and marks tasks `CANCELED`.
+- **Cancel during PREPARING:** admin clicks Cancel → status flips to `CANCELING`. `create_labeling_tasks_streaming` checks the job status between chunks (the existing `LabelingJob.objects.filter(pk=job.pk).values_list("status", flat=True).first()` inside the chunk loop) and breaks early if it sees `CANCELING`, leaving partially-created tasks in `PENDING`. The job is then marked `CANCELED`. The partially-created tasks belong to a CANCELED job; the next backfill's scope query (re-running from scratch) covers all of them again because their answers are still missing/stale.
+- **Cancel during IN_PROGRESS:** the base processor checks status on each task and marks tasks `CANCELED`, no further LLM calls are made.
 - **Resume:** the next backfill recomputes its scope from current state. Pairs that already have a non-stale answer are skipped. Backfill is therefore idempotent and safe to start, cancel, and restart.
 
 ### Scale estimate
@@ -361,7 +374,7 @@ Throughput is bounded by LLM concurrency. With one `llm_worker` running one task
 reports_per_sec = concurrency / (groups_per_report × seconds_per_call)
 ```
 
-With defaults (`concurrency=6`, `groups_per_report≈3`, `seconds_per_call≈3 s`): ≈ 0.67 reports/sec, ≈ ~17 days for 1M reports. Tunable by scaling `llm_worker` replicas (Procrastinate fan-out), raising `LABELING_LLM_CONCURRENCY_LIMIT`, or reducing question groups. A full backfill is a multi-day operation by design.
+With defaults (`concurrency=6`, `groups_per_report≈3`, `seconds_per_call≈3 s`): ≈ 0.67 reports/sec. For the planned 1.5M corpus, a full naïve backfill is ≈ **26 days**; per-group idempotency reduces re-backfills triggered by single-question edits to a fraction of that (see § "Per-group idempotency"). Tunable by scaling `llm_worker` replicas (Procrastinate fan-out), raising `LABELING_LLM_CONCURRENCY_LIMIT`, or authoring fewer question groups. A full first-time backfill is intentionally a multi-day operation.
 
 ## Admin UX
 
@@ -555,7 +568,7 @@ LABELING_LLM_CONCURRENCY_LIMIT = env.int("LABELING_LLM_CONCURRENCY_LIMIT", defau
 LABELING_SYSTEM_PROMPT = env.str("LABELING_SYSTEM_PROMPT", default=DEFAULT_LABELING_SYSTEM_PROMPT)
 ```
 
-Default prompt:
+`DEFAULT_LABELING_SYSTEM_PROMPT` is a module-level string constant in `radis/settings/base.py`, placed alongside the existing `QUESTIONS_SYSTEM_PROMPT` / `OUTPUT_FIELDS_SYSTEM_PROMPT` constants. Its value:
 
 ```text
 You are an AI medical assistant analyzing a radiology report. Answer each of the questions
@@ -683,13 +696,13 @@ Few and small, by design:
 
 ### Out of scope (test-wise)
 
-- Performance / load tests on 1M-row backfill. Recommended to benchmark on staging before turning on in production, but not part of the suite.
+- Performance / load tests on the 1.5M-row backfill. Recommended to benchmark on staging before turning on in production, but not part of the suite.
 - Procrastinate's retry semantics.
 - Migrations on existing data — both tables start empty.
 
-## Risks and Open Questions
+## Risks
 
-- **LLM cost on the 1M-report backfill.** Multi-day run at the documented throughput; cost should be modeled before turning on for production. Mitigation: backfill is cancelable at any time.
+- **LLM cost on the initial 1.5M-report backfill.** ≈ 26 days at default concurrency; cost should be modeled before turning on for production. Mitigation: backfill is cancelable at any time, and subsequent backfills after question edits are bounded by the per-group idempotency check (typically a fraction of the first-time cost).
 - **Question wording quality.** The system is only as good as the questions. No safeguards against vague or leading questions in v1; admins are expected to author carefully.
 - **Report deletion blast radius.** A report deletion cascades to its `Answer` rows. Standard Django behavior; not unique to this feature.
 - **Label drift through question rewordings.** Two questions intentionally targeting the same clinical concept can produce different LLM answers if their wording differs. The unique-`label` constraint prevents this when both questions share a label, but admins are otherwise free to author overlapping questions. v1 does no automated detection.
