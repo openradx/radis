@@ -5,12 +5,14 @@ from datetime import datetime
 from typing import Iterable, Iterator, Mapping
 
 from django.conf import settings
+from django.db import transaction
 from django.db.models import Count, F, Q
 
 from radis.chats.utils.chat_client import ChatClient
+from radis.core.models import AnalysisJob, AnalysisTask
 from radis.reports.models import Report
 
-from .models import Answer, Question
+from .models import Answer, LabelingJob, LabelingTask, Question
 from .prompts import build_yes_no_maybe_schema, render_questions_prompt, sanitize_label
 
 logger = logging.getLogger("radis.labels")
@@ -120,3 +122,42 @@ def find_reports_needing_work(scope_ids: Iterable[int]) -> Iterator[int]:
         .values_list("id", flat=True)
     )
     return qs.iterator()
+
+
+def create_labeling_tasks_streaming(job: LabelingJob) -> int:
+    batch_size = settings.LABELING_TASK_BATCH_SIZE
+    total = 0
+    bucket: list[int] = []
+
+    scope_iter = find_reports_needing_work(
+        Report.objects.order_by("pk").values_list("id", flat=True)
+    )
+
+    for report_id in scope_iter:
+        bucket.append(report_id)
+        if len(bucket) >= batch_size:
+            _flush_bucket(job, bucket)
+            total += 1
+            bucket = []
+            # Cancellation check between buckets.
+            current_status = (
+                LabelingJob.objects.filter(pk=job.pk)
+                .values_list("status", flat=True)
+                .first()
+            )
+            if current_status == AnalysisJob.Status.CANCELING:
+                return total
+
+    if bucket:
+        _flush_bucket(job, bucket)
+        total += 1
+
+    return total
+
+
+def _flush_bucket(job: LabelingJob, report_ids: list[int]) -> None:
+    with transaction.atomic():
+        task = LabelingTask.objects.create(
+            job=job, status=AnalysisTask.Status.PENDING
+        )
+        task.reports.set(report_ids)
