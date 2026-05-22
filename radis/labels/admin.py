@@ -2,7 +2,9 @@ from django.contrib import admin
 from django.db.models import Count, F, Q
 from django.utils.html import format_html
 
-from .models import Answer, Question
+from radis.core.models import AnalysisTask
+
+from .models import Answer, LabelingJob, Question
 
 
 @admin.register(Question)
@@ -83,3 +85,37 @@ class AnswerInline(admin.TabularInline):
     extra = 0
     can_delete = False
     show_change_link = False
+
+
+@admin.register(LabelingJob)
+class LabelingJobAdmin(admin.ModelAdmin):
+    list_display = (
+        "id", "status", "owner", "progress_detail",
+        "created_at", "started_at", "ended_at",
+    )
+    list_filter = ("status",)
+    readonly_fields = (
+        "status", "owner", "message", "created_at", "started_at", "ended_at",
+        "progress_detail",
+    )
+    fields = readonly_fields
+
+    def progress_detail(self, obj: LabelingJob) -> str:
+        if obj.pk is None:
+            return "—"
+        statuses = list(obj.tasks.values_list("status", flat=True))
+        total = len(statuses)
+        if total == 0:
+            return "No tasks yet."
+        s = sum(1 for x in statuses if x == AnalysisTask.Status.SUCCESS)
+        w = sum(1 for x in statuses if x == AnalysisTask.Status.WARNING)
+        f = sum(1 for x in statuses if x == AnalysisTask.Status.FAILURE)
+        p = sum(1 for x in statuses if x == AnalysisTask.Status.PENDING)
+        ip = sum(1 for x in statuses if x == AnalysisTask.Status.IN_PROGRESS)
+        return (
+            f"{s} success · {w} warning · {f} failure · "
+            f"{ip} in-progress · {p} pending · {total} total"
+        )
+
+    def has_add_permission(self, request):
+        return False

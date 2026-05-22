@@ -2,7 +2,8 @@ import pytest
 from django.contrib.auth import get_user_model
 from django.urls import reverse
 
-from radis.labels.factories import AnswerFactory, QuestionFactory
+from radis.core.models import AnalysisJob
+from radis.labels.factories import AnswerFactory, LabelingJobFactory, QuestionFactory
 
 
 User = get_user_model()
@@ -58,3 +59,14 @@ def test_report_change_shows_answer_inline(admin_client):
     resp = admin_client.get(reverse("admin:reports_report_change", args=[r.id]))
     assert resp.status_code == 200
     assert b"answer" in resp.content.lower()
+
+
+class TestLabelingJobAdmin:
+    def test_changelist_loads(self, admin_client):
+        LabelingJobFactory(status=AnalysisJob.Status.PENDING)
+        resp = admin_client.get(reverse("admin:labels_labelingjob_changelist"))
+        assert resp.status_code == 200
+
+    def test_add_disabled(self, admin_client):
+        resp = admin_client.get(reverse("admin:labels_labelingjob_add"))
+        assert resp.status_code in (302, 403)
