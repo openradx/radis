@@ -268,6 +268,11 @@ LOGGING = {
             "level": "INFO",
             "propagate": False,
         },
+        "radis.labels": {
+            "handlers": ["console", "mail_admins"],
+            "level": "INFO",
+            "propagate": False,
+        },
         "django": {
             "handlers": ["console"],
             "level": "WARNING",
