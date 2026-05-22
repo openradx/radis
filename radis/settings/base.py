@@ -399,6 +399,25 @@ Questions:
 $questions
 """
 
+# Labeling
+DEFAULT_LABELING_SYSTEM_PROMPT = """
+You are an AI medical assistant analyzing a radiology report. Answer each of the questions
+below independently, based only on what is stated or strongly implied in the report.
+
+For each question, respond with exactly one of:
+  - "YES"   — the answer is yes / the finding is present
+  - "NO"    — the answer is no / the finding is absent
+  - "MAYBE" — the report is genuinely ambiguous; do not use this when the answer is clear
+
+Return the answers in JSON format matching the provided schema.
+
+Radiology Report:
+$report
+
+Questions:
+$questions
+"""
+
 # Extraction
 OUTPUT_FIELDS_SYSTEM_PROMPT = """
 You are an AI medical assistant with extensive knowledge in radiology and general medicine.
@@ -441,8 +460,14 @@ SUBSCRIPTION_URGENT_PRIORITY = 4
 SUBSCRIPTION_CRON = "* * * * *"
 SUBSCRIPTION_REFRESH_TASK_BATCH_SIZE = 100
 
-# Labeling
+# Labeling feature
+LABELING_INGEST_PRIORITY   = env.int("LABELING_INGEST_PRIORITY",   default=1)
 LABELING_BACKFILL_PRIORITY = env.int("LABELING_BACKFILL_PRIORITY", default=0)
+LABELING_TASK_BATCH_SIZE       = env.int("LABELING_TASK_BATCH_SIZE",       default=100)
+LABELING_LLM_CONCURRENCY_LIMIT = env.int("LABELING_LLM_CONCURRENCY_LIMIT", default=6)
+LABELING_SYSTEM_PROMPT = env.str(
+    "LABELING_SYSTEM_PROMPT", default=DEFAULT_LABELING_SYSTEM_PROMPT
+)
 
 # The priority for stalled jobs that are retried.
 STALLED_JOBS_RETRY_PRIORITY = 10
