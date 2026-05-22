@@ -606,6 +606,29 @@ No new Procrastinate queue, no new container. The existing `llm_worker` drains t
 
 **Documented operational fact:** during sustained ingest bursts (including the initial 1.5M-report bulk load), backfill makes near-zero progress. This is the intended trade-off — newly-ingested reports get labeled first; backfill catches anything that slipped through afterward.
 
+### Operational scenario: backfill triggered during a large bulk load
+
+This scenario is harmless but worth describing once so admins understand what they will see.
+
+**Setup.** ETL pushes 1.5M reports via `_bulk_upsert_reports` at 100 reports/batch (~15,000 bulk-upsert calls). The handler enqueues ~15,000 `label_report_batch` tasks at ingest priority on the `llm` queue. Mid-upload, an admin clicks **Run backfill**.
+
+**What happens.**
+
+1. The Run view succeeds (the singleton check only excludes other *backfills*, not ingest tasks). `process_labeling_job` is deferred to the `default` queue at backfill priority.
+2. PREPARING runs on the `default` worker (separate from `llm_worker`). It scans the Report corpus in 1000-row chunks. Because PostgreSQL READ-COMMITTED + cursor iteration sees rows committed after the scan started — and new PKs are monotonically larger than the cursor position — the scan picks up reports being uploaded concurrently. PREPARING "chases the upload's tail."
+3. For each chunk, `find_reports_needing_work` excludes reports the ingest path already labeled and includes the rest. Some included reports have a pending `label_report_batch` task that will label them shortly.
+4. The backfill enters PENDING with up to ~15,000 `LabelingTask` rows competing on the `llm` queue at priority 0, behind ingest tasks at priority 1.
+5. The `llm_worker` is non-preemptive: a started backfill task runs to completion (~150s) before yielding back to higher-priority work. So ingest tasks see at most one backfill-task duration of added latency, and the backfill makes near-zero progress until ingest stops.
+6. When the worker eventually does pick a backfill `LabelingTask`, `label_report` loads the report's existing answers. For reports the ingest path already labeled, both per-group idempotency clauses hold (`answer.generated_at >= question.updated_at AND answer.generated_at >= report.updated_at`) and every group is skipped. **No LLM calls happen for the doubled-up case.** The task completes SUCCESS with zero LLM cost.
+
+**What's correctly handled vs. what's wasted.**
+
+- ✓ No data corruption, no double-labeling, no failed jobs. `update_or_create` is concurrency-safe at the row level; either side's write is fine.
+- ✓ No extra LLM calls. The per-group idempotency check absorbs the duplication.
+- ✗ Some wasted DB / queue work: the PREPARING scan walks 1.5M rows mostly to confirm "ingest is on it"; ~15,000 `LabelingTask` rows are created for work that ends up being skipped; each such task still pays the existing-answers query before noticing every group is current.
+
+**Practical recommendation.** During a known bulk-load window there is no operational reason to start a backfill — it will be a no-op until ingest finishes — but doing so is safe. Cancel during PREPARING is honored between chunks (see § "Cancellation and resumability"); cancel during PENDING/IN_PROGRESS flips remaining tasks to CANCELED on the base processor's status check.
+
 ### Database growth
 
 `Answer` table size ≈ reports × active questions (1.5M × 20 ≈ 30M rows for the initial corpus). Indexes are declared on the initial migration so the indexes are built while the table is empty (fast). No future ALTER on `Answer` planned.
