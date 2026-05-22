@@ -84,11 +84,16 @@ class AnswerAdmin(admin.ModelAdmin):
 
 class AnswerInline(admin.TabularInline):
     model = Answer
-    fields = ("question", "value", "generated_at")
+    fields = ("question", "value", "generated_at", "is_stale")
     readonly_fields = fields
     extra = 0
     can_delete = False
     show_change_link = False
+
+    def is_stale(self, obj: Answer) -> bool:
+        return obj.generated_at < obj.question.updated_at
+
+    is_stale.boolean = True
 
 
 @admin.register(LabelingJob)
