@@ -59,6 +59,7 @@ uv run cli db-backup                 # Backup database
 - **radis.notes/**: User annotations on reports for adding context.
 - **radis.chats/**: Chat functionality for interacting with reports using LLM.
 - **radis.extractions/**: Data extraction from reports using LLM. Models: `ExtractionJob`, `ExtractionTask`.
+- **radis.labels/**: Auto-labeling system. Admin-defined YES/NO/MAYBE questions are evaluated against report bodies by an LLM. Two paths share `label_report`: an ingest batch task on Report create/update, and an admin-triggered singleton backfill (`LabelingJob`/`LabelingTask`).
 
 Shared utilities come from `adit-radis-shared` package (accounts, token auth, common utilities).
 
@@ -105,6 +106,10 @@ Key variables in `.env` (see `example.env`):
 - `LLM_MODEL_NAME`: Model to use for LLM operations
 - `SITE_NAME`, `SITE_DOMAIN`: Site framework settings
 - `ADMIN_USERNAME`, `ADMIN_EMAIL`, `ADMIN_PASSWORD`: Initial superuser
+- `LABELING_INGEST_PRIORITY`, `LABELING_BACKFILL_PRIORITY`: Procrastinate priorities for the two paths.
+- `LABELING_TASK_BATCH_SIZE`: Reports per task (default 100).
+- `LABELING_LLM_CONCURRENCY_LIMIT`: Concurrent LLM calls per task (default 6).
+- `LABELING_SYSTEM_PROMPT`: Override the default labeling prompt template.
 
 ## Code Standards
 
@@ -208,3 +213,14 @@ reports = response.json()
 - Check subscription criteria matches new reports
 - Review subscription task logs
 - Ensure background worker is processing subscription queue
+
+### Labels not appearing
+
+- Check `uv run cli labels-status` for coverage.
+- Verify `llm_worker` is running: `docker compose logs llm_worker | grep "radis.labels"`.
+- Confirm `radis.labels.apps.LabelsConfig` is in `INSTALLED_APPS`.
+
+### Backfill stuck in PREPARING
+
+- `process_labeling_job` runs on the `default` queue. Verify `default_worker` is up.
+- Look at `LabelingJobAdmin` change form for the live tasks-by-status counts.
