@@ -23,13 +23,22 @@ def register_app():
         register_subscription_retrieval_provider,
     )
 
-    from .providers import count, filter, retrieve, search
+    from .providers import (
+        count,
+        facet_label_counts,
+        filter,
+        matching_reports,
+        retrieve,
+        search,
+    )
 
     register_search_provider(
         SearchProvider(
             name="PG Search",
             search=search,
             max_results=1000,
+            matching_reports=matching_reports,
+            facet_label_counts=facet_label_counts,
         )
     )
 

@@ -98,9 +98,18 @@ class SearchView(LoginRequiredMixin, UserPassesTestMixin, View):
             context["documents"] = result.documents
 
             # Compute label facet counts across the full result set (not just the page).
-            from radis.pgsearch.providers import facet_label_counts, matching_reports
-
-            context["label_facets"] = facet_label_counts(matching_reports(search), top_n=20)
+            # Routed via the active search provider so the search app stays
+            # provider-agnostic; providers that don't support faceting leave
+            # these hooks as None.
+            if (
+                search_provider.facet_label_counts is not None
+                and search_provider.matching_reports is not None
+            ):
+                context["label_facets"] = search_provider.facet_label_counts(
+                    search_provider.matching_reports(search), 20
+                )
+            else:
+                context["label_facets"] = []
 
         return render(request, "search/search.html", context)
 

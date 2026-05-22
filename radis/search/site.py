@@ -2,6 +2,8 @@ from dataclasses import dataclass, field
 from datetime import date, datetime
 from typing import Callable, Literal, NamedTuple
 
+from django.db.models import QuerySet
+
 from radis.reports.models import Report
 from radis.search.utils.query_parser import QueryNode
 
@@ -90,11 +92,18 @@ class SearchProvider(NamedTuple):
     - search: The function that handles the search.
     - max_results: The maximum number of results that can be fetched by a search.
         Must be smaller than offset + limit when searching.
+    - matching_reports: Optional callable returning the full Report queryset matching
+        a Search (without offset/limit). Providers that don't support this leave it None.
+    - facet_label_counts: Optional callable computing label facet counts over a Report
+        queryset (e.g. the one returned by matching_reports). Providers that don't
+        support this leave it None.
     """
 
     name: str
     search: Callable[[Search], SearchResult]
     max_results: int
+    matching_reports: Callable[["Search"], QuerySet] | None = None
+    facet_label_counts: Callable[[QuerySet, int], list[tuple[str, int]]] | None = None
 
 
 search_provider: SearchProvider | None = None
