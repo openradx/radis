@@ -220,6 +220,10 @@ reports = response.json()
 - Verify `llm_worker` is running: `docker compose logs llm_worker | grep "radis.labels"`.
 - Confirm `radis.labels.apps.LabelsConfig` is in `INSTALLED_APPS`.
 
+### Stale dev DB schema
+
+If `./manage.py migrate labels` fails in the dev environment with errors like `relation "labels_answer" already exists` or `column labels_question.is_active does not exist`, the dev Postgres has stale schema state from a prior experimental labels app. The test DB always rebuilds cleanly from migrations, so unit tests pass — but `manage.py labels-status` or other dev-DB queries will fail until the dev DB is cleaned. Workaround: `docker compose down -v` to wipe volumes, then `compose-up -- --watch` to reseed.
+
 ### Backfill stuck in PREPARING
 
 - `process_labeling_job` runs on the `default` queue. Verify `default_worker` is up.
