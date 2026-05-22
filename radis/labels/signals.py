@@ -1,5 +1,3 @@
-import logging
-
 from django.conf import settings
 from procrastinate.contrib.django import app
 from procrastinate.types import JSONValue
@@ -13,8 +11,6 @@ from radis.reports.site import (
     reports_created_handlers,
     reports_updated_handlers,
 )
-
-logger = logging.getLogger("radis.labels")
 
 HANDLER_NAME = "labels"
 

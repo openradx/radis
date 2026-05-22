@@ -1,12 +1,8 @@
-import logging
-
 from radis.core.models import AnalysisTask
 from radis.core.processors import AnalysisTaskProcessor
 
 from .models import LabelingTask
 from .services import label_reports_in_parallel
-
-logger = logging.getLogger("radis.labels")
 
 
 class LabelingTaskProcessor(AnalysisTaskProcessor):
