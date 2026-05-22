@@ -1,3 +1,4 @@
+from django import forms
 from django.contrib import admin
 from django.db.models import Count, F, Q
 from django.urls import path
@@ -9,8 +10,34 @@ from . import admin_views
 from .models import Answer, LabelingJob, Question
 
 
+class _GroupDatalistTextInput(forms.TextInput):
+    """TextInput with an HTML <datalist> populated from existing Question.group values."""
+
+    template_name = "labels/admin/widgets/group_datalist.html"
+
+    def get_context(self, name, value, attrs):
+        ctx = super().get_context(name, value, attrs)
+        ctx["widget"]["list_id"] = "label-groups-datalist"
+        ctx["widget"]["existing_groups"] = list(
+            Question.objects.order_by("group").values_list("group", flat=True).distinct()
+        )
+        # Add list= attribute to the input
+        ctx["widget"]["attrs"]["list"] = "label-groups-datalist"
+        return ctx
+
+
+class QuestionAdminForm(forms.ModelForm):
+    class Meta:
+        model = Question
+        fields = ("label", "group", "text", "active")
+        widgets = {
+            "group": _GroupDatalistTextInput,
+        }
+
+
 @admin.register(Question)
 class QuestionAdmin(admin.ModelAdmin):
+    form = QuestionAdminForm
     list_display = ("label", "group", "active", "text_preview", "updated_at", "answer_summary")
     list_filter = ("active", "group")
     search_fields = ("label", "group", "text")

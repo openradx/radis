@@ -36,6 +36,17 @@ class TestQuestionAdmin:
         assert resp.status_code == 200
         assert b"already exists" in resp.content.lower() or b"unique" in resp.content.lower()
 
+    def test_question_add_with_datalist_widget_works(self, admin_client):
+        resp = admin_client.post(
+            reverse("admin:labels_question_add"),
+            data={"label": "pneu", "text": "Q?", "group": "lung", "active": "on"},
+        )
+        # Successful add redirects (302) to the changelist.
+        assert resp.status_code in (200, 302)
+        if resp.status_code == 200:
+            # If the form re-rendered, there should be no validation errors.
+            assert b"errorlist" not in resp.content
+
 
 class TestAnswerAdmin:
     def test_changelist_loads(self, admin_client):
