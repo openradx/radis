@@ -95,6 +95,11 @@ class SearchView(LoginRequiredMixin, UserPassesTestMixin, View):
             context["form"] = form
             context["documents"] = result.documents
 
+            # Compute label facet counts across the full result set (not just the page).
+            from radis.pgsearch.providers import facet_label_counts, matching_reports
+
+            context["label_facets"] = facet_label_counts(matching_reports(search), top_n=20)
+
         return render(request, "search/search.html", context)
 
     def get_page_number(self, request: HttpRequest) -> int:

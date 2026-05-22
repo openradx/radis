@@ -111,6 +111,22 @@ def facet_label_counts(
     )
 
 
+def matching_reports(search: Search) -> QuerySet:
+    """Return the full Report queryset matching the search (without offset/limit)."""
+    from radis.reports.models import Report
+
+    query_str = _build_query_string(search.query)
+    language = _resolve_language(search.filters)
+    query = SearchQuery(query_str, search_type="raw", config=language)
+    filter_query = _build_filter_query(search.filters)
+    report_ids = (
+        ReportSearchVector.objects.filter(filter_query)
+        .filter(search_vector=query)
+        .values_list("report_id", flat=True)
+    )
+    return Report.objects.filter(id__in=report_ids)
+
+
 def search(search: Search) -> SearchResult:
     query_str = _build_query_string(search.query)
     language = _resolve_language(search.filters)

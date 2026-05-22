@@ -116,7 +116,6 @@ class SearchForm(forms.Form):
             Field("study_description", css_class="form-control-sm"),
             Field("patient_sex", css_class="form-select-sm"),
             RangeSlider("Age range", "age_from", "age_till", group_class="input-group-sm"),
-            Field("labels", css_class="form-check-sm"),
             Div(
                 Button(
                     "reset_filters",

@@ -29,6 +29,23 @@
                     <div class="card-body">
                         <h5 class="card-title">Filters</h5>
                         {% crispy form form.filters_helper %}
+                        {% if label_facets %}
+                            <hr>
+                            <h6 class="card-subtitle text-muted">Labels</h6>
+                            <ul class="list-unstyled mb-0">
+                                {% for label, count in label_facets %}
+                                    <li>
+                                        <label>
+                                            <input type="checkbox"
+                                                   name="labels"
+                                                   value="{{ label }}"
+                                                   {% if label in form.cleaned_data.labels %}checked{% endif %}>
+                                            {{ label }} <span class="text-muted">({{ count }})</span>
+                                        </label>
+                                    </li>
+                                {% endfor %}
+                            </ul>
+                        {% endif %}
                     </div>
                 </div>
             </div>
