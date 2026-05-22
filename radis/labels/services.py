@@ -1,7 +1,10 @@
 import logging
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from typing import Mapping
+
+from django.conf import settings
 
 from radis.chats.utils.chat_client import ChatClient
 from radis.reports.models import Report
@@ -76,3 +79,22 @@ def label_report(report_id: int, client: ChatClient | None = None) -> None:
         prompt = render_questions_prompt(report.body, questions)
         parsed = chat.extract_data(prompt, Schema)
         upsert_answers(report, questions, parsed.model_dump())
+
+
+def label_reports_in_parallel(
+    report_ids: list[int], client: ChatClient | None = None
+) -> tuple[int, int]:
+    chat = client or ChatClient()
+    success = failure = 0
+    with ThreadPoolExecutor(
+        max_workers=settings.LABELING_LLM_CONCURRENCY_LIMIT
+    ) as executor:
+        futures = [executor.submit(label_report, rid, chat) for rid in report_ids]
+        for f in futures:
+            try:
+                f.result()
+                success += 1
+            except Exception as exc:  # noqa: BLE001 — log and continue.
+                logger.exception("labels.report.failed: %s", exc)
+                failure += 1
+    return success, failure
