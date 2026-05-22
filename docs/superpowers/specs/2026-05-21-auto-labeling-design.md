@@ -739,3 +739,8 @@ Few and small, by design:
 - LLM call preview in the question admin.
 - Prometheus metrics on labeling throughput.
 - Localized prompts.
+- **Per-group gating to skip irrelevant groups.** A short upfront LLM question per group ("Does this report describe any brain findings?") that decides whether to run the full group. Considered for v1 and explicitly deferred:
+  - **Cost math is modest.** LLM cost is dominated by input tokens (report body + system prompt); a gate call costs roughly 0.7× a full group call, not 0.1×. Net win only when the irrelevant-group fraction is high (~60%+). Authoring groups along natural axes (anatomy, modality) and phrasing questions defensively (`If the chest is described, …`) achieves a similar outcome inside the existing single call.
+  - **Failure mode is asymmetric.** A gate false positive wastes one call (harmless). A gate false negative silently loses labels — no `Answer` row is written, no flag is raised, nothing is auditable. This is worse than the no-gate path, where a wrong answer at least appears as `NO` in the data.
+  - **Schema cost is non-trivial.** Implementing this cleanly would require normalizing to a separate `QuestionGroup` table with an optional `gate_question` field and a schema migration on a ~30M-row `Answer` table.
+  - **When to revisit.** After launch, if telemetry shows a large irrelevant-group fraction (>60% of group calls returning all-`NO`), gating becomes worth the complexity. Decide based on real cost data, not anticipation.
