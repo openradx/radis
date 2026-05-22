@@ -1,3 +1,6 @@
+import logging
+import time
+
 from django.utils import timezone
 from procrastinate.contrib.django import app
 
@@ -7,10 +10,22 @@ from .models import LabelingJob, LabelingTask
 from .processors import LabelingTaskProcessor
 from .services import create_labeling_tasks_streaming, label_reports_in_parallel
 
+logger = logging.getLogger("radis.labels")
+
 
 @app.task(queue="llm")
 def label_report_batch(report_ids: list[int]) -> None:
-    label_reports_in_parallel(report_ids)
+    started = time.monotonic()
+    logger.info("labels.batch.start size=%d", len(report_ids))
+    success, failure = label_reports_in_parallel(report_ids)
+    duration = time.monotonic() - started
+    logger.info(
+        "labels.batch.done size=%d success=%d failure=%d duration=%.1fs",
+        len(report_ids),
+        success,
+        failure,
+        duration,
+    )
 
 
 @app.task(queue="llm")
@@ -33,7 +48,12 @@ def process_labeling_job(job_id: int) -> None:
 
     job.refresh_from_db()
     if job.status == AnalysisJob.Status.CANCELING:
-        # PREPARING was cancelled mid-stream; the cancel admin view will finalize state.
+        # PREPARING was cancelled mid-stream. Tear down partially-created tasks
+        # and finalize the job to CANCELED so the singleton index is released.
+        job.tasks.all().delete()
+        job.status = AnalysisJob.Status.CANCELED
+        job.ended_at = timezone.now()
+        job.save()
         return
 
     job.status = AnalysisJob.Status.PENDING

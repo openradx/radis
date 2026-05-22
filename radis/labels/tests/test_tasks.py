@@ -56,6 +56,35 @@ class TestProcessLabelingJob:
         assert job.tasks.count() == 1
 
 
+def test_cancel_during_preparing_finalizes_job(settings):
+    """When CANCELING is observed mid-PREPARING, the job is finalized to CANCELED
+    (not left stuck) and partial tasks are deleted."""
+    settings.LABELING_TASK_BATCH_SIZE = 2
+    job = LabelingJobFactory(status=AnalysisJob.Status.UNVERIFIED)
+    QuestionFactory(active=True)
+    for _ in range(10):
+        ReportFactory()
+
+    from radis.labels import services as services_mod
+    real_flush = services_mod._flush_bucket
+
+    def cancel_after_first(j, ids):
+        real_flush(j, ids)
+        type(j).objects.filter(pk=j.pk).update(status=AnalysisJob.Status.CANCELING)
+
+    with patch.object(services_mod, "_flush_bucket", side_effect=cancel_after_first), \
+         patch("radis.labels.tasks.enqueue_all_pending_tasks"):
+        process_labeling_job(job_id=job.id)
+
+    job.refresh_from_db()
+    assert job.status == AnalysisJob.Status.CANCELED
+    assert job.ended_at is not None
+    assert job.tasks.count() == 0  # partial tasks deleted
+
+    # Verify the singleton index is released — a new backfill can be created.
+    LabelingJobFactory(status=AnalysisJob.Status.PENDING)
+
+
 def test_enqueue_defers_one_procrastinate_job_per_pending_task():
     job = LabelingJobFactory(status=AnalysisJob.Status.PENDING)
     t1 = LabelingTaskFactory(job=job, status=AnalysisTask.Status.PENDING)
