@@ -88,7 +88,7 @@ def _build_filter_query(filters: SearchFilters) -> Q:
 
         for label in filters.labels:
             fq &= Q(
-                id__in=Answer.objects.filter(
+                report__id__in=Answer.objects.filter(
                     question__label=label,
                     value__in=["YES", "MAYBE"],
                 ).values("report_id")

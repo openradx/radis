@@ -30,26 +30,30 @@ class TestSearchFiltersCarryLabels:
 
 class TestLabelFilterTranslation:
     def test_single_label_filter(self, labeled_corpus):
-        from radis.reports.models import Report
-        from radis.search.site import SearchFilters
+        from radis.pgsearch.models import ReportSearchVector
         from radis.pgsearch.providers import _build_filter_query
+        from radis.search.site import SearchFilters
 
         q = _build_filter_query(SearchFilters(group=1, labels=["pneumonia"]))
-        matched = set(Report.objects.filter(q).values_list("id", flat=True))
-        assert labeled_corpus["r1"].id in matched   # YES
-        assert labeled_corpus["r2"].id in matched   # MAYBE
-        assert labeled_corpus["r3"].id not in matched
+        matched_report_ids = set(
+            ReportSearchVector.objects.filter(q).values_list("report_id", flat=True)
+        )
+        assert labeled_corpus["r1"].id in matched_report_ids  # YES
+        assert labeled_corpus["r2"].id in matched_report_ids  # MAYBE
+        assert labeled_corpus["r3"].id not in matched_report_ids
 
     def test_and_across_labels(self, labeled_corpus):
-        from radis.reports.models import Report
-        from radis.search.site import SearchFilters
+        from radis.pgsearch.models import ReportSearchVector
         from radis.pgsearch.providers import _build_filter_query
+        from radis.search.site import SearchFilters
 
         q = _build_filter_query(SearchFilters(group=1, labels=["pneumonia", "effusion"]))
         # r1: YES pneumonia, NO effusion → excluded
         # r2: MAYBE pneumonia, no effusion answer → excluded
         # r3: no pneumonia answer, YES effusion → excluded
-        assert list(Report.objects.filter(q).values_list("id", flat=True)) == []
+        assert list(
+            ReportSearchVector.objects.filter(q).values_list("report_id", flat=True)
+        ) == []
 
 
 class TestFacetCounts:
