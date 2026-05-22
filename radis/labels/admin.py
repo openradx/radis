@@ -74,3 +74,12 @@ class AnswerAdmin(admin.ModelAdmin):
 
     def has_change_permission(self, request, obj=None):
         return False
+
+
+class AnswerInline(admin.TabularInline):
+    model = Answer
+    fields = ("question", "value", "generated_at")
+    readonly_fields = fields
+    extra = 0
+    can_delete = False
+    show_change_link = False

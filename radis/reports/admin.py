@@ -6,6 +6,8 @@ from django.db.models.query import QuerySet
 from django.http.request import HttpRequest
 from django.http.response import HttpResponse
 
+from radis.labels.admin import AnswerInline
+
 from .models import Language, Metadata, Modality, Report, ReportsAppSettings
 from .site import reports_created_handlers, reports_deleted_handlers, reports_updated_handlers
 
@@ -59,7 +61,7 @@ class MetadataInline(admin.TabularInline):
 
 
 class ReportAdmin(admin.ModelAdmin):
-    inlines = [MetadataInline]
+    inlines = [MetadataInline, AnswerInline]
 
     def delete_model(self, request: HttpRequest, obj: Report) -> None:
         # Called when deleting a single report (from the admin form view)

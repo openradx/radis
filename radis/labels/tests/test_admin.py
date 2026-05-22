@@ -47,3 +47,14 @@ class TestAnswerAdmin:
     def test_add_disabled(self, admin_client):
         resp = admin_client.get(reverse("admin:labels_answer_add"))
         assert resp.status_code in (302, 403)
+
+
+from radis.reports.factories import ReportFactory
+
+
+def test_report_change_shows_answer_inline(admin_client):
+    r = ReportFactory()
+    AnswerFactory(report=r)
+    resp = admin_client.get(reverse("admin:reports_report_change", args=[r.id]))
+    assert resp.status_code == 200
+    assert b"answer" in resp.content.lower()
