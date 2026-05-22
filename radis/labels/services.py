@@ -1,11 +1,15 @@
+import logging
 from collections import defaultdict
 from datetime import datetime
 from typing import Mapping
 
+from radis.chats.utils.chat_client import ChatClient
 from radis.reports.models import Report
 
 from .models import Answer, Question
-from .prompts import sanitize_label
+from .prompts import build_yes_no_maybe_schema, render_questions_prompt, sanitize_label
+
+logger = logging.getLogger("radis.labels")
 
 
 def group_active_questions_by_group() -> dict[str, list[Question]]:
@@ -45,3 +49,30 @@ def _group_answers_are_current(
         if a.generated_at < report_updated_at:
             return False
     return True
+
+
+def label_report(report_id: int, client: ChatClient | None = None) -> None:
+    report = Report.objects.get(id=report_id)
+    if not report.body or not report.body.strip():
+        logger.info("labels.skip empty body: report %s", report_id)
+        return
+
+    questions_by_group = group_active_questions_by_group()
+    if not questions_by_group:
+        logger.info("labels.skip no active questions: report %s", report_id)
+        return
+
+    existing = {
+        a.question_id: a
+        for a in Answer.objects.filter(report=report).select_related("question")
+    }
+    chat = client
+    for group_str, questions in questions_by_group.items():
+        if _group_answers_are_current(questions, existing, report.updated_at):
+            continue
+        if chat is None:
+            chat = ChatClient()
+        Schema = build_yes_no_maybe_schema(questions)
+        prompt = render_questions_prompt(report.body, questions)
+        parsed = chat.extract_data(prompt, Schema)
+        upsert_answers(report, questions, parsed.model_dump())
