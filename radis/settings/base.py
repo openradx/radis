@@ -90,6 +90,7 @@ INSTALLED_APPS = [
     "radis.notes.apps.NotesConfig",
     "radis.chats.apps.ChatsConfig",
     "radis.pgsearch.apps.PgSearchConfig",
+    "radis.labels.apps.LabelsConfig",
     "channels",
 ]
 
