@@ -6,6 +6,7 @@ from django import forms
 
 from radis.core.constants import LANGUAGE_LABELS
 from radis.core.layouts import RangeSlider
+from radis.labels.models import Question
 from radis.reports.models import Language, Modality
 
 from .layouts import QueryInput
@@ -55,6 +56,11 @@ class SearchForm(forms.Form):
             }
         ),
     )
+    labels = forms.MultipleChoiceField(
+        required=False,
+        widget=forms.CheckboxSelectMultiple,
+        choices=[],
+    )
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -68,6 +74,13 @@ class SearchForm(forms.Form):
             for modality in Modality.objects.filter(filterable=True).order_by("code")
         ]
         self.fields["modalities"].widget.attrs["size"] = 6
+        self.fields["labels"].choices = [  # type: ignore
+            (label, label)
+            for label in Question.objects.filter(active=True)
+            .order_by("label")
+            .values_list("label", flat=True)
+            .distinct()
+        ]
 
         self.query_helper = FormHelper()
         self.query_helper.template = "search/form_elements/form_part.html"  # type: ignore
@@ -103,6 +116,7 @@ class SearchForm(forms.Form):
             Field("study_description", css_class="form-control-sm"),
             Field("patient_sex", css_class="form-select-sm"),
             RangeSlider("Age range", "age_from", "age_till", group_class="input-group-sm"),
+            Field("labels", css_class="form-check-sm"),
             Div(
                 Button(
                     "reset_filters",

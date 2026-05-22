@@ -43,6 +43,7 @@ class SearchFilters:
         - patient_sex: Filter only reports that have the given sex
         - patient_age_from: Filter only reports where the patient is at least this age
         - patient_age_till: Filter only reports where the patient is at most this age
+        - labels: Filter only reports that carry at least one of the given Question labels
     """
 
     group: int  # TODO: Rename to group_id
@@ -57,6 +58,7 @@ class SearchFilters:
     patient_id: str | None = None
     created_after: datetime | None = None
     created_before: datetime | None = None
+    labels: list[str] = field(default_factory=list)
 
 
 class Search(NamedTuple):
