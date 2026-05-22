@@ -2,9 +2,10 @@ import logging
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
-from typing import Mapping
+from typing import Iterable, Iterator, Mapping
 
 from django.conf import settings
+from django.db.models import Count, F, Q
 
 from radis.chats.utils.chat_client import ChatClient
 from radis.reports.models import Report
@@ -98,3 +99,24 @@ def label_reports_in_parallel(
                 logger.exception("labels.report.failed: %s", exc)
                 failure += 1
     return success, failure
+
+
+def find_reports_needing_work(scope_ids: Iterable[int]) -> Iterator[int]:
+    active_question_count = Question.objects.filter(active=True).count()
+    if active_question_count == 0:
+        return iter(())
+    qs = (
+        Report.objects.filter(id__in=scope_ids)
+        .annotate(
+            non_stale_count=Count(
+                "answers",
+                filter=Q(
+                    answers__question__active=True,
+                    answers__generated_at__gte=F("answers__question__updated_at"),
+                ),
+            )
+        )
+        .filter(non_stale_count__lt=active_question_count)
+        .values_list("id", flat=True)
+    )
+    return qs.iterator()
