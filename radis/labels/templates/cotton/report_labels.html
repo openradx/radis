@@ -1,0 +1,32 @@
+<div class="report-labels">
+  {% with answers=report.answers.all %}
+    {% if not answers %}
+      <p class="text-muted small">Labels pending.</p>
+    {% else %}
+      {% regroup answers|dictsort:"question.group" by question.group as groups %}
+      {% for group in groups %}
+        <div class="report-labels-group mb-2">
+          <h6 class="text-muted">{{ group.grouper }}</h6>
+          {% for answer in group.list %}
+            {% if answer.value != "NO" %}
+              {% if answer.generated_at < answer.question.updated_at %}
+                <span class="badge bg-secondary"
+                      title="label may be outdated; will be refreshed by next backfill">
+                  {{ answer.question.label }} <small>(stale)</small>
+                </span>
+              {% elif answer.value == "MAYBE" %}
+                <span class="badge bg-warning text-dark" title="Maybe">
+                  {{ answer.question.label }} ?
+                </span>
+              {% else %}
+                <span class="badge bg-success" title="Yes">
+                  {{ answer.question.label }}
+                </span>
+              {% endif %}
+            {% endif %}
+          {% endfor %}
+        </div>
+      {% endfor %}
+    {% endif %}
+  {% endwith %}
+</div>
