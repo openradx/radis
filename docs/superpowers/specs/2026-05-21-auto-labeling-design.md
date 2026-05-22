@@ -10,7 +10,7 @@ Add an auto-labeling feature to RADIS that classifies radiology reports against 
 
 Two execution paths share the same labeling logic:
 
-1. **Per-report path** — A `post_save` signal on `Report` (creation and update) enqueues a background task that labels that report against all active questions.
+1. **Ingest path** — Reports are created or updated by ETL pipelines (never one-at-a-time interactively). The reports app calls registered handlers with a `list[Report]` per ingest batch. The labels handler chunks the batch and enqueues one background `label_report_batch` task per chunk; each task labels its members in parallel against all active questions.
 2. **Backfill path** — An admin-triggered `LabelingJob` walks the existing report corpus and produces missing or stale answers. Only one backfill may be active at a time.
 
 Labels surface on the report detail page (badges) and in search (`label:` query filter + facet panel).
@@ -18,8 +18,8 @@ Labels surface on the report detail page (badges) and in search (`label:` query 
 ## Goals
 
 - Admins can author labeling questions in the Django admin and see them applied to reports automatically.
-- New and updated reports are labeled in the background without blocking ingest.
-- Existing reports (up to ~1M scale) can be backfilled.
+- ETL-ingested reports (new and updated) are labeled in the background without blocking ingest, and at a queue size proportional to ingest batches — not to the number of reports.
+- Existing reports (up to ~1.5M scale) can be backfilled.
 - Edits to a question naturally produce stale answers, which the next backfill refreshes.
 - End users see applied labels on each report and can filter search by label.
 
@@ -88,70 +88,118 @@ No snapshot column, no `is_stale` flag, no row updates when a question is edited
 - `(Answer.report, Answer.question)` is unique. Re-labeling replaces the existing row via `update_or_create`.
 - Cascade deletes on both FKs. Deleting a question with many answers is heavy but acceptable; admins are warned by Django's standard delete confirmation.
 
-## Execution Path 1: Per-Report Labeling
+## Execution Path 1: Ingest Batch Labeling
 
-Driven by `post_save`-style hooks on `Report`. Used for both new reports and report updates.
+Driven by the existing reports app handlers, which fire per ingest batch (not per row). Used for both newly-ingested and updated reports. Reports enter RADIS only through ETL pipelines or admin actions — there is no interactive per-row creation flow to optimize for — so the design routes every handler call through the same batch path.
 
 ### Trigger
 
-Register handlers using the existing extension points in `radis.reports.site`:
+Register handlers using the existing extension points in `radis.reports.site`. The handler signature receives a list of reports, matching the `Callable[[list[Report]], None]` type already required by the reports app:
 
 ```python
-register_reports_created_handler(_label_report_handler)
-register_reports_updated_handler(_label_report_handler)
+from radis.reports.site import (
+    ReportsCreatedHandler,
+    ReportsUpdatedHandler,
+    register_reports_created_handler,
+    register_reports_updated_handler,
+)
+
+register_reports_created_handler(
+    ReportsCreatedHandler(name="labels", handle=_label_reports_handler)
+)
+register_reports_updated_handler(
+    ReportsUpdatedHandler(name="labels", handle=_label_reports_handler)
+)
 ```
 
-The handler schedules an enqueue via `transaction.on_commit`, so we never enqueue against a not-yet-visible row:
+The handler chunks the incoming list into sub-batches of at most `LABELING_TASK_BATCH_SIZE` (default 100, the same constant used by the backfill) and defers one Procrastinate task per chunk. This caps any single task's runtime and limits retry blast radius if one chunk fails.
 
 ```python
-def _label_report_handler(report: Report) -> None:
-    transaction.on_commit(lambda: label_single_report.defer(report_id=report.id))
+def _label_reports_handler(reports: list[Report]) -> None:
+    deferrer = app.configure_task(
+        "radis.labels.tasks.label_report_batch",
+        allow_unknown=False,
+        priority=settings.LABELING_INGEST_PRIORITY,
+    )
+    report_ids = [r.id for r in reports]
+    for chunk in _chunked(report_ids, settings.LABELING_TASK_BATCH_SIZE):
+        deferrer.defer(report_ids=chunk)
 ```
 
 ### Task
 
 ```python
 @app.task(queue="llm")
-def label_single_report(report_id: int) -> None:
-    label_report(report_id)
+def label_report_batch(report_ids: list[int]) -> None:
+    label_reports_in_parallel(report_ids)
 ```
 
-Configured with priority `LABELING_PER_REPORT_PRIORITY` (default `1`) — higher than backfill (`0`) so ingest is always reflected promptly, but lower than urgent extractions/subscriptions so it never delays user-initiated work.
+Configured with priority `LABELING_INGEST_PRIORITY` (default `1`) — higher than backfill (`0`) so newly-ingested reports get labeled before backfill catches up, but lower than urgent extractions/subscriptions so user-initiated work isn't delayed.
 
-### Core function
+### Shared parallel-labeling helper
 
-The same function is used by the backfill processor.
+The same helper is used by both the ingest batch task and the backfill `LabelingTaskProcessor`. Single source of truth for "label N reports concurrently":
 
 ```python
-def label_report(report_id: int) -> None:
+def label_reports_in_parallel(
+    report_ids: list[int], client: ChatClient | None = None
+) -> tuple[int, int]:
+    """Return (success_count, failure_count). Logs failures."""
+    chat = client or ChatClient()
+    success = failure = 0
+    with ThreadPoolExecutor(
+        max_workers=settings.LABELING_LLM_CONCURRENCY_LIMIT
+    ) as executor:
+        futures = [executor.submit(label_report, rid, chat) for rid in report_ids]
+        for f in futures:
+            try:
+                f.result()
+                success += 1
+            except Exception as exc:  # noqa: BLE001 — log and continue.
+                logger.exception("Labeling failed for one report: %s", exc)
+                failure += 1
+    return success, failure
+```
+
+### Core single-report function
+
+Unchanged. Used by `label_reports_in_parallel` for each member of the batch:
+
+```python
+def label_report(report_id: int, client: ChatClient | None = None) -> None:
     report = Report.objects.get(id=report_id)
     if not report.body or not report.body.strip():
         return
     questions_by_group = group_active_questions_by_group()
     if not questions_by_group:
         return
-    client = ChatClient()
+    chat = client or ChatClient()
     for group_str, questions in questions_by_group.items():
         Schema = build_yes_no_maybe_schema(questions)
         prompt = render_questions_prompt(report.body, questions)
-        parsed = client.extract_data(prompt, Schema)
-        upsert_answers(report, questions, parsed)
+        parsed = chat.extract_data(prompt, Schema)
+        upsert_answers(report, questions, parsed.model_dump())
 ```
 
-One LLM call per question group. `upsert_answers` uses `update_or_create` per `(report, question)`. `generated_at` is bumped on every write via `auto_now=True`.
+One LLM call per question group per report. `upsert_answers` uses `update_or_create` per `(report, question)`. `generated_at` is bumped on every write via `auto_now=True`.
 
-### Skip conditions
+### Skip conditions (per report, inside `label_report`)
 
 - `report.body` empty/whitespace.
 - No active questions.
 
 ### Failure handling
 
-Procrastinate retries with backoff on transient failures (LLM timeout, network). After exhausted retries, the failure is logged to the `radis.labels` logger; no `AnalysisJob`/`AnalysisTask` rows are produced for the per-report path. Reports that fail to label this way are eventually re-attempted by the next backfill (the same scope query treats "no answer" and "stale answer" identically).
+Procrastinate retries the batch task with backoff on uncaught exceptions. Within a batch, per-report exceptions are caught inside `label_reports_in_parallel` — one report's LLM failure does not abort the rest of the batch, and the failed report is picked up by the next backfill (the scope query treats "no answer" and "stale answer" identically). Failures are logged to the `radis.labels` logger. No `AnalysisJob`/`AnalysisTask` rows are produced for the ingest path; observability for individual ingest tasks comes through Procrastinate's own job tables and the application log.
 
-### Burst behavior
+### Scale behavior
 
-Bursts of ~300 reports produce 300 queue rows. The per-report task processes one report sequentially through its question groups (~3 LLM calls × ~3 s ≈ ~9 s per report); the queue drains as Procrastinate workers pick up tasks. The exact wall-clock duration depends on the deployed worker count and per-worker Procrastinate concurrency. The `llm` queue may backlog momentarily under sustained heavy ingest; that is documented as expected behavior, not a v1 blocker.
+For your 1.5M-report initial bulk load arriving in batches of 100:
+
+- Procrastinate queue grows by ~15,000 rows total, not 1.5M.
+- Each `label_report_batch` task processes 100 reports concurrently (6-way thread pool) and finishes in roughly `(100 / 6) × 3 LLM-calls × ~3 s ≈ 150 s`.
+- Total LLM work is identical to a per-report design: ~17 days at default concurrency. The batch shape doesn't change throughput — it only changes queue size, operational visibility, and retry granularity. Scaling throughput requires more `llm_worker` replicas or a faster LLM, which is operational rather than a design knob in this spec.
+- During the bulk-load window the `llm` queue is dominated by ingest tasks; the `llm` queue may backlog momentarily under sustained heavy ingest; this is documented as expected behavior, not a v1 blocker. Admin-triggered backfill runs at lower priority and effectively pauses until the queue catches up.
 
 ## Execution Path 2: Backfill
 
@@ -244,7 +292,7 @@ def process_labeling_task(task_id: int) -> None:
     LabelingTaskProcessor(LabelingTask.objects.get(id=task_id)).start()
 ```
 
-`LabelingTaskProcessor` subclasses `AnalysisTaskProcessor` and overrides `process_task`. For each report in the task, it calls `label_report(report_id)` — the same core function used by the per-report path. Within the task it uses a `ThreadPoolExecutor(max_workers=LABELING_LLM_CONCURRENCY_LIMIT)`, mirroring extractions. Status updates and `update_job_state` come from the base class.
+`LabelingTaskProcessor` subclasses `AnalysisTaskProcessor` and overrides `process_task`. It calls the same `label_reports_in_parallel(report_ids)` helper that the ingest batch task uses, so concurrency and per-report failure handling are identical between the two paths. Status updates and `update_job_state` come from the base class.
 
 ### Cancellation and resumability
 
@@ -419,8 +467,8 @@ Added to `radis/settings/base.py`:
 # Existing baseline:
 #   EXTRACTION_DEFAULT_PRIORITY = 2 · EXTRACTION_URGENT_PRIORITY = 3
 #   SUBSCRIPTION_DEFAULT_PRIORITY = 3 · SUBSCRIPTION_URGENT_PRIORITY = 4
-LABELING_PER_REPORT_PRIORITY = env.int("LABELING_PER_REPORT_PRIORITY", default=1)
-LABELING_BACKFILL_PRIORITY   = env.int("LABELING_BACKFILL_PRIORITY",   default=0)
+LABELING_INGEST_PRIORITY   = env.int("LABELING_INGEST_PRIORITY",   default=1)
+LABELING_BACKFILL_PRIORITY = env.int("LABELING_BACKFILL_PRIORITY", default=0)
 
 LABELING_TASK_BATCH_SIZE       = env.int("LABELING_TASK_BATCH_SIZE",       default=100)
 LABELING_LLM_CONCURRENCY_LIMIT = env.int("LABELING_LLM_CONCURRENCY_LIMIT", default=6)
@@ -461,10 +509,10 @@ No new Procrastinate queue, no new container. The existing `llm_worker` drains t
 | Urgent subscriptions                | 4        |
 | Urgent extractions / default subs   | 3        |
 | Default extractions                 | 2        |
-| Per-report labeling                 | 1        |
+| Ingest labeling (`label_report_batch`) | 1     |
 | Backfill labeling                   | 0        |
 
-**Documented operational fact:** during sustained ingest bursts, backfill makes near-zero progress. This is the intended trade-off.
+**Documented operational fact:** during sustained ingest bursts (including the initial 1.5M-report bulk load), backfill makes near-zero progress. This is the intended trade-off — newly-ingested reports get labeled first; backfill catches anything that slipped through afterward.
 
 ### Database growth
 
@@ -476,9 +524,9 @@ Cascade deletes on Report and Question are CASCADE. Deleting a question with ~1M
 
 A dedicated logger `radis.labels`:
 
-- `INFO` on per-report task start/finish (report ID + duration).
+- `INFO` on `label_report_batch` task start/finish (chunk size, success/failure counts, duration).
 - `WARNING` on skip (empty body, no active questions).
-- `ERROR` with full traceback on LLM failure after retries.
+- `ERROR` with full traceback on per-report LLM failure inside a batch.
 
 Ops one-liner: `docker compose logs llm_worker | grep "radis.labels"`.
 
@@ -521,9 +569,10 @@ Few and small, by design:
 
 ### Integration tests (LLM mocked)
 
-- **Per-report signal fires post-commit** (`test_signals.py`) — using `django_capture_on_commit_callbacks`, the task is enqueued on commit, not before; idempotent on update.
+- **Ingest handler chunks correctly** (`test_signals.py`) — handler called with 250 reports defers exactly 3 `label_report_batch` tasks (100 + 100 + 50) at the ingest priority; handler called with 10 reports defers exactly 1 task; report IDs are preserved across chunks.
 - **`label_report` end-to-end** (`test_label_report.py`) — monkeypatched `ChatClient.extract_data`. Two question groups → two LLM calls with the right questions; answers upserted; `generated_at` bumped on re-run; MAYBE preserved.
 - **Skip conditions** (`test_skips.py`) — empty body / no active questions / inactive question → no LLM call.
+- **`label_reports_in_parallel` partial failure** (`test_parallel.py`) — three report IDs, one raises in the LLM mock; the helper returns `(2, 1)`, the two successful reports have `Answer` rows, the failed one does not, and the exception is logged but not re-raised.
 - **Backfill task processor** (`test_processor.py`) — three reports in one task; partial failure on one yields task `WARNING`; successful reports still have answers written; `update_job_state` promotes the job correctly.
 
 ### Admin tests
@@ -544,7 +593,7 @@ Few and small, by design:
 
 ### One real-LLM acceptance test (`@pytest.mark.acceptance`, `cpu` profile)
 
-- Create one question ("Is the chest clear?"), ingest a synthetic report stating "No abnormalities, lungs clear.", wait for the per-report task, assert an `Answer` row with `value=YES` appears. Sanity that the wiring works against the real LLM stack. Not a regression suite.
+- Create one question ("Is the chest clear?"), ingest a synthetic report stating "No abnormalities, lungs clear.", wait for the ingest `label_report_batch` task to drain, assert an `Answer` row with `value=YES` appears. Sanity that the wiring works against the real LLM stack. Not a regression suite.
 
 ### Out of scope (test-wise)
 
