@@ -173,8 +173,15 @@ def label_report(report_id: int, client: ChatClient | None = None) -> None:
     questions_by_group = group_active_questions_by_group()
     if not questions_by_group:
         return
+
+    existing = {
+        a.question_id: a
+        for a in Answer.objects.filter(report=report).select_related("question")
+    }
     chat = client or ChatClient()
     for group_str, questions in questions_by_group.items():
+        if _group_answers_are_current(questions, existing, report.updated_at):
+            continue  # skip the LLM call for this group — every answer is current
         Schema = build_yes_no_maybe_schema(questions)
         prompt = render_questions_prompt(report.body, questions)
         parsed = chat.extract_data(prompt, Schema)
@@ -183,10 +190,43 @@ def label_report(report_id: int, client: ChatClient | None = None) -> None:
 
 One LLM call per question group per report. `upsert_answers` uses `update_or_create` per `(report, question)`. `generated_at` is bumped on every write via `auto_now=True`.
 
+### Per-group idempotency
+
+To avoid redundant LLM calls when only a subset of questions has changed (e.g., the admin edits one question and a backfill is run), `label_report` checks each group before calling the LLM. A group is skipped iff **every** question in the group has an existing answer satisfying both conditions:
+
+```
+answer.generated_at >= question.updated_at   AND
+answer.generated_at >= report.updated_at
+```
+
+The first clause means "the answer was generated after the question was last edited" — i.e. the answer reflects the current question text. The second clause means "the answer was generated after the report was last modified" — guarding against amended report bodies. If either clause fails for any question in the group, the LLM is called for the whole group and `upsert_answers` rewrites all answers in that group.
+
+```python
+def _group_answers_are_current(
+    questions: list[Question],
+    existing: dict[int, Answer],
+    report_updated_at: datetime,
+) -> bool:
+    for q in questions:
+        a = existing.get(q.id)
+        if a is None:
+            return False
+        if a.generated_at < q.updated_at:
+            return False
+        if a.generated_at < report_updated_at:
+            return False
+    return True
+```
+
+This is the **second layer of efficiency** in the system. The first layer is `find_reports_needing_work`, which scopes a backfill to reports with at least one missing or stale answer (avoiding work on fully-current reports entirely). The second layer is per-group skip inside `label_report` (avoiding LLM calls on already-current groups within reports that *do* need work). Both layers compose: a backfill triggered by a single question edit only touches reports that need work AND only makes LLM calls for groups that include the changed question.
+
+**Known trade-off — metadata-only report updates.** Any `Report.save()` bumps `report.updated_at`, even if `body` didn't change. The conservative comparison above will then re-label the report on the next ingest task or backfill pass. This is correctness-preserving (no stale labels ever shown) but slightly wasteful. Optimizing this would require either a separate `body_updated_at` column on `Report` or a body fingerprint stored on `Answer`; both add complexity and are out of scope for v1. Document the wastage in `KNOWLEDGE.md` so future maintainers know the lever exists.
+
 ### Skip conditions (per report, inside `label_report`)
 
-- `report.body` empty/whitespace.
-- No active questions.
+- `report.body` empty/whitespace → return immediately, no LLM calls.
+- No active questions → return immediately, no LLM calls.
+- Every group's answers already current (per-group idempotency, above) → no LLM calls for that group, but other groups may still run.
 
 ### Failure handling
 
@@ -198,8 +238,10 @@ For your 1.5M-report initial bulk load arriving in batches of 100:
 
 - Procrastinate queue grows by ~15,000 rows total, not 1.5M.
 - Each `label_report_batch` task processes 100 reports concurrently (6-way thread pool) and finishes in roughly `(100 / 6) × 3 LLM-calls × ~3 s ≈ 150 s`.
-- Total LLM work is identical to a per-report design: ~17 days at default concurrency. The batch shape doesn't change throughput — it only changes queue size, operational visibility, and retry granularity. Scaling throughput requires more `llm_worker` replicas or a faster LLM, which is operational rather than a design knob in this spec.
+- Total LLM work for the initial load is identical to a per-report design: ~17 days at default concurrency. The batch shape doesn't change throughput — it only changes queue size, operational visibility, and retry granularity. Scaling throughput requires more `llm_worker` replicas or a faster LLM, which is operational rather than a design knob in this spec.
 - During the bulk-load window the `llm` queue is dominated by ingest tasks; the `llm` queue may backlog momentarily under sustained heavy ingest; this is documented as expected behavior, not a v1 blocker. Admin-triggered backfill runs at lower priority and effectively pauses until the queue catches up.
+
+After the initial load, the per-group idempotency check (above) keeps subsequent backfills cheap. A backfill triggered by editing one question in one group touches every report once (to evaluate the skip condition and write that group's answer) but only makes ~`1/N_groups` of the LLM calls of a naive design. For 3 typical groups that's a ~3× reduction in LLM cost; for 10 groups it's ~10×.
 
 ## Execution Path 2: Backfill
 
@@ -504,13 +546,13 @@ The Pydantic schema is built at call time via `pydantic.create_model`, with one 
 
 No new Procrastinate queue, no new container. The existing `llm_worker` drains the `llm` queue; priority alone separates work:
 
-| Source                              | Priority |
-| ----------------------------------- | -------- |
-| Urgent subscriptions                | 4        |
-| Urgent extractions / default subs   | 3        |
-| Default extractions                 | 2        |
-| Ingest labeling (`label_report_batch`) | 1     |
-| Backfill labeling                   | 0        |
+| Source                                  | Priority |
+| --------------------------------------- | -------- |
+| Urgent subscriptions                    | 4        |
+| Urgent extractions / default subs       | 3        |
+| Default extractions                     | 2        |
+| Ingest labeling (`label_report_batch`)  | 1        |
+| Backfill labeling                       | 0        |
 
 **Documented operational fact:** during sustained ingest bursts (including the initial 1.5M-report bulk load), backfill makes near-zero progress. This is the intended trade-off — newly-ingested reports get labeled first; backfill catches anything that slipped through afterward.
 
@@ -571,6 +613,12 @@ Few and small, by design:
 
 - **Ingest handler chunks correctly** (`test_signals.py`) — handler called with 250 reports defers exactly 3 `label_report_batch` tasks (100 + 100 + 50) at the ingest priority; handler called with 10 reports defers exactly 1 task; report IDs are preserved across chunks.
 - **`label_report` end-to-end** (`test_label_report.py`) — monkeypatched `ChatClient.extract_data`. Two question groups → two LLM calls with the right questions; answers upserted; `generated_at` bumped on re-run; MAYBE preserved.
+- **Per-group idempotency** (`test_idempotency.py`) — four scenarios:
+  1. All answers current → no LLM calls.
+  2. One question in group A edited → only group A's LLM call fires.
+  3. Report body updated (`report.updated_at` advanced) → all groups' LLM calls fire.
+  4. Brand-new report with no answers → all groups' LLM calls fire.
+  Each scenario asserts the exact set of LLM calls made via a mock counter.
 - **Skip conditions** (`test_skips.py`) — empty body / no active questions / inactive question → no LLM call.
 - **`label_reports_in_parallel` partial failure** (`test_parallel.py`) — three report IDs, one raises in the LLM mock; the helper returns `(2, 1)`, the two successful reports have `Answer` rows, the failed one does not, and the exception is logged but not re-raised.
 - **Backfill task processor** (`test_processor.py`) — three reports in one task; partial failure on one yields task `WARNING`; successful reports still have answers written; `update_job_state` promotes the job correctly.
