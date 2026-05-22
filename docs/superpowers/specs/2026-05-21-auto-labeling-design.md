@@ -303,6 +303,7 @@ A single background task builds the task scope without loading the full corpus i
 @app.task()
 def process_labeling_job(job_id: int) -> None:
     job = LabelingJob.objects.get(id=job_id)
+    job.tasks.all().delete()   # restart-safe: a crashed prior attempt may have created tasks
     job.status = AnalysisJob.Status.PREPARING
     job.started_at = timezone.now()
     job.save()
@@ -313,6 +314,8 @@ def process_labeling_job(job_id: int) -> None:
 
     enqueue_all_pending_tasks(job)
 ```
+
+**Restart safety.** Procrastinate retries the task on uncaught exceptions; if a prior attempt crashed mid-streaming, it may have left partial `LabelingTask` rows for this job. Deleting them at the top of `process_labeling_job` makes the prep idempotent: each retry starts from a clean slate. The cost (a `DELETE` over a job's own tasks) is bounded by however many tasks the previous attempt got to.
 
 `create_labeling_tasks_streaming` iterates `Report.objects.order_by("pk").iterator(chunk_size=1000)`. For each chunk it calls `find_reports_needing_work(chunk_ids)` to identify reports with missing or stale answers, then bulk-creates `LabelingTask` rows of `LABELING_TASK_BATCH_SIZE` (default 100) reports each, committing per chunk.
 
@@ -628,6 +631,22 @@ This scenario is harmless but worth describing once so admins understand what th
 - ✗ Some wasted DB / queue work: the PREPARING scan walks 1.5M rows mostly to confirm "ingest is on it"; ~15,000 `LabelingTask` rows are created for work that ends up being skipped; each such task still pays the existing-answers query before noticing every group is current.
 
 **Practical recommendation.** During a known bulk-load window there is no operational reason to start a backfill — it will be a no-op until ingest finishes — but doing so is safe. Cancel during PREPARING is honored between chunks (see § "Cancellation and resumability"); cancel during PENDING/IN_PROGRESS flips remaining tasks to CANCELED on the base processor's status check.
+
+### Operational scenario: question edit during an active backfill
+
+**Setup.** Admin clicks Run backfill at T0 → `LabelingJob` #1 begins. At T1 (while #1 is still PREPARING / PENDING / IN_PROGRESS) the admin edits a question Q. `question.updated_at = T1`; all existing `Answer` rows for Q with `generated_at < T1` are now stale. Admin clicks Run again to start a second backfill.
+
+**What happens.**
+
+1. `run_backfill_view` checks `LabelingJob.objects.filter(status__in=ACTIVE_STATUSES).exists()` — yes, #1 is active. The view rejects the second click with the flash message **"Another backfill is already active."** The partial-unique index would also raise `IntegrityError` if the view check raced, so concurrent clicks are safe.
+2. The admin must choose:
+   - **Cancel #1, then start #2.** #1 → CANCELING → CANCELED (per § "Cancellation and resumability", honored between PREPARING chunks and on the base processor's per-task check during IN_PROGRESS). Once #1 is in a terminal status the singleton releases. Click Run again → #2 starts. PREPARING recomputes the scope and picks up every report whose Q answer is now stale.
+   - **Wait for #1 to finish, then start #2.** #1 completes; its answers are a mix written against the old Q (for tasks processed before T1) and the new Q (for tasks processed after T1, because `label_report` calls `group_active_questions_by_group()` per invocation, so it reads the *current* question state each time). #2's scope query then picks up the stale subset and re-labels.
+3. Both routes converge on a fully-current state. Per-group idempotency means #2 never re-asks groups whose answers are already current — so the second backfill's LLM cost is bounded by the actual stale fraction.
+
+**One non-obvious nuance.** A question edit during #1's PREPARING phase creates a small gap in #1's scope: chunks already evaluated before T1 assessed staleness against the old Q, so reports in those chunks whose Q answer was non-stale at evaluation time were excluded from #1 — even though they would have been stale under the new Q. This gap is **self-healing**: #2's scope query (re-running over the whole corpus from scratch) covers them. No special handling needed.
+
+**Practical recommendation.** If #1 has barely started (still PREPARING or just into IN_PROGRESS), Cancel is faster — the new scope absorbs everything anyway. If #1 is mostly done, waiting is cheaper — #2 only has to clean up the stale tail. Either is safe.
 
 ### Database growth
 
