@@ -1,4 +1,5 @@
 from collections import defaultdict
+from datetime import datetime
 from typing import Mapping
 
 from radis.reports.models import Report
@@ -28,3 +29,19 @@ def upsert_answers(
             question=q,
             defaults={"value": parsed[key]},
         )
+
+
+def _group_answers_are_current(
+    questions: list[Question],
+    existing: dict[int, Answer],
+    report_updated_at: datetime,
+) -> bool:
+    for q in questions:
+        a = existing.get(q.id)
+        if a is None:
+            return False
+        if a.generated_at < q.updated_at:
+            return False
+        if a.generated_at < report_updated_at:
+            return False
+    return True
