@@ -9,14 +9,15 @@ from radis.reports.factories import ReportFactory
 
 @pytest.mark.acceptance
 @pytest.mark.django_db(transaction=True)
-def test_ingest_path_labels_a_report_end_to_end():
+def test_ingest_path_labels_a_report_end_to_end(mock_chat_client):
     """End-to-end smoke test: handler defers a job, an in-process worker drains
-    the llm queue, the real ChatClient calls the LLM, and an Answer row is written.
+    the llm queue, the (mocked) ChatClient is invoked, and an Answer row is written.
 
-    Uses transaction=True so the deferred procrastinate_job row is committed and
-    visible to the worker connector. The worker runs in this test process via
-    ``run_worker_once`` (the standard ADIT/RADIS-shared pattern), so it sees
-    ``test_postgres`` and doesn't depend on the persistent ``llm_worker`` container.
+    Uses ``transaction=True`` so the deferred ``procrastinate_job`` row is committed
+    and visible to the worker connector. The worker runs in this test process via
+    ``run_worker_once`` (the ADIT/RADIS-shared pattern), so it sees ``test_postgres``
+    and doesn't depend on the persistent ``llm_worker`` container. ``mock_chat_client``
+    replaces the LLM call with a deterministic Schema response (all fields ``"YES"``).
     """
     q = QuestionFactory(
         label="lungs_clear",
@@ -31,8 +32,10 @@ def test_ingest_path_labels_a_report_end_to_end():
     # trigger: it defers a Procrastinate job on the 'llm' queue.
     _label_reports_handler([report])
 
-    # Synchronously drain queued jobs in-process.
+    # Synchronously drain queued jobs in-process. The worker invokes the (mocked)
+    # ChatClient on the report's question group.
     run_worker_once()
 
     answer = Answer.objects.get(report=report, question=q)
     assert answer.value == "YES"
+    assert mock_chat_client.call_count == 1

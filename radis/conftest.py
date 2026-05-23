@@ -1,6 +1,9 @@
 import nest_asyncio
 
-pytest_plugins = ["adit_radis_shared.pytest_fixtures"]
+pytest_plugins = [
+    "adit_radis_shared.pytest_fixtures",
+    "radis.chats.utils.testing_helpers",
+]
 
 
 def pytest_configure():
