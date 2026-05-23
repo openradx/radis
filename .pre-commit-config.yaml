@@ -1,0 +1,58 @@
+ci:
+  autoupdate_schedule: quarterly
+  skip: [pyright, djlint-format, djlint-lint]  # language: system hooks can't run on pre-commit.ci
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: check-case-conflict
+      - id: check-json
+      - id: check-toml
+      - id: check-yaml
+      - id: check-executables-have-shebangs
+      - id: check-shebang-scripts-are-executable
+      - id: check-merge-conflict
+      - id: check-added-large-files
+      - id: check-ast
+      - id: debug-statements
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+      - id: mixed-line-ending
+
+  - repo: local
+    hooks:
+      - id: djlint-format
+        name: djlint format
+        entry: uv run djlint --reformat
+        language: system
+        types_or: [html, jinja]
+      - id: djlint-lint
+        name: djlint lint
+        entry: uv run djlint --lint
+        language: system
+        types_or: [html, jinja]
+      - id: pyright
+        name: pyright
+        entry: uv run pyright
+        language: system
+        types: [python]
+        pass_filenames: false
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.12
+    hooks:
+      - id: ruff
+        args: [--fix, --unsafe-fixes, --show-fixes]
+      - id: ruff-format
+
+  - repo: https://github.com/adamchainz/django-upgrade
+    rev: 1.30.0
+    hooks:
+      - id: django-upgrade
+        args: [--target-version, "5.1"]
+
+  - repo: https://github.com/astral-sh/uv-pre-commit
+    rev: 0.11.12
+    hooks:
+      - id: uv-lock
