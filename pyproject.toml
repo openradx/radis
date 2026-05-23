@@ -101,7 +101,7 @@ typeCheckingMode = "basic"
 reportUnnecessaryTypeIgnoreComment = true
 
 [tool.pytest]
-DJANGO_SETTINGS_MODULE = "radis.settings.development"
+DJANGO_SETTINGS_MODULE = "radis.settings.test"
 python_files = ["tests.py", "test_*.py", "*_tests.py"]
 testpaths = ["radis/**/tests", "radis-client/**/tests"]
 log_cli = false
