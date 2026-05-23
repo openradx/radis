@@ -4,6 +4,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from typing import Iterable, Iterator, Mapping
 
+from django import db
 from django.conf import settings
 from django.db import transaction
 from django.db.models import Count, F, Q
@@ -88,15 +89,30 @@ def label_reports_in_parallel(
 ) -> tuple[int, int]:
     chat = client or ChatClient()
     success = failure = 0
-    with ThreadPoolExecutor(max_workers=settings.LABELING_LLM_CONCURRENCY_LIMIT) as executor:
-        futures = [executor.submit(label_report, rid, chat) for rid in report_ids]
-        for f in futures:
-            try:
-                f.result()
-                success += 1
-            except Exception as exc:  # noqa: BLE001 — log and continue.
-                logger.exception("labels.report.failed: %s", exc)
-                failure += 1
+
+    def _worker(rid: int) -> None:
+        # Each worker runs in its own thread with its own DB connection.
+        # Close it on the way out so the connection doesn't linger and
+        # block test-DB teardown.
+        try:
+            label_report(rid, chat)
+        finally:
+            db.close_old_connections()
+
+    try:
+        with ThreadPoolExecutor(
+            max_workers=settings.LABELING_LLM_CONCURRENCY_LIMIT
+        ) as executor:
+            futures = [executor.submit(_worker, rid) for rid in report_ids]
+            for f in futures:
+                try:
+                    f.result()
+                    success += 1
+                except Exception as exc:  # noqa: BLE001 — log and continue.
+                    logger.exception("labels.report.failed: %s", exc)
+                    failure += 1
+    finally:
+        db.close_old_connections()
     return success, failure
 
 
