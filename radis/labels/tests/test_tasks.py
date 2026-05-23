@@ -16,7 +16,9 @@ from radis.reports.factories import ReportFactory
 
 
 def test_label_report_batch_calls_parallel_helper():
-    with patch("radis.labels.tasks.label_reports_in_parallel") as helper:
+    with patch(
+        "radis.labels.tasks.label_reports_in_parallel", return_value=(0, 0)
+    ) as helper:
         label_report_batch(report_ids=[1, 2, 3])
     helper.assert_called_once_with([1, 2, 3])
 
