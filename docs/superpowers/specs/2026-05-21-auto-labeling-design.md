@@ -1,7 +1,7 @@
 # Auto-Labeling Feature — Design
 
 **Status:** Approved design, ready for implementation planning
-**Date:** 2026-05-21
+**Date:** 2026-05-21 (revised 2026-05-26)
 **Owner:** Kai Schlamp
 
 ## Overview
@@ -10,8 +10,8 @@ Add an auto-labeling feature to RADIS that classifies radiology reports against 
 
 Two execution paths share the same labeling logic:
 
-1. **Per-report path** — A `post_save` signal on `Report` (creation and update) enqueues a background task that labels that report against all active questions.
-2. **Backfill path** — An admin-triggered `LabelingJob` walks the existing report corpus and produces missing or stale answers. Only one backfill may be active at a time.
+1. **Periodic scan path** — A Procrastinate periodic task runs on a configurable cron schedule. It finds reports with missing or stale answers and enqueues batched labeling tasks controlled entirely by RADIS. If an admin-triggered backfill is active, the scan skips that tick and yields to the backfill.
+2. **Backfill path** — An admin-triggered `LabelingJob` walks the existing report corpus and produces missing or stale answers. Used for the initial bulk upload and any future large-scale re-labeling (e.g. after a question update). Only one backfill may be active at a time.
 
 Labels surface on the report detail page (badges) and in search (`label:` query filter + facet panel).
 
@@ -88,39 +88,83 @@ No snapshot column, no `is_stale` flag, no row updates when a question is edited
 - `(Answer.report, Answer.question)` is unique. Re-labeling replaces the existing row via `update_or_create`.
 - Cascade deletes on both FKs. Deleting a question with many answers is heavy but acceptable; admins are warned by Django's standard delete confirmation.
 
-## Execution Path 1: Per-Report Labeling
+## Execution Path 1: Periodic Incremental Scan
 
-Driven by `post_save`-style hooks on `Report`. Used for both new reports and report updates.
+Replaces the original signal-based per-report path. RADIS controls batching entirely — no dependency on the shape or cadence of any external ETL pipeline.
+
+### Design rationale
+
+The signal-based approach tied task granularity to the ETL pipeline's call size: a bulk ingest of 1,000 reports would produce 1,000 individual queue tasks. The periodic scan decouples these concerns: reports accumulate in the database via normal ingest, and RADIS labels them on its own schedule in controlled batches.
 
 ### Trigger
 
-Register handlers using the existing extension points in `radis.reports.site`:
+A Procrastinate periodic task registered with `@app.periodic(cron=settings.LABELING_SCAN_CRON)`.
+
+### Guard: yield to active backfill
 
 ```python
-register_reports_created_handler(_label_report_handler)
-register_reports_updated_handler(_label_report_handler)
+if LabelingJob.objects.filter(status__in=LabelingJob.ACTIVE_STATUSES).exists():
+    logger.info("Active LabelingJob found, skipping incremental scan tick.")
+    return
 ```
 
-The handler schedules an enqueue via `transaction.on_commit`, so we never enqueue against a not-yet-visible row:
+When an admin-triggered backfill is running, the scan skips entirely. This prevents duplicate LLM calls and avoids flooding the `llm` queue while the backfill is already draining it. Once the backfill completes, the scan resumes on the next tick.
+
+### Scope
+
+Uses the same "needs work" predicate as the backfill (see Phase 1 above): reports where the count of non-stale answers for active questions is strictly less than the active question count. This covers both missing answers (newly ingested reports) and stale answers (questions edited since last labeling).
+
+### Batch and enqueue
 
 ```python
-def _label_report_handler(report: Report) -> None:
-    transaction.on_commit(lambda: label_single_report.defer(report_id=report.id))
+@app.periodic(cron=settings.LABELING_SCAN_CRON)
+@app.task()
+def incremental_label_scan(timestamp: int) -> None:
+    if LabelingJob.objects.filter(status__in=LabelingJob.ACTIVE_STATUSES).exists():
+        logger.info("Active LabelingJob found, skipping incremental scan tick.")
+        return
+
+    active_question_count = Question.objects.filter(active=True).count()
+    if not active_question_count:
+        return
+
+    report_ids = (
+        Report.objects.annotate(
+            non_stale_count=Count(
+                "answers",
+                filter=Q(
+                    answers__question__active=True,
+                    answers__generated_at__gte=F("answers__question__updated_at"),
+                ),
+            )
+        )
+        .filter(non_stale_count__lt=active_question_count)
+        .order_by("pk")
+        .values_list("id", flat=True)
+        .iterator(chunk_size=1000)
+    )
+
+    for batch in batched(report_ids, settings.LABELING_TASK_BATCH_SIZE):
+        label_report_batch.defer_with_priority(
+            priority=settings.LABELING_PER_REPORT_PRIORITY,
+            report_ids=list(batch),
+        )
 ```
 
 ### Task
 
 ```python
 @app.task(queue="llm")
-def label_single_report(report_id: int) -> None:
-    label_report(report_id)
+def label_report_batch(report_ids: list[int]) -> None:
+    for report_id in report_ids:
+        label_report(report_id)
 ```
 
-Configured with priority `LABELING_PER_REPORT_PRIORITY` (default `1`) — higher than backfill (`0`) so ingest is always reflected promptly, but lower than urgent extractions/subscriptions so it never delays user-initiated work.
+One task per batch of `LABELING_TASK_BATCH_SIZE` reports (default 100). Each task calls `label_report()` sequentially — the same core function used by the backfill processor.
 
 ### Core function
 
-The same function is used by the backfill processor.
+Unchanged from the original spec. Shared between this path and the backfill:
 
 ```python
 def label_report(report_id: int) -> None:
@@ -138,20 +182,18 @@ def label_report(report_id: int) -> None:
         upsert_answers(report, questions, parsed)
 ```
 
-One LLM call per question group. `upsert_answers` uses `update_or_create` per `(report, question)`. `generated_at` is bumped on every write via `auto_now=True`.
-
-### Skip conditions
+### Skip conditions (inside `label_report`)
 
 - `report.body` empty/whitespace.
 - No active questions.
 
 ### Failure handling
 
-Procrastinate retries with backoff on transient failures (LLM timeout, network). After exhausted retries, the failure is logged to the `radis.labels` logger; no `AnalysisJob`/`AnalysisTask` rows are produced for the per-report path. Reports that fail to label this way are eventually re-attempted by the next backfill (the same scope query treats "no answer" and "stale answer" identically).
+Procrastinate retries with backoff on transient failures. After exhausted retries, the failure is logged to the `radis.labels` logger. Reports that fail are naturally re-attempted on the next scan tick (the scope query treats "no answer" and "stale answer" identically).
 
-### Burst behavior
+### Scale
 
-Bursts of ~300 reports produce 300 queue rows. The per-report task processes one report sequentially through its question groups (~3 LLM calls × ~3 s ≈ ~9 s per report); the queue drains as Procrastinate workers pick up tasks. The exact wall-clock duration depends on the deployed worker count and per-worker Procrastinate concurrency. The `llm` queue may backlog momentarily under sustained heavy ingest; that is documented as expected behavior, not a v1 blocker.
+At ~100 reports/day and default batch size 100, each tick produces at most one queue task. At sustained ingest bursts, a handful of tasks are created per tick. The queue drains between ticks at typical LLM throughput. No task explosion tied to ETL call size.
 
 ## Execution Path 2: Backfill
 
@@ -364,7 +406,7 @@ Rendering rules:
 - `value=YES` → solid badge with the label color.
 - `value=MAYBE` → outlined badge with a `?` suffix or warning outline, visually distinct from YES.
 - `value=NO` → not rendered.
-- Stale answer (`generated_at < question.updated_at`) → muted style + tooltip "label may be outdated; will be refreshed by next backfill". Rendered anyway, because the previous answer is still the best available signal.
+- Stale answer (`generated_at < question.updated_at`) → muted style + tooltip "label may be outdated; will be refreshed by the next scan or backfill". Rendered anyway, because the previous answer is still the best available signal.
 - No answers for this report yet → small muted line "Labels pending".
 
 Badges are grouped by `question.group` with a small group heading; empty groups (all NO) collapse silently.
@@ -425,6 +467,9 @@ LABELING_BACKFILL_PRIORITY   = env.int("LABELING_BACKFILL_PRIORITY",   default=0
 LABELING_TASK_BATCH_SIZE       = env.int("LABELING_TASK_BATCH_SIZE",       default=100)
 LABELING_LLM_CONCURRENCY_LIMIT = env.int("LABELING_LLM_CONCURRENCY_LIMIT", default=6)
 
+# Cron schedule for the periodic incremental scan (default: every 15 minutes).
+LABELING_SCAN_CRON = env.str("LABELING_SCAN_CRON", default="*/15 * * * *")
+
 LABELING_SYSTEM_PROMPT = env.str("LABELING_SYSTEM_PROMPT", default=DEFAULT_LABELING_SYSTEM_PROMPT)
 ```
 
@@ -461,7 +506,7 @@ No new Procrastinate queue, no new container. The existing `llm_worker` drains t
 | Urgent subscriptions                | 4        |
 | Urgent extractions / default subs   | 3        |
 | Default extractions                 | 2        |
-| Per-report labeling                 | 1        |
+| Incremental scan batches            | 1        |
 | Backfill labeling                   | 0        |
 
 **Documented operational fact:** during sustained ingest bursts, backfill makes near-zero progress. This is the intended trade-off.
@@ -476,7 +521,7 @@ Cascade deletes on Report and Question are CASCADE. Deleting a question with ~1M
 
 A dedicated logger `radis.labels`:
 
-- `INFO` on per-report task start/finish (report ID + duration).
+- `INFO` on batch task start/finish (batch size + duration).
 - `WARNING` on skip (empty body, no active questions).
 - `ERROR` with full traceback on LLM failure after retries.
 
@@ -490,20 +535,21 @@ Ops one-liner: `docker compose logs llm_worker | grep "radis.labels"`.
 
 ### Documentation updates
 
-- `CLAUDE.md`: add `radis.labels` to the Django Apps list; add the four new env vars; add a Troubleshooting subsection ("Labels not appearing", "Backfill stuck in PREPARING").
+- `CLAUDE.md`: add `radis.labels` to the Django Apps list; add the five new env vars (including `LABELING_SCAN_CRON`); add a Troubleshooting subsection ("Labels not appearing", "Backfill stuck in PREPARING", "Incremental scan not running").
 - `KNOWLEDGE.md`: document prompt design choices (YES/NO/MAYBE, group batching), and the rule of thumb that questions should be answerable from the report body alone.
-- `example.env`: the four new env vars with comments and defaults.
+- `example.env`: the five new env vars with comments and defaults.
 
 ### Existing-system touchpoints
 
 Few and small, by design:
 
-1. `radis/reports/site.py` — register create/update handlers (existing extension point).
-2. `radis/reports/admin.py` — add `AnswerInline` to `ReportAdmin.inlines` (one-line patch).
-3. `radis/search/parser.py` — register `label:` as a known field filter (existing extension point).
-4. `radis/pgsearch/` — translator for the `label:` AST node into a `Q` object.
-5. `radis/settings/base.py` — new settings block (additive).
-6. Templates — new Cotton component, included on the report detail template and the search facet panel.
+1. `radis/reports/admin.py` — add `AnswerInline` to `ReportAdmin.inlines` (one-line patch).
+2. `radis/search/parser.py` — register `label:` as a known field filter (existing extension point).
+3. `radis/pgsearch/` — translator for the `label:` AST node into a `Q` object.
+4. `radis/settings/base.py` — new settings block (additive).
+5. Templates — new Cotton component, included on the report detail template and the search facet panel.
+
+Note: no touch to `radis/reports/site.py`. The periodic scan path does not use the reports created/updated handler extension points.
 
 ## Testing Strategy
 
@@ -521,10 +567,13 @@ Few and small, by design:
 
 ### Integration tests (LLM mocked)
 
-- **Per-report signal fires post-commit** (`test_signals.py`) — using `django_capture_on_commit_callbacks`, the task is enqueued on commit, not before; idempotent on update.
 - **`label_report` end-to-end** (`test_label_report.py`) — monkeypatched `ChatClient.extract_data`. Two question groups → two LLM calls with the right questions; answers upserted; `generated_at` bumped on re-run; MAYBE preserved.
 - **Skip conditions** (`test_skips.py`) — empty body / no active questions / inactive question → no LLM call.
 - **Backfill task processor** (`test_processor.py`) — three reports in one task; partial failure on one yields task `WARNING`; successful reports still have answers written; `update_job_state` promotes the job correctly.
+- **Incremental scan: guard** (`test_scan.py`) — when an active `LabelingJob` exists, `incremental_label_scan` returns without queuing any tasks.
+- **Incremental scan: batching** (`test_scan.py`) — 250 unlabeled reports with default batch size 100 → 3 `label_report_batch` tasks deferred (100, 100, 50); reports already fully labeled are excluded.
+- **Incremental scan: stale** (`test_scan.py`) — reports with stale answers (question edited after answer written) are included in the scan scope.
+- **`label_report_batch` task** (`test_scan.py`) — calls `label_report()` for each report ID in the batch; failures on one report do not prevent others from being processed.
 
 ### Admin tests
 
@@ -544,7 +593,7 @@ Few and small, by design:
 
 ### One real-LLM acceptance test (`@pytest.mark.acceptance`, `cpu` profile)
 
-- Create one question ("Is the chest clear?"), ingest a synthetic report stating "No abnormalities, lungs clear.", wait for the per-report task, assert an `Answer` row with `value=YES` appears. Sanity that the wiring works against the real LLM stack. Not a regression suite.
+- Create one question ("Is the chest clear?"), ingest a synthetic report stating "No abnormalities, lungs clear.", trigger `incremental_label_scan` directly (bypass the cron schedule), assert an `Answer` row with `value=YES` appears. Sanity that the wiring works against the real LLM stack. Not a regression suite.
 
 ### Out of scope (test-wise)
 
