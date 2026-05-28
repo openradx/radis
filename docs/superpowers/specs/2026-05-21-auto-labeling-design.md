@@ -264,6 +264,7 @@ class LabelingTask(AnalysisTask):
 @app.task()
 def process_labeling_job(job_id: int) -> None:
     job = LabelingJob.objects.get(id=job_id)
+    job.tasks.all().delete()  # wipe partial rows from any prior crashed attempt
     job.status = AnalysisJob.Status.PREPARING
     job.started_at = timezone.now()
     job.save()
@@ -276,6 +277,8 @@ def process_labeling_job(job_id: int) -> None:
 ```
 
 `create_labeling_tasks_streaming` iterates `Report.objects.order_by("pk").iterator(chunk_size=1000)`. For each chunk it identifies reports needing work using `_needs_work_queryset` and bulk-creates `LabelingTask` rows of `LABELING_TASK_BATCH_SIZE` reports each.
+
+The `tasks.all().delete()` at the top makes the preparation phase idempotent. If Procrastinate retries the task after a crash mid-streaming, any partial `LabelingTask` rows from the previous attempt are cleared before streaming restarts. The cost is bounded — only this job's own tasks are deleted, however many the prior attempt managed to create.
 
 ### "Needs work" predicate
 
@@ -330,6 +333,7 @@ def process_labeling_task(task_id: int) -> None:
 
 - **Cancel:** admin clicks Cancel → status flips to `CANCELING`. The base processor marks tasks `CANCELED`.
 - **Resume:** the next backfill recomputes its scope from current state. Non-stale pairs are skipped. Backfill is idempotent and safe to start, cancel, and restart.
+- **Procrastinate retry after crash:** if `process_labeling_job` raises before completing, Procrastinate retries it. The `tasks.all().delete()` at the top ensures any partial `LabelingTask` rows from the failed attempt are wiped before the preparation phase reruns.
 
 ### Scale estimate
 
@@ -653,6 +657,7 @@ No touch to `radis/reports/site.py` — the periodic scan does not use the repor
 - **Stale detection** (`test_stale_detection.py`) — assert answer and gate-answer stale predicates over hand-built rows.
 - **Backfill scope query** (`test_scope.py`) — reports covering all combinations of answer/gate-answer freshness; the scope query returns exactly those needing work.
 - **Singleton backfill** (`test_singleton.py`) — second concurrent active `LabelingJob` raises `IntegrityError`.
+- **Backfill restart safety** (`test_singleton.py`) — if `process_labeling_job` is called twice for the same job (simulating a Procrastinate retry), partial `LabelingTask` rows from the first call are deleted before the second call recreates them; no duplicates result.
 - **Cascade and uniqueness** (`test_models.py`) — group delete cascades to questions and gate answers; question delete cascades to answers; unique constraints enforced; upserts work.
 
 ### Integration tests (LLM mocked)
