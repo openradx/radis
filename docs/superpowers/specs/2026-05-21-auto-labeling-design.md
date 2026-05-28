@@ -10,7 +10,7 @@ Add an auto-labeling feature to RADIS that classifies radiology reports against 
 
 Two execution paths share the same labeling logic:
 
-1. **Periodic scan path** — A Procrastinate periodic task runs on a configurable cron schedule. It finds reports created since the last scan tick and enqueues batched labeling tasks. If an admin-triggered backfill is active, the scan advances its checkpoint and yields to the backfill for that tick.
+1. **Periodic scan path** — A Procrastinate periodic task runs on a configurable cron schedule. It finds reports created since the last scan tick and enqueues batched labeling tasks. If an admin-triggered backfill is active, the scan yields to the backfill for that tick without enqueuing anything and without advancing the checkpoint.
 2. **Backfill path** — An admin-triggered `LabelingJob` walks the existing report corpus and produces missing or stale answers. Used for the initial bulk upload and any future large-scale re-labeling (e.g. after a question update). Only one backfill may be active at a time.
 
 Labels surface on the report detail page (badges) and in search (`label:` query filter + facet panel).
