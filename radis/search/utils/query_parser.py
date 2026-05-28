@@ -312,3 +312,33 @@ class QueryParser:
             )
         else:
             raise ValueError(f"Unknown node type: {type(node)}")
+
+    @staticmethod
+    def unparse_for_embedding(node: QueryNode) -> str:
+        """Like ``unparse``, but drops the operand of every ``UnaryNode("NOT", X)``
+        and collapses any ``BinaryNode`` whose children both become empty.
+        Returns the empty string if the whole query reduces to NOT clauses.
+
+        Used by the hybrid-search vector half to avoid polarity-blind embedding
+        of negated terms (see spec 2026-05-28-hybrid-search §7.8).
+        """
+        if isinstance(node, TermNode):
+            return QueryParser.unparse(node)
+        if isinstance(node, ParensNode):
+            inner = QueryParser.unparse_for_embedding(node.expression)
+            return f"({inner})" if inner else ""
+        if isinstance(node, UnaryNode):
+            return ""
+        if isinstance(node, BinaryNode):
+            left = QueryParser.unparse_for_embedding(node.left)
+            right = QueryParser.unparse_for_embedding(node.right)
+            if not left and not right:
+                return ""
+            if not left:
+                return right
+            if not right:
+                return left
+            if node.implicit:
+                return f"{left} {right}"
+            return f"{left} {node.operator} {right}"
+        raise ValueError(f"Unknown node type: {type(node)}")
