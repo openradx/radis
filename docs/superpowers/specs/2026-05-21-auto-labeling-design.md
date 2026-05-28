@@ -1,7 +1,7 @@
 # Auto-Labeling Feature — Design
 
 **Status:** Approved design, ready for implementation planning
-**Date:** 2026-05-21 (revised 2026-05-26)
+**Date:** 2026-05-21 (revised 2026-05-27)
 **Owner:** Kai Schlamp
 
 ## Overview
@@ -10,7 +10,7 @@ Add an auto-labeling feature to RADIS that classifies radiology reports against 
 
 Two execution paths share the same labeling logic:
 
-1. **Periodic scan path** — A Procrastinate periodic task runs on a configurable cron schedule. It finds reports with missing or stale answers and enqueues batched labeling tasks controlled entirely by RADIS. If an admin-triggered backfill is active, the scan skips that tick and yields to the backfill.
+1. **Periodic scan path** — A Procrastinate periodic task runs on a configurable cron schedule. It finds reports created since the last scan tick and enqueues batched labeling tasks. If an admin-triggered backfill is active, the scan advances its checkpoint and yields to the backfill for that tick.
 2. **Backfill path** — An admin-triggered `LabelingJob` walks the existing report corpus and produces missing or stale answers. Used for the initial bulk upload and any future large-scale re-labeling (e.g. after a question update). Only one backfill may be active at a time.
 
 Labels surface on the report detail page (badges) and in search (`label:` query filter + facet panel).
@@ -100,6 +100,21 @@ class GateAnswer(models.Model):
         indexes = [
             models.Index(fields=["question_group", "value"]),
         ]
+
+
+class LabelingScanCheckpoint(models.Model):
+    last_scanned_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        verbose_name = "Labeling scan checkpoint"
+        constraints = [
+            models.CheckConstraint(check=models.Q(id=1),
+                                   name="singleton_labeling_scan_checkpoint"),
+        ]
+
+    def save(self, *args, **kwargs):
+        self.pk = 1
+        super().save(*args, **kwargs)
 ```
 
 ### Stale detection
@@ -125,23 +140,21 @@ Replaces the original signal-based per-report path. RADIS controls batching enti
 
 The signal-based approach tied task granularity to the ETL pipeline's call size: a bulk ingest of 1,000 reports would produce 1,000 individual queue tasks. The periodic scan decouples these concerns: reports accumulate in the database via normal ingest, and RADIS labels them on its own schedule in controlled batches.
 
+The scan's responsibility is narrow: label newly ingested reports. Finding reports with missing or stale answers (e.g. after a question edit) is exclusively the backfill's job.
+
 ### Trigger
 
 A Procrastinate periodic task registered with `@app.periodic(cron=settings.LABELING_SCAN_CRON)`.
 
+### Checkpoint
+
+`LabelingScanCheckpoint` (single row, `pk=1`) tracks `last_scanned_at`. The scan queries `Report.objects.filter(created_at__gte=last_scanned_at)` and advances the checkpoint to the current tick's timestamp at the end of every tick — including ticks that are skipped due to an active backfill.
+
+On the very first tick (`last_scanned_at is None`), the scan records the current timestamp and exits without enqueuing anything. Existing reports at that point must be handled by the backfill.
+
 ### Guard: yield to active backfill
 
-```python
-if LabelingJob.objects.filter(status__in=LabelingJob.ACTIVE_STATUSES).exists():
-    logger.info("Active LabelingJob found, skipping incremental scan tick.")
-    return
-```
-
-When an admin-triggered backfill is running, the scan skips entirely. Once the backfill completes, the scan resumes on the next tick.
-
-### Scope
-
-Uses the same "needs work" predicate as the backfill (see Phase 1 below).
+When an admin-triggered backfill is running, the scan advances the checkpoint to `now` and returns without enqueuing. This makes the backfill the sole owner of new-report labeling during its run; once the backfill completes the scan resumes from the advanced checkpoint and only sees reports ingested after the backfill finished.
 
 ### Batch and enqueue
 
@@ -149,19 +162,26 @@ Uses the same "needs work" predicate as the backfill (see Phase 1 below).
 @app.periodic(cron=settings.LABELING_SCAN_CRON)
 @app.task()
 def incremental_label_scan(timestamp: int) -> None:
+    now = datetime.fromtimestamp(timestamp, tz=timezone.utc)
+    checkpoint, _ = LabelingScanCheckpoint.objects.get_or_create(pk=1)
+
     if LabelingJob.objects.filter(status__in=LabelingJob.ACTIVE_STATUSES).exists():
-        logger.info("Active LabelingJob found, skipping incremental scan tick.")
+        logger.info("Active LabelingJob found, advancing checkpoint and skipping scan tick.")
+        checkpoint.last_scanned_at = now
+        checkpoint.save()
         return
 
-    active_question_count = Question.objects.filter(active=True).count()
-    active_group_count = (
-        QuestionGroup.objects.filter(questions__active=True).distinct().count()
-    )
-    if not active_question_count:
+    if checkpoint.last_scanned_at is None:
+        # First run: record this moment; existing reports belong to the backfill.
+        checkpoint.last_scanned_at = now
+        checkpoint.save()
+        return
+
+    if not Question.objects.filter(active=True).exists():
         return
 
     report_ids = (
-        _needs_work_queryset(active_question_count, active_group_count)
+        Report.objects.filter(created_at__gte=checkpoint.last_scanned_at)
         .order_by("pk")
         .values_list("id", flat=True)
         .iterator(chunk_size=1000)
@@ -172,6 +192,9 @@ def incremental_label_scan(timestamp: int) -> None:
             priority=settings.LABELING_PER_REPORT_PRIORITY,
             report_ids=list(batch),
         )
+
+    checkpoint.last_scanned_at = now
+    checkpoint.save()
 ```
 
 ### Task
@@ -246,7 +269,7 @@ def process_labeling_job(job_id: int) -> None:
 
 ### "Needs work" predicate
 
-Shared between the scan and backfill. A report needs work if **either** condition holds:
+Used exclusively by the backfill. A report needs work if **either** condition holds:
 
 ```python
 def _needs_work_queryset(
@@ -455,6 +478,20 @@ class QuestionAdmin(admin.ModelAdmin):
     )
 ```
 
+### `LabelingScanCheckpointAdmin`
+
+Read-only ops view showing the current checkpoint timestamp:
+
+```python
+class LabelingScanCheckpointAdmin(admin.ModelAdmin):
+    list_display    = ("last_scanned_at",)
+    readonly_fields = ("last_scanned_at",)
+
+    def has_add_permission(self, request):    return False
+    def has_change_permission(self, *a):      return False
+    def has_delete_permission(self, *a):      return False
+```
+
 ### `LabelingJobAdmin`
 
 Unchanged from original spec. The backfill cockpit with Run/Cancel banner and live progress panel.
@@ -575,7 +612,7 @@ No new queues or containers. Priority table unchanged:
 ### Observability
 
 - Live progress in `LabelingJobAdmin` change form.
-- Management command `uv run cli labels-status`: total reports, fully-current count, missing/stale count, per-question Yes/Maybe/No/stale counts, per-group gate Yes/Maybe/No/stale counts.
+- Management command `uv run cli labels-status`: last scan checkpoint timestamp (or "never"), total reports, fully-current count, missing/stale count, per-question Yes/Maybe/No/stale counts, per-group gate Yes/Maybe/No/stale counts.
 - No Prometheus metrics in v1.
 
 ### Documentation updates
@@ -620,8 +657,10 @@ No touch to `radis/reports/site.py` — the periodic scan does not use the repor
 - **Stale answer in NO-gated group** → synthetic NOs re-written (generated_at bumped), no LLM call.
 - **Skip conditions** (`test_skips.py`) — empty body / no active questions → no LLM call.
 - **Backfill task processor** (`test_processor.py`) — partial failure on one report yields task `WARNING`; successful reports still have answers written.
-- **Incremental scan: guard** (`test_scan.py`) — active `LabelingJob` → scan returns without queuing.
-- **Incremental scan: batching** (`test_scan.py`) — 250 unlabeled reports → 3 batch tasks deferred (100, 100, 50).
+- **Incremental scan: first run** (`test_scan.py`) — null checkpoint → no tasks deferred, checkpoint created and set to `now`.
+- **Incremental scan: guard** (`test_scan.py`) — active `LabelingJob` → checkpoint advances to `now`, no tasks deferred.
+- **Incremental scan: batching** (`test_scan.py`) — 250 reports with `created_at` after the checkpoint → 3 batch tasks deferred (100, 100, 50); reports with `created_at` before the checkpoint produce zero tasks.
+- **Incremental scan: checkpoint singleton** (`test_scan.py`) — calling `save()` twice on separate `LabelingScanCheckpoint` instances does not create a second row; `has_add_permission` returns `False` in admin.
 
 ### Admin tests
 
