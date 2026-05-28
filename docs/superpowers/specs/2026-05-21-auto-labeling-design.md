@@ -425,13 +425,15 @@ def label_report(report_id: int) -> None:
 
 | Gate was | Gate is now | Regular answers | Action |
 |---|---|---|---|
-| YES/MAYBE | YES/MAYBE | Non-stale | Nothing |
-| YES/MAYBE | YES/MAYBE | Stale/missing | Run question set only |
-| YES/MAYBE | NO | Any | Write synthetic NOs |
-| NO | YES/MAYBE | Any | Run question set (synthetic → real) |
-| NO | NO | Any | Re-write synthetic NOs (bump `generated_at`) |
-| missing | YES/MAYBE | Any | Run question set |
-| missing | NO | Any | Write synthetic NOs |
+| YES/MAYBE | YES/MAYBE | Non-stale | Save gate answer |
+| YES/MAYBE | YES/MAYBE | Stale/missing | Save gate answer + run question set |
+| YES/MAYBE | NO | Any | Save gate answer + write synthetic NOs |
+| NO | YES/MAYBE | Any | Save gate answer + run question set |
+| NO | NO | Any | Save gate answer + re-write synthetic NOs (bump `generated_at`) |
+| missing | YES/MAYBE | Any | Save gate answer + run question set |
+| missing | NO | Any | Save gate answer + write synthetic NOs |
+
+"Gate is now" represents the LLM's re-evaluation result — these rows apply when the gate was stale or missing. `GateAnswer.update_or_create` is always called, which bumps `generated_at` even when the value is unchanged. When the gate is fresh (not re-evaluated), the gate answer is not saved; if the stored value is YES/MAYBE and answers are fresh, no action is taken.
 
 ### LLM call count (20 groups, gate batch 10, 3 pass gate)
 
