@@ -2,14 +2,8 @@
 
 **Status:** Draft — design phase
 **Author:** RADIS team (Samuel Kwong)
-**Date:** 2026-05-15 (revised 2026-05-28)
+**Date:** 2026-05-15
 **Implementation skill (next step):** `writing-plans`
-
-**Revision 2026-05-28:** §6 ("Async indexing") was redesigned around a periodic
-`EmbeddingJob` / `EmbeddingTask` orchestrator instead of a `post_save`-driven
-per-report task. Affected sections: §3 (architecture diagram & file table), §4.5
-(model-change procedure), §5.4 (dev recipe), §6 (full replacement), §8
-(settings), §9 (failure modes), §10 (testing), §12 (rollout).
 
 ---
 
@@ -38,7 +32,7 @@ The public `SearchProvider` API (`radis.search.site`) is unchanged. Callers — 
 - No per-query UI toggle for semantic vs. lexical. Hybrid is the new default.
 - No Vespa, Elasticsearch, or OpenSearch adapter.
 - No solution for negation/polarity (§11 documents this as known future work).
-- No automated re-embedding when `EMBEDDING_DIM` changes. That is a manual operator procedure: drop column, re-migrate, defer the embedding orchestrator (see §4.5).
+- No automated re-embedding when `EMBEDDING_DIM` changes. That is a manual operator procedure: drop column, re-migrate, run `backfill_embeddings`.
 - No on-disk vector quantization. Float32 storage from day one; revisit if RAM pressure appears.
 
 ## 3. Architecture
@@ -67,42 +61,22 @@ The public `SearchProvider` API (`radis.search.site`) is unchanged. Callers — 
 └──────────────────────────────────────────────────────────────────────┘
 
 ┌──────────────────────────────────────────────────────────────────────┐
-│  Async indexing path  (Job/Task orchestrator, periodic-driven)       │
+│  Async indexing path                                                 │
 │                                                                      │
-│  cron (settings.EMBEDDING_DRAIN_CRON, default nightly 02:00)         │
-│        │                                                             │
-│        ▼                                                             │
-│  embedding_launcher() — `default` queue                              │
-│    ├─ queueing_lock="embedding_launcher"                             │
-│    ├─ skip if any EmbeddingJob in PREPARING/PENDING/IN_PROGRESS      │
-│    ├─ skip if no rows with embedding IS NULL                         │
-│    └─ EmbeddingJob.objects.create(...) → job.delay()                 │
+│  Report.save() ──post_save──► enqueue_embed_reports([id])            │
+│                                  │                                   │
+│                                  ▼                                   │
+│                       Procrastinate queue: "embeddings"              │
+│                                  │                                   │
+│                                  ▼                                   │
+│  embeddings_worker ──► embed_reports(ids)                            │
+│                          ├─ EmbeddingClient.embed_documents(...)     │
+│                          ├─ L2-normalize                             │
+│                          └─ ReportSearchVector.objects.update()      │
 │                                                                      │
-│  process_embedding_job(job_id) — `default` queue                     │
-│    ├─ iterate ReportSearchVector with embedding IS NULL              │
-│    ├─ chunk by EMBEDDING_BATCH_SIZE → EmbeddingTask rows             │
-│    ├─ task.reports.set(chunk); task.delay()  (no HTTP work)          │
-│    └─ job.status = PENDING; return                                   │
-│                                                                      │
-│  process_embedding_task(task_id) — `embeddings` queue                │
-│    ├─ EmbeddingClient.embed_documents([r.body for r in task.reports])│
-│    ├─ L2-normalize; bulk_update ReportSearchVector.embedding         │
-│    ├─ task.status = SUCCESS/FAILURE; clear queued_job_id             │
-│    └─ job.update_job_state()                                         │
-│                                                                      │
-│  Operator-triggered drain: from a Django shell run                   │
-│  `embedding_launcher.defer()` — same code path as periodic.          │
+│  ./manage.py backfill_embeddings ──► batched enqueue on same queue   │
 └──────────────────────────────────────────────────────────────────────┘
 ```
-
-The bulk-upsert API path (`reports/api/viewsets.py:_bulk_upsert_reports`)
-already creates `ReportSearchVector` rows with `embedding=NULL` via the FTS
-indexing call in its `on_commit` block. The single-create API path goes through
-the standard `Report.save()` and the FTS `post_save` signal, which likewise
-creates the `ReportSearchVector` row with NULL embedding. Both ingest paths
-deposit work into the same DB-resident pending pool; the orchestrator drains it
-on the next periodic tick (or on an operator-triggered defer). There is no
-per-API-call embedding job.
 
 **Components added inside `radis.pgsearch`:**
 
@@ -111,12 +85,11 @@ per-API-call embedding job.
 | `utils/embedding_client.py` | Sync + async HTTP clients with pluggable backends (`openai`, `ollama`) |
 | `migrations/0002_pgvector_extension.py` | `CREATE EXTENSION IF NOT EXISTS vector;` |
 | `migrations/0003_report_embedding.py` | Adds `embedding vector(N)` column + HNSW index |
-| `migrations/0004_embedding_job_task.py` | Adds `EmbeddingJob` and `EmbeddingTask` tables + M2M to `Report` |
-| `migrations/0005_system_user.py` | Data migration: creates the system user if missing |
-| `models.py` (modified) | Adds `embedding` field + `HnswIndex`; defines `EmbeddingJob` and `EmbeddingTask` inheriting `AnalysisJob`/`AnalysisTask` |
-| `signals.py` (unchanged from FTS-only) | The FTS `create_or_update_report_search_vector` receiver stays; **no embedding signal** |
-| `tasks.py` (modified) | Adds `embedding_launcher` (periodic), `process_embedding_job` (`default` queue), `process_embedding_task` (`embeddings` queue) |
+| `models.py` (modified) | Adds `embedding` field + `HnswIndex` |
+| `signals.py` (modified) | Adds second `post_save` receiver to enqueue embedding |
+| `tasks.py` (modified) | Adds `embed_reports` Procrastinate task on `embeddings` queue |
 | `providers.py` (modified) | Replaces `search()` and `retrieve()` bodies with hybrid logic |
+| `management/commands/backfill_embeddings.py` | Idempotent backfill command |
 | `tests/...` | Coverage per §10 |
 
 **Infrastructure additions:**
@@ -186,23 +159,17 @@ class ReportSearchVector(models.Model):
         ]
 ```
 
-`embedding` is nullable: the row exists from the moment a `Report` is created (FTS path), but its embedding is filled asynchronously by `process_embedding_task` (§6.7). A NULL embedding is treated as "not embedded yet" at query time, and the row participates via the FTS half only.
+`embedding` is nullable: the row exists from the moment a `Report` is created (FTS path), but its embedding is filled asynchronously by `embed_reports`. A NULL embedding is treated as "not embedded yet" at query time, and the row participates via the FTS half only.
 
-`save()` on `ReportSearchVector` retains its current behavior of recomputing `search_vector` from `report.body`. The embedding column is written **only** by `process_embedding_task` via `bulk_update()`, never by `save()`, to avoid triggering the FTS signal recursively and to keep the two indexing paths independent.
+`save()` on `ReportSearchVector` retains its current behavior of recomputing `search_vector` from `report.body`. The embedding column is written **only** by the embedding task via `update()`, never by `save()`, to avoid triggering the FTS signal recursively and to keep the two indexing paths independent.
 
 ### 4.5 Operational note on `EMBEDDING_DIM`
 
-pgvector columns and HNSW indexes are bound to a fixed dimension at create time, and HNSW has a 2000-dim ceiling (so `EMBEDDING_DIM ≤ 2000`; Qwen3-Embedding-4B's native 2560 is Matryoshka-truncated client-side). A Django system check (`pgsearch.E001`) compares `settings.EMBEDDING_DIM` against the literal in migration 0003 and fails `manage.py check` on mismatch. Changing `EMBEDDING_DIM` after deploy requires a manual operator procedure:
+pgvector columns and HNSW indexes are bound to a fixed dimension at create time. Changing `EMBEDDING_DIM` after deploy requires a manual operator procedure:
 
 1. Drop the HNSW index and the `embedding` column.
 2. Re-run `0003_report_embedding` with the new `EMBEDDING_DIM`.
-3. From a Django shell, defer the embedding orchestrator immediately so the
-   next nightly tick is not waited for:
-
-   ```python
-   from radis.pgsearch.tasks import embedding_launcher
-   embedding_launcher.defer()
-   ```
+3. Run `./manage.py backfill_embeddings`.
 
 This is documented as a deployment-time decision and intentionally not automated.
 
@@ -217,7 +184,7 @@ This is documented as a deployment-time decision and intentionally not automated
 - `class OllamaBackend(EmbeddingBackend)` — default path `/api/embed`, body `{model, input: [...]}`, response `{embeddings: [[...]]}`.
 - `BACKENDS: dict[str, EmbeddingBackend] = {"openai": OpenAIBackend(), "ollama": OllamaBackend()}`.
 - `class EmbeddingClientError(Exception)`.
-- `class EmbeddingClient` — sync client used by `process_embedding_task` and the query path.
+- `class EmbeddingClient` — sync client used by `embed_reports` task and the query path.
 - `class AsyncEmbeddingClient` — async variant, kept for parity with `chats/utils/chat_client.py` and so the query path can call it from ASGI views without `async_to_sync` later.
 
 ### 5.2 Interface
@@ -256,7 +223,7 @@ class EmbeddingClient:
 - **Truncation:** any text longer than `EMBEDDING_MAX_INPUT_CHARS` is truncated at the character limit before being sent. A WARNING is logged with the report id (when known) and char count. Qwen3-Embedding-4B supports up to 32k tokens, so truncation will be rare for radiology bodies but is bounded as a defense against pathological inputs.
 - **Normalization:** every returned vector is L2-normalized client-side, unconditionally. With unit vectors, cosine distance is monotonic in dot product, which makes the HNSW `vector_cosine_ops` operator effectively a fast inner-product search. Whether the upstream server normalizes is irrelevant.
 - **Dimension validation:** every vector is checked to have length `EMBEDDING_DIM`. A mismatch raises `EmbeddingClientError`.
-- **Batching:** `embed_documents` sends a single HTTP call per invocation. The higher-level orchestrator (`process_embedding_job`) groups reports into `EmbeddingTask` batches of `EMBEDDING_BATCH_SIZE` before dispatching them to `process_embedding_task`.
+- **Batching:** `embed_documents` sends a single HTTP call per invocation. Higher-level callers (`embed_reports` task) split into batches of `EMBEDDING_BATCH_SIZE` before calling.
 - **Errors:** non-2xx, timeout, malformed JSON, missing key, or wrong dim all raise `EmbeddingClientError`. The client never falls back internally — fallback policy is owned by the caller.
 - **Dev recipe (Ollama):**
   ```bash
@@ -267,71 +234,24 @@ class EmbeddingClient:
   EMBEDDING_MODEL_NAME=dengcao/Qwen3-Embedding-4B:Q5_K_M
   EMBEDDING_DIM=2560
   ```
-  GGUF-quantized embedding models produce slightly different vectors than the bf16 reference, so dev embeddings are not interchangeable with prod embeddings. After swapping the model between dev/prod, defer the embedding orchestrator from a Django shell (see §4.5).
+  GGUF-quantized embedding models produce slightly different vectors than the bf16 reference, so dev embeddings are not interchangeable with prod embeddings. After swapping the model between dev/prod, run `backfill_embeddings`.
 
-## 6. Async indexing (Job/Task orchestrator)
+## 6. Async indexing
 
-The embedding lifecycle uses the same Job/Task pattern as `ExtractionJob` /
-`ExtractionTask` (`radis/extractions/tasks.py:32`) and `SubscriptionJob` /
-`SubscriptionTask` (`radis/subscriptions/tasks.py:33`). A periodic launcher
-creates one `EmbeddingJob` per drain run; the orchestrator splits pending
-reports into `EmbeddingTask` batches; each task is processed on the
-`embeddings` queue.
+### 6.1 Queue and worker
 
-### 6.1 Why a Job/Task orchestrator instead of a per-save signal
-
-Two ingest paths exercise RADIS:
-
-- **Single-create** (`POST /api/reports/`) routes through `Report.objects.create`
-  in the serializer (`radis/reports/api/serializers.py:87`). A `post_save`
-  signal here would fire once per API call.
-- **Bulk-upsert** (`POST /api/reports/bulk-upsert`) routes through
-  `Report.objects.bulk_create` / `bulk_update`
-  (`radis/reports/api/viewsets.py:_bulk_upsert_reports`). `post_save` **does
-  not fire** on `bulk_create`. The FTS path rescues itself by explicitly
-  calling `enqueue_bulk_index_reports(touched_ids)` in `on_commit`; an
-  embedding signal would still be skipped on this path.
-
-A per-save signal would therefore either (a) skip the bulk path entirely, or
-(b) produce one Procrastinate job per single-create API call — each opening an
-HTTP connection to the embedding service with batch=1. With ETL pipelines that
-may post one report at a time, this fragments the workload to one job per API
-call and wastes the embedding endpoint's batch capacity.
-
-The orchestrator design accepts a longer freshness window (hours / next-cycle)
-in exchange for batched, throughput-friendly embedding runs that serve all
-three operational scenarios with one mechanism:
-
-| Scenario | What happens |
-|---|---|
-| **Initial bulk upload** (millions of reports via `/bulk-upsert`) | `ReportSearchVector` rows created with `embedding=NULL`. Operator defers the launcher immediately or waits for the next cron tick. One `EmbeddingJob` produces N `EmbeddingTask` batches. |
-| **Daily ad-hoc upload** | Reports land NULL via either ingest path. Next periodic tick consolidates the day's pending pool into a single `EmbeddingJob`. |
-| **Model-change backfill** | Operator follows §4.5 (drop column, re-migrate), then defers the launcher from a shell. Same code path as the periodic. |
-
-### 6.2 Queue and worker
-
-The `embeddings` Procrastinate queue is served by the `embeddings_worker`
-container. The orchestrator (`process_embedding_job`) runs on the `default`
-queue alongside `process_extraction_job` and `process_subscription_job`; the
-sub-tasks (`process_embedding_task`) run on `embeddings`.
+A new Procrastinate queue named **`embeddings`** is added, served by a new container **`embeddings_worker`**. This isolates embedding load from the existing `default` and `llm` queues. The `embeddings` worker's command:
 
 ```
-./manage.py bg_worker -l debug -q embeddings --autoreload --concurrency 4  # dev
-./manage.py bg_worker -l info  -q embeddings --concurrency 4                # prod
+./manage.py bg_worker -l debug -q embeddings --autoreload   # dev
+./manage.py bg_worker -l info  -q embeddings                # prod
 ```
 
-`embeddings_worker` concurrency tunes parallelism against the embedding
-endpoint. Recommended 4; raise if the endpoint has spare throughput, lower if
-it rate-limits. The orchestrator does not run on this queue, so there is no
-self-deadlock condition tied to concurrency on the `embeddings` queue.
+The worker inherits the same image and environment as `default_worker` / `llm_worker` via the existing `&default-app` anchor.
 
-### 6.3 Priorities
+### 6.2 Priorities
 
-Procrastinate priority is "higher = sooner". Embedding work runs at lower
-priority than extraction and subscription so it never starves user-driven LLM
-operations. The orchestrator (`default` queue) and sub-tasks (`embeddings`
-queue) share `EMBEDDING_INDEX_PRIORITY`; there is no separate backfill
-priority because the backfill path is the same orchestrator.
+Procrastinate priority is "higher = sooner". Embedding tasks always run at lower priority than the existing LLM tasks so a backfill never starves extraction/subscription work — though in practice this only matters *within* a queue, and `embeddings` is a separate queue from `llm`. The priorities are still set defensively in case workers are ever consolidated:
 
 | Task | Priority |
 |---|---|
@@ -340,235 +260,60 @@ priority because the backfill path is the same orchestrator.
 | `SUBSCRIPTION_DEFAULT_PRIORITY` (existing) | 3 |
 | `SUBSCRIPTION_URGENT_PRIORITY` (existing) | 4 |
 | `EMBEDDING_INDEX_PRIORITY` (new) | 0 |
+| `EMBEDDING_BACKFILL_PRIORITY` (new) | -1 |
 
-### 6.4 Models
+Backfill below incremental ensures fresh-report embeddings always overtake a backfill job in flight.
 
-`radis/pgsearch/models.py` defines two new models inheriting `AnalysisJob` and
-`AnalysisTask` (`radis/core/models.py:17,220`):
-
-```python
-from radis.core.models import AnalysisJob, AnalysisTask
-
-
-class EmbeddingJob(AnalysisJob):
-    default_priority = settings.EMBEDDING_INDEX_PRIORITY
-    urgent_priority = settings.EMBEDDING_INDEX_PRIORITY  # no urgent variant
-
-    def delay(self) -> None:
-        queued_job_id = app.configure_task(
-            "radis.pgsearch.tasks.process_embedding_job",
-            allow_unknown=False,
-            priority=self.default_priority,
-        ).defer(job_id=self.pk)
-        self.queued_job_id = queued_job_id
-        self.save()
-
-
-class EmbeddingTask(AnalysisTask):
-    job = models.ForeignKey(EmbeddingJob, on_delete=models.CASCADE, related_name="tasks")
-    reports = models.ManyToManyField(Report, related_name="embedding_tasks")
-
-    def delay(self) -> None:
-        queued_job_id = app.configure_task(
-            "radis.pgsearch.tasks.process_embedding_task",
-            allow_unknown=False,
-            priority=settings.EMBEDDING_INDEX_PRIORITY,
-        ).defer(task_id=self.pk)
-        self.queued_job_id = queued_job_id
-        self.save()
-```
-
-**Owner field.** `AnalysisJob.owner` is non-nullable (`settings.AUTH_USER_MODEL`).
-Embedding jobs are system-driven and have no human creator. A data migration
-(`0005_system_user.py`) creates a `User(username=settings.EMBEDDING_SYSTEM_USERNAME,
-is_active=False, password=unusable)` idempotently; the launcher assigns this
-user as `owner` on every `EmbeddingJob`. This avoids subclass-level overrides
-of `owner` and keeps the abstract contract clean.
-
-**No `get_absolute_url` in v1.** Existing `ExtractionJob` and `SubscriptionJob`
-implement `get_absolute_url` because they have user-facing detail views.
-`EmbeddingJob` has no user-facing UI in v1 — operators inspect it via Django
-admin (default `ModelAdmin` registration is sufficient). The inherited abstract
-`AnalysisJob.get_absolute_url` body is `...`, returning `None`; no call site in
-radis treats an `EmbeddingJob` like a user-facing analysis job. A future spec
-can add the view and override the method.
-
-`urgent`, `send_finished_mail`, and `finished_mail_template` stay at their
-`AnalysisJob` defaults (`False`, `False`, `None`).
-
-### 6.5 Launcher (the periodic task)
+### 6.3 Task: `embed_reports`
 
 `radis/pgsearch/tasks.py`:
 
 ```python
-@app.periodic(cron=settings.EMBEDDING_DRAIN_CRON)
-@app.task(
-    queue="default",
-    queueing_lock="embedding_launcher",
-    pass_context=True,
-)
-def embedding_launcher(context, timestamp: int) -> None:
-    in_flight = EmbeddingJob.objects.filter(
-        status__in=[
-            EmbeddingJob.Status.PREPARING,
-            EmbeddingJob.Status.PENDING,
-            EmbeddingJob.Status.IN_PROGRESS,
-        ]
-    ).exists()
-    if in_flight:
-        logger.info("EmbeddingJob already in flight; launcher tick is a no-op.")
-        return
-
-    has_pending = ReportSearchVector.objects.filter(embedding__isnull=True).exists()
-    if not has_pending:
-        logger.debug("No reports pending embedding; launcher tick is a no-op.")
-        return
-
-    system_user = User.objects.get(username=settings.EMBEDDING_SYSTEM_USERNAME)
-    job = EmbeddingJob.objects.create(
-        owner=system_user,
-        status=EmbeddingJob.Status.PREPARING,
-    )
-    transaction.on_commit(job.delay)
-```
-
-**Two reinforcing layers of duplicate-dispatch prevention:**
-
-- **Procrastinate `queueing_lock="embedding_launcher"`.** While a launcher job
-  is in the queue (`todo`) or executing (`doing`), the next cron tick's
-  `defer` call silently fails with `AlreadyEnqueued`. The launcher itself is
-  fast (one existence check + maybe one INSERT), so the lock is normally
-  released within milliseconds.
-- **In-flight EmbeddingJob check.** Even if the queueing lock leaks (worker
-  crash mid-flight, manual `defer` from a shell, dashboard re-trigger), the
-  launcher's first action is to look for any `EmbeddingJob` in a non-terminal
-  status. If one exists, the launcher returns without creating another. This
-  is the same dedup pattern used by `process_extraction_job` when re-entered
-  (`extractions/tasks.py:46`).
-
-### 6.6 Orchestrator (`process_embedding_job`)
-
-```python
-@app.task
-def process_embedding_job(job_id: int) -> None:
-    job = EmbeddingJob.objects.get(id=job_id)
-    assert job.status == EmbeddingJob.Status.PREPARING
-
-    # Retry/resume path: tasks already exist, re-enqueue still-pending ones.
-    if job.tasks.exists():
-        tasks_to_enqueue = job.tasks.filter(status=EmbeddingTask.Status.PENDING)
-    else:
-        pending_ids_iter = (
-            ReportSearchVector.objects
-            .filter(embedding__isnull=True)
-            .values_list("report_id", flat=True)
-            .iterator(chunk_size=10_000)
-        )
-        batch: list[int] = []
-        for report_id in pending_ids_iter:
-            batch.append(int(report_id))
-            if len(batch) >= settings.EMBEDDING_BATCH_SIZE:
-                _create_embedding_task(job, batch)
-                batch = []
-        if batch:
-            _create_embedding_task(job, batch)
-
-        tasks_to_enqueue = job.tasks.filter(status=EmbeddingTask.Status.PENDING)
-
-    job.status = EmbeddingJob.Status.PENDING
-    job.queued_job_id = None
-    job.save()
-
-    for task in tasks_to_enqueue:
-        if not task.is_queued:
-            task.delay()
-
-
-def _create_embedding_task(job: EmbeddingJob, report_ids: list[int]) -> EmbeddingTask:
-    task = EmbeddingTask.objects.create(job=job, status=EmbeddingTask.Status.PENDING)
-    task.reports.set(Report.objects.filter(pk__in=report_ids))
-    return task
-```
-
-Mirrors `process_extraction_job` (`extractions/tasks.py:32`). State transitions
-follow the standard pattern:
-
-- `PREPARING` while tasks are being created (sub-tasks must not be dispatched yet).
-- `PENDING` after task creation completes; sub-tasks are then enqueued.
-- `IN_PROGRESS` / `SUCCESS` / `WARNING` / `FAILURE` driven by `update_job_state`
-  (inherited from `AnalysisJob`) called from each sub-task on completion.
-
-The orchestrator does no HTTP work. For 1M pending reports at
-`EMBEDDING_BATCH_SIZE=32`, it creates ~31,250 `EmbeddingTask` rows and defers
-them — well under a minute on the `default` worker. Its slot is freed
-immediately after; long-running embedding work happens on the `embeddings`
-worker.
-
-### 6.7 Sub-task (`process_embedding_task`)
-
-```python
 @app.task(queue="embeddings")
-def process_embedding_task(task_id: int) -> None:
-    task = EmbeddingTask.objects.get(id=task_id)
-    task.status = EmbeddingTask.Status.IN_PROGRESS
-    task.started_at = timezone.now()
-    task.attempts = task.attempts + 1
-    task.save()
-
-    client = EmbeddingClient()
-    try:
-        report_ids = list(task.reports.values_list("pk", flat=True))
-        rsvs = list(
-            ReportSearchVector.objects
-            .filter(report_id__in=report_ids)
-            .select_related("report")
-            .only("id", "report_id", "report__body")
-        )
-        texts = [rsv.report.body for rsv in rsvs]
-        vectors = client.embed_documents(texts)
-        for rsv, vec in zip(rsvs, vectors, strict=True):
-            rsv.embedding = vec
-        ReportSearchVector.objects.bulk_update(rsvs, fields=["embedding"])
-
-        task.status = EmbeddingTask.Status.SUCCESS
-    except EmbeddingClientError as exc:
-        logger.exception("Embedding task %s failed: %s", task_id, exc)
-        task.status = EmbeddingTask.Status.FAILURE
-        task.message = str(exc)
-        raise  # Procrastinate retry policy applies
-    finally:
-        task.ended_at = timezone.now()
-        task.queued_job_id = None
-        task.save()
-        task.job.update_job_state()
-        client.close()
+def embed_reports(report_ids: list[int]) -> None:
+    """Embed the given reports and write the vector to ReportSearchVector.embedding.
+    Idempotent. Skips rows that already have an embedding."""
 ```
 
-Raising on `EmbeddingClientError`
-lets Procrastinate's retry policy apply. After retries exhaust, the exception
-propagates, the task ends as `FAILURE`, and `update_job_state` is still called
-from the `finally` block. The job finishes with status `WARNING` (some tasks
-failed, some succeeded) or `FAILURE` (all failed). The next launcher tick will
-create a fresh job that picks up any rows still NULL.
+Implementation outline:
 
-### 6.8 No `post_save` signal for embeddings, no `backfill_embeddings` command
+1. `target = ReportSearchVector.objects.filter(report_id__in=ids).select_related("report").only("report_id", "report__body")`. No `embedding__isnull` short-circuit at this layer — the task always re-embeds whatever it is given. Backfill controls the "only fill in nulls" policy by filtering at enqueue time (§6.5).
+2. Iterate in chunks of `EMBEDDING_BATCH_SIZE`; for each chunk, call `EmbeddingClient().embed_documents([rsv.report.body for rsv in chunk])`.
+3. `ReportSearchVector.objects.filter(pk=rsv.pk).update(embedding=vec)` per row. (Postgres `UPDATE … SET embedding = CASE pk WHEN … END` is a possible optimization if profiling shows the per-row update is a bottleneck; not done in v1.)
+4. Any `EmbeddingClientError` is re-raised so Procrastinate's default retry policy with exponential backoff handles transient failures.
 
-The FTS `post_save` receiver (`create_or_update_report_search_vector`) stays —
-it is what creates the `ReportSearchVector` row in the first place. There is
-**no** corresponding embedding receiver: every ingest path eventually deposits
-`embedding=NULL` rows into the DB, and the orchestrator drains them.
+Helper `enqueue_embed_reports(report_ids, priority=settings.EMBEDDING_INDEX_PRIORITY)` mirrors the existing `enqueue_bulk_index_reports`.
 
-There is no `backfill_embeddings` management command. Operators trigger an
-immediate drain from a Django shell:
+**V1 re-embedding policy:** the signal enqueues on every `Report.save()`, including metadata-only updates, so metadata edits trigger a wasted re-embed. Accepted simplicity for v1; §11.4 documents body-change detection as a future optimization.
+
+### 6.4 Signal
+
+`radis/pgsearch/signals.py` keeps the existing receiver for the FTS path and adds:
 
 ```python
-from radis.pgsearch.tasks import embedding_launcher
-embedding_launcher.defer()
+@receiver(post_save, sender=Report)
+def enqueue_report_embedding(sender, instance, **kwargs):
+    enqueue_embed_reports([instance.pk], priority=settings.EMBEDDING_INDEX_PRIORITY)
 ```
 
-This goes through the same launcher → orchestrator → sub-task path as the
-periodic; the only difference is who fires it. One code path, one set of
-tests, one observable lifecycle.
+Two separate receivers (not one combined) so an enqueue error in the embedding path cannot break the FTS-indexing path. The signal fires on both create and update; `embed_reports` always overwrites the embedding for the given ids, so metadata-only updates do trigger an unnecessary re-embed in v1. Body-change detection (a `pre_save` that suppresses enqueue when only metadata changed) is an optimization deferred to §11.4. `ReportSearchVector.save()` is *not* modified to null `embedding` — the task's unconditional overwrite makes that redundant.
+
+### 6.5 Backfill command
+
+`radis/pgsearch/management/commands/backfill_embeddings.py`:
+
+```
+./manage.py backfill_embeddings [--batch-size 500] [--limit N] [--dry-run]
+```
+
+Behavior:
+
+- Iterates `ReportSearchVector.objects.filter(embedding__isnull=True).values_list("report_id", flat=True)`.
+- Chunks ids by `--batch-size` (default 500).
+- For each chunk, calls `enqueue_embed_reports(chunk, priority=settings.EMBEDDING_BACKFILL_PRIORITY)`.
+- `--limit N` caps total reports enqueued.
+- `--dry-run` skips enqueue and prints the would-be count.
+- The "only fill in nulls" filter is applied at enqueue time (here), not inside the task. Re-running the command is safe because rows that got embedded since the last run no longer match the `embedding__isnull=True` filter and won't be re-enqueued.
 
 ## 7. Hybrid search provider
 
@@ -699,10 +444,9 @@ EMBEDDING_PROVIDER_PATH    = env.str("EMBEDDING_PROVIDER_PATH", default="")   # 
 EMBEDDING_PROVIDER_API_KEY = env.str("EMBEDDING_PROVIDER_API_KEY", default="")
 EMBEDDING_MODEL_NAME       = env.str("EMBEDDING_MODEL_NAME", default="Qwen/Qwen3-Embedding-4B")
 EMBEDDING_DIM              = env.int("EMBEDDING_DIM", default=1024)
-EMBEDDING_DRAIN_CRON       = env.str("EMBEDDING_DRAIN_CRON", default="0 2 * * *")
 ```
 
-These vary across dev/staging/prod and are operator-controlled. `EMBEDDING_DIM` is intentionally an env decision because it is schema-coupled (see §4.5). `EMBEDDING_DRAIN_CRON` is env-tunable so dev environments can drain more frequently (e.g., `*/15 * * * *`) without a code change.
+These vary across dev/staging/prod and are operator-controlled. `EMBEDDING_DIM` is intentionally an env decision because it is schema-coupled (see §4.5).
 
 ### 8.2 Code constants (tuning knobs, in `base.py`)
 
@@ -716,18 +460,18 @@ EMBEDDING_QUERY_INSTRUCTION = (
 EMBEDDING_BATCH_SIZE = 32
 
 EMBEDDING_INDEX_PRIORITY = 0
-EMBEDDING_SYSTEM_USERNAME = "system"
+EMBEDDING_BACKFILL_PRIORITY = -1
 
 HYBRID_VECTOR_TOP_K    = 100
 HYBRID_FTS_MAX_RESULTS = 10_000
 HYBRID_RRF_K           = 60
 ```
 
-These are tuning constants. Changing them is a code change with a PR diff. This matches the project's existing pattern (`EXTRACTION_LLM_CONCURRENCY_LIMIT = 6`, the `CHAT_*_SYSTEM_PROMPT` blocks). `EMBEDDING_SYSTEM_USERNAME` names the system user that owns every auto-generated `EmbeddingJob`; the data migration creates this user idempotently.
+These are tuning constants. Changing them is a code change with a PR diff. This matches the project's existing pattern (`EXTRACTION_LLM_CONCURRENCY_LIMIT = 6`, the `CHAT_*_SYSTEM_PROMPT` blocks).
 
 ### 8.3 `example.env`
 
-Adds a documented Ollama block and a Qwen/OpenAI-compatible block side by side, keyed off `EMBEDDING_BACKEND`. Documents `EMBEDDING_DRAIN_CRON` with the production default (`0 2 * * *`) and a dev-friendly alternative (`*/15 * * * *`).
+Adds a documented Ollama block and a Qwen/OpenAI-compatible block side by side, keyed off `EMBEDDING_BACKEND`.
 
 ### 8.4 Compose
 
@@ -751,16 +495,11 @@ Adds a documented Ollama block and a Qwen/OpenAI-compatible block side by side, 
 | Embedding service returns 5xx/timeout during query-time | `query_vec = None`; result list ordered by FTS-only; request succeeds | WARNING with request id |
 | Embedding service returns 4xx during query-time | Same FTS-only fallback (treats as misconfig at request layer) | ERROR |
 | Embedding service returns malformed body | `EmbeddingClientError` raised; query falls back to FTS-only | ERROR |
-| Embedding service down during a sub-task | `process_embedding_task` raises; Procrastinate retries with exponential backoff; `embedding` stays NULL | WARNING per attempt, ERROR after final retry |
-| Launcher fires while EmbeddingJob is `PREPARING`/`PENDING`/`IN_PROGRESS` | Status check returns immediately; tick is a no-op | INFO |
-| Orchestrator crashes during task creation (partial dispatch) | Job stays in `PREPARING`. Next launcher tick sees in-flight job and no-ops. Operator marks job `FAILURE` in admin to allow a fresh run | ERROR + operator action |
-| Sub-task fails after Procrastinate retries exhausted | Task ends as `FAILURE`. `update_job_state` rolls the job to `WARNING` (some tasks succeeded) or `FAILURE` (all failed). NULL rows remain; next launcher creates a new job to retry them | ERROR |
-| `embeddings_worker` saturation | Sub-tasks queue up; orchestrator already returned. No deadlock; just slower drain | DEBUG |
+| Embedding service down during indexing task | Task raises; Procrastinate retries with exponential backoff; `embedding` stays NULL | WARNING per attempt, ERROR after final retry |
 | Report body > `EMBEDDING_MAX_INPUT_CHARS` | Truncate, embed truncated text | WARNING with report_id and char count |
-| Report deleted between task creation and execution | Sub-task's `task.reports.values_list(...)` returns fewer rows; `embed_documents` called on smaller list; no error | DEBUG |
-| Vector dim mismatch on write | Postgres raises; sub-task fails, retried | ERROR — escalate to admin |
+| Report deleted between enqueue and task run | Task fetches no rows for that id; no error | DEBUG |
+| Vector dim mismatch on write | Postgres raises; task fails, retried | ERROR — escalate to admin |
 | `EMBEDDING_PROVIDER_URL` empty at startup | `EmbeddingClient` construction defers to call site; calls log + raise; query falls back to FTS-only | WARNING once on first request |
-| System user missing (data migration didn't run) | Launcher raises `User.DoesNotExist`. Loud failure; deployment misconfiguration. Fix: run migrations | ERROR |
 
 **Deliberate non-policies:**
 
@@ -771,9 +510,7 @@ Adds a documented Ollama block and a Qwen/OpenAI-compatible block side by side, 
 **Observability:**
 
 - Provider logs at DEBUG: vec hit count, FTS hit count, intersection count, fusion ms, query-embed ms.
-- `process_embedding_task` logs at INFO: batch size, total chars, latency, success/retry counts.
-- `embedding_launcher` and `process_embedding_job` log status transitions and dispatch counts at INFO.
-- Operators inspect job/task state via Django admin (`EmbeddingJob`, `EmbeddingTask` use the default `ModelAdmin`).
+- `embed_reports` logs at INFO: batch size, total chars, latency, success/skip/retry counts.
 - The existing OpenTelemetry overlay (commit `653e0c67`) tags telemetry per service; `embeddings_worker` shows up automatically.
 
 ## 10. Testing strategy
@@ -784,9 +521,9 @@ Adds a documented Ollama block and a Qwen/OpenAI-compatible block side by side, 
 |---|---|
 | `tests/unit/test_embedding_client.py` | Backend payload/response round-trip, path override, instruction prefix, normalization, dim validation, all error modes, truncation |
 | `tests/unit/test_provider_fusion.py` | `_rrf_fuse(vec_rank, fts_rank, k)` pure-Python helper: disjoint, overlapping, FTS-only, vector-only, both-empty, tiebreak by report_id |
-| `tests/unit/test_embedding_launcher.py` | No-op when EmbeddingJob already in flight; no-op when no rows pending; happy path creates job and calls `delay`; raises if system user missing |
-| `tests/unit/test_process_embedding_job.py` | Batches pending reports into `EmbeddingTask` rows of size `EMBEDDING_BATCH_SIZE`; status transitions `PREPARING` → `PENDING`; retry/resume path re-enqueues only `PENDING` tasks; empty pool exits cleanly |
-| `tests/unit/test_process_embedding_task.py` | Embeds reports, writes vectors, sets status `SUCCESS`; status `FAILURE` and re-raise on `EmbeddingClientError`; calls `job.update_job_state` in both paths; clears `queued_job_id` |
+| `tests/unit/test_signals.py` | `post_save` enqueues `embed_reports([id])` with `EMBEDDING_INDEX_PRIORITY` |
+| `tests/unit/test_tasks.py` (extends existing) | Always overwrites embedding when re-run (no internal short-circuit); batch splitting; missing ids are skipped without error; client errors propagate so Procrastinate retries |
+| `tests/unit/test_backfill_command.py` | Batching, `--limit`, `--dry-run`, only-null-embedding selection |
 
 ### 10.2 Integration tests (real Postgres + pgvector)
 
@@ -835,70 +572,23 @@ See §4.5.
 
 ### 11.3 GGUF dev embeddings ≠ bf16 prod embeddings
 
-Documented in §5.4. Mitigated by deferring `embedding_launcher` after a model swap (see §4.5). The next drain re-embeds everything.
+Documented in §5.4. Mitigated by running `backfill_embeddings` after a model swap.
 
-### 11.4 No body-change detection for re-embedding
+### 11.4 No body-change detection in the signal
 
-V1 re-embeds anything where `embedding IS NULL`. A future optimization could
-track whether the body actually changed (e.g., a `body_hash` column on
-`ReportSearchVector` updated only on body changes) so metadata-only updates
-don't have to null the embedding. Not in v1; profiling will tell us whether it
-matters.
+V1 re-embeds on every `Report.save()`. If profiling shows wasted traffic from metadata-only updates, add a `pre_save` that only nulls `embedding` when `body` changed.
 
-### 11.5 Operator-aware queries: FTS / vector asymmetry
+### 11.5 Per-row `UPDATE` in the embedding task
 
-Both halves of hybrid search receive a derivation of the same parsed `QueryNode`, but interpret it through completely different machinery. The FTS side consumes a `tsquery` built by `_build_query_string` where `AND`, `OR`, `NOT`, quoted phrases, and parens are first-class boolean operators (`&`, `|`, `!`, `<->`, `()`). The vector side consumes the canonical unparsed string and feeds it whole to the embedding model as natural language; the operators become ordinary word tokens that the model has no operator-aware machinery to interpret.
-
-Practical consequences:
-
-- **Natural-phrase queries** (`pneumothorax`, `chest x-ray`, implicit-AND `cardiac arrest`) — both halves point the same direction. RRF amplifies the agreement. This is the workload hybrid search is best at.
-- **`A AND B`** — FTS strictly intersects; vector returns docs about a topic-mix of A and B (which usually includes some single-side hits). Docs matching both lexically *and* semantically rank highest, which is the desired outcome. Vector contributes useful expansion but not boolean precision.
-- **`A OR B`** — FTS unions; the vector half has no concept of disjunction and just produces a centroid-style embedding. Docs about either A or B that happen to be near the centroid still get retrieved, but a doc purely about A may not appear unless it's also close to the centroid. Vector half degrades from "asset" to "noise".
-- **`NOT X`** — sharpest conflict. FTS correctly returns docs without X. Dense embeddings are polarity-blind, so the vector for `"NOT X"` clusters next to the vector for `"X"` and the top-K nearest neighbours are docs *about* X — the polar opposite of what the user asked for. The two halves return nearly disjoint sets that RRF interleaves, producing actively misleading results rather than mere noise. (Distinct from §11.1, which is about natural-language negation like `no pneumothorax` where the FTS stop-word strip happens to align the halves accidentally.)
-
-**Candidate mitigation (not in v1, recommended follow-up):** strip negated branches from the query string before embedding. Walk the AST; when a `UnaryNode("NOT", X)` is encountered, drop `X` from the string passed to the embedding model. The FTS side still gets the full structure. Outcomes:
-
-- `NOT X` alone → vector receives an empty query and is skipped; provider falls back to FTS-only ranking. Correct.
-- `A AND NOT B` → vector embeds just `A`; FTS enforces `A & !B`. Vector adds positive semantic signal for A, FTS enforces the exclusion. The halves are aligned again.
-
-This is ~15 lines of code in `providers.search()` / `providers.retrieve()` and a small extension to `QueryParser` for the AST walk. Other candidates (negation-aware re-ranker, embedding subtraction, sparse models like SPLADE-NEG) are heavier and listed in §11.1.
-
-**Why a re-ranker alone cannot fix this.** A cross-encoder re-ranker improves precision *within the candidate pool it is given* — it cannot improve recall of that pool. For `NOT pneumothorax` over a 1000-doc corpus where 600 docs don't mention the word, the hybrid candidate pool is poisoned: ~100 wrong docs (pneumothorax-discussing reports pulled in by the polarity-blind vector half) displace 100 of the 600 correct docs from the top-N positions. After re-ranking top-20, the head of results is sharper, but ~590 correct docs still live below the re-ranker's cutoff at their original RRF positions, interleaved with the remaining 90 wrong docs. The architecturally correct order is to fix recall upstream (strip negated branches before embedding, restoring a clean candidate pool) and *then* layer a re-ranker for precision. A re-ranker without the upstream fix is rearranging deck chairs on a polluted pool.
-
-### 11.6 Cross-encoder re-ranker (deferred)
-
-A planned follow-up adds a re-ranker stage between hybrid fusion and result hydration to lift precision (especially on operator-light natural-phrase queries, where the candidate pool is already correct but RRF ordering is mediocre) and to partially compensate for §11.1's polarity blindness. Two backend patterns are under consideration:
-
-- **Pointwise cross-encoder via vLLM.** Qwen3-Reranker-4B served with `vllm serve … --task score` exposes `/v1/rerank` (Cohere/TEI shape: `{model, query, documents}` → `[{index, relevance_score}]`). Logit-based scoring (yes/no token logits → softmax) gives graded relevance in [0,1]. Latency ~30–100 ms per pair on a single GPU; for top-20 candidates that's ~0.5–1.5 s added.
-- **Listwise LLM re-ranker** via the existing OpenAI-compatible chat-completions endpoint. The LLM is prompted with the query and the top-N candidates packed into a single message; structured output (`response_format=json_object`) returns a ranked list of indices. One HTTP call per query rather than N. Latency ~1–3 s for top-20 depending on model size. Quality trades off graded precision for the LLM's strong instruction-following — particularly the explicit "respect negation" cue, which the pointwise reranker has to learn implicitly.
-
-vLLM is the recommended production host for the pointwise path because Ollama (as of mid-2025) does not expose token logits cleanly, which collapses Qwen3-Reranker to a binary 1.0/0.0 signal and loses graded ordering. Ollama can still serve the LLM listwise backend without issue.
-
-### 11.7 Evaluation strategy for the layered hybrid stack
-
-Six profiles cover the additive layers:
-
-| Profile | Negation strip (§11.5) | Re-ranker (§11.6) |
-|---|---|---|
-| `baseline` | off | off |
-| `strip` | on | off |
-| `rerank-qwen` | off | Qwen3-Reranker via vLLM |
-| `rerank-llm` | off | listwise LLM |
-| `both-qwen` | on | Qwen3-Reranker via vLLM |
-| `both-llm` | on | listwise LLM |
-
-A `run_search_eval` management command loops a set of test queries through all six profiles (toggling settings via `override_settings`) and dumps comparable JSON output with top-N docs, per-layer scores (`ts_rank`, `cosine_distance`, `rrf_score`, `rerank_score`), and per-profile latencies.
-
-**Labeling.** Per-pair LLM relevance judgment ("is doc D relevant to query Q?") is unreliable for radiology because (a) it inherits the same polarity blind spot the system is trying to evaluate, and (b) it introduces circular bias when the labeling LLM and re-ranker LLM share a family. The preferred approach is *concept-based polarity-aware labeling*: label each report once per clinical concept with `PRESENT` / `ABSENT` / `NOT_MENTIONED`, then derive query relevance deterministically (`pneumothorax` → `PRESENT ∪ ABSENT`; `NOT pneumothorax` → `NOT_MENTIONED ∪ ABSENT` for strict exclusion, or `ABSENT` only for "rule-out" semantics). The concept labels are reusable across many queries and survive prompt/model changes. The upstream label-filter work in PR #196 produces structured labels with comparable semantics and is the intended source of ground truth for production-scale evaluation.
+V1 issues one `UPDATE` per row inside a batch. If this becomes a bottleneck, switch to a single `UPDATE … FROM (VALUES …)` or pgvector's `bulk_create` with `update_conflicts`.
 
 ## 12. Rollout plan
 
-1. **Schema and dependency.** Land the `pgvector` Python dep, the extension migration, and the embedding-column schema migration. No behavior change yet — `embedding` is nullable, queries still see only FTS.
+1. **Schema and dependency.** Land the `pgvector` Python dep, the extension migration, and the schema migration. No behavior change at this point — `embedding` is nullable, queries still see only FTS.
 2. **Embedding client and tests.** Land the client module and unit tests. No callers yet.
-3. **Orchestrator models and migrations.** Add `EmbeddingJob`, `EmbeddingTask`, their migration, and the data migration that creates the system user.
-4. **Orchestrator tasks and `embeddings_worker`.** Land `embedding_launcher`, `process_embedding_job`, `process_embedding_task`, the `embeddings_worker` container (with `--concurrency 4`), and the `EMBEDDING_DRAIN_CRON` setting. The launcher starts ticking; with no rows yet, all ticks no-op.
-5. **Initial drain.** From a shell, run `embedding_launcher.defer()` so the orchestrator picks up the existing corpus. This is the only "operator action" in the rollout. It runs at `EMBEDDING_INDEX_PRIORITY` and lives behind whatever other work is on the queues; it can run for hours to days on a large corpus.
-6. **Provider switch.** Replace the body of `radis.pgsearch.providers.search()` and `retrieve()` with the hybrid implementation. At this point hybrid is the new default; rows still missing an embedding participate via the FTS half only.
-7. **Monitor.** Watch search latency p95, embedding-queue depth, `EmbeddingJob` admin state, and the rate of "FTS-only fallback" warnings. Tune `HYBRID_VECTOR_TOP_K` / `HYBRID_FTS_MAX_RESULTS` if needed.
+3. **Async indexing.** Land the task, signal, backfill command, and `embeddings_worker` service. New reports start getting embedded; the column gradually populates.
+4. **Backfill.** Run `backfill_embeddings` against the existing corpus (manual op, can run for hours/days depending on size — that's fine, it's bounded by `EMBEDDING_BACKFILL_PRIORITY`).
+5. **Provider switch.** Replace the body of `radis.pgsearch.providers.search()` and `retrieve()` with the hybrid implementation. At this point hybrid is the new default; rows still missing an embedding participate via the FTS half only.
+6. **Monitor.** Watch search latency p95, embedding queue depth, and the rate of "FTS-only fallback" warnings. Tune `HYBRID_VECTOR_TOP_K` / `HYBRID_FTS_MAX_RESULTS` if needed.
 
-Each step is independently mergeable; steps 1–4 ship as quiet infrastructure changes with no user-visible effect, step 5 starts populating the column, step 6 is the moment hybrid goes live.
+Each step is independently mergeable; steps 1–4 ship as quiet infrastructure changes with no user-visible effect, step 5 is the moment hybrid goes live.

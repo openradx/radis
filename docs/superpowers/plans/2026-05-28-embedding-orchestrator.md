@@ -8,7 +8,7 @@
 
 **Tech Stack:** Django 5.1, Procrastinate (periodic tasks + `queueing_lock`), pgvector, pytest-django.
 
-**Spec:** `docs/superpowers/specs/2026-05-15-hybrid-search-design.md` §6.
+**Spec:** `docs/superpowers/specs/2026-05-28-hybrid-search.md` §6.
 
 **Branch:** `feat/hybrid-search` (continue here; no worktree required).
 
