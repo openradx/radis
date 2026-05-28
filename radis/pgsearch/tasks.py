@@ -86,7 +86,7 @@ def enqueue_embed_reports(
 
 from django.utils import timezone
 
-from .models import EmbeddingTask
+from .models import EmbeddingJob, EmbeddingTask
 from .utils.embedding_client import EmbeddingClientError
 
 
@@ -125,3 +125,45 @@ def process_embedding_task(task_id: int) -> None:
         task.save()
         task.job.update_job_state()
         client.close()
+
+
+def _create_embedding_task(job: EmbeddingJob, report_ids: list[int]) -> EmbeddingTask:
+    from radis.reports.models import Report
+
+    task = EmbeddingTask.objects.create(job=job, status=EmbeddingTask.Status.PENDING)
+    task.reports.set(Report.objects.filter(pk__in=report_ids))
+    return task
+
+
+@app.task
+def process_embedding_job(job_id: int) -> None:
+    job = EmbeddingJob.objects.get(id=job_id)
+    assert job.status == EmbeddingJob.Status.PREPARING
+
+    if job.tasks.exists():
+        tasks_to_enqueue = job.tasks.filter(status=EmbeddingTask.Status.PENDING)
+    else:
+        pending_ids_iter = (
+            ReportSearchVector.objects
+            .filter(embedding__isnull=True)
+            .values_list("report_id", flat=True)
+            .iterator(chunk_size=10_000)
+        )
+        batch: list[int] = []
+        for report_id in pending_ids_iter:
+            batch.append(int(report_id))
+            if len(batch) >= django_settings.EMBEDDING_BATCH_SIZE:
+                _create_embedding_task(job, batch)
+                batch = []
+        if batch:
+            _create_embedding_task(job, batch)
+
+        tasks_to_enqueue = job.tasks.filter(status=EmbeddingTask.Status.PENDING)
+
+    job.status = EmbeddingJob.Status.PENDING
+    job.queued_job_id = None
+    job.save()
+
+    for task in tasks_to_enqueue:
+        if not task.is_queued:
+            task.delay()
