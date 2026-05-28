@@ -91,7 +91,7 @@ EMBEDDING_DRAIN_CRON=0 2 * * *
 
 - [ ] **Step 3: Verify Django config loads**
 
-Run: `uv run cli shell -c "from django.conf import settings; print(settings.EMBEDDING_DRAIN_CRON, settings.EMBEDDING_SYSTEM_USERNAME)"`
+Run: `uv run python manage.py shell -c "from django.conf import settings; print(settings.EMBEDDING_DRAIN_CRON, settings.EMBEDDING_SYSTEM_USERNAME)"`
 Expected: prints `0 2 * * * system`
 
 - [ ] **Step 4: Commit**
@@ -210,12 +210,12 @@ class EmbeddingTask(AnalysisTask):
 
 - [ ] **Step 4: Generate the migration**
 
-Run: `uv run cli shell -c "from django.core.management import call_command; call_command('makemigrations', 'pgsearch', name='embedding_job_task')"`
+Run: `uv run python manage.py makemigrations pgsearch --name embedding_job_task`
 Expected: creates `radis/pgsearch/migrations/0004_embedding_job_task.py` containing `CreateModel` operations for `EmbeddingJob`, `EmbeddingTask`, and the M2M through-table.
 
 - [ ] **Step 5: Apply the migration and re-run tests**
 
-Run: `uv run cli shell -c "from django.core.management import call_command; call_command('migrate', 'pgsearch')"`
+Run: `uv run python manage.py migrate pgsearch`
 Then: `uv run pytest radis/pgsearch/tests/test_models_embedding.py -v`
 Expected: PASS
 
@@ -312,7 +312,7 @@ class Migration(migrations.Migration):
 
 - [ ] **Step 5: Apply migration and run tests**
 
-Run: `uv run cli shell -c "from django.core.management import call_command; call_command('migrate', 'pgsearch')"`
+Run: `uv run python manage.py migrate pgsearch`
 Then: `uv run pytest radis/pgsearch/tests/test_migrations_system_user.py -v`
 Expected: PASS
 
@@ -841,7 +841,7 @@ Run: `rm radis/pgsearch/tests/test_embed_reports_task.py`
 
 - [ ] **Step 4: Verify the backfill command still imports cleanly is now expected to fail**
 
-Run: `uv run cli shell -c "from radis.pgsearch.management.commands import backfill_embeddings"`
+Run: `uv run python manage.py shell -c "from radis.pgsearch.management.commands import backfill_embeddings"`
 Expected: `ImportError: cannot import name 'enqueue_embed_reports'` — this confirms Task 9 (deleting the command) is the immediate next step.
 
 - [ ] **Step 5: Do NOT commit yet — proceed straight to Task 9**
@@ -906,7 +906,7 @@ EMBEDDING_BACKFILL_PRIORITY = -1
 
 - [ ] **Step 3: Verify Django still loads**
 
-Run: `uv run cli shell -c "from django.conf import settings; print(settings.EMBEDDING_INDEX_PRIORITY)"`
+Run: `uv run python manage.py shell -c "from django.conf import settings; print(settings.EMBEDDING_INDEX_PRIORITY)"`
 Expected: prints `0`.
 
 - [ ] **Step 4: Run full test suite to confirm nothing dangles**
