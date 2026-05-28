@@ -154,7 +154,7 @@ On the very first tick (`last_scanned_at is None`), the scan records the current
 
 ### Guard: yield to active backfill
 
-When an admin-triggered backfill is running, the scan advances the checkpoint to `now` and returns without enqueuing. This makes the backfill the sole owner of new-report labeling during its run; once the backfill completes the scan resumes from the advanced checkpoint and only sees reports ingested after the backfill finished.
+When an admin-triggered backfill is running, the scan returns without enqueuing and **does not advance the checkpoint**. Once the backfill completes, the scan resumes from the pre-backfill checkpoint and queries all reports created since that point. Reports already labeled by the backfill are encountered but cost nothing — `label_report` finds their gate answers and regular answers fresh and exits immediately with zero LLM calls. Reports created after the backfill's cursor snapshot (the gap) are labeled for the first time. The checkpoint then advances to the current tick time.
 
 ### Batch and enqueue
 
@@ -166,9 +166,7 @@ def incremental_label_scan(timestamp: int) -> None:
     checkpoint, _ = LabelingScanCheckpoint.objects.get_or_create(pk=1)
 
     if LabelingJob.objects.filter(status__in=LabelingJob.ACTIVE_STATUSES).exists():
-        logger.info("Active LabelingJob found, advancing checkpoint and skipping scan tick.")
-        checkpoint.last_scanned_at = now
-        checkpoint.save()
+        logger.info("Active LabelingJob found, skipping scan tick (checkpoint unchanged).")
         return
 
     if checkpoint.last_scanned_at is None:
@@ -278,7 +276,7 @@ def process_labeling_job(job_id: int) -> None:
 
 `create_labeling_tasks_streaming` iterates `Report.objects.order_by("pk").iterator(chunk_size=1000)`. For each chunk it identifies reports needing work using `_needs_work_queryset` and bulk-creates `LabelingTask` rows of `LABELING_TASK_BATCH_SIZE` reports each.
 
-Django's `iterator(chunk_size=...)` opens a PostgreSQL server-side cursor, so the result set is frozen at the moment the cursor opens. Reports ingested after that point are invisible to the backfill — they are not added to its task list and do not extend its runtime. The periodic scan's checkpoint continues advancing while the backfill runs; once the backfill completes, the scan resumes from that checkpoint and picks up every report that arrived during the backfill.
+Django's `iterator(chunk_size=...)` opens a PostgreSQL server-side cursor, so the result set is frozen at the moment the cursor opens. Reports ingested after that point are invisible to the backfill — they are not added to its task list and do not extend its runtime. The periodic scan's checkpoint is held frozen while the backfill runs (the guard returns without advancing it); once the backfill completes, the scan resumes from the pre-backfill checkpoint and covers the full window including reports the backfill's cursor never saw.
 
 The `tasks.all().delete()` at the top makes the preparation phase idempotent. If Procrastinate retries the task after a crash mid-streaming, any partial `LabelingTask` rows from the previous attempt are cleared before streaming restarts. The cost is bounded — only this job's own tasks are deleted, however many the prior attempt managed to create.
 
@@ -677,7 +675,7 @@ No touch to `radis/reports/site.py` — the periodic scan does not use the repor
 - **Skip conditions** (`test_skips.py`) — empty body / no active questions → no LLM call.
 - **Backfill task processor** (`test_processor.py`) — partial failure on one report yields task `WARNING`; successful reports still have answers written.
 - **Incremental scan: first run** (`test_scan.py`) — null checkpoint → no tasks deferred, checkpoint created and set to `now`.
-- **Incremental scan: guard** (`test_scan.py`) — active `LabelingJob` → checkpoint advances to `now`, no tasks deferred.
+- **Incremental scan: guard** (`test_scan.py`) — active `LabelingJob` → no tasks deferred, checkpoint unchanged.
 - **Incremental scan: batching** (`test_scan.py`) — 250 reports with `created_at` after the checkpoint → 3 batch tasks deferred (100, 100, 50); reports with `created_at` before the checkpoint produce zero tasks.
 - **Incremental scan: checkpoint singleton** (`test_scan.py`) — calling `save()` twice on separate `LabelingScanCheckpoint` instances does not create a second row; `has_add_permission` returns `False` in admin.
 - **Incremental scan: partial batch failure** (`test_scan.py`) — one report raises during `label_report`; the remaining reports in the batch are still labeled and the task itself does not raise.
