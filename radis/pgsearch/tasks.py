@@ -82,3 +82,46 @@ def enqueue_embed_reports(
         allow_unknown=False,
         priority=priority,
     ).defer(report_ids=payload)
+
+
+from django.utils import timezone
+
+from .models import EmbeddingTask
+from .utils.embedding_client import EmbeddingClientError
+
+
+@app.task(queue="embeddings")
+def process_embedding_task(task_id: int) -> None:
+    task = EmbeddingTask.objects.get(id=task_id)
+    task.status = EmbeddingTask.Status.IN_PROGRESS
+    task.started_at = timezone.now()
+    task.attempts = task.attempts + 1
+    task.save()
+
+    client = EmbeddingClient()
+    try:
+        report_ids = list(task.reports.values_list("pk", flat=True))
+        rsvs = list(
+            ReportSearchVector.objects
+            .filter(report_id__in=report_ids)
+            .select_related("report")
+            .only("id", "report_id", "report__body")
+        )
+        texts = [rsv.report.body for rsv in rsvs]
+        vectors = client.embed_documents(texts)
+        for rsv, vec in zip(rsvs, vectors, strict=True):
+            rsv.embedding = vec
+        ReportSearchVector.objects.bulk_update(rsvs, fields=["embedding"])
+
+        task.status = EmbeddingTask.Status.SUCCESS
+    except EmbeddingClientError as exc:
+        logger.exception("Embedding task %s failed: %s", task_id, exc)
+        task.status = EmbeddingTask.Status.FAILURE
+        task.message = str(exc)
+        raise
+    finally:
+        task.ended_at = timezone.now()
+        task.queued_job_id = None
+        task.save()
+        task.job.update_job_state()
+        client.close()
