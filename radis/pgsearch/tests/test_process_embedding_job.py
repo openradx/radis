@@ -3,7 +3,7 @@ from unittest.mock import patch
 import pytest
 from django.contrib.auth import get_user_model
 
-from radis.pgsearch.models import EmbeddingJob, EmbeddingTask, ReportSearchVector
+from radis.pgsearch.models import EmbeddingJob, EmbeddingTask
 from radis.pgsearch.tasks import process_embedding_job as _wrapped
 from radis.reports.factories import ReportFactory
 
@@ -52,7 +52,7 @@ def test_process_embedding_job_resume_path_only_redispatches_pending_tasks(setti
     # Simulate a previous orchestrator run that created one task already.
     existing = EmbeddingTask.objects.create(job=job, status=EmbeddingTask.Status.PENDING)
     existing.reports.set(reports)
-    succeeded = EmbeddingTask.objects.create(job=job, status=EmbeddingTask.Status.SUCCESS)
+    EmbeddingTask.objects.create(job=job, status=EmbeddingTask.Status.SUCCESS)
 
     with patch("radis.pgsearch.models.EmbeddingTask.delay") as delay_mock:
         process_embedding_job(job.id)
