@@ -345,6 +345,7 @@ EMBEDDING_PROVIDER_PATH = env.str("EMBEDDING_PROVIDER_PATH", default="")
 EMBEDDING_PROVIDER_API_KEY = env.str("EMBEDDING_PROVIDER_API_KEY", default="")
 EMBEDDING_MODEL_NAME = env.str("EMBEDDING_MODEL_NAME", default="Qwen/Qwen3-Embedding-4B")
 EMBEDDING_DIM = env.int("EMBEDDING_DIM", default=1024)
+EMBEDDING_DRAIN_CRON = env.str("EMBEDDING_DRAIN_CRON", default="0 2 * * *")
 
 # Embedding tuning constants (see hybrid-search spec §8.2)
 EMBEDDING_REQUEST_TIMEOUT = 30
@@ -358,6 +359,7 @@ EMBEDDING_BATCH_SIZE = 32
 # Embedding queue priorities (procrastinate "higher = sooner")
 EMBEDDING_INDEX_PRIORITY = 0
 EMBEDDING_BACKFILL_PRIORITY = -1
+EMBEDDING_SYSTEM_USERNAME = "system"
 
 # Hybrid search tuning
 HYBRID_VECTOR_TOP_K = 100
