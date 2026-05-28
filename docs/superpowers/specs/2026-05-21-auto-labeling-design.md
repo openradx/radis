@@ -21,7 +21,7 @@ Labels surface on the report detail page (badges) and in search (`label:` query 
 - New and updated reports are labeled in the background without blocking ingest.
 - Existing reports (up to ~1M scale) can be backfilled.
 - Gating reduces LLM calls by skipping irrelevant question groups entirely.
-- Edits to a question or gate question naturally produce stale answers, which the next scan or backfill refreshes.
+- Edits to a question or gate question naturally produce stale answers, which the next backfill refreshes.
 - End users see applied labels on each report and can filter search by label.
 
 ## Non-Goals (v1)
@@ -36,7 +36,7 @@ Labels surface on the report detail page (badges) and in search (`label:` query 
 
 ## Data Model
 
-A new Django app `radis.labels` with four models.
+A new Django app `radis.labels` with five models.
 
 ```python
 class QuestionGroup(models.Model):
@@ -435,7 +435,7 @@ def label_report(report_id: int) -> None:
 
 ### Failure handling
 
-Procrastinate retries with backoff on transient failures. After exhausted retries, the failure is logged to the `radis.labels` logger. Reports that fail are naturally re-attempted on the next scan tick.
+Procrastinate retries with backoff on transient failures. After exhausted retries, the failure is logged to the `radis.labels` logger. A report that permanently fails a scan batch will not be re-attempted by the scan (the checkpoint will have advanced past its `created_at`); the next admin-triggered backfill will catch it via the missing-answers predicate.
 
 ## Admin UX
 
