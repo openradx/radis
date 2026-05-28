@@ -1,7 +1,7 @@
 # Auto-Labeling Feature — Design
 
 **Status:** Approved design, ready for implementation planning
-**Date:** 2026-05-21 (revised 2026-05-27)
+**Date:** 2026-05-21 (revised 2026-05-28)
 **Owner:** Kai Schlamp
 
 ## Overview
@@ -286,18 +286,10 @@ Used exclusively by the backfill. A report needs work if **either** condition ho
 
 ```python
 def _needs_work_queryset(
-    active_question_count: int,
     active_group_count: int,
 ) -> QuerySet:
     return (
         Report.objects.annotate(
-            non_stale_answer_count=Count(
-                "answers",
-                filter=Q(
-                    answers__question__active=True,
-                    answers__generated_at__gte=F("answers__question__updated_at"),
-                ),
-            ),
             non_stale_gate_count=Count(
                 "gate_answers",
                 filter=Q(
@@ -310,14 +302,32 @@ def _needs_work_queryset(
             ),
         )
         .filter(
-            Q(non_stale_answer_count__lt=active_question_count)
-            | Q(non_stale_gate_count__lt=active_group_count)
+            Q(non_stale_gate_count__lt=active_group_count)
+            | Exists(
+                GateAnswer.objects.filter(
+                    report=OuterRef("pk"),
+                    value__in=[Answer.Value.YES, Answer.Value.MAYBE],
+                    generated_at__gte=F("question_group__updated_at"),
+                ).filter(
+                    Exists(
+                        Question.objects.filter(
+                            group_id=OuterRef("question_group_id"),
+                            active=True,
+                        ).exclude(
+                            answers__report_id=OuterRef(OuterRef("pk")),
+                            answers__generated_at__gte=F("updated_at"),
+                        )
+                    )
+                )
+            )
         )
     )
 ```
 
-- **Condition 1** — missing or stale regular answers (question edited, or never labeled).
-- **Condition 2** — missing or stale gate answers (gate question edited, or group never gated).
+- **Condition A** — missing or stale gate answers for any active group (`non_stale_gate_count < active_group_count`). Unchanged from the original design.
+- **Condition B** — there exists a fresh `YES`/`MAYBE` gate answer whose group contains at least one active question without a fresh `Answer` for this report. "Not fresh" means either no row at all, or `answer.generated_at < question.updated_at` (question edited after the answer was written). The inner `Exists` uses a double `OuterRef` — `OuterRef("question_group_id")` references the `GateAnswer` row; `OuterRef(OuterRef("pk"))` references the `Report.pk` two levels up.
+
+`active_question_count` is no longer a parameter. NO-gated groups have no `Answer` rows by design, so comparing a flat total-answer count to the total active question count would always flag those reports as needing work.
 
 ### Phase 2 — IN_PROGRESS (`llm` queue)
 
@@ -395,18 +405,19 @@ def label_report(report_id: int) -> None:
             old_gate  = existing_gates.get(group.id)
             old_value = old_gate.value if old_gate else None
 
-            GateAnswer.objects.update_or_create(
-                report=report, question_group=group,
-                defaults={"value": new_value},
-            )
+            with transaction.atomic():
+                GateAnswer.objects.update_or_create(
+                    report=report, question_group=group,
+                    defaults={"value": new_value},
+                )
+                if new_value == Answer.Value.NO and old_value in (Answer.Value.YES, Answer.Value.MAYBE):
+                    Answer.objects.filter(report=report, question__group=group).delete()
 
             if new_value in (Answer.Value.YES, Answer.Value.MAYBE):
                 prev_was_negative = old_value in (Answer.Value.NO, None)
                 if prev_was_negative or _has_missing_or_stale_answers(report, group):
                     _run_question_set(client, report, questions)
                 # else: gate still YES/MAYBE and answers fresh — nothing to do
-            else:
-                _write_synthetic_nos(report, questions)
 
         else:
             # Gate is fresh — use stored value, no gate LLM call
@@ -415,25 +426,32 @@ def label_report(report_id: int) -> None:
             if gate_value in (Answer.Value.YES, Answer.Value.MAYBE):
                 if _has_missing_or_stale_answers(report, group):
                     _run_question_set(client, report, questions)
-            else:
-                # Gate = NO, fresh. Re-write synthetic NOs to bump generated_at
-                # and clear any stale answer flags caused by question text edits.
-                _write_synthetic_nos(report, questions)
+            # else: gate = NO, fresh — skip group entirely
 ```
 
 ### Decision table
+
+*Gate was re-evaluated (stale or missing):*
 
 | Gate was | Gate is now | Regular answers | Action |
 |---|---|---|---|
 | YES/MAYBE | YES/MAYBE | Non-stale | Save gate answer |
 | YES/MAYBE | YES/MAYBE | Stale/missing | Save gate answer + run question set |
-| YES/MAYBE | NO | Any | Save gate answer + write synthetic NOs |
+| YES/MAYBE | NO | Any | Save gate answer + delete answers for group |
 | NO | YES/MAYBE | Any | Save gate answer + run question set |
-| NO | NO | Any | Save gate answer + re-write synthetic NOs (bump `generated_at`) |
+| NO | NO | Any | Save gate answer *(no answers to delete)* |
 | missing | YES/MAYBE | Any | Save gate answer + run question set |
-| missing | NO | Any | Save gate answer + write synthetic NOs |
+| missing | NO | Any | Save gate answer *(no answers to delete)* |
 
-"Gate is now" represents the LLM's re-evaluation result — these rows apply when the gate was stale or missing. `GateAnswer.update_or_create` is always called, which bumps `generated_at` even when the value is unchanged. When the gate is fresh (not re-evaluated), the gate answer is not saved; if the stored value is YES/MAYBE and answers are fresh, no action is taken.
+*Gate is fresh (no re-evaluation):*
+
+| Gate value | Regular answers | Action |
+|---|---|---|
+| YES/MAYBE | Non-stale | No action |
+| YES/MAYBE | Stale/missing | Run question set |
+| NO | Any | Skip group entirely |
+
+`GateAnswer.update_or_create` is called only when the gate is re-evaluated (stale or missing); it bumps `generated_at` even when the value is unchanged. When the gate flips to `NO`, the gate save and the answer deletion are wrapped in `transaction.atomic()` so the two operations are all-or-nothing. If the deletion were to happen outside the transaction and the process crashed after the gate save, the orphaned answers would never be detected by condition B of the "needs work" predicate (gate is `NO`, so that `Exists` subquery skips it), leaving them stuck indefinitely. The transaction prevents that inconsistency.
 
 ### LLM call count (20 groups, gate batch 10, 3 pass gate)
 
@@ -657,7 +675,7 @@ No touch to `radis/reports/site.py` — the periodic scan does not use the repor
 ### Model / DB tests
 
 - **Stale detection** (`test_stale_detection.py`) — assert answer and gate-answer stale predicates over hand-built rows.
-- **Backfill scope query** (`test_scope.py`) — reports covering all combinations of answer/gate-answer freshness; the scope query returns exactly those needing work.
+- **Backfill scope query** (`test_scope.py`) — reports covering all combinations of gate-answer freshness and YES/MAYBE-gate answer freshness; a report with a fresh NO gate and no answers is not included; a report with a fresh YES gate but a stale answer is included; the scope query returns exactly those needing work.
 - **Singleton backfill** (`test_singleton.py`) — second concurrent active `LabelingJob` raises `IntegrityError`.
 - **Backfill restart safety** (`test_singleton.py`) — if `process_labeling_job` is called twice for the same job (simulating a Procrastinate retry), partial `LabelingTask` rows from the first call are deleted before the second call recreates them; no duplicates result.
 - **Cascade and uniqueness** (`test_models.py`) — group delete cascades to questions and gate answers; question delete cascades to answers; unique constraints enforced; upserts work.
@@ -665,13 +683,14 @@ No touch to `radis/reports/site.py` — the periodic scan does not use the repor
 ### Integration tests (LLM mocked)
 
 - **Gate batching** (`test_gate.py`) — 20 groups with gate batch size 10 → exactly 2 gate LLM calls; only YES/MAYBE groups produce question-set calls.
-- **Synthetic NOs** (`test_gate.py`) — NO-gated groups produce synthetic `Answer(value=NO)` rows with no LLM call.
+- **Gate = NO, fresh** (`test_gate.py`) — group is skipped entirely; no `Answer` rows written, no LLM call.
 - **Gate fresh + YES/MAYBE + answers fresh** → zero LLM calls.
 - **Gate fresh + YES/MAYBE + 1 question stale** → exactly 1 question-set call, 0 gate calls.
-- **Gate stale + new YES, old NO** → 1 gate call + 1 question-set call (synthetic → real).
+- **Gate stale + new YES, old NO** → 1 gate call + 1 question-set call.
 - **Gate stale + new YES, old YES + answers fresh** → 1 gate call only, 0 question-set calls.
-- **Gate stale + new NO** → 1 gate call, synthetic NOs written, no question-set call.
-- **Stale answer in NO-gated group** → synthetic NOs re-written (generated_at bumped), no LLM call.
+- **Gate stale + new NO, old YES/MAYBE** → 1 gate call, existing answers deleted, no question-set call.
+- **Gate stale + new NO, old NO** → 1 gate call, no answers to delete, no question-set call.
+- **Gate flips YES/MAYBE → NO: atomicity** (`test_gate.py`) — gate save and answer deletion succeed together; no orphaned `Answer` rows exist after the call.
 - **Skip conditions** (`test_skips.py`) — empty body / no active questions → no LLM call.
 - **Backfill task processor** (`test_processor.py`) — partial failure on one report yields task `WARNING`; successful reports still have answers written.
 - **Incremental scan: first run** (`test_scan.py`) — null checkpoint → no tasks deferred, checkpoint created and set to `now`.
