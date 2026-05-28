@@ -9,7 +9,7 @@ pytestmark = pytest.mark.django_db
 
 
 def _system_user() -> "User":
-    return User.objects.create(username="system", is_active=False)
+    return User.objects.get(username="system")
 
 
 def test_embedding_job_defaults():
