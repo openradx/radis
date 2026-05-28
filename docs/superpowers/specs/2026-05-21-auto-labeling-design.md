@@ -414,53 +414,74 @@ def label_report(report_id: int) -> None:
                     Answer.objects.filter(report=report, question__group=group).delete()
 
             if new_value in (Answer.Value.YES, Answer.Value.MAYBE):
-                prev_was_negative = old_value in (Answer.Value.NO, None)
-                if prev_was_negative or _has_missing_or_stale_answers(report, group):
-                    _run_question_set(client, report, questions)
-                # else: gate still YES/MAYBE and answers fresh — nothing to do
+                questions_to_run = _get_stale_or_missing_questions(report, questions)
+                if questions_to_run:
+                    _run_question_set(client, report, questions_to_run)
 
         else:
             # Gate is fresh — use stored value, no gate LLM call
             gate_value = groups_with_fresh_gate[group.id]
 
             if gate_value in (Answer.Value.YES, Answer.Value.MAYBE):
-                if _has_missing_or_stale_answers(report, group):
-                    _run_question_set(client, report, questions)
+                questions_to_run = _get_stale_or_missing_questions(report, questions)
+                if questions_to_run:
+                    _run_question_set(client, report, questions_to_run)
             # else: gate = NO, fresh — skip group entirely
 ```
 
+### `_get_stale_or_missing_questions`
+
+```python
+def _get_stale_or_missing_questions(
+    report: Report,
+    questions: list[Question],
+) -> list[Question]:
+    fresh_ids = set(
+        Answer.objects.filter(
+            report=report,
+            question_id__in=[q.id for q in questions],
+            generated_at__gte=F("question__updated_at"),
+        ).values_list("question_id", flat=True)
+    )
+    return [q for q in questions if q.id not in fresh_ids]
+```
+
+One DB query that simultaneously answers "should we run?" (non-empty result) and "what to run?" (the list itself). Only questions whose `Answer` is missing or whose `answer.generated_at < question.updated_at` are returned. `_has_missing_or_stale_answers` and the `prev_was_negative` branch are eliminated — when the gate answer was previously `NO` or absent, there are no answer rows for the group, so all questions are returned naturally.
+
 ### Decision table
 
-*Gate was re-evaluated (stale or missing):*
+*Gate answer re-evaluated (stale or no prior gate answer):*
 
-| Gate was | Gate is now | Regular answers | Action |
-|---|---|---|---|
-| YES/MAYBE | YES/MAYBE | Non-stale | Save gate answer |
-| YES/MAYBE | YES/MAYBE | Stale/missing | Save gate answer + run question set |
-| YES/MAYBE | NO | Any | Save gate answer + delete answers for group |
-| NO | YES/MAYBE | Any | Save gate answer + run question set |
-| NO | NO | Any | Save gate answer *(no answers to delete)* |
-| missing | YES/MAYBE | Any | Save gate answer + run question set |
-| missing | NO | Any | Save gate answer *(no answers to delete)* |
-
-*Gate is fresh (no re-evaluation):*
-
-| Gate value | Regular answers | Action |
+| Gate answer was | Gate answer is now | Action |
 |---|---|---|
-| YES/MAYBE | Non-stale | No action |
-| YES/MAYBE | Stale/missing | Run question set |
-| NO | Any | Skip group entirely |
+| YES/MAYBE | YES/MAYBE | Save gate answer + run stale/missing questions (may be zero) |
+| YES/MAYBE | NO | Save gate answer + delete all answers for group |
+| NO | YES/MAYBE | Save gate answer + run all questions (none have answers) |
+| NO | NO | Save gate answer *(no answers to delete)* |
+| no prior answer | YES/MAYBE | Save gate answer + run all questions (none have answers) |
+| no prior answer | NO | Save gate answer *(no answers to delete)* |
 
-`GateAnswer.update_or_create` is called only when the gate is re-evaluated (stale or missing); it bumps `generated_at` even when the value is unchanged. When the gate flips to `NO`, the gate save and the answer deletion are wrapped in `transaction.atomic()` so the two operations are all-or-nothing. If the deletion were to happen outside the transaction and the process crashed after the gate save, the orphaned answers would never be detected by condition B of the "needs work" predicate (gate is `NO`, so that `Exists` subquery skips it), leaving them stuck indefinitely. The transaction prevents that inconsistency.
+*Gate answer fresh (no re-evaluation):*
 
-### LLM call count (20 groups, gate batch 10, 3 pass gate)
+| Gate answer value | Action |
+|---|---|
+| YES/MAYBE | Run stale/missing questions (skip group if all fresh) |
+| NO | Skip group entirely |
+
+`GateAnswer.update_or_create` is called only when the gate answer is re-evaluated (stale or no prior answer); it bumps `generated_at` even when the value is unchanged. When the gate flips to `NO`, the gate save and the answer deletion are wrapped in `transaction.atomic()` so the two operations are all-or-nothing. If the deletion were to happen outside the transaction and the process crashed after the gate save, the orphaned answers would never be detected by condition B of the "needs work" predicate (gate is `NO`, so that `Exists` subquery skips it), leaving them stuck indefinitely. The transaction prevents that inconsistency.
+
+The "Regular answers" column is omitted from the re-evaluated table because `_get_stale_or_missing_questions` handles it uniformly: only questions without a fresh answer are passed to the LLM, regardless of how many that is. The caller does not need to know the prior answer state to decide what to run.
+
+### LLM call count (20 groups, gate batch 10, 3 pass gate, 4 questions per group)
+
+"Group call" here means one LLM call containing only the stale/missing questions for that group — not the full question set.
 
 | Scenario | Without gating | With gating |
 |---|---|---|
-| First labeling | 20 | 2 gate + 3 group = **5** |
-| Re-run, 1 question stale (gate fresh) | 20 | 0 gate + 1 group = **1** |
-| Re-run, gate text changed (still YES) | 20 | 2 gate + 0 group = **2** |
-| Re-run, gate flips NO→YES | 20 | 2 gate + 3 group = **5** |
+| First labeling (all fresh) | 20 | 2 gate + 3 group calls (4 q each) = **5** |
+| Re-run, 1 question stale in 1 group (gate fresh) | 20 | 0 gate + **1 question** in 1 call = **1** |
+| Re-run, gate text changed (still YES, answers fresh) | 20 | 2 gate + 0 group = **2** |
+| Re-run, gate flips NO→YES (no prior answers) | 20 | 2 gate + 3 group calls (4 q each) = **5** |
 
 ### Skip conditions
 
@@ -684,10 +705,10 @@ No touch to `radis/reports/site.py` — the periodic scan does not use the repor
 
 - **Gate batching** (`test_gate.py`) — 20 groups with gate batch size 10 → exactly 2 gate LLM calls; only YES/MAYBE groups produce question-set calls.
 - **Gate = NO, fresh** (`test_gate.py`) — group is skipped entirely; no `Answer` rows written, no LLM call.
-- **Gate fresh + YES/MAYBE + answers fresh** → zero LLM calls.
-- **Gate fresh + YES/MAYBE + 1 question stale** → exactly 1 question-set call, 0 gate calls.
-- **Gate stale + new YES, old NO** → 1 gate call + 1 question-set call.
-- **Gate stale + new YES, old YES + answers fresh** → 1 gate call only, 0 question-set calls.
+- **Gate answer fresh + YES/MAYBE + answers all fresh** → zero LLM calls.
+- **Gate answer fresh + YES/MAYBE + 1 question stale** → 1 LLM call containing only that 1 question, 0 gate calls.
+- **Gate answer stale + new YES, old NO** → 1 gate call + 1 question-set call (all questions, no prior answers).
+- **Gate answer stale + new YES, old YES + answers fresh** → 1 gate call only, 0 question calls.
 - **Gate stale + new NO, old YES/MAYBE** → 1 gate call, existing answers deleted, no question-set call.
 - **Gate stale + new NO, old NO** → 1 gate call, no answers to delete, no question-set call.
 - **Gate flips YES/MAYBE → NO: atomicity** (`test_gate.py`) — gate save and answer deletion succeed together; no orphaned `Answer` rows exist after the call.
