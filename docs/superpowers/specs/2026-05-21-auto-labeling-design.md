@@ -202,11 +202,21 @@ def incremental_label_scan(timestamp: int) -> None:
 ```python
 @app.task(queue="llm")
 def label_report_batch(report_ids: list[int]) -> None:
+    success = failure = 0
     for report_id in report_ids:
-        label_report(report_id)
+        try:
+            label_report(report_id)
+            success += 1
+        except Exception:
+            logger.exception("Labeling failed for report %d", report_id)
+            failure += 1
+    logger.info(
+        "Batch complete: %d success, %d failure out of %d",
+        success, failure, len(report_ids),
+    )
 ```
 
-One task per batch of `LABELING_TASK_BATCH_SIZE` reports (default 100). Calls `label_report()` sequentially — the same core function used by the backfill processor.
+One task per batch of `LABELING_TASK_BATCH_SIZE` reports (default 100). Calls `label_report()` sequentially — the same core function used by the backfill processor. Per-report exceptions are caught so one failing report does not abort the rest of the batch; failed reports are left for the next backfill to recover via the missing-answers predicate.
 
 ### Scale
 
@@ -435,7 +445,7 @@ def label_report(report_id: int) -> None:
 
 ### Failure handling
 
-Procrastinate retries with backoff on transient failures. After exhausted retries, the failure is logged to the `radis.labels` logger. A report that permanently fails a scan batch will not be re-attempted by the scan (the checkpoint will have advanced past its `created_at`); the next admin-triggered backfill will catch it via the missing-answers predicate.
+Per-report exceptions are caught inside `label_report_batch`; one report's LLM failure does not abort the rest of the batch. Failures are logged at `ERROR` level with full traceback. A report that fails in the scan will not be re-attempted by the scan (the checkpoint will have advanced past its `created_at`); the next admin-triggered backfill will catch it via the missing-answers predicate. Procrastinate retries the batch task itself only on uncaught exceptions (i.e. infrastructure failures outside the per-report loop).
 
 ## Admin UX
 
@@ -661,6 +671,7 @@ No touch to `radis/reports/site.py` — the periodic scan does not use the repor
 - **Incremental scan: guard** (`test_scan.py`) — active `LabelingJob` → checkpoint advances to `now`, no tasks deferred.
 - **Incremental scan: batching** (`test_scan.py`) — 250 reports with `created_at` after the checkpoint → 3 batch tasks deferred (100, 100, 50); reports with `created_at` before the checkpoint produce zero tasks.
 - **Incremental scan: checkpoint singleton** (`test_scan.py`) — calling `save()` twice on separate `LabelingScanCheckpoint` instances does not create a second row; `has_add_permission` returns `False` in admin.
+- **Incremental scan: partial batch failure** (`test_scan.py`) — one report raises during `label_report`; the remaining reports in the batch are still labeled and the task itself does not raise.
 
 ### Admin tests
 
