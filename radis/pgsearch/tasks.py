@@ -167,3 +167,39 @@ def process_embedding_job(job_id: int) -> None:
     for task in tasks_to_enqueue:
         if not task.is_queued:
             task.delay()
+
+
+from django.contrib.auth import get_user_model
+from django.db import transaction
+
+
+@app.periodic(cron=django_settings.EMBEDDING_DRAIN_CRON)
+@app.task(
+    queue="default",
+    queueing_lock="embedding_launcher",
+    pass_context=True,
+)
+def embedding_launcher(context, timestamp: int) -> None:
+    in_flight = EmbeddingJob.objects.filter(
+        status__in=[
+            EmbeddingJob.Status.PREPARING,
+            EmbeddingJob.Status.PENDING,
+            EmbeddingJob.Status.IN_PROGRESS,
+        ]
+    ).exists()
+    if in_flight:
+        logger.info("EmbeddingJob already in flight; launcher tick is a no-op.")
+        return
+
+    has_pending = ReportSearchVector.objects.filter(embedding__isnull=True).exists()
+    if not has_pending:
+        logger.debug("No reports pending embedding; launcher tick is a no-op.")
+        return
+
+    User = get_user_model()
+    system_user = User.objects.get(username=django_settings.EMBEDDING_SYSTEM_USERNAME)
+    job = EmbeddingJob.objects.create(
+        owner=system_user,
+        status=EmbeddingJob.Status.PREPARING,
+    )
+    transaction.on_commit(job.delay)
