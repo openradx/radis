@@ -358,7 +358,6 @@ EMBEDDING_BATCH_SIZE = 32
 
 # Embedding queue priorities (procrastinate "higher = sooner")
 EMBEDDING_INDEX_PRIORITY = 0
-EMBEDDING_BACKFILL_PRIORITY = -1
 EMBEDDING_SYSTEM_USERNAME = "system"
 
 # Hybrid search tuning
