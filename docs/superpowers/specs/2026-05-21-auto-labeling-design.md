@@ -278,6 +278,8 @@ def process_labeling_job(job_id: int) -> None:
 
 `create_labeling_tasks_streaming` iterates `Report.objects.order_by("pk").iterator(chunk_size=1000)`. For each chunk it identifies reports needing work using `_needs_work_queryset` and bulk-creates `LabelingTask` rows of `LABELING_TASK_BATCH_SIZE` reports each.
 
+Django's `iterator(chunk_size=...)` opens a PostgreSQL server-side cursor, so the result set is frozen at the moment the cursor opens. Reports ingested after that point are invisible to the backfill — they are not added to its task list and do not extend its runtime. The periodic scan's checkpoint continues advancing while the backfill runs; once the backfill completes, the scan resumes from that checkpoint and picks up every report that arrived during the backfill.
+
 The `tasks.all().delete()` at the top makes the preparation phase idempotent. If Procrastinate retries the task after a crash mid-streaming, any partial `LabelingTask` rows from the previous attempt are cleared before streaming restarts. The cost is bounded — only this job's own tasks are deleted, however many the prior attempt managed to create.
 
 ### "Needs work" predicate
