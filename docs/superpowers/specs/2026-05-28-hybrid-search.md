@@ -187,7 +187,7 @@ class ReportSearchVector(models.Model):
 
 ### 4.5 Operational note on `EMBEDDING_DIM`
 
-pgvector columns and HNSW indexes are bound to a fixed dimension at create time, and HNSW has a 2000-dim ceiling (so `EMBEDDING_DIM ≤ 2000`; Qwen3-Embedding-4B's native 2560 is Matryoshka-truncated client-side). A Django system check (`pgsearch.E001`) compares `settings.EMBEDDING_DIM` against the literal in migration 0003 and fails `manage.py check` on mismatch. Changing `EMBEDDING_DIM` after deploy requires a manual operator procedure:
+pgvector columns and HNSW indexes are bound to a fixed dimension at create time, and HNSW has a 2000-dim ceiling (so `EMBEDDING_DIM ≤ 2000`; Qwen3-Embedding-4B's native 2560 is Matryoshka-truncated client-side). Changing `EMBEDDING_DIM` after deploy requires a manual operator procedure:
 
 1. Drop the HNSW index and the `embedding` column.
 2. Re-run `0003_report_embedding` with the new `EMBEDDING_DIM`.
@@ -200,6 +200,79 @@ pgvector columns and HNSW indexes are bound to a fixed dimension at create time,
    ```
 
 This is documented as a deployment-time decision and intentionally not automated.
+
+### 4.6 Startup safety check for env/migration drift
+
+Two Django system checks guard against the failure mode where
+`settings.EMBEDDING_DIM` no longer matches what the on-disk migrations describe.
+Without these the divergence would surface later as an opaque pgvector
+dimension error on the first write or query.
+
+The migration-side dim is *not* stored in a hand-edited constant. Instead it is
+derived at check time from Django's `MigrationLoader` project state — which is
+built from the migration files on disk without a database connection — so
+there is exactly one source of truth (the `dimensions=...` literal that
+`makemigrations` itself generates from `settings.EMBEDDING_DIM`).
+
+```python
+# radis/pgsearch/apps.py
+
+def _migration_embedding_dim() -> int | None:
+    """Return the `dimensions` value of `ReportSearchVector.embedding` as
+    captured by the on-disk pgsearch migrations. Returns None if the field
+    cannot be located (e.g., migrations are missing or out of sync)."""
+    from django.db.migrations.loader import MigrationLoader
+
+    loader = MigrationLoader(connection=None, ignore_no_migrations=True)
+    state = loader.project_state()
+    try:
+        model = state.apps.get_model("pgsearch", "ReportSearchVector")
+        return model._meta.get_field("embedding").dimensions
+    except (LookupError, AttributeError):
+        return None
+
+
+@register()
+def check_embedding_dim_matches_migration(app_configs, **kwargs):
+    migration_dim = _migration_embedding_dim()
+    if migration_dim is None:
+        return [Error(
+            "Could not determine the embedding column dimension from the "
+            "pgsearch migrations.",
+            id="pgsearch.E002",
+            hint="Verify that radis/pgsearch/migrations/ contains a migration "
+                 "that adds `embedding` to `ReportSearchVector`.",
+        )]
+    if settings.EMBEDDING_DIM != migration_dim:
+        return [Error(
+            f"EMBEDDING_DIM={settings.EMBEDDING_DIM} does not match the dim "
+            f"baked into the pgsearch migrations (vector({migration_dim})). "
+            f"Either set EMBEDDING_DIM={migration_dim}, or run "
+            f"`makemigrations pgsearch` to capture the new dim and follow §4.5.",
+            id="pgsearch.E001",
+        )]
+    return []
+```
+
+Check IDs:
+
+| ID | When it fires |
+|---|---|
+| `pgsearch.E001` | `settings.EMBEDDING_DIM != migration_dim`. The familiar drift case. |
+| `pgsearch.E002` | `_migration_embedding_dim()` returns `None`. Indicates the migration tree is missing the `embedding` field — either it was deleted without replacement, or the model was renamed. Surfaces what would otherwise be a silent NoneType crash. |
+
+Alternatives considered and rejected:
+
+| Option | Authoritative for | DB connection | Verdict |
+|---|---|---|---|
+| Hand-edited constant (status quo before this change) | Nothing — must be manually transcribed | No | Drift-prone |
+| Parse `migrations/0003_*.py` source | The literal in one specific file | No | Brittle; couples to filename |
+| `MigrationLoader` project state | The aggregated dim across all migrations | No | Chosen |
+| `information_schema.columns` on the live DB | The actually-deployed column dim | Yes | Loses the offline-check property |
+
+`MigrationLoader.project_state()` reflects the *post-all-migrations* state, so
+if a later migration drops and recreates the column at a different dim, the
+check stays correct without any code change to `apps.py`.
 
 ## 5. Embedding client
 
