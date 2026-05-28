@@ -223,3 +223,56 @@ def test_m2m_filter_does_not_duplicate_results(group, settings):
 
     matching = [d for d in result.documents if d.document_id == r.document_id]
     assert len(matching) == 1, f"Expected 1 occurrence, got {len(matching)}"
+
+
+def test_search_skips_embedding_when_query_reduces_to_not(monkeypatch, group):
+    """`NOT X` alone produces an empty embedding string; the provider must
+    not call the embedding service and must return FTS-only results."""
+    from radis.pgsearch import providers
+
+    embed_query_calls: list[str] = []
+
+    class FakeEC:
+        def __init__(self): pass
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def embed_query(self, text):
+            embed_query_calls.append(text)
+            raise AssertionError("embed_query should not be called for NOT-only query")
+
+    monkeypatch.setattr("radis.pgsearch.providers.EmbeddingClient", FakeEC)
+
+    node, _ = QueryParser().parse("NOT pneumothorax")
+    search = Search(query=node, filters=SearchFilters(group=group.pk), offset=0, limit=10)
+    result = providers.search(search)
+
+    assert embed_query_calls == []
+    # FTS-only path still returns a SearchResult (possibly with zero hits).
+    assert result is not None
+
+
+def test_search_embeds_only_positive_branch_for_and_not(monkeypatch, group, settings):
+    """`A AND NOT B` embeds only `A`; FTS half still enforces the exclusion."""
+    embed_query_calls: list[str] = []
+    dim = settings.EMBEDDING_DIM
+
+    class FakeEC:
+        def __init__(self): pass
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def embed_query(self, text):
+            embed_query_calls.append(text)
+            # Return a valid normalized unit vector of the right dim.
+            import numpy as np
+            v = np.ones(dim, dtype=np.float32)
+            return (v / np.linalg.norm(v)).tolist()
+
+    monkeypatch.setattr("radis.pgsearch.providers.EmbeddingClient", FakeEC)
+
+    from radis.pgsearch import providers
+
+    node, _ = QueryParser().parse("pneumothorax AND NOT effusion")
+    search = Search(query=node, filters=SearchFilters(group=group.pk), offset=0, limit=10)
+    providers.search(search)
+
+    assert embed_query_calls == ["pneumothorax"]

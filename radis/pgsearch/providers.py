@@ -99,15 +99,17 @@ def search(search: Search) -> SearchResult:
     filter_query = _build_filter_query(search.filters)
     tsquery = SearchQuery(query_str, search_type="raw", config=language)
 
-    # Vector side: query embedding (sync HTTP); fall back gracefully on failure.
-    query_text = QueryParser.unparse(search.query)
-    query_vec: list[float] | None
-    try:
-        with EmbeddingClient() as ec:
-            query_vec = ec.embed_query(query_text)
-    except EmbeddingClientError as e:
-        logger.warning("Hybrid search falling back to FTS-only: %s", e)
-        query_vec = None
+    # Vector side: strip NOT branches (see spec §7.8). If nothing is left,
+    # skip the embedding call entirely and fall through to FTS-only.
+    query_text = QueryParser.unparse_for_embedding(search.query)
+    query_vec: list[float] | None = None
+    if query_text.strip():
+        try:
+            with EmbeddingClient() as ec:
+                query_vec = ec.embed_query(query_text)
+        except EmbeddingClientError as e:
+            logger.warning("Hybrid search falling back to FTS-only: %s", e)
+            query_vec = None
 
     vec_rank: dict[int, int] = {}
     vec_distance: dict[int, float] = {}
@@ -210,13 +212,17 @@ def retrieve(search: Search) -> Iterator[str]:
     filter_query = _build_filter_query(search.filters)
     tsquery = SearchQuery(query_str, search_type="raw", config=language)
 
-    query_text = QueryParser.unparse(search.query)
-    try:
-        with EmbeddingClient() as ec:
-            query_vec = ec.embed_query(query_text)
-    except EmbeddingClientError as e:
-        logger.warning("Hybrid retrieve falling back to FTS-only: %s", e)
-        query_vec = None
+    # Vector side: strip NOT branches (see spec §7.8). If nothing is left,
+    # skip the embedding call entirely and fall through to FTS-only.
+    query_text = QueryParser.unparse_for_embedding(search.query)
+    query_vec: list[float] | None = None
+    if query_text.strip():
+        try:
+            with EmbeddingClient() as ec:
+                query_vec = ec.embed_query(query_text)
+        except EmbeddingClientError as e:
+            logger.warning("Hybrid retrieve falling back to FTS-only: %s", e)
+            query_vec = None
 
     vec_rank: dict[int, int] = {}
     if query_vec is not None:
