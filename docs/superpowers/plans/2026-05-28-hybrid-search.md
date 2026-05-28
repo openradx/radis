@@ -1,14 +1,16 @@
-# Embedding Orchestrator Implementation Plan
+# Hybrid Search — Embedding Orchestrator + Negation-Aware Query Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Replace the `post_save`-driven `embed_reports` task and `backfill_embeddings` command with a periodic `EmbeddingJob`/`EmbeddingTask` orchestrator that batches pending embeddings without per-API-call job amplification.
+**Goal:** Land the two remaining design pieces of the unified hybrid-search spec — (1) the periodic `EmbeddingJob`/`EmbeddingTask` orchestrator that replaces the `post_save`-driven embedding path, and (2) `QueryParser.unparse_for_embedding` which strips `NOT` branches before the vector half of `search()` calls the embedding service.
 
-**Architecture:** Mirror `ExtractionJob`/`ExtractionTask` (`radis/extractions/tasks.py:32`) and `subscription_launcher` (`radis/subscriptions/tasks.py:115`). A periodic `embedding_launcher` on `default` queue creates one `EmbeddingJob` (system-owned) per drain; `process_embedding_job` (also `default`) batches `ReportSearchVector` rows with `embedding IS NULL` into `EmbeddingTask` rows and dispatches them; `process_embedding_task` (on `embeddings` queue) calls `EmbeddingClient`, `bulk_update`s the vectors, and rolls status up via `AnalysisJob.update_job_state`.
+**Architecture (orchestrator):** Mirror `ExtractionJob`/`ExtractionTask` (`radis/extractions/tasks.py:32`) and `subscription_launcher` (`radis/subscriptions/tasks.py:115`). A periodic `embedding_launcher` on `default` queue creates one `EmbeddingJob` (system-owned) per drain; `process_embedding_job` (also `default`) batches `ReportSearchVector` rows with `embedding IS NULL` into `EmbeddingTask` rows and dispatches them; `process_embedding_task` (on `embeddings` queue) calls `EmbeddingClient`, `bulk_update`s the vectors, and rolls status up via `AnalysisJob.update_job_state`.
+
+**Architecture (negation):** A new `QueryParser.unparse_for_embedding(node)` static walker emits a string with `UnaryNode("NOT", X)` branches dropped and empty `BinaryNode` legs collapsed. The pgsearch provider calls it instead of `unparse()` before `embed_query`; if the result is empty, the vector side is skipped and the request degrades to FTS-only.
 
 **Tech Stack:** Django 5.1, Procrastinate (periodic tasks + `queueing_lock`), pgvector, pytest-django.
 
-**Spec:** `docs/superpowers/specs/2026-05-28-hybrid-search.md` §6.
+**Spec:** `docs/superpowers/specs/2026-05-28-hybrid-search.md` (§6 orchestrator, §7.2/§7.8 negation).
 
 **Branch:** `feat/hybrid-search` (continue here; no worktree required).
 
@@ -27,6 +29,7 @@
 | `radis/pgsearch/tests/test_process_embedding_job.py` | Unit tests for `process_embedding_job` |
 | `radis/pgsearch/tests/test_process_embedding_task.py` | Unit tests for `process_embedding_task` |
 | `radis/pgsearch/tests/test_migrations_system_user.py` | Test for the data migration |
+| `radis/search/tests/test_query_parser_unparse_for_embedding.py` | Unit tests for the new `QueryParser.unparse_for_embedding` |
 
 **Files to modify:**
 
@@ -37,6 +40,9 @@
 | `radis/pgsearch/tasks.py` | Replace contents: add `embedding_launcher`, `process_embedding_job`, `process_embedding_task`; remove `embed_reports` and `enqueue_embed_reports` |
 | `radis/pgsearch/signals.py` | Remove `enqueue_report_embedding` receiver (lines 19-23); keep the FTS receiver |
 | `radis/pgsearch/tests/test_signals.py` | Delete the two embedding-signal tests; the file becomes empty and is deleted |
+| `radis/search/utils/query_parser.py:293-314` | Add `QueryParser.unparse_for_embedding` next to existing `unparse` |
+| `radis/pgsearch/providers.py:103,213` | Replace `QueryParser.unparse(search.query)` with `QueryParser.unparse_for_embedding(search.query)`; skip embedding call when result is empty |
+| `radis/pgsearch/tests/test_provider_hybrid.py` | Add a hybrid test exercising the `NOT X` and `A AND NOT B` paths |
 | `docker-compose.dev.yml:85-92` | Add `--concurrency 4` to `embeddings_worker` command |
 | `docker-compose.prod.yml:80-88` | Add `--concurrency 4` to `embeddings_worker` command |
 
@@ -983,6 +989,242 @@ git commit -m "feat(infra): run embeddings_worker with --concurrency 4"
 
 ---
 
+## Task 12: Add `QueryParser.unparse_for_embedding`
+
+**Files:**
+- Modify: `radis/search/utils/query_parser.py:293-314` (append new static method after the existing `unparse`)
+- Create: `radis/search/tests/test_query_parser_unparse_for_embedding.py`
+
+The method walks the same AST as `unparse` (`TermNode | ParensNode | UnaryNode | BinaryNode` defined at `radis/search/utils/query_parser.py:55`) but drops `UnaryNode("NOT", X)` branches and collapses empty `BinaryNode` legs. The grammar's only unary operator is `NOT` (per `radis/search/utils/query_parser.py:214`), so the implementation can assume that. The empty string is a legitimate return value (e.g., for `NOT X` alone) and callers handle it.
+
+- [ ] **Step 1: Write the failing tests**
+
+Create `radis/search/tests/test_query_parser_unparse_for_embedding.py`:
+
+```python
+import pytest
+
+from radis.search.utils.query_parser import QueryParser
+
+
+@pytest.mark.parametrize(
+    "query,expected",
+    [
+        # Simple positive term — unchanged.
+        ("pneumothorax", "pneumothorax"),
+        # Phrase preserved with quotes.
+        ('"chest x-ray"', '"chest x-ray"'),
+        # Implicit AND (no operator) — both sides survive.
+        ("cardiac arrest", "cardiac arrest"),
+        # Explicit AND — both sides survive, operator preserved.
+        ("A AND B", "A AND B"),
+        # OR — both sides survive, operator preserved.
+        ("A OR B", "A OR B"),
+        # NOT alone — empty.
+        ("NOT pneumothorax", ""),
+        # AND NOT — left survives, NOT branch dropped, AND collapses.
+        ("A AND NOT B", "A"),
+        # NOT AND — right survives, NOT branch dropped, AND collapses.
+        ("NOT A AND B", "B"),
+        # NOT OR NOT — both branches dropped, empty.
+        ("NOT A OR NOT B", ""),
+        # Mixed: AND OR with a NOT branch — surviving structure retained.
+        ("(A AND NOT B) OR C", "(A) OR C"),
+        # Nested NOT inside parens — empty parens collapsed.
+        ("A AND (NOT B)", "A"),
+        # Double-nested OR with one NOT — only NOT branch dropped.
+        ("(A OR B) AND NOT C", "(A OR B)"),
+    ],
+)
+def test_unparse_for_embedding(query, expected):
+    node, _fixes = QueryParser().parse(query)
+    assert node is not None, f"parser produced empty node for {query!r}"
+    assert QueryParser.unparse_for_embedding(node) == expected
+```
+
+- [ ] **Step 2: Run tests — expect AttributeError**
+
+Run: `uv run pytest radis/search/tests/test_query_parser_unparse_for_embedding.py -v`
+Expected: FAIL — `AttributeError: type object 'QueryParser' has no attribute 'unparse_for_embedding'`
+
+- [ ] **Step 3: Add the method to `radis/search/utils/query_parser.py`**
+
+Append immediately after the existing `unparse` static method (after the closing of the `if/elif` chain that ends around line 314):
+
+```python
+    @staticmethod
+    def unparse_for_embedding(node: QueryNode) -> str:
+        """Like ``unparse``, but drops the operand of every ``UnaryNode("NOT", X)``
+        and collapses any ``BinaryNode`` whose children both become empty.
+        Returns the empty string if the whole query reduces to NOT clauses.
+
+        Used by the hybrid-search vector half to avoid polarity-blind embedding
+        of negated terms (see spec 2026-05-28-hybrid-search §7.8).
+        """
+        if isinstance(node, TermNode):
+            return QueryParser.unparse(node)
+        if isinstance(node, ParensNode):
+            inner = QueryParser.unparse_for_embedding(node.expression)
+            return f"({inner})" if inner else ""
+        if isinstance(node, UnaryNode):
+            return ""
+        if isinstance(node, BinaryNode):
+            left = QueryParser.unparse_for_embedding(node.left)
+            right = QueryParser.unparse_for_embedding(node.right)
+            if not left and not right:
+                return ""
+            if not left:
+                return right
+            if not right:
+                return left
+            if node.implicit:
+                return f"{left} {right}"
+            return f"{left} {node.operator} {right}"
+        raise ValueError(f"Unknown node type: {type(node)}")
+```
+
+- [ ] **Step 4: Run tests and verify pass**
+
+Run: `uv run pytest radis/search/tests/test_query_parser_unparse_for_embedding.py -v`
+Expected: PASS (12 parameterized cases).
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add radis/search/utils/query_parser.py radis/search/tests/test_query_parser_unparse_for_embedding.py
+git commit -m "feat(search): add QueryParser.unparse_for_embedding that strips NOT branches"
+```
+
+---
+
+## Task 13: Wire `unparse_for_embedding` into the pgsearch provider
+
+**Files:**
+- Modify: `radis/pgsearch/providers.py:103` (in `search()`)
+- Modify: `radis/pgsearch/providers.py:213` (in `retrieve()`)
+- Modify: `radis/pgsearch/tests/test_provider_hybrid.py`
+
+Both `search()` and `retrieve()` currently call `QueryParser.unparse(search.query)` to build the text passed to `embed_query`. Replace with `unparse_for_embedding`. If the result is empty (e.g., the user query is `NOT X` alone), skip the embedding call and leave `query_vec = None` — the existing FTS-only fallback handles it.
+
+- [ ] **Step 1: Write the failing test**
+
+Append to `radis/pgsearch/tests/test_provider_hybrid.py` (use existing fixtures; structure mirrors current tests in that file):
+
+```python
+def test_search_skips_embedding_when_query_reduces_to_not(monkeypatch, ...):
+    """`NOT X` alone produces an empty embedding string; the provider must
+    not call the embedding service and must return FTS-only results."""
+    from radis.pgsearch import providers
+    from radis.search.site import Search, SearchFilters
+    from radis.search.utils.query_parser import QueryParser
+
+    embed_query_calls: list[str] = []
+
+    class FakeEC:
+        def __init__(self): pass
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def embed_query(self, text):
+            embed_query_calls.append(text)
+            raise AssertionError("embed_query should not be called for NOT-only query")
+
+    monkeypatch.setattr("radis.pgsearch.providers.EmbeddingClient", FakeEC)
+
+    node, _ = QueryParser().parse("NOT pneumothorax")
+    search = Search(query=node, offset=0, limit=10, filters=SearchFilters(group=...))
+    result = providers.search(search)
+
+    assert embed_query_calls == []
+    # FTS-only path still returns a SearchResult (possibly with zero hits).
+    assert result is not None
+
+
+def test_search_embeds_only_positive_branch_for_and_not(monkeypatch, ...):
+    """`A AND NOT B` embeds only `A`; FTS half still enforces the exclusion."""
+    from radis.pgsearch import providers
+    from radis.search.site import Search, SearchFilters
+    from radis.search.utils.query_parser import QueryParser
+
+    embed_query_calls: list[str] = []
+
+    class FakeEC:
+        def __init__(self): pass
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def embed_query(self, text):
+            embed_query_calls.append(text)
+            # Return a valid normalized unit vector of the right dim.
+            import numpy as np
+            from django.conf import settings as dj
+            v = np.ones(dj.EMBEDDING_DIM, dtype=np.float32)
+            return (v / np.linalg.norm(v)).tolist()
+
+    monkeypatch.setattr("radis.pgsearch.providers.EmbeddingClient", FakeEC)
+
+    node, _ = QueryParser().parse("pneumothorax AND NOT effusion")
+    search = Search(query=node, offset=0, limit=10, filters=SearchFilters(group=...))
+    providers.search(search)
+
+    assert embed_query_calls == ["pneumothorax"]
+```
+
+Replace `group=...` with the actual fixture used elsewhere in the file (it is whatever value the existing hybrid tests pass — read the file's other test bodies for the canonical filter setup).
+
+- [ ] **Step 2: Run tests — expect failure**
+
+Run: `uv run pytest radis/pgsearch/tests/test_provider_hybrid.py -k "not_when_query_reduces_to_not or and_not" -v`
+Expected: FAIL — `embed_query` is still called with the unstripped text.
+
+- [ ] **Step 3: Modify `radis/pgsearch/providers.py:search()`**
+
+Locate the block currently at lines ~102-110 in `radis/pgsearch/providers.py`:
+
+```python
+    # Vector side: query embedding (sync HTTP); fall back gracefully on failure.
+    query_text = QueryParser.unparse(search.query)
+    query_vec: list[float] | None
+    try:
+        with EmbeddingClient() as ec:
+            query_vec = ec.embed_query(query_text)
+    except EmbeddingClientError as e:
+        logger.warning("Hybrid search falling back to FTS-only: %s", e)
+        query_vec = None
+```
+
+Replace with:
+
+```python
+    # Vector side: strip NOT branches (see spec §7.8). If nothing is left,
+    # skip the embedding call entirely and fall through to FTS-only.
+    query_text = QueryParser.unparse_for_embedding(search.query)
+    query_vec: list[float] | None = None
+    if query_text.strip():
+        try:
+            with EmbeddingClient() as ec:
+                query_vec = ec.embed_query(query_text)
+        except EmbeddingClientError as e:
+            logger.warning("Hybrid search falling back to FTS-only: %s", e)
+            query_vec = None
+```
+
+- [ ] **Step 4: Apply the same change to `retrieve()`**
+
+Locate the analogous block at lines ~212-220 in `radis/pgsearch/providers.py`. Apply the identical replacement.
+
+- [ ] **Step 5: Run tests and verify pass**
+
+Run: `uv run pytest radis/pgsearch/tests/test_provider_hybrid.py -v`
+Expected: PASS for all hybrid tests including the two new ones.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add radis/pgsearch/providers.py radis/pgsearch/tests/test_provider_hybrid.py
+git commit -m "feat(pgsearch): use unparse_for_embedding to strip NOT branches before embed_query"
+```
+
+---
+
 ## Final verification
 
 - [ ] **Step 1: Run lint**
@@ -1039,6 +1281,8 @@ git push -u origin feat/hybrid-search
 | §6.4 owner = system user via data migration | Task 3 |
 | §6.5 `embedding_launcher` with `queueing_lock` + in-flight check | Task 6 |
 | §6.6 `process_embedding_job` PREPARING → PENDING flow | Task 5 |
+| §7.2 `unparse_for_embedding` used in search() + empty-string short-circuit | Task 13 |
+| §7.8 `QueryParser.unparse_for_embedding` AST walker | Task 12 |
 | §6.7 `process_embedding_task` on `embeddings` queue | Task 4 |
 | §6.8 No post_save signal | Task 7 |
 | §6.8 No `backfill_embeddings` command | Tasks 8 + 9 |

@@ -594,13 +594,17 @@ def search(s: Search) -> SearchResult:
     filter_q  = _build_filter_query(s.filters)
     tsquery   = SearchQuery(query_str, search_type="raw", config=language)
 
-    # Vector side
-    query_text = QueryParser.unparse(s.query)  # same helper SearchView already uses
-    try:
-        query_vec = EmbeddingClient().embed_query(query_text)
-    except EmbeddingClientError as e:
-        logger.warning("Falling back to FTS-only: %s", e)
-        query_vec = None
+    # Vector side: strip NOT branches before embedding (see §7.8), then embed.
+    # If stripping leaves nothing (e.g., the user query was just `NOT X`),
+    # skip vector retrieval entirely and fall through to FTS-only.
+    query_text = QueryParser.unparse_for_embedding(s.query)
+    query_vec: list[float] | None = None
+    if query_text.strip():
+        try:
+            query_vec = EmbeddingClient().embed_query(query_text)
+        except EmbeddingClientError as e:
+            logger.warning("Falling back to FTS-only: %s", e)
+            query_vec = None
 
     vec_rank: dict[int, int] = {}
     if query_vec is not None:
@@ -676,6 +680,66 @@ Kept as `ts_rank` for API backwards compatibility. RRF is an internal ordering s
 ### 7.7 `search_provider.max_results`
 
 Updated to `max(HYBRID_VECTOR_TOP_K, HYBRID_FTS_MAX_RESULTS)`, which is what the `SearchView` page-bound check uses to reject impossibly-deep pagination.
+
+### 7.8 Negation-aware query for embedding
+
+Dense embedding models are polarity-blind: the vector for `"NOT pneumothorax"`
+clusters near the vector for `"pneumothorax"`, so the top-K nearest neighbours
+to a `NOT X` query are documents *about* X — the polar opposite of what the
+user asked for. The FTS half handles `NOT X` correctly (it returns docs
+without X), so when both halves are fused naively the vector half pollutes
+the candidate pool with anti-matches.
+
+The fix is upstream of embedding: strip negated branches from the query string
+before sending it to the embedding model. The FTS side still receives the
+full structured query, so its negation semantics are preserved.
+
+A new static method on `QueryParser` walks the AST and emits a stripped
+string. The shape mirrors the existing `QueryParser.unparse` walker:
+
+```python
+@staticmethod
+def unparse_for_embedding(node: QueryNode) -> str:
+    """Like unparse(), but drops the operand of every UnaryNode("NOT", X)
+    and collapses any BinaryNode whose children both become empty.
+    Returns the empty string if the whole query reduces to NOT clauses."""
+    if isinstance(node, TermNode):
+        # Same as unparse: emit the term verbatim (PHRASE keeps quotes).
+        return QueryParser.unparse(node)
+    if isinstance(node, ParensNode):
+        inner = QueryParser.unparse_for_embedding(node.expression)
+        return f"({inner})" if inner else ""
+    if isinstance(node, UnaryNode):
+        # The only unary operator in the grammar is NOT — drop the operand.
+        return ""
+    if isinstance(node, BinaryNode):
+        left = QueryParser.unparse_for_embedding(node.left)
+        right = QueryParser.unparse_for_embedding(node.right)
+        if not left and not right:
+            return ""
+        if not left:
+            return right
+        if not right:
+            return left
+        if node.implicit:
+            return f"{left} {right}"
+        return f"{left} {node.operator} {right}"
+    raise ValueError(f"Unknown node type: {type(node)}")
+```
+
+Outcomes:
+
+| User query | `unparse()` (FTS path) | `unparse_for_embedding()` (vector path) | Behavior |
+|---|---|---|---|
+| `pneumothorax` | `pneumothorax` | `pneumothorax` | Both halves agree; RRF amplifies. |
+| `A AND NOT B` | `A AND NOT B` | `A` | Vector embeds the positive concept; FTS enforces the exclusion. |
+| `NOT X` | `NOT X` | `""` | Vector path skipped (see §7.2); FTS-only ranking. |
+| `(A AND NOT B) OR C` | `(A AND NOT B) OR C` | `(A) OR C` | Empty NOT branch collapses; surviving structure retained for vector. |
+
+The method does not attempt to resolve OR-asymmetry or other operator
+mismatches documented in §11.5 — those remain open trade-offs in the design.
+This is a targeted fix for the `NOT` case, which is the most acute failure
+mode for radiology queries.
 
 ## 8. Configuration
 
@@ -835,25 +899,20 @@ track whether the body actually changed (e.g., a `body_hash` column on
 don't have to null the embedding. Not in v1; profiling will tell us whether it
 matters.
 
-### 11.5 Operator-aware queries: FTS / vector asymmetry
+### 11.5 Operator-aware queries: residual FTS / vector asymmetry
 
-Both halves of hybrid search receive a derivation of the same parsed `QueryNode`, but interpret it through completely different machinery. The FTS side consumes a `tsquery` built by `_build_query_string` where `AND`, `OR`, `NOT`, quoted phrases, and parens are first-class boolean operators (`&`, `|`, `!`, `<->`, `()`). The vector side consumes the canonical unparsed string and feeds it whole to the embedding model as natural language; the operators become ordinary word tokens that the model has no operator-aware machinery to interpret.
+Both halves of hybrid search receive a derivation of the same parsed `QueryNode`, but interpret it through completely different machinery. The FTS side consumes a `tsquery` built by `_build_query_string` where `AND`, `OR`, `NOT`, quoted phrases, and parens are first-class boolean operators (`&`, `|`, `!`, `<->`, `()`). The vector side consumes a string derived from the AST by `QueryParser.unparse_for_embedding` (§7.8) and feeds it to the embedding model as natural language; the remaining operators become ordinary word tokens that the model has no operator-aware machinery to interpret.
 
-Practical consequences:
+Practical consequences after the §7.8 NOT-stripping fix:
 
 - **Natural-phrase queries** (`pneumothorax`, `chest x-ray`, implicit-AND `cardiac arrest`) — both halves point the same direction. RRF amplifies the agreement. This is the workload hybrid search is best at.
-- **`A AND B`** — FTS strictly intersects; vector returns docs about a topic-mix of A and B (which usually includes some single-side hits). Docs matching both lexically *and* semantically rank highest, which is the desired outcome. Vector contributes useful expansion but not boolean precision.
-- **`A OR B`** — FTS unions; the vector half has no concept of disjunction and just produces a centroid-style embedding. Docs about either A or B that happen to be near the centroid still get retrieved, but a doc purely about A may not appear unless it's also close to the centroid. Vector half degrades from "asset" to "noise".
-- **`NOT X`** — sharpest conflict. FTS correctly returns docs without X. Dense embeddings are polarity-blind, so the vector for `"NOT X"` clusters next to the vector for `"X"` and the top-K nearest neighbours are docs *about* X — the polar opposite of what the user asked for. The two halves return nearly disjoint sets that RRF interleaves, producing actively misleading results rather than mere noise. (Distinct from §11.1, which is about natural-language negation like `no pneumothorax` where the FTS stop-word strip happens to align the halves accidentally.)
+- **`A AND B`** — FTS strictly intersects; vector returns docs about a topic-mix of A and B. Docs matching both lexically *and* semantically rank highest, which is the desired outcome. Vector contributes useful expansion but not boolean precision.
+- **`A OR B`** — FTS unions; the vector half has no concept of disjunction and just produces a centroid-style embedding. Docs about either A or B that happen to be near the centroid still get retrieved, but a doc purely about A may not appear unless it's also close to the centroid. **Open trade-off.** Vector half degrades from "asset" to "noise" for OR-heavy queries; no fix in this spec.
+- **`NOT X` / `A AND NOT B`** — addressed by §7.8. Vector embeds only the positive branches; FTS enforces the negation; the halves are aligned.
 
-**Candidate mitigation (not in v1, recommended follow-up):** strip negated branches from the query string before embedding. Walk the AST; when a `UnaryNode("NOT", X)` is encountered, drop `X` from the string passed to the embedding model. The FTS side still gets the full structure. Outcomes:
+The asymmetry is real and remains a quality consideration for OR-heavy queries. The §11.6 cross-encoder re-ranker, when added, can sharpen the head of results but cannot fix a polluted candidate pool — see the analysis at the end of this section for why upstream stripping (the §7.8 approach for `NOT`) is the architecturally correct order of operations.
 
-- `NOT X` alone → vector receives an empty query and is skipped; provider falls back to FTS-only ranking. Correct.
-- `A AND NOT B` → vector embeds just `A`; FTS enforces `A & !B`. Vector adds positive semantic signal for A, FTS enforces the exclusion. The halves are aligned again.
-
-This is ~15 lines of code in `providers.search()` / `providers.retrieve()` and a small extension to `QueryParser` for the AST walk. Other candidates (negation-aware re-ranker, embedding subtraction, sparse models like SPLADE-NEG) are heavier and listed in §11.1.
-
-**Why a re-ranker alone cannot fix this.** A cross-encoder re-ranker improves precision *within the candidate pool it is given* — it cannot improve recall of that pool. For `NOT pneumothorax` over a 1000-doc corpus where 600 docs don't mention the word, the hybrid candidate pool is poisoned: ~100 wrong docs (pneumothorax-discussing reports pulled in by the polarity-blind vector half) displace 100 of the 600 correct docs from the top-N positions. After re-ranking top-20, the head of results is sharper, but ~590 correct docs still live below the re-ranker's cutoff at their original RRF positions, interleaved with the remaining 90 wrong docs. The architecturally correct order is to fix recall upstream (strip negated branches before embedding, restoring a clean candidate pool) and *then* layer a re-ranker for precision. A re-ranker without the upstream fix is rearranging deck chairs on a polluted pool.
+**Why a re-ranker alone cannot fix recall problems.** A cross-encoder re-ranker improves precision *within the candidate pool it is given* — it cannot improve recall of that pool. If a polarity-blind vector half had poisoned a `NOT pneumothorax` pool with ~100 anti-matches, re-ranking the top-20 would sharpen the head but ~590 correct docs would still live below the re-ranker's cutoff at their original RRF positions. The architecturally correct order is to fix recall upstream (§7.8) and *then* layer a re-ranker for precision (§11.6). A re-ranker without the upstream fix is rearranging deck chairs on a polluted pool.
 
 ### 11.6 Cross-encoder re-ranker (deferred)
 
