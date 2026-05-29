@@ -1225,6 +1225,224 @@ git commit -m "feat(pgsearch): use unparse_for_embedding to strip NOT branches b
 
 ---
 
+## Task 14: Replace `EMBEDDING_DIM_MIGRATION_LITERAL` with `MigrationLoader`-based check
+
+**Files:**
+- Modify: `radis/pgsearch/apps.py` (delete constant, add helper, rewrite check)
+- Modify: `radis/pgsearch/tests/test_apps_checks.py` (replace constant import)
+
+The current check in `radis/pgsearch/apps.py` compares `settings.EMBEDDING_DIM` against a hand-maintained constant `EMBEDDING_DIM_MIGRATION_LITERAL = 1024` that must be kept in sync with the literal in migration 0003 by convention only. This task replaces the constant with a helper that reads the dim from Django's on-disk migration files via `MigrationLoader`, so there is one source of truth (the `dimensions=...` literal that `makemigrations` itself generates from `settings.EMBEDDING_DIM`). A new error id `pgsearch.E002` covers the case where the embedding field cannot be located in the migrations.
+
+See spec §4.6 for the design rationale and the alternatives-considered table.
+
+- [ ] **Step 1: Rewrite the test file to source the dim from the new helper**
+
+Replace the entire contents of `radis/pgsearch/tests/test_apps_checks.py` with:
+
+```python
+"""Tests for the Django system check that guards EMBEDDING_DIM/migration parity."""
+
+from unittest.mock import patch
+
+from django.test import override_settings
+
+from radis.pgsearch.apps import (
+    _migration_embedding_dim,
+    check_embedding_dim_matches_migration,
+)
+
+
+def test_migration_embedding_dim_returns_int_without_db():
+    dim = _migration_embedding_dim()
+    assert isinstance(dim, int)
+    assert dim == 1024
+
+
+def test_check_passes_when_dim_matches_migration():
+    dim = _migration_embedding_dim()
+    with override_settings(EMBEDDING_DIM=dim):
+        assert check_embedding_dim_matches_migration(app_configs=None) == []
+
+
+def test_check_fails_with_e001_when_dim_diverges_from_migration():
+    dim = _migration_embedding_dim()
+    with override_settings(EMBEDDING_DIM=dim + 1):
+        errors = check_embedding_dim_matches_migration(app_configs=None)
+    assert len(errors) == 1
+    err = errors[0]
+    assert err.id == "pgsearch.E001"
+    assert str(dim) in err.msg
+    assert str(dim + 1) in err.msg
+
+
+def test_check_fails_with_e002_when_migration_field_missing():
+    with patch(
+        "radis.pgsearch.apps._migration_embedding_dim", return_value=None
+    ):
+        errors = check_embedding_dim_matches_migration(app_configs=None)
+    assert len(errors) == 1
+    assert errors[0].id == "pgsearch.E002"
+```
+
+- [ ] **Step 2: Run tests — expect ImportError**
+
+Run: `uv run pytest radis/pgsearch/tests/test_apps_checks.py -v`
+Expected: FAIL — `ImportError: cannot import name '_migration_embedding_dim' from 'radis.pgsearch.apps'`
+
+- [ ] **Step 3: Rewrite `radis/pgsearch/apps.py`**
+
+Replace the entire file with:
+
+```python
+from django.apps import AppConfig
+from django.conf import settings
+from django.core.checks import Error, register
+
+
+class PgSearchConfig(AppConfig):
+    name = "radis.pgsearch"
+
+    def ready(self):
+        from . import signals as signals  # noqa: F401
+
+        register_app()
+
+
+def _migration_embedding_dim() -> int | None:
+    """Return the `dimensions` value of `ReportSearchVector.embedding` as
+    captured by the on-disk pgsearch migrations. Returns None if the field
+    cannot be located (migrations missing or model renamed)."""
+    from django.db.migrations.loader import MigrationLoader
+
+    loader = MigrationLoader(connection=None, ignore_no_migrations=True)
+    state = loader.project_state()
+    try:
+        model = state.apps.get_model("pgsearch", "ReportSearchVector")
+        return model._meta.get_field("embedding").dimensions
+    except (LookupError, AttributeError):
+        return None
+
+
+@register()
+def check_embedding_dim_matches_migration(app_configs, **kwargs):
+    """Fail loudly when settings.EMBEDDING_DIM diverges from the dim baked
+    into the pgsearch migrations. Mismatched values would otherwise surface as
+    opaque pgvector dimension errors on the first write or query."""
+    migration_dim = _migration_embedding_dim()
+
+    if migration_dim is None:
+        return [
+            Error(
+                "Could not determine the embedding column dimension from the "
+                "pgsearch migrations. Either the migrations are missing the "
+                "embedding field or the model has been renamed.",
+                id="pgsearch.E002",
+                hint=(
+                    "Verify that `radis/pgsearch/migrations/` contains a "
+                    "migration that adds the `embedding` field to "
+                    "`ReportSearchVector`, and that `makemigrations pgsearch` "
+                    "succeeds without changes."
+                ),
+            )
+        ]
+
+    if settings.EMBEDDING_DIM != migration_dim:
+        return [
+            Error(
+                f"EMBEDDING_DIM={settings.EMBEDDING_DIM} does not match the "
+                f"dim baked into the pgsearch migrations "
+                f"(vector({migration_dim})). Writes will fail with a pgvector "
+                f"dimension error. Either set "
+                f"EMBEDDING_DIM={migration_dim}, or run `makemigrations "
+                f"pgsearch` to capture the new dim and follow the §4.5 "
+                f"procedure to drop and recreate the embedding column.",
+                id="pgsearch.E001",
+                hint=(
+                    "Update EMBEDDING_DIM in your .env to match the existing "
+                    "migrations, or generate a new migration that matches the "
+                    "new dim."
+                ),
+            )
+        ]
+    return []
+
+
+def register_app():
+    from django.conf import settings
+
+    from radis.extractions.site import (
+        ExtractionRetrievalProvider,
+        register_extraction_retrieval_provider,
+    )
+    from radis.search.site import SearchProvider, register_search_provider
+    from radis.subscriptions.site import (
+        SubscriptionFilterProvider,
+        SubscriptionRetrievalProvider,
+        register_subscription_filter_provider,
+        register_subscription_retrieval_provider,
+    )
+
+    from .providers import count, filter, retrieve, search
+
+    register_search_provider(
+        SearchProvider(
+            name="PG Search",
+            search=search,
+            max_results=max(
+                settings.HYBRID_VECTOR_TOP_K, settings.HYBRID_FTS_MAX_RESULTS
+            ),
+        )
+    )
+
+    register_extraction_retrieval_provider(
+        ExtractionRetrievalProvider(
+            name="PG Search",
+            count=count,
+            retrieve=retrieve,
+            max_results=None,
+        )
+    )
+
+    register_subscription_retrieval_provider(
+        SubscriptionRetrievalProvider(
+            name="PG Search",
+            retrieve=retrieve,
+        )
+    )
+    register_subscription_filter_provider(
+        SubscriptionFilterProvider(
+            name="PG Search",
+            filter=filter,
+        )
+    )
+```
+
+The `EMBEDDING_DIM_MIGRATION_LITERAL` constant and its sync-keeping comment block are gone. `register_app()` is unchanged from the current implementation.
+
+- [ ] **Step 4: Run tests and verify pass**
+
+Run: `uv run pytest radis/pgsearch/tests/test_apps_checks.py -v`
+Expected: PASS (4 tests).
+
+- [ ] **Step 5: Run `manage.py check` to confirm the system check still works end-to-end**
+
+Run: `uv run python manage.py check`
+Expected: passes with no errors (current `.env` has `EMBEDDING_DIM=1024` matching the migration).
+
+Also verify the negative case manually:
+
+Run: `EMBEDDING_DIM=999 uv run python manage.py check`
+Expected: prints a single `pgsearch.E001` error mentioning both `999` and `1024`, and `manage.py check` exits non-zero.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add radis/pgsearch/apps.py radis/pgsearch/tests/test_apps_checks.py
+git commit -m "refactor(pgsearch): derive embedding-dim check from MigrationLoader, drop hand-edited literal"
+```
+
+---
+
 ## Final verification
 
 - [ ] **Step 1: Run lint**
@@ -1289,3 +1507,4 @@ git push -u origin feat/hybrid-search
 | §8.1 `EMBEDDING_DRAIN_CRON` env var | Task 1 |
 | §8.2 `EMBEDDING_SYSTEM_USERNAME` constant | Task 1 |
 | §10.1 unit tests for launcher/job/task | Tasks 4, 5, 6 |
+| §4.6 `MigrationLoader`-based EMBEDDING_DIM check + `pgsearch.E002` | Task 14 |
