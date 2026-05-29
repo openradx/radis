@@ -1,23 +1,42 @@
 """Tests for the Django system check that guards EMBEDDING_DIM/migration parity."""
 
+from unittest.mock import patch
+
 from django.test import override_settings
 
 from radis.pgsearch.apps import (
-    EMBEDDING_DIM_MIGRATION_LITERAL,
+    _migration_embedding_dim,
     check_embedding_dim_matches_migration,
 )
 
 
+def test_migration_embedding_dim_returns_int_without_db():
+    dim = _migration_embedding_dim()
+    assert isinstance(dim, int)
+    assert dim == 1024
+
+
 def test_check_passes_when_dim_matches_migration():
-    with override_settings(EMBEDDING_DIM=EMBEDDING_DIM_MIGRATION_LITERAL):
+    dim = _migration_embedding_dim()
+    with override_settings(EMBEDDING_DIM=dim):
         assert check_embedding_dim_matches_migration(app_configs=None) == []
 
 
-def test_check_fails_when_dim_diverges_from_migration():
-    with override_settings(EMBEDDING_DIM=EMBEDDING_DIM_MIGRATION_LITERAL + 1):
+def test_check_fails_with_e001_when_dim_diverges_from_migration():
+    dim = _migration_embedding_dim()
+    with override_settings(EMBEDDING_DIM=dim + 1):
         errors = check_embedding_dim_matches_migration(app_configs=None)
     assert len(errors) == 1
     err = errors[0]
     assert err.id == "pgsearch.E001"
-    assert str(EMBEDDING_DIM_MIGRATION_LITERAL) in err.msg
-    assert str(EMBEDDING_DIM_MIGRATION_LITERAL + 1) in err.msg
+    assert str(dim) in err.msg
+    assert str(dim + 1) in err.msg
+
+
+def test_check_fails_with_e002_when_migration_field_missing():
+    with patch(
+        "radis.pgsearch.apps._migration_embedding_dim", return_value=None
+    ):
+        errors = check_embedding_dim_matches_migration(app_configs=None)
+    assert len(errors) == 1
+    assert errors[0].id == "pgsearch.E002"

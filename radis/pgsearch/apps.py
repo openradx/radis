@@ -2,40 +2,69 @@ from django.apps import AppConfig
 from django.conf import settings
 from django.core.checks import Error, register
 
-# Keep in sync with the dimensions= literal in
-# radis/pgsearch/migrations/0003_report_embedding.py. The migration
-# captures dim at generation time, so changing this requires a new
-# migration that re-creates the embedding column.
-EMBEDDING_DIM_MIGRATION_LITERAL = 1024
-
 
 class PgSearchConfig(AppConfig):
     name = "radis.pgsearch"
 
     def ready(self):
-        from . import signals as signals
+        from . import signals as signals  # noqa: F401
 
         register_app()
+
+
+def _migration_embedding_dim() -> int | None:
+    """Return the `dimensions` value of `ReportSearchVector.embedding` as
+    captured by the on-disk pgsearch migrations. Returns None if the field
+    cannot be located (migrations missing or model renamed)."""
+    from django.db.migrations.loader import MigrationLoader
+
+    loader = MigrationLoader(connection=None, ignore_no_migrations=True)
+    state = loader.project_state()
+    try:
+        model = state.apps.get_model("pgsearch", "ReportSearchVector")
+        return model._meta.get_field("embedding").dimensions
+    except (LookupError, AttributeError):
+        return None
 
 
 @register()
 def check_embedding_dim_matches_migration(app_configs, **kwargs):
     """Fail loudly when settings.EMBEDDING_DIM diverges from the dim baked
-    into migration 0003. Mismatched values would otherwise surface as opaque
-    pgvector dimension errors on the first write/query."""
-    if settings.EMBEDDING_DIM != EMBEDDING_DIM_MIGRATION_LITERAL:
+    into the pgsearch migrations. Mismatched values would otherwise surface as
+    opaque pgvector dimension errors on the first write or query."""
+    migration_dim = _migration_embedding_dim()
+
+    if migration_dim is None:
         return [
             Error(
-                f"EMBEDDING_DIM={settings.EMBEDDING_DIM} does not match the dim "
-                f"baked into migration 0003 (vector({EMBEDDING_DIM_MIGRATION_LITERAL})). "
-                f"Writes will fail with a pgvector dimension error. Either set "
-                f"EMBEDDING_DIM={EMBEDDING_DIM_MIGRATION_LITERAL} or write a new "
-                f"migration that drops and recreates the embedding column at the new dim.",
+                "Could not determine the embedding column dimension from the "
+                "pgsearch migrations. Either the migrations are missing the "
+                "embedding field or the model has been renamed.",
+                id="pgsearch.E002",
+                hint=(
+                    "Verify that `radis/pgsearch/migrations/` contains a "
+                    "migration that adds the `embedding` field to "
+                    "`ReportSearchVector`, and that `makemigrations pgsearch` "
+                    "succeeds without changes."
+                ),
+            )
+        ]
+
+    if settings.EMBEDDING_DIM != migration_dim:
+        return [
+            Error(
+                f"EMBEDDING_DIM={settings.EMBEDDING_DIM} does not match the "
+                f"dim baked into the pgsearch migrations "
+                f"(vector({migration_dim})). Writes will fail with a pgvector "
+                f"dimension error. Either set "
+                f"EMBEDDING_DIM={migration_dim}, or run `makemigrations "
+                f"pgsearch` to capture the new dim and follow the §4.5 "
+                f"procedure to drop and recreate the embedding column.",
                 id="pgsearch.E001",
                 hint=(
-                    "Update EMBEDDING_DIM in your .env, or write a migration that "
-                    "matches the new dim and update EMBEDDING_DIM_MIGRATION_LITERAL "
-                    "in radis/pgsearch/apps.py."
+                    "Update EMBEDDING_DIM in your .env to match the existing "
+                    "migrations, or generate a new migration that matches the "
+                    "new dim."
                 ),
             )
         ]
