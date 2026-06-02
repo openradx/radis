@@ -30,7 +30,7 @@ def test_process_embedding_job_batches_pending_reports(settings):
     reports = _make_pending_reports(5)
 
     with patch("radis.pgsearch.models.EmbeddingTask.delay") as delay_mock:
-        process_embedding_job(job.id)
+        process_embedding_job(job.pk)
 
     job.refresh_from_db()
     assert job.status == EmbeddingJob.Status.PENDING
@@ -55,7 +55,7 @@ def test_process_embedding_job_resume_path_only_redispatches_pending_tasks(setti
     EmbeddingTask.objects.create(job=job, status=EmbeddingTask.Status.SUCCESS)
 
     with patch("radis.pgsearch.models.EmbeddingTask.delay") as delay_mock:
-        process_embedding_job(job.id)
+        process_embedding_job(job.pk)
 
     job.refresh_from_db()
     assert job.status == EmbeddingJob.Status.PENDING
@@ -70,7 +70,7 @@ def test_process_embedding_job_with_no_pending_rows():
     # No reports exist → no ReportSearchVector rows with embedding IS NULL.
 
     with patch("radis.pgsearch.models.EmbeddingTask.delay") as delay_mock:
-        process_embedding_job(job.id)
+        process_embedding_job(job.pk)
 
     job.refresh_from_db()
     assert job.status == EmbeddingJob.Status.PENDING

@@ -243,6 +243,7 @@ def test_search_skips_embedding_when_query_reduces_to_not(monkeypatch, group):
     monkeypatch.setattr("radis.pgsearch.providers.EmbeddingClient", FakeEC)
 
     node, _ = QueryParser().parse("NOT pneumothorax")
+    assert node is not None
     search = Search(query=node, filters=SearchFilters(group=group.pk), offset=0, limit=10)
     result = providers.search(search)
 
@@ -272,6 +273,7 @@ def test_search_embeds_only_positive_branch_for_and_not(monkeypatch, group, sett
     from radis.pgsearch import providers
 
     node, _ = QueryParser().parse("pneumothorax AND NOT effusion")
+    assert node is not None
     search = Search(query=node, filters=SearchFilters(group=group.pk), offset=0, limit=10)
     providers.search(search)
 

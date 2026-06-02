@@ -34,7 +34,7 @@ def test_process_embedding_task_writes_vectors_and_marks_success(settings):
     fake_client = MagicMock()
     fake_client.embed_documents.return_value = [vec, vec]
     with patch("radis.pgsearch.tasks.EmbeddingClient", return_value=fake_client):
-        process_embedding_task(task.id)
+        process_embedding_task(task.pk)
 
     task.refresh_from_db()
     assert task.status == EmbeddingTask.Status.SUCCESS
@@ -50,7 +50,7 @@ def test_process_embedding_task_failure_sets_status_and_raises():
     fake_client.embed_documents.side_effect = EmbeddingClientError("boom")
     with patch("radis.pgsearch.tasks.EmbeddingClient", return_value=fake_client):
         with pytest.raises(EmbeddingClientError):
-            process_embedding_task(task.id)
+            process_embedding_task(task.pk)
 
     task.refresh_from_db()
     assert task.status == EmbeddingTask.Status.FAILURE
@@ -64,7 +64,7 @@ def test_process_embedding_task_calls_update_job_state(settings):
     fake_client = MagicMock()
     fake_client.embed_documents.return_value = [vec, vec]
     with patch("radis.pgsearch.tasks.EmbeddingClient", return_value=fake_client):
-        process_embedding_task(task.id)
+        process_embedding_task(task.pk)
 
     task.job.refresh_from_db()
     # All tasks succeeded; AnalysisJob.update_job_state rolls up to SUCCESS.

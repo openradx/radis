@@ -24,6 +24,7 @@ def test_check_passes_when_dim_matches_migration():
 
 def test_check_fails_with_e001_when_dim_diverges_from_migration():
     dim = _migration_embedding_dim()
+    assert dim is not None
     with override_settings(EMBEDDING_DIM=dim + 1):
         errors = check_embedding_dim_matches_migration(app_configs=None)
     assert len(errors) == 1
