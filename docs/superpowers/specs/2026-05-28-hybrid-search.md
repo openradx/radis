@@ -746,9 +746,42 @@ Same fusion logic, returns an iterator of `report__document_id` in `ordered_ids`
 
 Unchanged. These operate on filters only and never call the embedding service.
 
-### 7.6 `ReportDocument.relevance`
+### 7.6 `ReportDocument` score fields
 
-Kept as `ts_rank` for API backwards compatibility. RRF is an internal ordering signal and is not exposed on the public document type. RRF scores are logged at DEBUG for diagnostics.
+`ReportDocument` (`radis/search/site.py`) carries three score fields. The
+existing `relevance` is preserved for API backwards compatibility; two new
+fields are added so callers (and the UI) can see *why* a result ranked where
+it did:
+
+```python
+class ReportDocument(NamedTuple):
+    relevance: float | None                  # FTS ts_rank — existing; 0.0 for vector-only hits
+    document_id: str
+    # ...
+    cosine_distance: float | None = None     # NEW — pgvector cosine distance; None for FTS-only hits
+    rrf_score: float = 0.0                   # NEW — the value the final ordering is based on
+```
+
+Semantics:
+
+- `relevance` — Postgres `ts_rank` of the row's `search_vector` against the
+  tsquery. Same field/shape pre- and post-hybrid; callers that read it
+  continue to work. Defaults to `0.0` for documents that came from the vector
+  half only.
+- `cosine_distance` — the `CosineDistance("embedding", query_vec)` annotation
+  for rows that made `vec_top_K`. `None` for FTS-only hits and whenever the
+  query path skipped vector retrieval (embedding service down, or the query
+  reduced to `NOT` after §7.8 stripping).
+- `rrf_score` — the fused score from §7.1; this is what the result ordering
+  is based on. Exposed for transparency, debugging, and UI display
+  (operators can see at a glance which side contributed). Also useful when
+  the §11.6 re-ranker lands: it will read `rrf_score` to seed its top-N
+  candidate selection.
+
+All three fields are populated by `document_from_pgsearch_response` during
+the page-slice hydration step in §7.2. The hydration query annotates the page
+rows with `ts_rank`, looks up the corresponding entries in the `vec_rank` /
+`fts_rank` / `rrf` dicts, and assembles the document.
 
 ### 7.7 `search_provider.max_results`
 
