@@ -104,10 +104,7 @@ per-API-call embedding job.
 | File | Purpose |
 |---|---|
 | `utils/embedding_client.py` | Sync + async HTTP clients with pluggable backends (`openai`, `ollama`) |
-| `migrations/0002_pgvector_extension.py` | `CREATE EXTENSION IF NOT EXISTS vector;` |
-| `migrations/0003_report_embedding.py` | Adds `embedding vector(N)` column + HNSW index |
-| `migrations/0004_embedding_job_task.py` | Adds `EmbeddingJob` and `EmbeddingTask` tables + M2M to `Report` |
-| `migrations/0005_system_user.py` | Data migration: creates the system user if missing |
+| `migrations/0002_hybrid_search.py` | Single squashed migration: `CREATE EXTENSION vector`; adds `embedding vector(N)` column + HNSW index; creates `EmbeddingJob`/`EmbeddingTask` tables + M2M to `Report`; idempotent `RunPython` for the system user |
 | `models.py` (modified) | Adds `embedding` field + `HnswIndex`; defines `EmbeddingJob` and `EmbeddingTask` inheriting `AnalysisJob`/`AnalysisTask` |
 | `signals.py` (unchanged from FTS-only) | The FTS `create_or_update_report_search_vector` receiver stays; **no embedding signal** |
 | `tasks.py` (modified) | Adds `embedding_launcher` (periodic), `process_embedding_job` (`default` queue), `process_embedding_task` (`embeddings` queue) |
@@ -134,26 +131,41 @@ Add to `pyproject.toml`:
 "pgvector>=0.3",
 ```
 
-### 4.2 Postgres extension migration
+### 4.2 Squashed migration
 
-`radis/pgsearch/migrations/0002_pgvector_extension.py`:
+The entire hybrid-search schema and the system-user data migration land in a
+single file, `radis/pgsearch/migrations/0002_hybrid_search.py`, depending on
+`pgsearch.0001_initial`, `reports.0013_alter_report_options`,
+`procrastinate.0041_post_retry_failed_job`, and `AUTH_USER_MODEL`. Operations
+in order:
 
-```python
-class Migration(migrations.Migration):
-    dependencies = [("pgsearch", "0001_initial")]
-    operations = [
-        migrations.RunSQL(
-            sql="CREATE EXTENSION IF NOT EXISTS vector;",
-            reverse_sql=migrations.RunSQL.noop,   # do not drop in prod
-        ),
-    ]
-```
+1. `RunSQL("CREATE EXTENSION IF NOT EXISTS vector;", reverse_sql=RunSQL.noop)`.
+   Reverse is a no-op because the extension may be shared with other Postgres
+   usage and dropping it would damage unrelated state. Dev rollback is handled
+   by recreating the database.
+2. `AddField` `embedding` on `ReportSearchVector`:
+   `pgvector.django.vector.VectorField(dimensions=settings.EMBEDDING_DIM, null=True)`.
+3. `AddIndex` HNSW on `embedding`: `m=16`, `ef_construction=64`,
+   `opclasses=["vector_cosine_ops"]`, `name="pgsearch_embedding_hnsw"`.
+4. `CreateModel` `EmbeddingJob` (subclass of `AnalysisJob`).
+5. `CreateModel` `EmbeddingTask` (subclass of `AnalysisTask`, FK to
+   `EmbeddingJob`, M2M to `Report`).
+6. `RunPython(create_system_user, reverse_code=RunPython.noop)`: idempotent
+   `User.objects.get_or_create(username=settings.EMBEDDING_SYSTEM_USERNAME,
+   defaults={"is_active": False, "password": "!"})`. The function is inlined
+   at the top of the migration file — no separate helper module — because it
+   is only ever called from this one place.
 
-Reverse is a no-op because the extension may be shared with other Postgres usage and dropping it would damage unrelated state. Dev rollback is handled by recreating the database.
+Operation order matters: the `AddField` step references the `vector` type
+installed by step 1, and the `CreateModel` steps reference both the `Report`
+table (via M2M) and the `AUTH_USER_MODEL` (via owner FK). Step 6 runs last
+because it needs the user table to exist (which it does at `0001_initial` of
+the auth app, swappable-dependency-ordered above).
 
-### 4.3 Schema migration
-
-`radis/pgsearch/migrations/0003_report_embedding.py`: standard `AddField` with a `VectorField(dimensions=settings.EMBEDDING_DIM, null=True)` and `AddIndex` for an `HnswIndex` with `opclasses=["vector_cosine_ops"]`, `m=16`, `ef_construction=64`.
+Reverse semantics: the auto-generated reverse of steps 2–5 drops the index,
+the column, and the two tables. Steps 1 and 6 use `noop` reverse — extension
+stays installed; system user stays in the DB. Matches the originally-chained
+behaviour exactly.
 
 ### 4.4 Model update
 
@@ -190,7 +202,9 @@ class ReportSearchVector(models.Model):
 pgvector columns and HNSW indexes are bound to a fixed dimension at create time, and HNSW has a 2000-dim ceiling (so `EMBEDDING_DIM ≤ 2000`; Qwen3-Embedding-4B's native 2560 is Matryoshka-truncated client-side). Changing `EMBEDDING_DIM` after deploy requires a manual operator procedure:
 
 1. Drop the HNSW index and the `embedding` column.
-2. Re-run `0003_report_embedding` with the new `EMBEDDING_DIM`.
+2. Re-run `0002_hybrid_search` with the new `EMBEDDING_DIM`. (Because the
+   migration is squashed, this single apply re-creates the column at the new
+   dim, the HNSW index, and is idempotent for the rest of the operations.)
 3. From a Django shell, defer the embedding orchestrator immediately so the
    next nightly tick is not waited for:
 
@@ -204,15 +218,17 @@ This is documented as a deployment-time decision and intentionally not automated
 ### 4.6 Startup safety check for env/migration drift
 
 Two Django system checks guard against the failure mode where
-`settings.EMBEDDING_DIM` no longer matches what the on-disk migrations describe.
-Without these the divergence would surface later as an opaque pgvector
-dimension error on the first write or query.
+`settings.EMBEDDING_DIM` no longer matches what the squashed
+`0002_hybrid_search` migration describes. Without these the divergence would
+surface later as an opaque pgvector dimension error on the first write or
+query.
 
-The migration-side dim is *not* stored in a hand-edited constant. Instead it is
-derived at check time from Django's `MigrationLoader` project state — which is
+The migration-side dim is *not* stored in a hand-edited constant. Instead it
+is derived at check time from Django's `MigrationLoader` project state —
 built from the migration files on disk without a database connection — so
 there is exactly one source of truth (the `dimensions=...` literal that
-`makemigrations` itself generates from `settings.EMBEDDING_DIM`).
+`makemigrations` itself generated from `settings.EMBEDDING_DIM` when
+`0002_hybrid_search` was first written).
 
 ```python
 # radis/pgsearch/apps.py
@@ -266,7 +282,7 @@ Alternatives considered and rejected:
 | Option | Authoritative for | DB connection | Verdict |
 |---|---|---|---|
 | Hand-edited constant (status quo before this change) | Nothing — must be manually transcribed | No | Drift-prone |
-| Parse `migrations/0003_*.py` source | The literal in one specific file | No | Brittle; couples to filename |
+| Parse `migrations/0002_hybrid_search.py` source | The literal in one specific file | No | Brittle; couples to filename |
 | `MigrationLoader` project state | The aggregated dim across all migrations | No | Chosen |
 | `information_schema.columns` on the live DB | The actually-deployed column dim | Yes | Loses the offline-check property |
 
@@ -442,11 +458,12 @@ class EmbeddingTask(AnalysisTask):
 ```
 
 **Owner field.** `AnalysisJob.owner` is non-nullable (`settings.AUTH_USER_MODEL`).
-Embedding jobs are system-driven and have no human creator. A data migration
-(`0005_system_user.py`) creates a `User(username=settings.EMBEDDING_SYSTEM_USERNAME,
-is_active=False, password=unusable)` idempotently; the launcher assigns this
-user as `owner` on every `EmbeddingJob`. This avoids subclass-level overrides
-of `owner` and keeps the abstract contract clean.
+Embedding jobs are system-driven and have no human creator. The squashed
+`0002_hybrid_search` migration's final `RunPython` step creates
+`User(username=settings.EMBEDDING_SYSTEM_USERNAME, is_active=False,
+password=unusable)` idempotently; the launcher assigns this user as `owner`
+on every `EmbeddingJob`. This avoids subclass-level overrides of `owner` and
+keeps the abstract contract clean.
 
 **No `get_absolute_url` in v1.** Existing `ExtractionJob` and `SubscriptionJob`
 implement `get_absolute_url` because they have user-facing detail views.
@@ -883,7 +900,7 @@ HYBRID_FTS_MAX_RESULTS = 10_000
 HYBRID_RRF_K           = 60
 ```
 
-These are tuning constants. Changing them is a code change with a PR diff. This matches the project's existing pattern (`EXTRACTION_LLM_CONCURRENCY_LIMIT = 6`, the `CHAT_*_SYSTEM_PROMPT` blocks). `EMBEDDING_SYSTEM_USERNAME` names the system user that owns every auto-generated `EmbeddingJob`; the data migration creates this user idempotently.
+These are tuning constants. Changing them is a code change with a PR diff. This matches the project's existing pattern (`EXTRACTION_LLM_CONCURRENCY_LIMIT = 6`, the `CHAT_*_SYSTEM_PROMPT` blocks). `EMBEDDING_SYSTEM_USERNAME` names the system user that owns every auto-generated `EmbeddingJob`; the squashed migration's `RunPython` step creates this user idempotently.
 
 ### 8.3 `example.env`
 
@@ -1048,12 +1065,11 @@ A `run_search_eval` management command loops a set of test queries through all s
 
 ## 12. Rollout plan
 
-1. **Schema and dependency.** Land the `pgvector` Python dep, the extension migration, and the embedding-column schema migration. No behavior change yet — `embedding` is nullable, queries still see only FTS.
+1. **Schema, dependency, models, data migration.** Land the `pgvector` Python dep and the squashed `0002_hybrid_search` migration (extension + embedding column + HNSW + `EmbeddingJob`/`EmbeddingTask` tables + system user). No behaviour change yet — `embedding` is nullable, queries still see only FTS.
 2. **Embedding client and tests.** Land the client module and unit tests. No callers yet.
-3. **Orchestrator models and migrations.** Add `EmbeddingJob`, `EmbeddingTask`, their migration, and the data migration that creates the system user.
-4. **Orchestrator tasks and `embeddings_worker`.** Land `embedding_launcher`, `process_embedding_job`, `process_embedding_task`, the `embeddings_worker` container (with `--concurrency 4`), and the `EMBEDDING_DRAIN_CRON` setting. The launcher starts ticking; with no rows yet, all ticks no-op.
-5. **Initial drain.** From a shell, run `embedding_launcher.defer()` so the orchestrator picks up the existing corpus. This is the only "operator action" in the rollout. It runs at `EMBEDDING_INDEX_PRIORITY` and lives behind whatever other work is on the queues; it can run for hours to days on a large corpus.
-6. **Provider switch.** Replace the body of `radis.pgsearch.providers.search()` and `retrieve()` with the hybrid implementation. At this point hybrid is the new default; rows still missing an embedding participate via the FTS half only.
-7. **Monitor.** Watch search latency p95, embedding-queue depth, `EmbeddingJob` admin state, and the rate of "FTS-only fallback" warnings. Tune `HYBRID_VECTOR_TOP_K` / `HYBRID_FTS_MAX_RESULTS` if needed.
+3. **Orchestrator tasks and `embeddings_worker`.** Land `embedding_launcher`, `process_embedding_job`, `process_embedding_task`, the `embeddings_worker` container (with `--concurrency 4`), and the `EMBEDDING_DRAIN_CRON` setting. The launcher starts ticking; with no rows yet, all ticks no-op.
+4. **Initial drain.** From a shell, run `embedding_launcher.defer()` so the orchestrator picks up the existing corpus. This is the only "operator action" in the rollout. It runs at `EMBEDDING_INDEX_PRIORITY` and lives behind whatever other work is on the queues; it can run for hours to days on a large corpus.
+5. **Provider switch.** Replace the body of `radis.pgsearch.providers.search()` and `retrieve()` with the hybrid implementation. At this point hybrid is the new default; rows still missing an embedding participate via the FTS half only.
+6. **Monitor.** Watch search latency p95, embedding-queue depth, `EmbeddingJob` admin state, and the rate of "FTS-only fallback" warnings. Tune `HYBRID_VECTOR_TOP_K` / `HYBRID_FTS_MAX_RESULTS` if needed.
 
-Each step is independently mergeable; steps 1–4 ship as quiet infrastructure changes with no user-visible effect, step 5 starts populating the column, step 6 is the moment hybrid goes live.
+Each step is independently mergeable; steps 1–3 ship as quiet infrastructure changes with no user-visible effect, step 4 starts populating the column, step 5 is the moment hybrid goes live.
