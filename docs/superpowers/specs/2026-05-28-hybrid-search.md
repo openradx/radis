@@ -876,14 +876,14 @@ EMBEDDING_PROVIDER_PATH    = env.str("EMBEDDING_PROVIDER_PATH", default="")   # 
 EMBEDDING_PROVIDER_API_KEY = env.str("EMBEDDING_PROVIDER_API_KEY", default="")
 EMBEDDING_MODEL_NAME       = env.str("EMBEDDING_MODEL_NAME", default="Qwen/Qwen3-Embedding-4B")
 EMBEDDING_DIM              = env.int("EMBEDDING_DIM", default=1024)
-EMBEDDING_DRAIN_CRON       = env.str("EMBEDDING_DRAIN_CRON", default="0 2 * * *")
 ```
 
-These vary across dev/staging/prod and are operator-controlled. `EMBEDDING_DIM` is intentionally an env decision because it is schema-coupled (see §4.5). `EMBEDDING_DRAIN_CRON` is env-tunable so dev environments can drain more frequently (e.g., `*/15 * * * *`) without a code change.
+These vary across dev/staging/prod and are operator-controlled. `EMBEDDING_DIM` is intentionally an env decision because it is schema-coupled (see §4.5).
 
 ### 8.2 Code constants (tuning knobs, in `base.py`)
 
 ```python
+EMBEDDING_DRAIN_CRON = "0 2 * * *"  # nightly; bump in code for faster dev drain
 EMBEDDING_REQUEST_TIMEOUT = 30  # seconds
 EMBEDDING_MAX_INPUT_CHARS = 60_000
 EMBEDDING_QUERY_INSTRUCTION = (
@@ -904,7 +904,7 @@ These are tuning constants. Changing them is a code change with a PR diff. This 
 
 ### 8.3 `example.env`
 
-Adds a documented Ollama block and a Qwen/OpenAI-compatible block side by side, keyed off `EMBEDDING_BACKEND`. Documents `EMBEDDING_DRAIN_CRON` with the production default (`0 2 * * *`) and a dev-friendly alternative (`*/15 * * * *`).
+Adds a documented Ollama block and a Qwen/OpenAI-compatible block side by side, keyed off `EMBEDDING_BACKEND`.
 
 ### 8.4 Compose
 
@@ -1067,7 +1067,7 @@ A `run_search_eval` management command loops a set of test queries through all s
 
 1. **Schema, dependency, models, data migration.** Land the `pgvector` Python dep and the squashed `0002_hybrid_search` migration (extension + embedding column + HNSW + `EmbeddingJob`/`EmbeddingTask` tables + system user). No behaviour change yet — `embedding` is nullable, queries still see only FTS.
 2. **Embedding client and tests.** Land the client module and unit tests. No callers yet.
-3. **Orchestrator tasks and `embeddings_worker`.** Land `embedding_launcher`, `process_embedding_job`, `process_embedding_task`, the `embeddings_worker` container (with `--concurrency 4`), and the `EMBEDDING_DRAIN_CRON` setting. The launcher starts ticking; with no rows yet, all ticks no-op.
+3. **Orchestrator tasks and `embeddings_worker`.** Land `embedding_launcher`, `process_embedding_job`, `process_embedding_task`, and the `embeddings_worker` container (with `--concurrency 4`). The launcher starts ticking on its compile-time `EMBEDDING_DRAIN_CRON` schedule; with no rows yet, all ticks no-op.
 4. **Initial drain.** From a shell, run `embedding_launcher.defer()` so the orchestrator picks up the existing corpus. This is the only "operator action" in the rollout. It runs at `EMBEDDING_INDEX_PRIORITY` and lives behind whatever other work is on the queues; it can run for hours to days on a large corpus.
 5. **Provider switch.** Replace the body of `radis.pgsearch.providers.search()` and `retrieve()` with the hybrid implementation. At this point hybrid is the new default; rows still missing an embedding participate via the FTS half only.
 6. **Monitor.** Watch search latency p95, embedding-queue depth, `EmbeddingJob` admin state, and the rate of "FTS-only fallback" warnings. Tune `HYBRID_VECTOR_TOP_K` / `HYBRID_FTS_MAX_RESULTS` if needed.
