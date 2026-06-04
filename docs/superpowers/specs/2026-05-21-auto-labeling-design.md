@@ -360,6 +360,57 @@ With defaults (`concurrency=6`, `groups_per_report≈3`, `seconds_per_call≈3 s
 
 `label_report` is the single function used by both execution paths. It encapsulates the two-phase gate-then-label logic. Nothing in its control flow branches on a label's bucket value — the LLM returns a bucket per label and the result is stored as-is.
 
+### Dynamic schema and generic prompt
+
+Labels and groups are admin-authored at runtime, so the structured-output schema sent to the LLM is **generated on the fly** from the database rows; nothing about specific labels is hardcoded. The division of labour is:
+
+- **The schema enforces the choice.** Each label/group becomes one required field whose type is a fixed enum. Structured output guarantees the model returns exactly one valid value per field. The enum types are **static** (the five buckets and the three gate values never change at runtime); only the *set of fields* is dynamic.
+- **The prompt teaches the choice.** A static, generic prompt explains what each bucket/gate value *means* and carries the report body. It contains **no label-specific text** — the prompt is identical for every label and every report.
+- **Each field's `description=` carries the label.** The label `name` + `description` (or the group's `gate_question`) go into the Pydantic `Field(description=...)`, which the LLM reads via the JSON schema to understand that field. This is the *only* place per-label content lives.
+
+**Id-keyed fields are the contract between schema and database.** A field is keyed `label_<id>` / `group_<id>`, derived purely from the primary key. The human name and definition live in `description=` (model reading-material only) and never appear in the answer. The model returns `{"label_42": "PRESENT", ...}`; we strip the prefix to recover the FK — no name matching, immune to renames, spaces, unicode, or duplicate names.
+
+The builders live in `radis/labels/utils/` (`schemas.py`, `prompts.py`) and are **owned by the labels app**. They import `pydantic.create_model` and `radis.chats.utils.chat_client.ChatClient` (the same edge extractions already uses) and import **nothing** from `radis.extractions` — the extractions app's `generate_output_fields_schema` is deliberately not reused, keeping the apps decoupled.
+
+```python
+# radis/labels/utils/schemas.py — static enums, dynamic fields.
+class BucketValue(StrEnum):   # PRESENT, LIKELY, POSSIBLE, ABSENT, UNMENTIONED — mirrors LabelResult.Value
+    ...
+class GateValue(StrEnum):     # YES, NO, MAYBE — mirrors GateAnswer.Value
+    ...
+
+def build_label_classification_schema(labels: Sequence[Label]) -> type[BaseModel]:
+    fields = {
+        f"label_{lbl.id}": (BucketValue, Field(description=f"{lbl.name}: {lbl.description}"))
+        for lbl in labels
+    }
+    return create_model("LabelClassification", **fields)
+
+def build_gate_schema(groups: Sequence[LabelGroup]) -> type[BaseModel]:
+    fields = {
+        f"group_{g.id}": (GateValue, Field(description=g.gate_question))
+        for g in groups
+    }
+    return create_model("GateScreening", **fields)
+
+def parse_label_results(parsed: BaseModel) -> dict[int, str]:
+    return {int(k.removeprefix("label_")): v for k, v in parsed.model_dump().items()}
+
+def parse_gate_results(parsed: BaseModel) -> dict[int, str]:
+    return {int(k.removeprefix("group_")): v for k, v in parsed.model_dump().items()}
+```
+
+```python
+# radis/labels/utils/prompts.py — generic prompts, only $report substituted.
+def render_label_prompt(report_body: str) -> str:
+    return Template(settings.LABELING_SYSTEM_PROMPT).substitute(report=report_body)
+
+def render_gate_prompt(report_body: str) -> str:
+    return Template(settings.LABELING_GATE_SYSTEM_PROMPT).substitute(report=report_body)
+```
+
+A unit test asserts `BucketValue`/`GateValue` values equal `LabelResult.Value`/`GateAnswer.Value` (drift guard — the static enums must stay in sync with the model `TextChoices`). Every generated field is required (no default), so every label receives a bucket and every group a gate answer. Empty label/group subsets never reach the builders — `label_report` already guards against empty LLM calls, which also avoids a zero-field `create_model`.
+
 ```python
 def label_report(report_id: int) -> None:
     report = Report.objects.get(id=report_id)
@@ -398,9 +449,9 @@ def label_report(report_id: int) -> None:
     new_gate_results: dict[int, str] = {}
     for gate_batch in batched(groups_needing_gate, settings.LABELING_GATE_BATCH_SIZE):
         schema = build_gate_schema(gate_batch)
-        prompt = render_gate_prompt(report.body, gate_batch)
+        prompt = render_gate_prompt(report.body)
         parsed = client.extract_data(prompt, schema)
-        new_gate_results.update(parsed)
+        new_gate_results.update(parse_gate_results(parsed))  # {group_id: "YES"|"NO"|"MAYBE"}
 
     # Phase 2 — Process each group
     for group in active_groups:
@@ -436,7 +487,17 @@ def label_report(report_id: int) -> None:
             # else: gate = NO, fresh — skip group entirely
 ```
 
-`_run_label_set` sends all stale/missing labels for the group (each with its `name` + `description`) to the LLM in one call and stores the returned bucket per label via `update_or_create`.
+`_run_label_set` builds a dynamic schema for the stale/missing labels via `build_label_classification_schema` (each label's `name` + `description` carried in its field `description=`), renders the generic label prompt, sends both to the LLM in one call, then maps the response back to label ids via `parse_label_results` and stores the returned bucket per label via `update_or_create`:
+
+```python
+def _run_label_set(client: ChatClient, report: Report, labels: list[Label]) -> None:
+    schema = build_label_classification_schema(labels)
+    parsed = client.extract_data(render_label_prompt(report.body), schema)
+    for label_id, bucket in parse_label_results(parsed).items():
+        LabelResult.objects.update_or_create(
+            report=report, label_id=label_id, defaults={"value": bucket},
+        )
+```
 
 ### `_get_stale_or_missing_labels`
 
@@ -642,12 +703,14 @@ LABELING_SYSTEM_PROMPT      = env.str("LABELING_SYSTEM_PROMPT",      default=DEF
 LABELING_GATE_SYSTEM_PROMPT = env.str("LABELING_GATE_SYSTEM_PROMPT", default=DEFAULT_GATE_SYSTEM_PROMPT)
 ```
 
+Both prompts are **generic** — they carry no label- or group-specific text. Each label/group is a field in the dynamically generated schema, and its name/description (or gate question) rides in that field's `description=`. The prompt only teaches what the enum values mean and supplies the report body, so the single substituted placeholder is `$report`.
+
 Default label prompt:
 
 ```text
-You are an AI medical assistant. Below is a radiology report and a list of labels,
-each with a description. For every label, decide how strongly the report supports it,
-choosing exactly one of:
+You are an AI medical assistant. The provided schema lists one field per label, each
+field's description defining the label. For every field, decide how strongly the report
+below supports that label, choosing exactly one of:
   - "PRESENT"     — the report clearly states this is present
   - "LIKELY"      — the report strongly suggests it, without stating it outright
   - "POSSIBLE"    — the report leaves it as a possibility / cannot be excluded
@@ -658,18 +721,15 @@ Return answers in JSON format matching the provided schema.
 
 Radiology Report:
 $report
-
-Labels:
-$labels
 ```
 
-Default gate prompt (unchanged — a Yes/No/Maybe applicability screen):
+Default gate prompt (a Yes/No/Maybe applicability screen):
 
 ```text
-You are an AI medical assistant. For each topic below, answer whether the radiology
-report contains content relevant to that topic.
-
-For each topic, respond with exactly one of:
+You are an AI medical assistant. The provided schema lists one field per topic, each
+field's description stating the topic's screening question. For every field, answer
+whether the radiology report below contains content relevant to that topic, responding
+with exactly one of:
   - "YES"   — the report clearly contains relevant content
   - "NO"    — the report clearly does not
   - "MAYBE" — the report may contain relevant content; use when uncertain
@@ -678,9 +738,6 @@ Return answers in JSON format matching the provided schema.
 
 Radiology Report:
 $report
-
-Topics:
-$gate_questions
 ```
 
 ## Operational Considerations
@@ -736,8 +793,8 @@ No touch to `radis/reports/site.py` — the periodic scan does not use the repor
 
 ### Unit tests (no DB)
 
-- **Prompt rendering** (`test_prompts.py`) — snapshot tests of `render_labels_prompt` and `render_gate_prompt` for representative inputs and unicode content.
-- **Schema building** (`test_schemas.py`) — `build_label_classification_schema` produces a Pydantic model whose per-label field accepts only the five bucket values and rejects unknown buckets / missing fields; `build_gate_schema` validates Yes/No/Maybe payloads and rejects unknown values.
+- **Prompt rendering** (`test_prompts.py`) — `render_label_prompt` and `render_gate_prompt` substitute `$report` (incl. unicode content) and contain the bucket/gate value meanings; assert **no label name or description appears in the prompt** (per-label content belongs only in the schema).
+- **Schema building** (`test_schemas.py`) — `build_label_classification_schema` produces a Pydantic model whose fields are keyed `label_<id>`, each accepting only the five bucket values and rejecting unknown buckets / missing fields, with the label `name` + `description` in the field `description`; `build_gate_schema` produces `group_<id>` fields validating Yes/No/Maybe and rejecting unknown values, with the gate question in the field `description`; `parse_label_results` / `parse_gate_results` round-trip the prefixed keys back to integer ids; a **drift guard** asserts `BucketValue` / `GateValue` values equal `LabelResult.Value` / `GateAnswer.Value`.
 
 ### Model / DB tests
 
