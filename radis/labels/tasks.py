@@ -65,6 +65,18 @@ def process_labeling_job(job_id: int) -> None:
 
     _create_labeling_tasks_streaming(job)
 
+    # Empty scope (e.g. a MANUAL backfill when every result is already fresh) produces zero tasks.
+    # Finish the job immediately instead of leaving it stuck in PENDING — PENDING is an ACTIVE
+    # status, so a stuck job would block the singleton index and prevent all future jobs.
+    if not job.tasks.exists():
+        job.status = AnalysisJob.Status.SUCCESS
+        job.message = "No reports needed labeling."
+        job.queued_job_id = None
+        job.ended_at = timezone.now()
+        job.save()
+        logger.info("Labeling job %s had nothing to do; marked SUCCESS.", job.pk)
+        return
+
     job.status = AnalysisJob.Status.PENDING
     job.queued_job_id = None
     job.save()

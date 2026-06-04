@@ -107,6 +107,11 @@ class LabelingJobAdmin(admin.ModelAdmin):
         "ended_at",
     )
 
+    def has_add_permission(self, request: HttpRequest) -> bool:
+        # Jobs are created only via the "Run backfill now" button or the periodic scan,
+        # never hand-added through the admin add form.
+        return False
+
     def get_urls(self):
         urls = super().get_urls()
         custom = [

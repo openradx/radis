@@ -30,15 +30,27 @@ def test_scan_job_owner_may_be_null():
 
 
 @pytest.mark.django_db
-def test_finished_mail_is_skipped_when_owner_is_null():
-    # Defensive: even with send_finished_mail set, an owner-less scan job must not crash.
-    job = LabelingJob.objects.create(
+def test_finished_mail_is_a_noop_for_labeling_jobs():
+    # Labeling jobs never send completion mail; neither an owner-less scan job nor an owned
+    # manual job with send_finished_mail=True may crash (the base would touch the undefined
+    # finished_mail_template attribute).
+    from adit_radis_shared.accounts.factories import UserFactory
+
+    scan_job = LabelingJob.objects.create(
         trigger=LabelingJob.Trigger.SCAN,
         status=LabelingJob.Status.SUCCESS,
         owner=None,
         send_finished_mail=True,
     )
-    job._send_job_finished_mail()  # must be a no-op, not an AttributeError
+    scan_job._send_job_finished_mail()  # no-op, no AttributeError
+
+    owned_job = LabelingJob.objects.create(
+        trigger=LabelingJob.Trigger.MANUAL,
+        status=LabelingJob.Status.SUCCESS,
+        owner=UserFactory.create(),
+        send_finished_mail=True,
+    )
+    owned_job._send_job_finished_mail()  # no-op, no crash even with an owner present
 
 
 @pytest.mark.django_db
@@ -132,3 +144,27 @@ def test_process_job_bails_on_in_progress_job_without_wiping_tasks(monkeypatch):
     tasks.process_labeling_job(job.pk)
 
     assert job.tasks.count() == 1  # the in-flight task survived
+
+
+@pytest.mark.django_db
+def test_empty_scope_manual_job_finishes_instead_of_blocking_singleton(monkeypatch):
+    # A MANUAL backfill with nothing to do (no reports at all) must reach a terminal status,
+    # not get stuck in PENDING (which would block the singleton index forever).
+    from radis.labels import tasks
+    from radis.labels.factories import LabelFactory, LabelGroupFactory
+    from radis.labels.models import LabelingTask
+
+    LabelFactory.create(group=LabelGroupFactory.create())  # active label, but no reports
+    job = LabelingJobFactory.create(
+        trigger=LabelingJob.Trigger.MANUAL, status=LabelingJob.Status.PENDING
+    )
+    monkeypatch.setattr(LabelingTask, "delay", lambda self: None)
+
+    tasks.process_labeling_job(job.pk)
+
+    job.refresh_from_db()
+    assert job.tasks.count() == 0
+    assert job.status == LabelingJob.Status.SUCCESS
+    assert job.status not in LabelingJob.ACTIVE_STATUSES  # singleton is freed
+    # A fresh job can now be created (the index does not block it).
+    LabelingJobFactory.create(status=LabelingJob.Status.PENDING)
