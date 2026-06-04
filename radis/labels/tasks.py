@@ -71,3 +71,15 @@ def process_labeling_job(job_id: int) -> None:
     for task in job.tasks.filter(status=AnalysisTask.Status.PENDING):
         if not task.is_queued:
             task.delay()
+
+
+@app.task(queue="llm")
+def process_labeling_task(task_id: int) -> None:
+    from .processors import LabelingTaskProcessor
+
+    task = LabelingTask.objects.get(id=task_id)
+    LabelingTaskProcessor(task).start()
+
+    task = LabelingTask.objects.get(id=task_id)
+    task.queued_job_id = None
+    task.save()
