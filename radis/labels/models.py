@@ -1,5 +1,10 @@
+from django.conf import settings
 from django.db import models
+from django.urls import reverse
+from procrastinate.contrib.django import app
+from procrastinate.contrib.django.models import ProcrastinateJob
 
+from radis.core.models import AnalysisJob, AnalysisTask
 from radis.reports.models import Report
 
 
@@ -113,3 +118,78 @@ class LabelingScanCheckpoint(models.Model):
     def save(self, *args, **kwargs):
         self.pk = 1
         super().save(*args, **kwargs)
+
+
+class LabelingJob(AnalysisJob):
+    class Trigger(models.TextChoices):
+        SCAN = "SCAN", "Periodic scan"
+        MANUAL = "MANUAL", "Manual backfill"
+
+    default_priority = settings.LABELING_JOB_PRIORITY
+    urgent_priority = settings.LABELING_JOB_PRIORITY  # labeling is never urgent
+
+    # Scan jobs have no human owner; override the non-nullable base FK to allow null.
+    owner = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name="%(app_label)s_jobs",
+    )
+    queued_job_id: int | None
+    queued_job = models.OneToOneField(
+        ProcrastinateJob, null=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    trigger = models.CharField(max_length=10, choices=Trigger.choices, default=Trigger.MANUAL)
+    scan_from = models.DateTimeField(null=True, blank=True)
+
+    tasks: models.QuerySet["LabelingTask"]
+
+    ACTIVE_STATUSES = (
+        AnalysisJob.Status.UNVERIFIED,
+        AnalysisJob.Status.PREPARING,
+        AnalysisJob.Status.PENDING,
+        AnalysisJob.Status.IN_PROGRESS,
+        AnalysisJob.Status.CANCELING,
+    )
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self) -> str:
+        return f"LabelingJob [{self.pk}]"
+
+    def get_absolute_url(self) -> str:
+        return reverse("admin:labels_labelingjob_change", args=[self.pk])
+
+    def delay(self) -> None:
+        queued_job_id = app.configure_task(
+            "radis.labels.tasks.process_labeling_job",
+            allow_unknown=False,
+            priority=self.default_priority,
+        ).defer(job_id=self.pk)
+        self.queued_job_id = queued_job_id
+        self.save()
+
+    def _send_job_finished_mail(self) -> None:
+        # Scan jobs have no owner (owner is nullable); there is no recipient to mail.
+        if self.owner is None:
+            return
+        super()._send_job_finished_mail()
+
+
+class LabelingTask(AnalysisTask):
+    job = models.ForeignKey(LabelingJob, on_delete=models.CASCADE, related_name="tasks")
+    reports = models.ManyToManyField(Report, related_name="+")
+
+    def get_absolute_url(self) -> str:
+        return reverse("admin:labels_labelingtask_change", args=[self.pk])
+
+    def delay(self) -> None:
+        queued_job_id = app.configure_task(
+            "radis.labels.tasks.process_labeling_task",
+            allow_unknown=False,
+            priority=self.job.default_priority,
+        ).defer(task_id=self.pk)
+        self.queued_job_id = queued_job_id
+        self.save()

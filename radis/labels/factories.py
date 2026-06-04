@@ -1,8 +1,9 @@
 import factory
+from adit_radis_shared.accounts.factories import UserFactory
 
 from radis.reports.factories import ReportFactory
 
-from .models import GateAnswer, Label, LabelGroup, LabelResult
+from .models import GateAnswer, Label, LabelGroup, LabelingJob, LabelingTask, LabelResult
 
 
 class BaseDjangoModelFactory[T](factory.django.DjangoModelFactory):
@@ -45,3 +46,18 @@ class GateAnswerFactory(BaseDjangoModelFactory[GateAnswer]):
     report = factory.SubFactory(ReportFactory)
     label_group = factory.SubFactory(LabelGroupFactory)
     value = GateAnswer.Value.YES
+
+
+class LabelingJobFactory(BaseDjangoModelFactory[LabelingJob]):
+    class Meta:
+        model = LabelingJob
+
+    owner = factory.SubFactory(UserFactory)
+    trigger = LabelingJob.Trigger.MANUAL
+
+
+class LabelingTaskFactory(BaseDjangoModelFactory[LabelingTask]):
+    class Meta:
+        model = LabelingTask
+
+    job = factory.SubFactory(LabelingJobFactory)
