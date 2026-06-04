@@ -436,8 +436,10 @@ def test_gate_answer_unique_per_report_group_and_upsert():
 def test_scan_checkpoint_is_singleton():
     from radis.labels.models import LabelingScanCheckpoint
 
-    LabelingScanCheckpoint.objects.create()
-    LabelingScanCheckpoint.objects.create()  # save() forces pk=1, so this overwrites row 1
+    first = LabelingScanCheckpoint()
+    first.save()
+    second = LabelingScanCheckpoint()
+    second.save()  # save() forces pk=1, so this updates row 1 rather than inserting a second
 
     assert LabelingScanCheckpoint.objects.count() == 1
 ```

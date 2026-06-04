@@ -7,7 +7,13 @@ from radis.labels.factories import (
     LabelGroupFactory,
     LabelResultFactory,
 )
-from radis.labels.models import GateAnswer, Label, LabelGroup, LabelResult
+from radis.labels.models import (
+    GateAnswer,
+    Label,
+    LabelGroup,
+    LabelingScanCheckpoint,
+    LabelResult,
+)
 from radis.reports.factories import ReportFactory
 
 
@@ -79,8 +85,6 @@ def test_gate_answer_unique_per_report_group_and_upsert():
 
 @pytest.mark.django_db
 def test_scan_checkpoint_is_singleton():
-    from radis.labels.models import LabelingScanCheckpoint
-
     first = LabelingScanCheckpoint()
     first.save()
     second = LabelingScanCheckpoint()
