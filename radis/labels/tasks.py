@@ -1,4 +1,6 @@
 import logging
+from datetime import datetime
+from datetime import timezone as dt_timezone
 
 from django.conf import settings
 from django.db.models import QuerySet
@@ -8,7 +10,7 @@ from procrastinate.contrib.django import app
 from radis.core.models import AnalysisJob, AnalysisTask
 from radis.reports.models import Report
 
-from .models import LabelGroup, LabelingJob, LabelingTask
+from .models import Label, LabelGroup, LabelingJob, LabelingScanCheckpoint, LabelingTask
 from .scope import _needs_work_queryset
 
 logger = logging.getLogger(__name__)
@@ -83,3 +85,37 @@ def process_labeling_task(task_id: int) -> None:
     task = LabelingTask.objects.get(id=task_id)
     task.queued_job_id = None
     task.save()
+
+
+@app.periodic(cron=settings.LABELING_SCAN_CRON)
+@app.task()
+def incremental_label_scan(timestamp: int) -> None:
+    # Procrastinate passes the scheduled tick time; use it so the scan window tracks the cron.
+    now = datetime.fromtimestamp(timestamp, tz=dt_timezone.utc)
+    checkpoint, _ = LabelingScanCheckpoint.objects.get_or_create(pk=1)
+
+    if LabelingJob.objects.filter(status__in=LabelingJob.ACTIVE_STATUSES).exists():
+        logger.info("Active LabelingJob found, skipping scan tick (checkpoint unchanged).")
+        return
+
+    if checkpoint.last_scanned_at is None:
+        checkpoint.last_scanned_at = now  # first run: existing reports belong to a manual backfill
+        checkpoint.save()
+        return
+
+    if not Label.objects.filter(active=True).exists():
+        # No labels to apply. Return WITHOUT advancing so the checkpoint stays frozen; when labels
+        # are (re)activated, the next tick's scan_from still covers everything ingested meanwhile.
+        return
+
+    if Report.objects.filter(created_at__gte=checkpoint.last_scanned_at).exists():
+        job = LabelingJob.objects.create(
+            trigger=LabelingJob.Trigger.SCAN,
+            scan_from=checkpoint.last_scanned_at,
+            status=AnalysisJob.Status.PENDING,
+        )
+        job.delay()
+        logger.info("Created scan LabelingJob %s (scan_from=%s).", job.pk, job.scan_from)
+
+    checkpoint.last_scanned_at = now
+    checkpoint.save()
