@@ -180,3 +180,64 @@ def test_stale_gate_new_yes_old_no_runs_all_labels():
     assert len(client.gate_calls) == 1
     assert client.label_calls == [[label.id]]
     assert LabelResult.objects.get(report=report, label=label).value == "PRESENT"
+
+
+@pytest.mark.django_db
+def test_gate_maybe_runs_labels():
+    """MAYBE is treated like YES: the group's labels run and results are stored."""
+    from radis.labels.labeling import label_report
+
+    report = ReportFactory.create(body="possible nodule")
+    group = LabelGroupFactory.create()
+    label = LabelFactory.create(group=group)
+    client = FakeChatClient(gate_values={group.id: "MAYBE"}, label_values={label.id: "POSSIBLE"})
+    with _patch_client(client):
+        label_report(report.pk)
+
+    assert len(client.gate_calls) == 1
+    assert client.label_calls == [[label.id]]
+    assert GateAnswer.objects.get(report=report, label_group=group).value == "MAYBE"
+    assert LabelResult.objects.get(report=report, label=label).value == "POSSIBLE"
+
+
+@pytest.mark.django_db
+def test_gate_flip_maybe_to_no_deletes_results_atomically():
+    """A stale gate flipping MAYBE -> NO deletes the group's existing results."""
+    from radis.labels.labeling import label_report
+
+    report = ReportFactory.create(body="lungs clear")
+    group = LabelGroupFactory.create()
+    label = LabelFactory.create(group=group)
+    GateAnswerFactory.create(report=report, label_group=group, value="MAYBE")
+    LabelResult.objects.create(report=report, label=label, value=LabelResult.Value.POSSIBLE)
+    group.gate_question = "changed?"
+    group.save()
+
+    client = FakeChatClient(gate_values={group.id: "NO"})
+    with _patch_client(client):
+        label_report(report.pk)
+
+    assert GateAnswer.objects.get(report=report, label_group=group).value == "NO"
+    assert not LabelResult.objects.filter(report=report, label__group=group).exists()
+
+
+@pytest.mark.django_db
+def test_stale_gate_yes_yes_with_fresh_results_makes_no_label_calls():
+    """Gate re-evaluated (text changed, still YES) but results fresh: 1 gate call, 0 label."""
+    from radis.labels.labeling import label_report
+
+    report = ReportFactory.create(body="lungs clear")
+    group = LabelGroupFactory.create()
+    label = LabelFactory.create(group=group)
+    GateAnswerFactory.create(report=report, label_group=group, value="YES")
+    LabelResult.objects.create(report=report, label=label, value=LabelResult.Value.PRESENT)
+    group.gate_question = "changed?"  # makes the gate stale -> re-evaluated
+    group.save()
+
+    client = FakeChatClient(gate_values={group.id: "YES"})
+    with _patch_client(client):
+        label_report(report.pk)
+
+    assert len(client.gate_calls) == 1
+    assert client.label_calls == []  # results already fresh -> no label LLM call
+    assert LabelResult.objects.get(report=report, label=label).value == "PRESENT"
