@@ -10,7 +10,6 @@ from radis.labels.factories import (
 from radis.labels.models import (
     GateAnswer,
     Label,
-    LabelGroup,
     LabelingScanCheckpoint,
     LabelResult,
 )

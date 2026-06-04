@@ -4,6 +4,7 @@ from radis.reports.models import Report
 
 
 class LabelGroup(models.Model):
+    id: int
     name = models.CharField(max_length=100, unique=True)
     gate_question = models.TextField()  # upfront Yes/No/Maybe screening question for this group
     updated_at = models.DateTimeField(auto_now=True)  # drives gate stale detection
@@ -19,6 +20,7 @@ class LabelGroup(models.Model):
 
 
 class Label(models.Model):
+    id: int
     group = models.ForeignKey(LabelGroup, on_delete=models.CASCADE, related_name="labels")
     name = models.CharField(max_length=100)  # the label string that surfaces (e.g. "pneumonia")
     description = models.TextField()  # definition sent to the LLM to classify this label
@@ -47,6 +49,7 @@ class LabelResult(models.Model):
     # Buckets that attach the label to the report / search.
     SURFACING_VALUES = (Value.PRESENT, Value.LIKELY, Value.POSSIBLE)
 
+    label_id: int
     report = models.ForeignKey(Report, on_delete=models.CASCADE, related_name="label_results")
     label = models.ForeignKey(Label, on_delete=models.CASCADE, related_name="results")
     value = models.CharField(max_length=11, choices=Value.choices)
@@ -73,6 +76,7 @@ class GateAnswer(models.Model):
         NO = "NO", "No"
         MAYBE = "MAYBE", "Maybe"
 
+    label_group_id: int
     report = models.ForeignKey(Report, on_delete=models.CASCADE, related_name="gate_answers")
     label_group = models.ForeignKey(
         LabelGroup, on_delete=models.CASCADE, related_name="gate_answers"
@@ -103,9 +107,9 @@ class LabelingScanCheckpoint(models.Model):
             ),
         ]
 
+    def __str__(self) -> str:
+        return f"LabelingScanCheckpoint (last_scanned_at={self.last_scanned_at})"
+
     def save(self, *args, **kwargs):
         self.pk = 1
         super().save(*args, **kwargs)
-
-    def __str__(self) -> str:
-        return f"LabelingScanCheckpoint (last_scanned_at={self.last_scanned_at})"

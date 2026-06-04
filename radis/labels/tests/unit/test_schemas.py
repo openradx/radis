@@ -26,6 +26,7 @@ def test_label_schema_fields_are_id_keyed_and_carry_name_and_description():
     Schema = build_label_classification_schema([_label(42, "pneumonia", "lung infection")])
     assert "label_42" in Schema.model_fields
     field = Schema.model_fields["label_42"]
+    assert field.description is not None
     assert "pneumonia" in field.description
     assert "lung infection" in field.description
 
@@ -33,7 +34,7 @@ def test_label_schema_fields_are_id_keyed_and_carry_name_and_description():
 def test_label_schema_accepts_all_five_buckets_and_rejects_unknown():
     Schema = build_label_classification_schema([_label(1)])
     for bucket in ("PRESENT", "LIKELY", "POSSIBLE", "ABSENT", "UNMENTIONED"):
-        assert Schema(label_1=bucket).label_1 == bucket
+        assert getattr(Schema(label_1=bucket), "label_1") == bucket
     with pytest.raises(ValidationError):
         Schema(label_1="BOGUS")
 
@@ -47,13 +48,15 @@ def test_label_schema_field_is_required():
 def test_gate_schema_fields_are_id_keyed_and_carry_question():
     Schema = build_gate_schema([_group(7, "Does this report mention the lungs?")])
     assert "group_7" in Schema.model_fields
-    assert "lungs" in Schema.model_fields["group_7"].description
+    gate_description = Schema.model_fields["group_7"].description
+    assert gate_description is not None
+    assert "lungs" in gate_description
 
 
 def test_gate_schema_validates_yes_no_maybe_and_rejects_unknown():
     Schema = build_gate_schema([_group(1)])
     for value in ("YES", "NO", "MAYBE"):
-        assert Schema(group_1=value).group_1 == value
+        assert getattr(Schema(group_1=value), "group_1") == value
     with pytest.raises(ValidationError):
         Schema(group_1="PROBABLY")
 

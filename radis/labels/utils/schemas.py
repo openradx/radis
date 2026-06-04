@@ -1,5 +1,5 @@
 from enum import StrEnum
-from typing import Sequence
+from typing import Any, Sequence
 
 from pydantic import BaseModel, Field, create_model
 
@@ -25,7 +25,7 @@ def build_label_classification_schema(labels: Sequence) -> type[BaseModel]:
     Each label's name + description rides in the field description= so the LLM reads it
     via the JSON schema. The answer is keyed purely by id — immune to renames.
     """
-    fields = {
+    fields: dict[str, Any] = {
         f"label_{lbl.id}": (BucketValue, Field(description=f"{lbl.name}: {lbl.description}"))
         for lbl in labels
     }
@@ -34,7 +34,7 @@ def build_label_classification_schema(labels: Sequence) -> type[BaseModel]:
 
 def build_gate_schema(groups: Sequence) -> type[BaseModel]:
     """Build a Pydantic model with one required `group_<id>` field per group."""
-    fields = {
+    fields: dict[str, Any] = {
         f"group_{g.id}": (GateValue, Field(description=g.gate_question)) for g in groups
     }
     return create_model("GateScreening", **fields)

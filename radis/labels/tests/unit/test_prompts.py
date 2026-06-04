@@ -1,5 +1,3 @@
-import pytest
-
 from radis.labels.utils.prompts import render_gate_prompt, render_label_prompt
 
 

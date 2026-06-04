@@ -21,7 +21,7 @@ def test_skips_when_report_body_empty():
     LabelFactory.create()
     client = FakeChatClient()
     with _patch_client(client):
-        label_report(report.id)
+        label_report(report.pk)
 
     assert client.gate_calls == []
     assert client.label_calls == []
@@ -36,7 +36,7 @@ def test_skips_when_no_active_labels():
     LabelFactory.create(active=False)
     client = FakeChatClient()
     with _patch_client(client):
-        label_report(report.id)
+        label_report(report.pk)
 
     assert client.gate_calls == []
     assert GateAnswer.objects.count() == 0
@@ -51,7 +51,7 @@ def test_gate_no_skips_group_entirely():
     label = LabelFactory.create(group=group)
     client = FakeChatClient(gate_values={group.id: "NO"})
     with _patch_client(client):
-        label_report(report.id)
+        label_report(report.pk)
 
     assert len(client.gate_calls) == 1
     assert client.label_calls == []  # no label call for a NO-gated group
@@ -77,7 +77,7 @@ def test_gate_yes_runs_labels_and_stores_all_buckets():
         },
     )
     with _patch_client(client):
-        label_report(report.id)
+        label_report(report.pk)
 
     assert LabelResult.objects.get(report=report, label=l_present).value == "PRESENT"
     assert LabelResult.objects.get(report=report, label=l_absent).value == "ABSENT"
@@ -95,7 +95,7 @@ def test_gate_batching_two_calls_for_twenty_groups():
         LabelFactory.create(group=g)
     client = FakeChatClient(gate_values={g.id: "NO" for g in groups})
     with _patch_client(client):
-        label_report(report.id)
+        label_report(report.pk)
 
     assert len(client.gate_calls) == 2
     assert [len(c) for c in client.gate_calls] == [10, 10]
@@ -113,7 +113,7 @@ def test_fresh_gate_and_fresh_results_make_zero_llm_calls():
 
     client = FakeChatClient()
     with _patch_client(client):
-        label_report(report.id)
+        label_report(report.pk)
 
     assert client.gate_calls == []
     assert client.label_calls == []
@@ -135,7 +135,7 @@ def test_fresh_gate_yes_with_one_stale_label_runs_only_that_label():
 
     client = FakeChatClient(label_values={stale_label.id: "ABSENT"})
     with _patch_client(client):
-        label_report(report.id)
+        label_report(report.pk)
 
     assert client.gate_calls == []
     assert client.label_calls == [[stale_label.id]]
@@ -156,7 +156,7 @@ def test_gate_flip_yes_to_no_deletes_results_atomically():
 
     client = FakeChatClient(gate_values={group.id: "NO"})
     with _patch_client(client):
-        label_report(report.id)
+        label_report(report.pk)
 
     assert GateAnswer.objects.get(report=report, label_group=group).value == "NO"
     assert not LabelResult.objects.filter(report=report, label__group=group).exists()
@@ -175,7 +175,7 @@ def test_stale_gate_new_yes_old_no_runs_all_labels():
 
     client = FakeChatClient(gate_values={group.id: "YES"}, label_values={label.id: "PRESENT"})
     with _patch_client(client):
-        label_report(report.id)
+        label_report(report.pk)
 
     assert len(client.gate_calls) == 1
     assert client.label_calls == [[label.id]]

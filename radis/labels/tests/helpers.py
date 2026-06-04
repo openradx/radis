@@ -4,12 +4,14 @@ extract_data inspects the dynamically-built schema's field names (`group_<id>` o
 `label_<id>`) and returns a valid instance populated from the configured answer maps.
 Recorded calls let tests assert exact gate vs. label LLM call counts.
 """
+
 from pydantic import BaseModel
 
 
 class FakeChatClient:
-    def __init__(self, gate_values: dict[int, str] | None = None,
-                 label_values: dict[int, str] | None = None) -> None:
+    def __init__(
+        self, gate_values: dict[int, str] | None = None, label_values: dict[int, str] | None = None
+    ) -> None:
         self.gate_values = gate_values or {}
         self.label_values = label_values or {}
         self.gate_calls: list[list[int]] = []
