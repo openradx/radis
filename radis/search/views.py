@@ -8,6 +8,7 @@ from django.http import Http404, HttpRequest
 from django.shortcuts import render
 from django.views import View
 
+from radis.labels.query import extract_label_filters
 from radis.search.forms import SearchForm
 from radis.search.utils.query_parser import QueryParser
 
@@ -56,7 +57,9 @@ class SearchView(LoginRequiredMixin, UserPassesTestMixin, View):
         # TODO: when no active group is selected show user a error
         assert active_group
 
-        query_node, fixes = QueryParser().parse(query)
+        remaining_query, label_names = extract_label_filters(query)
+
+        query_node, fixes = QueryParser().parse(remaining_query)
 
         if query_node is not None:
             if len(fixes) > 0:
@@ -74,6 +77,7 @@ class SearchView(LoginRequiredMixin, UserPassesTestMixin, View):
                     patient_sex=patient_sex,
                     patient_age_from=age_from,
                     patient_age_till=age_till,
+                    labels=label_names,
                 ),
                 offset=offset,
                 limit=page_size,
