@@ -29,3 +29,9 @@ def test_no_label_returns_query_unchanged():
 def test_label_token_is_case_preserved_for_name_match():
     _, labels = extract_label_filters("label:Pneumonia")
     assert labels == ["Pneumonia"]
+
+
+def test_bare_label_token_is_left_untouched():
+    remaining, labels = extract_label_filters("chest label:")
+    assert labels == []
+    assert "label:" in remaining

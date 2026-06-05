@@ -9,6 +9,7 @@ def extract_label_filters(query: str) -> tuple[str, list[str]]:
 
     Returns (remaining_query, label_names). `label:"a b"` supports spaces via quotes.
     The remaining query has the label tokens removed and surrounding whitespace collapsed.
+    A bare ``label:`` with no immediately-following value is left untouched in the remaining query.
     """
     labels: list[str] = []
 
