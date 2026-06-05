@@ -1,6 +1,12 @@
+from functools import cached_property
+from typing import TYPE_CHECKING
+
 from adit_radis_shared.common.models import AppSettings
 from django.contrib.auth.models import Group
 from django.db import models
+
+if TYPE_CHECKING:
+    from radis.labels.models import LabelResult
 
 from radis.core.validators import (
     no_backslash_char_validator,
@@ -76,6 +82,7 @@ class Report(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     metadata: models.QuerySet["Metadata"]
+    label_results: models.QuerySet["LabelResult"]
 
     class Meta:
         ordering = ["-created_at", "document_id"]
@@ -86,6 +93,17 @@ class Report(models.Model):
     @property
     def modality_codes(self) -> list[str]:
         return [modality.code for modality in self.modalities.all()]
+
+    @cached_property
+    def surfacing_label_results(self):
+        """Label results in a surfacing bucket (PRESENT/LIKELY/POSSIBLE), grouped-ready."""
+        from radis.labels.models import LabelResult
+
+        return (
+            self.label_results.filter(value__in=LabelResult.SURFACING_VALUES)
+            .select_related("label", "label__group")
+            .order_by("label__group__name", "label__name")
+        )
 
 
 class Metadata(models.Model):

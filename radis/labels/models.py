@@ -74,6 +74,11 @@ class LabelResult(models.Model):
     def __str__(self) -> str:
         return f"LabelResult {self.label_id}={self.value} [{self.pk}]"
 
+    @property
+    def is_stale(self) -> bool:
+        """A result is stale when its label's definition changed after it was generated."""
+        return self.generated_at < self.label.updated_at
+
 
 class GateAnswer(models.Model):
     class Value(models.TextChoices):
