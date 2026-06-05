@@ -83,6 +83,16 @@ def _build_filter_query(filters: SearchFilters) -> Q:
         fq &= Q(report__created_at__gte=filters.created_after)
     if filters.created_before:
         fq &= Q(report__created_at__lte=filters.created_before)
+    if filters.labels:
+        from radis.labels.models import LabelResult
+        from radis.reports.models import Report
+
+        for name in filters.labels:
+            surfacing_report_ids = Report.objects.filter(
+                label_results__label__name=name,
+                label_results__value__in=LabelResult.SURFACING_VALUES,
+            ).values("pk")
+            fq &= Q(report__in=surfacing_report_ids)
 
     return fq
 
