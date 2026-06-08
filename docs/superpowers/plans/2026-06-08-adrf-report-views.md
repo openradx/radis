@@ -16,14 +16,14 @@
 
 | Action | Path | Responsibility |
 | --- | --- | --- |
-| Create | `radis/reports/api/bulk.py` | Pure data-layer helper `bulk_upsert_reports(validated_reports)` (renamed from `_bulk_upsert_reports`) plus the `BULK_DB_BATCH_SIZE` constant. No HTTP concerns. |
-| Create | `radis/reports/api/views.py` | Single `ReportViewSet` subclassing `adrf.viewsets.GenericViewSet` + the four async mixins from `adrf.mixins` + an `@action` for `bulk_upsert`. |
-| Delete | `radis/reports/api/viewsets.py` | Replaced by `views.py` + `bulk.py`. |
-| Modify | `radis/reports/api/urls.py` | Keep `DefaultRouter`; register `ReportViewSet` with `basename="report"`. |
-| Modify | `radis/reports/tests/test_bulk_upsert.py` | Update import (`from radis.reports.api.viewsets import _bulk_upsert_reports` → `from radis.reports.api.bulk import bulk_upsert_reports`). |
+| Modify | `radis/reports/api/viewsets.py` | Single `ReportViewSet` rewritten on top of `adrf.viewsets.GenericViewSet` + the four async mixins from `adrf.mixins` + an `@action` for `bulk_upsert`. The bulk-upsert helper (`bulk_upsert_reports`, renamed from `_bulk_upsert_reports`) stays in the same module — this is a DRF-viewset → ADRF-viewset conversion, not a file restructure. |
+| Modify | `radis/reports/api/urls.py` | Keep `DefaultRouter`; register `ReportViewSet` with `basename="report"`. (No real diff vs. legacy.) |
+| Modify | `radis/reports/tests/test_bulk_upsert.py` | Update import (`from radis.reports.api.viewsets import _bulk_upsert_reports` → `from radis.reports.api.viewsets import bulk_upsert_reports`). |
 | Create | `radis/reports/tests/test_report_api.py` | End-to-end coverage for all five endpoints via Django's `AsyncClient`; plus `inspect.iscoroutinefunction` shape guards on the viewset's async method set. |
 
-Unchanged: `radis/reports/api/serializers.py`, `radis/reports/api/__init__.py`, `radis/reports/api/__pycache__/...`, `radis/urls.py` (mount stays `path("api/reports/", include("radis.reports.api.urls"))`).
+Unchanged: `radis/reports/api/serializers.py`, `radis/reports/api/__init__.py`, `radis/urls.py` (mount stays `path("api/reports/", include("radis.reports.api.urls"))`).
+
+The legacy file `radis/reports/api/viewsets.py` is rewritten in place (not renamed to `views.py` or split into `bulk.py` + `views.py`). The file name matches the framework convention (`viewsets.py` for viewset classes) and the diff reads as a sync→async conversion of the same module.
 
 ---
 
@@ -46,384 +46,40 @@ If the baseline is not green, **stop and report** — do not proceed to Task 1.
 
 ---
 
-## Task 1: Extract `_bulk_upsert_reports` into its own module
+## Task 1: Rename `_bulk_upsert_reports` → `bulk_upsert_reports` inside `viewsets.py`
 
-This is a pure code move (no behavior change). It shrinks `viewsets.py` so the later swap to `views.py` is a smaller, more reviewable diff, and it gives the helper a proper home (no leading underscore — it's the only public symbol).
+A one-line touch-up before the async conversion. The helper currently lives at module scope in `radis/reports/api/viewsets.py` with a leading-underscore name. After the conversion it stays in the same module and is called from `ReportViewSet.bulk_upsert`, so the underscore is misleading — it's the module's de-facto public bulk-upsert entry point.
 
 **Files:**
-- Create: `radis/reports/api/bulk.py`
-- Modify: `radis/reports/api/viewsets.py` (remove the helper; import it instead)
-- Modify: `radis/reports/tests/test_bulk_upsert.py:9` (update import)
+- Modify: `radis/reports/api/viewsets.py`
+- Modify: `radis/reports/tests/test_bulk_upsert.py`
 
-- [ ] **Step 1.1: Create `radis/reports/api/bulk.py` with the helper moved verbatim**
+- [ ] **Step 1.1: Rename the function in `radis/reports/api/viewsets.py`**
 
-Cut everything from `BULK_DB_BATCH_SIZE = 1000` through the end of `_bulk_upsert_reports` (currently `viewsets.py:30–267`) and paste into the new file. Rename the function to `bulk_upsert_reports` (drop the leading underscore — it's now a public module export). Keep the body exactly as-is. The full new file:
+`def _bulk_upsert_reports(...)` → `def bulk_upsert_reports(...)`. Update the single internal call site (inside the legacy `bulk_upsert` action) the same way.
 
-```python
-# radis/reports/api/bulk.py
-import logging
-from typing import Any
+- [ ] **Step 1.2: Update the test import**
 
-from django.conf import settings
-from django.db import transaction
-from django.utils import timezone
-
-from radis.pgsearch.tasks import enqueue_bulk_index_reports
-from radis.pgsearch.utils.indexing import bulk_upsert_report_search_vectors
-
-from ..models import Language, Metadata, Modality, Report
-from ..site import reports_created_handlers, reports_updated_handlers
-
-logger = logging.getLogger(__name__)
-
-BULK_DB_BATCH_SIZE = 1000
-
-
-def bulk_upsert_reports(
-    validated_reports: list[dict[str, Any]],
-) -> tuple[list[str], list[str]]:
-    if not validated_reports:
-        return [], []
-
-    deduped_reports: dict[str, dict[str, Any]] = {}
-    duplicate_count = 0
-    for report in validated_reports:
-        document_id = report["document_id"]
-        if document_id in deduped_reports:
-            duplicate_count += 1
-        deduped_reports[document_id] = report
-    if duplicate_count:
-        logger.warning(
-            "Bulk upsert payload contained %s duplicate document_ids; keeping last occurrence.",
-            duplicate_count,
-        )
-        validated_reports = list(deduped_reports.values())
-
-    def _dedupe_by_key(
-        items: list[dict[str, Any]], key_name: str
-    ) -> tuple[list[dict[str, Any]], int]:
-        if not items:
-            return [], 0
-        by_key: dict[str, dict[str, Any]] = {}
-        for item in items:
-            key = item[key_name]
-            by_key[key] = item
-        return list(by_key.values()), len(items) - len(by_key)
-
-    def _dedupe_metadata(items: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], int]:
-        if not items:
-            return [], 0
-        by_key: dict[str, dict[str, Any]] = {}
-        duplicates = 0
-        for item in items:
-            key = item["key"]
-            if key in by_key:
-                duplicates += 1
-            by_key[key] = item
-        return list(by_key.values()), duplicates
-
-    def _dedupe_groups(items: list[Any]) -> tuple[list[int], int]:
-        if not items:
-            return [], 0
-        by_id: dict[int, int] = {}
-        for group in items:
-            group_id = int(getattr(group, "pk", group))
-            by_id[group_id] = group_id
-        return list(by_id.values()), len(items) - len(by_id)
-
-    document_ids = [report["document_id"] for report in validated_reports]
-
-    language_codes = {report["language"]["code"] for report in validated_reports}
-    language_by_code = {
-        lang.code: lang for lang in Language.objects.filter(code__in=language_codes)
-    }
-    missing_language_codes = language_codes - language_by_code.keys()
-    if missing_language_codes:
-        Language.objects.bulk_create(
-            [Language(code=code) for code in missing_language_codes],
-            ignore_conflicts=True,
-            batch_size=BULK_DB_BATCH_SIZE,
-        )
-        language_by_code = {
-            lang.code: lang for lang in Language.objects.filter(code__in=language_codes)
-        }
-
-    modality_codes = {
-        modality["code"]
-        for report in validated_reports
-        for modality in report.get("modalities", [])
-    }
-    modality_by_code = {mod.code: mod for mod in Modality.objects.filter(code__in=modality_codes)}
-    missing_modality_codes = modality_codes - modality_by_code.keys()
-    if missing_modality_codes:
-        Modality.objects.bulk_create(
-            [Modality(code=code) for code in missing_modality_codes],
-            ignore_conflicts=True,
-            batch_size=BULK_DB_BATCH_SIZE,
-        )
-        modality_by_code = {
-            mod.code: mod for mod in Modality.objects.filter(code__in=modality_codes)
-        }
-
-    existing_reports = Report.objects.filter(document_id__in=document_ids)
-    existing_by_document_id = {report.document_id: report for report in existing_reports}
-
-    now = timezone.now()
-    created_ids: list[str] = []
-    updated_ids: list[str] = []
-    new_reports: list[Report] = []
-    updated_reports: list[Report] = []
-
-    report_field_names = (
-        "document_id",
-        "pacs_aet",
-        "pacs_name",
-        "pacs_link",
-        "patient_id",
-        "patient_birth_date",
-        "patient_sex",
-        "study_description",
-        "study_datetime",
-        "study_instance_uid",
-        "accession_number",
-        "body",
-    )
-
-    for report_data in validated_reports:
-        document_id = report_data["document_id"]
-        language = language_by_code[report_data["language"]["code"]]
-        report_fields = {field: report_data[field] for field in report_field_names}
-
-        existing = existing_by_document_id.get(document_id)
-        if existing:
-            for field, value in report_fields.items():
-                setattr(existing, field, value)
-            existing.language = language
-            existing.updated_at = now
-            updated_reports.append(existing)
-            updated_ids.append(document_id)
-        else:
-            new_reports.append(
-                Report(
-                    **report_fields,
-                    language=language,
-                    created_at=now,
-                    updated_at=now,
-                )
-            )
-            created_ids.append(document_id)
-
-    with transaction.atomic():
-        if new_reports:
-            Report.objects.bulk_create(new_reports, batch_size=BULK_DB_BATCH_SIZE)
-
-        if updated_reports:
-            Report.objects.bulk_update(
-                updated_reports,
-                fields=[*report_field_names, "language", "updated_at"],
-                batch_size=BULK_DB_BATCH_SIZE,
-            )
-
-        report_id_by_document_id = {
-            report.document_id: report.pk
-            for report in Report.objects.filter(document_id__in=document_ids).only(
-                "id", "document_id"
-            )
-        }
-        report_ids = list(report_id_by_document_id.values())
-
-        if report_ids:
-            Metadata.objects.filter(report_id__in=report_ids).delete()
-
-            metadata_rows: list[Metadata] = []
-            metadata_duplicate_count = 0
-            for report_data in validated_reports:
-                report_id = report_id_by_document_id[report_data["document_id"]]
-                metadata_items, duplicates = _dedupe_metadata(report_data.get("metadata", []))
-                metadata_duplicate_count += duplicates
-                for item in metadata_items:
-                    metadata_rows.append(
-                        Metadata(report_id=report_id, key=item["key"], value=item["value"])
-                    )
-            if metadata_rows:
-                Metadata.objects.bulk_create(metadata_rows, batch_size=BULK_DB_BATCH_SIZE)
-
-            modality_through = Report.modalities.through
-            modality_through.objects.filter(report_id__in=report_ids).delete()
-
-            modality_rows = []
-            modality_duplicate_count = 0
-            for report_data in validated_reports:
-                report_id = report_id_by_document_id[report_data["document_id"]]
-                modality_items, duplicates = _dedupe_by_key(
-                    report_data.get("modalities", []), "code"
-                )
-                modality_duplicate_count += duplicates
-                for modality in modality_items:
-                    modality_id = modality_by_code[modality["code"]].pk
-                    modality_rows.append(
-                        modality_through(report_id=report_id, modality_id=modality_id)
-                    )
-            if modality_rows:
-                modality_through.objects.bulk_create(modality_rows, batch_size=BULK_DB_BATCH_SIZE)
-
-            group_through = Report.groups.through
-            group_through.objects.filter(report_id__in=report_ids).delete()
-
-            group_rows = []
-            group_duplicate_count = 0
-            for report_data in validated_reports:
-                report_id = report_id_by_document_id[report_data["document_id"]]
-                group_items, duplicates = _dedupe_groups(report_data.get("groups", []))
-                group_duplicate_count += duplicates
-                for group_id in group_items:
-                    group_rows.append(group_through(report_id=report_id, group_id=group_id))
-            if group_rows:
-                group_through.objects.bulk_create(group_rows, batch_size=BULK_DB_BATCH_SIZE)
-
-            if metadata_duplicate_count or modality_duplicate_count or group_duplicate_count:
-                logger.warning(
-                    "Bulk upsert payload contained duplicate metadata/modality/group entries "
-                    "(metadata=%s modalities=%s groups=%s); duplicates were dropped.",
-                    metadata_duplicate_count,
-                    modality_duplicate_count,
-                    group_duplicate_count,
-                )
-
-        touched_report_ids = [
-            report_id_by_document_id[document_id]
-            for document_id in [*created_ids, *updated_ids]
-            if document_id in report_id_by_document_id
-        ]
-
-        def on_commit():
-            if created_ids:
-                created_reports = list(Report.objects.filter(document_id__in=created_ids))
-                for handler in reports_created_handlers:
-                    handler.handle(created_reports)
-            if updated_ids:
-                updated_reports = list(Report.objects.filter(document_id__in=updated_ids))
-                for handler in reports_updated_handlers:
-                    handler.handle(updated_reports)
-            if touched_report_ids:
-                if settings.PGSEARCH_SYNC_INDEXING:
-                    bulk_upsert_report_search_vectors(touched_report_ids)
-                else:
-                    enqueue_bulk_index_reports(touched_report_ids)
-
-        transaction.on_commit(on_commit)
-
-    return created_ids, updated_ids
-```
-
-- [ ] **Step 1.2: Update `radis/reports/api/viewsets.py` to import the helper instead of defining it**
-
-Remove the now-duplicated definitions. Replace the top-of-file `BULK_DB_BATCH_SIZE = 1000` and the entire `_bulk_upsert_reports` function with a single import line, and update the one call site:
-
-Find this section (currently `radis/reports/api/viewsets.py:16–17`):
-
-```python
-from radis.pgsearch.tasks import enqueue_bulk_index_reports
-from radis.pgsearch.utils.indexing import bulk_upsert_report_search_vectors
-```
-
-Delete both lines (they are no longer used in `viewsets.py`).
-
-Find this block (currently `radis/reports/api/viewsets.py:28–30`):
-
-```python
-logger = logging.getLogger(__name__)
-
-BULK_DB_BATCH_SIZE = 1000
-```
-
-Replace with:
-
-```python
-logger = logging.getLogger(__name__)
-
-from .bulk import bulk_upsert_reports
-```
-
-Delete the entire `def _bulk_upsert_reports(...)` function (currently `radis/reports/api/viewsets.py:33–267`).
-
-Update the one remaining call site (currently `radis/reports/api/viewsets.py:398`):
-
-```python
-            created_ids, updated_ids = _bulk_upsert_reports(valid_payloads)
-```
-
-to:
-
-```python
-            created_ids, updated_ids = bulk_upsert_reports(valid_payloads)
-```
-
-Finally, remove now-unused top-level imports from `viewsets.py`. Specifically:
-- `from django.conf import settings` (was only used by the moved helper)
-- `from django.utils import timezone` (was only used by the moved helper)
-- Trim `from ..models import Language, Metadata, Modality, Report` to `from ..models import Report` (the other three are only used by the moved helper)
-
-Verify cleanliness:
-
-```bash
-uv run ruff check radis/reports/api/viewsets.py
-```
-
-Expected: zero issues. If `F401` (unused import) fires, delete the named import.
-
-- [ ] **Step 1.3: Update the test import**
-
-In `radis/reports/tests/test_bulk_upsert.py:9`, change:
+In `radis/reports/tests/test_bulk_upsert.py`, change
 
 ```python
 from radis.reports.api.viewsets import _bulk_upsert_reports
 ```
 
-to:
+to
 
 ```python
-from radis.reports.api.bulk import bulk_upsert_reports
+from radis.reports.api.viewsets import bulk_upsert_reports
 ```
 
-Then in the same file, find every reference to `_bulk_upsert_reports(` (function call, not import — likely in `test_bulk_upsert_dedupes_metadata_keys` around line 153) and rename to `bulk_upsert_reports(`. Use:
+and rename the one call site in the test body.
+
+- [ ] **Step 1.3: Lint and commit**
 
 ```bash
-grep -n "_bulk_upsert_reports" radis/reports/tests/test_bulk_upsert.py
-```
-
-to find every site, then update each call.
-
-- [ ] **Step 1.4: Run the bulk_upsert tests to confirm the move is clean**
-
-```bash
-uv run cli test -- radis/reports/tests/test_bulk_upsert.py -v
-```
-
-Expected: 3 tests pass (`test_bulk_upsert_creates_and_updates_reports`, `test_bulk_upsert_dedupes_payload_entries`, `test_bulk_upsert_dedupes_metadata_keys`).
-
-- [ ] **Step 1.5: Run the full reports app test suite as a broader sanity check**
-
-```bash
-uv run cli test -- radis/reports/tests/ -v
-```
-
-Expected: all green.
-
-- [ ] **Step 1.6: Commit**
-
-```bash
-git add radis/reports/api/bulk.py radis/reports/api/viewsets.py radis/reports/tests/test_bulk_upsert.py
-git commit -m "$(cat <<'EOF'
-refactor(reports): extract bulk_upsert_reports into radis/reports/api/bulk.py
-
-Pure code move with one rename (_bulk_upsert_reports -> bulk_upsert_reports)
-since it's now the only public symbol of the new module. The DRF viewset
-becomes a thinner HTTP wrapper. No behavior change.
-
-Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
-EOF
-)"
+uv run cli lint
+git add radis/reports/api/viewsets.py radis/reports/tests/test_bulk_upsert.py
+git commit -m "refactor(reports): drop leading underscore from bulk_upsert_reports"
 ```
 
 ---
@@ -815,14 +471,14 @@ EOF
 
 ---
 
-## Task 3: Add `ReportViewSet`
+## Task 3: Convert `viewsets.py` from sync DRF to async ADRF
 
-Create `radis/reports/api/views.py` with a single `ReportViewSet` class subclassing `adrf.viewsets.GenericViewSet` and the four create / retrieve / update / destroy async mixins from `adrf.mixins`, plus an `@action` for `bulk_upsert`. After this task the async-shape guards from Task 2 pass; the viewset is not wired into `urls.py` yet, so endpoint tests still go through the old DRF `ReportViewSet` from `viewsets.py` (and continue to pass).
+Rewrite `radis/reports/api/viewsets.py` in place. `ReportViewSet` keeps its name and module location but now subclasses `adrf.viewsets.GenericViewSet` + the four create / retrieve / update / destroy async mixins from `adrf.mixins`, plus an `@action` for `bulk_upsert`. The `bulk_upsert_reports` helper renamed in Task 1 stays in the same module — there is no `bulk.py`, no `views.py`, and no rename. The legacy module-level `from rest_framework import mixins, status, viewsets` imports are swapped for `from adrf import mixins as amixins; from adrf.viewsets import GenericViewSet`, and every mixin method override becomes `async def acreate` / `aretrieve` / `aupdate` / `adestroy`.
 
 **Files:**
-- Create: `radis/reports/api/views.py`
+- Modify (rewrite): `radis/reports/api/viewsets.py`
 
-- [ ] **Step 3.1: Write `radis/reports/api/views.py`**
+- [ ] **Step 3.1: Rewrite `radis/reports/api/viewsets.py`**
 
 ```python
 """ADRF report viewset.
@@ -1105,21 +761,20 @@ git commit -m "feat(reports): add ReportViewSet (not yet wired into urls)"
 
 ---
 
-## Task 4: Swap `urls.py` to use `DefaultRouter` + `ReportViewSet`; delete `viewsets.py`
+## Task 4: Sanity-check `urls.py` and run the report tests
 
-After this commit, all five endpoints are served by the new ADRF viewset. The endpoint tests from Task 2 are the regression guard.
+The URL config in `radis/reports/api/urls.py` already registers `ReportViewSet` on a `DefaultRouter`. Since Task 3 rewrites `viewsets.py` in place (no rename, no new module), the import in `urls.py` (`from .viewsets import ReportViewSet`) does not change. This task is essentially a verification pass.
 
 **Files:**
-- Modify: `radis/reports/api/urls.py` (rewrite)
-- Delete: `radis/reports/api/viewsets.py`
+- Read-only: `radis/reports/api/urls.py`
 
-- [ ] **Step 4.1: Rewrite `radis/reports/api/urls.py`**
+- [ ] **Step 4.1: Confirm `urls.py` contents**
 
 ```python
 from django.urls import include, path
 from rest_framework.routers import DefaultRouter
 
-from .views import ReportViewSet
+from .viewsets import ReportViewSet
 
 router = DefaultRouter()
 router.register("", ReportViewSet, basename="report")
@@ -1139,13 +794,7 @@ The router auto-generates the same URL patterns and names the legacy code emitte
 
 `lookup_value_regex` defaults to `[^/.]+`, which forbids `.` in `document_id` — the legacy behaviour.
 
-- [ ] **Step 4.2: Delete `radis/reports/api/viewsets.py`**
-
-```bash
-git rm radis/reports/api/viewsets.py
-```
-
-- [ ] **Step 4.3: Test the full report API file**
+- [ ] **Step 4.2: Run the report test files**
 
 ```bash
 uv run cli test -- radis/reports/tests/test_report_api.py -v
@@ -1153,13 +802,6 @@ uv run cli test -- radis/reports/tests/test_bulk_upsert.py -v
 ```
 
 Expected: all tests pass.
-
-- [ ] **Step 4.4: Commit**
-
-```bash
-git add radis/reports/api/urls.py radis/reports/api/viewsets.py
-git commit -m "feat(reports): swap report API URLs to ReportViewSet via DefaultRouter"
-```
 
 ---
 
@@ -1268,7 +910,7 @@ git push -u origin feat/adrf-views
 gh pr create --title "Convert report API to ADRF views (prep for async embedding trigger)" --body "$(cat <<'EOF'
 ## Summary
 - Replace the sync DRF `ReportViewSet` + `DefaultRouter` with three explicit `adrf.views.APIView` subclasses (`ReportListAPIView`, `ReportDetailAPIView`, `ReportBulkUpsertAPIView`) wired into `urls.py` via `path()` — same pattern as ADIT's `dicom_web/views.py`.
-- Move `_bulk_upsert_reports` into its own module (`radis/reports/api/bulk.py`, renamed to `bulk_upsert_reports`) so the views file stays focused on HTTP.
+- Rename `_bulk_upsert_reports` → `bulk_upsert_reports` inside `viewsets.py` (no file split).
 - Use native async ORM (`.aget`, `.adelete`) for simple lookups and `channels.db.database_sync_to_async` to wrap DRF serializer + `transaction.atomic()` blocks. `ReportSerializer` itself is untouched.
 
 **API contract is byte-for-byte unchanged** — URLs, response shapes, status codes, query params (`?upsert`, `?full`, `?replace`), and the 405-for-PATCH behavior are all preserved. Locked in by the new end-to-end tests in `radis/reports/tests/test_report_api.py` (which run against both old and new implementations during the rewrite).

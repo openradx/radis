@@ -8,7 +8,7 @@ from asgiref.sync import sync_to_async
 from django.contrib.auth.models import Group
 from django.test import AsyncClient
 
-from radis.reports.api.bulk import bulk_upsert_reports
+from radis.reports.api.viewsets import bulk_upsert_reports
 from radis.reports.models import Language, Metadata, Modality, Report
 
 

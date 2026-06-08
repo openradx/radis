@@ -368,7 +368,7 @@ def test_report_viewset_methods_are_coroutines():
     `destroy`), the dispatch would silently switch to sync and break the
     inline-embedding follow-up.
     """
-    views = importlib.import_module("radis.reports.api.views")
+    views = importlib.import_module("radis.reports.api.viewsets")
     vs = views.ReportViewSet
     for name in ("acreate", "aretrieve", "aupdate", "adestroy", "bulk_upsert"):
         assert inspect.iscoroutinefunction(getattr(vs, name)), (

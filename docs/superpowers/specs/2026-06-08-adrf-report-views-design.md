@@ -10,7 +10,7 @@ We want to embed each uploaded report **inline, during the upload request**, by 
 
 The embedding client is I/O-bound (an HTTP call to the embedding service). For it to be inline without serializing every request behind one thread, the view handler has to `await` the client coroutine and yield to the event loop while the embedding call is in flight. DRF's `ViewSet`/`GenericViewSet` are synchronous and cannot do that; ADRF (`adrf` — already installed and listed in `INSTALLED_APPS`) provides async-compatible `APIView` equivalents that can.
 
-This PR is the structural prerequisite: replace the existing DRF `ReportViewSet` with explicit ADRF `APIView` classes, following the same pattern ADIT already uses in `adit/dicom_web/views.py`. No client-visible contract change; no inline embedding wiring yet — that lands in a follow-up that adds `await embedding_client.embed_document(report.body)` to the create/update paths and writes the result to `ReportSearchVector.embedding` before responding.
+This PR is the structural prerequisite: rewrite the existing DRF `ReportViewSet` in `radis/reports/api/viewsets.py` as an async `adrf.viewsets.GenericViewSet` (plus the four async mixins from `adrf.mixins` and an `@action` for `bulk_upsert`). No client-visible contract change; no inline embedding wiring yet — that lands in a follow-up that adds `await embedding_client.embed_document(report.body)` to the create/update paths and writes the result to `ReportSearchVector.embedding` before responding.
 
 ## Scope
 
@@ -22,7 +22,7 @@ This PR is the structural prerequisite: replace the existing DRF `ReportViewSet`
   - `ReportDetailAPIView` — `GET`/`PUT`/`DELETE` on `/api/reports/{document_id}/`
   - `ReportBulkUpsertAPIView` — `POST /api/reports/bulk-upsert/`
 - Rewrite `radis/reports/api/urls.py` to wire explicit `path()` entries (no router).
-- Keep `_bulk_upsert_reports` (currently in `viewsets.py`) reused as-is; it stays a pure sync function.
+- Rename the existing module-level helper `_bulk_upsert_reports` to `bulk_upsert_reports` (drop the leading underscore — it's now called from the viewset's async `bulk_upsert` action and is the module's de-facto public bulk-upsert entry point). It stays a pure sync function in the same module — no separate `bulk.py` file.
 - Preserve every existing wire-level behavior: URLs, response shapes, status codes, permission checks (including the `clone_request("POST")` check on PUT-upsert that hits an unknown `document_id`), the `?upsert=` / `?full=` / `?replace=` query parameters, and the 405 for PATCH.
 - New test file `radis/reports/tests/test_report_api.py` exercising each endpoint end-to-end via Django's `Client`.
 - Preserve existing `radis/reports/tests/test_bulk_upsert.py` (no payload changes needed). Add one assertion confirming the bulk-upsert route still resolves.
@@ -95,7 +95,7 @@ urlpatterns = [
 ]
 ```
 
-### `radis/reports/api/views.py` (renamed from `viewsets.py`)
+### `radis/reports/api/viewsets.py` (rewritten in place)
 
 One class, `ReportViewSet`, subclassing `adrf.viewsets.GenericViewSet` plus the create / retrieve / update / destroy async mixins from `adrf.mixins`. `permission_classes = [IsAdminUser]`. Authentication classes inherit from the global `REST_FRAMEWORK` config.
 
