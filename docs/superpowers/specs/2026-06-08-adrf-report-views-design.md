@@ -6,11 +6,11 @@
 
 ## Motivation
 
-We want to make the report-embedding pipeline triggerable from the report-upload API path. The pipeline itself already runs asynchronously in a Procrastinate worker (`@app.task(queue="embeddings")`), but today it is only kicked off by a periodic `embedding_launcher` cron tick. A follow-up PR will let the upload endpoint enqueue the embedding job directly via `await enqueue_embedding(...)`.
+We want to embed each uploaded report **inline, during the upload request**, by calling the async embedding client from inside the view handler. Today, embedding only happens out-of-band via the periodic `embedding_launcher` cron tick that scans for `ReportSearchVector.embedding IS NULL` rows. Moving the embedding into the request path means the report's vector is populated by the time the API returns, so downstream search is correct on the very first query — no eventual-consistency window between upload and indexing.
 
-That follow-up requires the upload endpoints to be async views. DRF's `ViewSet`/`GenericViewSet` are synchronous. ADRF (`adrf` — already installed and listed in `INSTALLED_APPS`) provides async-compatible equivalents.
+The embedding client is I/O-bound (an HTTP call to the embedding service). For it to be inline without serializing every request behind one thread, the view handler has to `await` the client coroutine and yield to the event loop while the embedding call is in flight. DRF's `ViewSet`/`GenericViewSet` are synchronous and cannot do that; ADRF (`adrf` — already installed and listed in `INSTALLED_APPS`) provides async-compatible `APIView` equivalents that can.
 
-This PR is the structural prerequisite: replace the existing DRF `ReportViewSet` with explicit ADRF `APIView` classes, following the same pattern ADIT already uses in `adit/dicom_web/views.py`. No client-visible contract change; no embedding wiring yet.
+This PR is the structural prerequisite: replace the existing DRF `ReportViewSet` with explicit ADRF `APIView` classes, following the same pattern ADIT already uses in `adit/dicom_web/views.py`. No client-visible contract change; no inline embedding wiring yet — that lands in a follow-up that adds `await embedding_client.embed_document(report.body)` to the create/update paths and writes the result to `ReportSearchVector.embedding` before responding.
 
 ## Scope
 
@@ -29,7 +29,7 @@ This PR is the structural prerequisite: replace the existing DRF `ReportViewSet`
 
 **Out of scope (called out to prevent scope creep)**
 
-- Wiring the async embedding enqueue from the request path. That is the follow-up PR.
+- Wiring the inline async embedding call into the create/update paths. That is the follow-up PR.
 - Touching `ReportSerializer` — it stays sync.
 - Converting any other API surface (`radis.search`, `radis.chats`, `radis.extractions`, etc.).
 - Migrations, settings, or env-var changes.
@@ -197,4 +197,4 @@ Async-shape guard: one test asserts `asyncio.iscoroutinefunction(ReportListAPIVi
   - `uv run cli lint`
   - `uv run cli test`
   - Manual smoke: `uv run cli compose-up -- --watch`, then `curl` each endpoint with a token and confirm responses match the contract.
-- PR description must state explicitly: (a) no API contract change, (b) embedding trigger is **not** added in this PR — that's the follow-up.
+- PR description must state explicitly: (a) no API contract change, (b) inline embedding is **not** added in this PR — that's the follow-up.
