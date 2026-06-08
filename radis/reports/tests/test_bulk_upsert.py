@@ -6,7 +6,7 @@ from adit_radis_shared.accounts.factories import GroupFactory, UserFactory
 from adit_radis_shared.token_authentication.models import Token
 from django.test import Client
 
-from radis.reports.api.viewsets import _bulk_upsert_reports
+from radis.reports.api.bulk import bulk_upsert_reports
 from radis.reports.models import Language, Metadata, Modality, Report
 
 
@@ -177,7 +177,7 @@ def test_bulk_upsert_dedupes_metadata_keys():
         },
     ]
 
-    created_ids, updated_ids = _bulk_upsert_reports(validated_reports)
+    created_ids, updated_ids = bulk_upsert_reports(validated_reports)
     assert created_ids == ["DOC-1"]
     assert updated_ids == []
 
