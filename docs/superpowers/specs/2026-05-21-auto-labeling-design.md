@@ -6,9 +6,9 @@
 
 ## Overview
 
-Add an auto-labeling feature to RADIS that classifies radiology reports against admin-defined labels using an LLM. Labels are organised into `LabelGroup`s. Each group carries a **gate question** — a single upfront Yes/No/Maybe screening question asked before the group's labels. For each label the LLM assigns exactly one of five buckets: `PRESENT`, `LIKELY`, `POSSIBLE`, `ABSENT`, `UNMENTIONED`. The three "some evidence" buckets (`PRESENT`, `LIKELY`, `POSSIBLE`) attach the label to the report; `ABSENT` and `UNMENTIONED` are stored but hidden. Results are stored per `(report, label)` pair; gate answers per `(report, label_group)` pair.
+Add an auto-labeling feature to RADIS that classifies radiology reports against admin-defined labels using an LLM. Labels are organised into `LabelGroup`s. Each group carries a **gate question** — a single upfront Yes/No screening question asked before the group's labels. For each label the LLM assigns exactly one of five buckets: `PRESENT`, `LIKELY`, `POSSIBLE`, `ABSENT`, `UNMENTIONED`. The three "some evidence" buckets (`PRESENT`, `LIKELY`, `POSSIBLE`) attach the label to the report; `ABSENT` and `UNMENTIONED` are stored but hidden. Results are stored per `(report, label)` pair; gate answers per `(report, label_group)` pair.
 
-The gate is intentionally a different value space from the labels. A gate question ("Is this a Head CT?") is a categorical *applicability* check — Yes/No/Maybe — answering "do this group's labels even apply to this report?". The five buckets answer a different question per label — "does this finding appear, and how strongly?" — where `UNMENTIONED` (the report never discusses the topic) is a genuinely distinct and useful state that a gate has no analogue for.
+The gate is intentionally a different value space from the labels. A gate question ("Is this a Head CT?") is a categorical *applicability* check — Yes/No — answering "do this group's labels even apply to this report?". The five buckets answer a different question per label — "does this finding appear, and how strongly?" — where `UNMENTIONED` (the report never discusses the topic) is a genuinely distinct and useful state that a gate has no analogue for.
 
 Two execution paths share the same labeling logic:
 
@@ -43,7 +43,7 @@ A new Django app `radis.labels` with five models.
 ```python
 class LabelGroup(models.Model):
     name          = models.CharField(max_length=100, unique=True)
-    gate_question = models.TextField()        # upfront Yes/No/Maybe screening question for this group
+    gate_question = models.TextField()        # upfront Yes/No screening question for this group
     updated_at    = models.DateTimeField(auto_now=True)  # drives gate stale detection
 
     class Meta:
@@ -95,13 +95,12 @@ class GateAnswer(models.Model):
     class Value(models.TextChoices):
         YES   = "YES",   "Yes"
         NO    = "NO",    "No"
-        MAYBE = "MAYBE", "Maybe"
 
     report      = models.ForeignKey(Report, on_delete=models.CASCADE,
                                     related_name="gate_answers")
     label_group = models.ForeignKey(LabelGroup, on_delete=models.CASCADE,
                                     related_name="gate_answers")
-    value       = models.CharField(max_length=5, choices=Value.choices)
+    value       = models.CharField(max_length=3, choices=Value.choices)
     generated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -128,6 +127,13 @@ class LabelingScanCheckpoint(models.Model):
         self.pk = 1
         super().save(*args, **kwargs)
 ```
+
+### Migration note
+
+Removing `MAYBE` from `GateAnswer.Value` requires a two-step migration in one file:
+
+1. **Data**: `GateAnswer.objects.filter(value="MAYBE").delete()` — existing MAYBE rows are deleted; they will be regenerated as YES or NO on the next scan.
+2. **Schema**: alter `GateAnswer.value` `max_length` 5 → 3.
 
 ### Stale detection
 
@@ -313,7 +319,7 @@ def _needs_work_queryset(
             | Exists(
                 GateAnswer.objects.filter(
                     report=OuterRef("pk"),
-                    value__in=[GateAnswer.Value.YES, GateAnswer.Value.MAYBE],
+                    value=GateAnswer.Value.YES,
                     generated_at__gte=F("label_group__updated_at"),
                 ).filter(
                     Exists(
@@ -368,7 +374,7 @@ Labels and groups are admin-authored at runtime, so the structured-output schema
 - **The prompt teaches the choice.** A static, generic prompt explains what each bucket/gate value *means* and carries the report body. It contains **no label-specific text** — the prompt is identical for every label and every report.
 - **Each field's `description=` carries the label.** The label `name` + `description` (or the group's `gate_question`) go into the Pydantic `Field(description=...)`, which the LLM reads via the JSON schema to understand that field. This is the *only* place per-label content lives.
 
-**Id-keyed fields are the contract between schema and database.** A field is keyed `label_<id>` / `group_<id>`, derived purely from the primary key. The human name and definition live in `description=` (model reading-material only) and never appear in the answer. The model returns `{"label_42": "PRESENT", ...}`; we strip the prefix to recover the FK — no name matching, immune to renames, spaces, unicode, or duplicate names.
+**Name-keyed fields are the contract between schema and LLM.** A label field is keyed by `lbl.name`; a gate field by `g.name`. The LLM sees the label name directly as the JSON property key, making the schema self-documenting. The label description rides in `Field(description=lbl.description)`; for gate groups, the gate question rides in `Field(description=g.gate_question)`. Since `Label.name` is unique (database constraint), key collisions are impossible. The model returns `{"pneumonia": "PRESENT", ...}`; the caller maps names back to ids inline using the labels list it already holds. Parse helpers (`parse_label_results`, `parse_gate_results`) are not needed — callers inline the mapping.
 
 The builders live in `radis/labels/utils/` (`schemas.py`, `prompts.py`) and are **owned by the labels app**. They import `pydantic.create_model` and `radis.chats.utils.chat_client.ChatClient` (the same edge extractions already uses) and import **nothing** from `radis.extractions` — the extractions app's `generate_output_fields_schema` is deliberately not reused, keeping the apps decoupled.
 
@@ -376,28 +382,22 @@ The builders live in `radis/labels/utils/` (`schemas.py`, `prompts.py`) and are 
 # radis/labels/utils/schemas.py — static enums, dynamic fields.
 class BucketValue(StrEnum):   # PRESENT, LIKELY, POSSIBLE, ABSENT, UNMENTIONED — mirrors LabelResult.Value
     ...
-class GateValue(StrEnum):     # YES, NO, MAYBE — mirrors GateAnswer.Value
+class GateValue(StrEnum):     # YES, NO — mirrors GateAnswer.Value
     ...
 
 def build_label_classification_schema(labels: Sequence[Label]) -> type[BaseModel]:
     fields = {
-        f"label_{lbl.id}": (BucketValue, Field(description=f"{lbl.name}: {lbl.description}"))
+        lbl.name: (BucketValue, Field(description=lbl.description))
         for lbl in labels
     }
     return create_model("LabelClassification", **fields)
 
 def build_gate_schema(groups: Sequence[LabelGroup]) -> type[BaseModel]:
     fields = {
-        f"group_{g.id}": (GateValue, Field(description=g.gate_question))
+        g.name: (GateValue, Field(description=g.gate_question))
         for g in groups
     }
     return create_model("GateScreening", **fields)
-
-def parse_label_results(parsed: BaseModel) -> dict[int, str]:
-    return {int(k.removeprefix("label_")): v for k, v in parsed.model_dump().items()}
-
-def parse_gate_results(parsed: BaseModel) -> dict[int, str]:
-    return {int(k.removeprefix("group_")): v for k, v in parsed.model_dump().items()}
 ```
 
 ```python
@@ -451,7 +451,9 @@ def label_report(report_id: int) -> None:
         schema = build_gate_schema(gate_batch)
         prompt = render_gate_prompt(report.body)
         parsed = client.extract_data(prompt, schema)
-        new_gate_results.update(parse_gate_results(parsed))  # {group_id: "YES"|"NO"|"MAYBE"}
+        result_map = parsed.model_dump()          # {g.name: "YES"|"NO"}
+        for g in gate_batch:
+            new_gate_results[g.id] = str(result_map[g.name])
 
     # Phase 2 — Process each group
     for group in active_groups:
@@ -468,10 +470,10 @@ def label_report(report_id: int) -> None:
                     report=report, label_group=group,
                     defaults={"value": new_value},
                 )
-                if new_value == GateAnswer.Value.NO and old_value in (GateAnswer.Value.YES, GateAnswer.Value.MAYBE):
+                if new_value == GateAnswer.Value.NO and old_value == GateAnswer.Value.YES:
                     LabelResult.objects.filter(report=report, label__group=group).delete()
 
-            if new_value in (GateAnswer.Value.YES, GateAnswer.Value.MAYBE):
+            if new_value == GateAnswer.Value.YES:
                 labels_to_run = _get_stale_or_missing_labels(report, labels)
                 if labels_to_run:
                     _run_label_set(client, report, labels_to_run)
@@ -480,22 +482,23 @@ def label_report(report_id: int) -> None:
             # Gate is fresh — use stored value, no gate LLM call
             gate_value = groups_with_fresh_gate[group.id]
 
-            if gate_value in (GateAnswer.Value.YES, GateAnswer.Value.MAYBE):
+            if gate_value == GateAnswer.Value.YES:
                 labels_to_run = _get_stale_or_missing_labels(report, labels)
                 if labels_to_run:
                     _run_label_set(client, report, labels_to_run)
             # else: gate = NO, fresh — skip group entirely
 ```
 
-`_run_label_set` builds a dynamic schema for the stale/missing labels via `build_label_classification_schema` (each label's `name` + `description` carried in its field `description=`), renders the generic label prompt, sends both to the LLM in one call, then maps the response back to label ids via `parse_label_results` and stores the returned bucket per label via `update_or_create`:
+`_run_label_set` builds a dynamic schema for the stale/missing labels via `build_label_classification_schema` (each field keyed by `lbl.name`, description = `lbl.description`), renders the generic label prompt, sends both to the LLM in one call, then maps the response back to label ids inline and stores the returned bucket per label via `update_or_create`:
 
 ```python
 def _run_label_set(client: ChatClient, report: Report, labels: list[Label]) -> None:
     schema = build_label_classification_schema(labels)
     parsed = client.extract_data(render_label_prompt(report.body), schema)
-    for label_id, bucket in parse_label_results(parsed).items():
+    result_map = parsed.model_dump()          # {lbl.name: bucket}
+    for lbl in labels:
         LabelResult.objects.update_or_create(
-            report=report, label_id=label_id, defaults={"value": bucket},
+            report=report, label_id=lbl.id, defaults={"value": result_map[lbl.name]},
         )
 ```
 
@@ -524,18 +527,18 @@ One DB query that simultaneously answers "should we run?" (non-empty result) and
 
 | Gate answer was | Gate answer is now | Action |
 |---|---|---|
-| YES/MAYBE | YES/MAYBE | Save gate answer + run stale/missing labels (may be zero) |
-| YES/MAYBE | NO | Save gate answer + delete all results for group |
-| NO | YES/MAYBE | Save gate answer + run all labels (none have results) |
+| YES | YES | Save gate answer + run stale/missing labels (may be zero) |
+| YES | NO | Save gate answer + delete all results for group |
+| NO | YES | Save gate answer + run all labels (none have results) |
 | NO | NO | Save gate answer *(no results to delete)* |
-| no prior answer | YES/MAYBE | Save gate answer + run all labels (none have results) |
+| no prior answer | YES | Save gate answer + run all labels (none have results) |
 | no prior answer | NO | Save gate answer *(no results to delete)* |
 
 *Gate answer fresh (no re-evaluation):*
 
 | Gate answer value | Action |
 |---|---|
-| YES/MAYBE | Run stale/missing labels (skip group if all fresh) |
+| YES | Run stale/missing labels (skip group if all fresh) |
 | NO | Skip group entirely |
 
 `GateAnswer.update_or_create` is called only when the gate answer is re-evaluated (stale or no prior answer); it bumps `generated_at` even when the value is unchanged. When the gate flips to `NO`, the gate save and the result deletion are wrapped in `transaction.atomic()` so the two operations are all-or-nothing. If the deletion were to happen outside the transaction and the process crashed after the gate save, the orphaned results would never be detected by condition B of the "needs work" predicate (gate is `NO`, so that `Exists` subquery skips it), leaving them stuck indefinitely. The transaction prevents that inconsistency.
@@ -581,7 +584,7 @@ class LabelGroupAdmin(admin.ModelAdmin):
 ```
 
 - `gate_question_preview` truncates to ~80 chars in list view.
-- `gate_answer_summary` shows live gate counts: `12,345 Yes · 3,210 Maybe · 44,500 No · 87 stale`.
+- `gate_answer_summary` shows live gate counts: `12,345 Yes · 44,500 No · 87 stale`.
 - `updated_at` is read-only — bumps automatically on any save, driving gate staleness.
 - Admins must create a `LabelGroup` before adding labels to it; the gate question is a required part of the group.
 
@@ -723,16 +726,15 @@ Radiology Report:
 $report
 ```
 
-Default gate prompt (a Yes/No/Maybe applicability screen):
+Default gate prompt (a Yes/No applicability screen):
 
 ```text
 You are an AI medical assistant. The provided schema lists one field per topic, each
 field's description stating the topic's screening question. For every field, answer
 whether the radiology report below contains content relevant to that topic, responding
 with exactly one of:
-  - "YES"   — the report clearly contains relevant content
-  - "NO"    — the report clearly does not
-  - "MAYBE" — the report may contain relevant content; use when uncertain
+  - "YES" — the report clearly contains relevant content
+  - "NO"  — the report clearly does not
 
 Return answers in JSON format matching the provided schema.
 
@@ -776,7 +778,7 @@ No new queues or containers. Priority table updated (scan and manual backfill sh
 ### Documentation updates
 
 - `CLAUDE.md`: add `radis.labels` to Django Apps list; add the seven new env vars; add Troubleshooting subsection.
-- `KNOWLEDGE.md`: document prompt design, label authoring guidelines (label description should be self-contained and define the finding precisely), and gate-question authoring guidelines (gate question is an applicability screen answerable from the report body; phrase as a topic-level Yes/No/Maybe screen, not a specific finding).
+- `KNOWLEDGE.md`: document prompt design, label authoring guidelines (label description should be self-contained and define the finding precisely), and gate-question authoring guidelines (gate question is an applicability screen answerable from the report body; phrase as a topic-level Yes/No screen, not a specific finding).
 - `example.env`: seven new env vars with comments and defaults.
 
 ### Existing-system touchpoints
@@ -794,28 +796,28 @@ No touch to `radis/reports/site.py` — the periodic scan does not use the repor
 ### Unit tests (no DB)
 
 - **Prompt rendering** (`test_prompts.py`) — `render_label_prompt` and `render_gate_prompt` substitute `$report` (incl. unicode content) and contain the bucket/gate value meanings; assert **no label name or description appears in the prompt** (per-label content belongs only in the schema).
-- **Schema building** (`test_schemas.py`) — `build_label_classification_schema` produces a Pydantic model whose fields are keyed `label_<id>`, each accepting only the five bucket values and rejecting unknown buckets / missing fields, with the label `name` + `description` in the field `description`; `build_gate_schema` produces `group_<id>` fields validating Yes/No/Maybe and rejecting unknown values, with the gate question in the field `description`; `parse_label_results` / `parse_gate_results` round-trip the prefixed keys back to integer ids; a **drift guard** asserts `BucketValue` / `GateValue` values equal `LabelResult.Value` / `GateAnswer.Value`.
+- **Schema building** (`test_schemas.py`) — `build_label_classification_schema` produces a Pydantic model whose fields are keyed by `lbl.name`, each accepting only the five bucket values and rejecting unknown buckets / missing fields, with `lbl.description` in the field `description`; `build_gate_schema` produces fields keyed by `g.name` validating Yes/No and rejecting unknown values, with the gate question in the field `description`; a **drift guard** asserts `BucketValue` / `GateValue` values equal `LabelResult.Value` / `GateAnswer.Value`.
 
 ### Model / DB tests
 
 - **Stale detection** (`test_stale_detection.py`) — assert result and gate-answer stale predicates over hand-built rows.
-- **Backfill scope query** (`test_scope.py`) — reports covering all combinations of gate-answer freshness and YES/MAYBE-gate answer freshness; a report with a fresh NO gate and no results is not included; a report with a fresh YES gate but a stale result is included; a report whose only results are `ABSENT`/`UNMENTIONED` but fresh is not included; the scope query returns exactly those needing work.
+- **Backfill scope query** (`test_scope.py`) — reports covering all combinations of gate-answer freshness and YES-gate answer freshness; a report with a fresh NO gate and no results is not included; a report with a fresh YES gate but a stale result is included; a report whose only results are `ABSENT`/`UNMENTIONED` but fresh is not included; the scope query returns exactly those needing work.
 - **Singleton backfill** (`test_singleton.py`) — second concurrent active `LabelingJob` raises `IntegrityError`.
 - **Backfill restart safety** (`test_singleton.py`) — if `process_labeling_job` is called twice for the same job (simulating a Procrastinate retry), partial `LabelingTask` rows from the first call are deleted before the second call recreates them; no duplicates result.
 - **Cascade and uniqueness** (`test_models.py`) — group delete cascades to labels and gate answers; label delete cascades to results; unique constraints enforced; upserts work.
 
 ### Integration tests (LLM mocked)
 
-- **Gate batching** (`test_gate.py`) — 20 groups with gate batch size 10 → exactly 2 gate LLM calls; only YES/MAYBE groups produce label-set calls.
+- **Gate batching** (`test_gate.py`) — 20 groups with gate batch size 10 → exactly 2 gate LLM calls; only YES groups produce label-set calls.
 - **Gate = NO, fresh** (`test_gate.py`) — group is skipped entirely; no `LabelResult` rows written, no LLM call.
 - **Bucket storage and surfacing** (`test_buckets.py`) — a label-set call returning each of the five buckets writes a `LabelResult` for all of them; only PRESENT/LIKELY/POSSIBLE surface in badges and `label:` search, while ABSENT/UNMENTIONED are stored but hidden.
-- **Gate answer fresh + YES/MAYBE + results all fresh** → zero LLM calls.
-- **Gate answer fresh + YES/MAYBE + 1 label stale** → 1 LLM call containing only that 1 label, 0 gate calls.
+- **Gate answer fresh + YES + results all fresh** → zero LLM calls.
+- **Gate answer fresh + YES + 1 label stale** → 1 LLM call containing only that 1 label, 0 gate calls.
 - **Gate answer stale + new YES, old NO** → 1 gate call + 1 label-set call (all labels, no prior results).
 - **Gate answer stale + new YES, old YES + results fresh** → 1 gate call only, 0 label calls.
-- **Gate stale + new NO, old YES/MAYBE** → 1 gate call, existing results deleted, no label-set call.
+- **Gate stale + new NO, old YES** → 1 gate call, existing results deleted, no label-set call.
 - **Gate stale + new NO, old NO** → 1 gate call, no results to delete, no label-set call.
-- **Gate flips YES/MAYBE → NO: atomicity** (`test_gate.py`) — gate save and result deletion succeed together; no orphaned `LabelResult` rows exist after the call.
+- **Gate flips YES → NO: atomicity** (`test_gate.py`) — gate save and result deletion succeed together; no orphaned `LabelResult` rows exist after the call.
 - **Skip conditions** (`test_skips.py`) — empty body / no active labels → no LLM call.
 - **Backfill task processor** (`test_processor.py`) — partial failure on one report yields task `WARNING`; successful reports still have results written.
 - **Incremental scan: first run** (`test_scan.py`) — null checkpoint → no `LabelingJob` created, checkpoint set to `now`.
