@@ -36,6 +36,8 @@ from rest_framework.permissions import IsAdminUser
 from rest_framework.request import Request, clone_request
 from rest_framework.response import Response
 
+from radis.pgsearch.utils.inline_embedding import embed_reports_inline
+
 from ..models import Report
 from ..site import (
     document_fetchers,
@@ -56,7 +58,7 @@ class ReportListAPIView(AsyncApiView):
         data = request.data
 
         @database_sync_to_async
-        def _create() -> dict[str, Any]:
+        def _create() -> tuple[dict[str, Any], int]:
             serializer = ReportSerializer(
                 data=data, context={"request": request}
             )
@@ -72,9 +74,11 @@ class ReportListAPIView(AsyncApiView):
                     handler.handle([report])
 
             transaction.on_commit(on_commit)
-            return serializer.data
+            return serializer.data, report.pk
 
-        return Response(await _create(), status=status.HTTP_201_CREATED)
+        body, report_pk = await _create()
+        await embed_reports_inline([report_pk])
+        return Response(body, status=status.HTTP_201_CREATED)
 
 
 class ReportDetailAPIView(AsyncApiView):
@@ -126,7 +130,7 @@ class ReportDetailAPIView(AsyncApiView):
             )
 
         @database_sync_to_async
-        def _save() -> tuple[dict[str, Any], int]:
+        def _save() -> tuple[dict[str, Any], int, int]:
             serializer = ReportSerializer(
                 report, data=data, context={"request": request}
             )
@@ -148,11 +152,14 @@ class ReportDetailAPIView(AsyncApiView):
                     handler.handle([saved])
 
             transaction.on_commit(on_commit)
-            return serializer.data, (
-                status.HTTP_201_CREATED if report is None else status.HTTP_200_OK
+            return (
+                serializer.data,
+                status.HTTP_201_CREATED if report is None else status.HTTP_200_OK,
+                saved.pk,
             )
 
-        body, http_status = await _save()
+        body, http_status, saved_pk = await _save()
+        await embed_reports_inline([saved_pk])
         return Response(body, status=http_status)
 
     async def delete(self, request: Request, document_id: str) -> Response:
@@ -207,7 +214,7 @@ class ReportBulkUpsertAPIView(AsyncApiView):
             )
 
         @database_sync_to_async
-        def _do() -> dict[str, Any]:
+        def _do() -> tuple[dict[str, Any], list[int]]:
             valid_payloads: list[dict[str, Any]] = []
             errors: list[dict[str, Any]] = []
             for index, payload in enumerate(payloads):
@@ -247,6 +254,17 @@ class ReportBulkUpsertAPIView(AsyncApiView):
             if valid_payloads:
                 created_ids, updated_ids = bulk_upsert_reports(valid_payloads)
 
+            touched_document_ids = [*created_ids, *updated_ids]
+            touched_report_pks: list[int] = (
+                list(
+                    Report.objects.filter(document_id__in=touched_document_ids).values_list(
+                        "pk", flat=True
+                    )
+                )
+                if touched_document_ids
+                else []
+            )
+
             body: dict[str, Any] = {
                 "created": len(created_ids),
                 "updated": len(updated_ids),
@@ -256,6 +274,8 @@ class ReportBulkUpsertAPIView(AsyncApiView):
                 max_errors = 50
                 body["errors"] = errors[:max_errors]
                 body["errors_truncated"] = len(errors) > max_errors
-            return body
+            return body, touched_report_pks
 
-        return Response(await _do())
+        body, touched_report_pks = await _do()
+        await embed_reports_inline(touched_report_pks)
+        return Response(body)

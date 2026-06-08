@@ -77,16 +77,6 @@ services:
     deploy:
       <<: *deploy
 
-  embeddings_worker:
-    <<: *default-app
-    command: >
-      bash -c "
-        wait-for-it -s postgres.local:5432 -t ${WAIT_POSTGRES_TIMEOUT:-180} &&
-        ./manage.py bg_worker -q embeddings --concurrency 4
-      "
-    deploy:
-      <<: *deploy
-
   postgres:
     environment:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?}

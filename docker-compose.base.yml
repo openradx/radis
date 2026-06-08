@@ -60,10 +60,6 @@ services:
     <<: *default-app
     hostname: llm_worker.local
 
-  embeddings_worker:
-    <<: *default-app
-    hostname: embeddings_worker.local
-
   postgres:
     image: pgvector/pgvector:pg17
     hostname: postgres.local

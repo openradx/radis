@@ -82,15 +82,6 @@ services:
         ./manage.py bg_worker -l debug -q llm --autoreload
       "
 
-  embeddings_worker:
-    <<: *default-app
-    image: radis_dev-embeddings_worker:latest
-    command: >
-      bash -c "
-        wait-for-it -s postgres.local:5432 -t ${WAIT_POSTGRES_TIMEOUT:-180} &&
-        ./manage.py bg_worker -l debug -q embeddings --autoreload --concurrency 4
-      "
-
   postgres:
     environment:
       POSTGRES_PASSWORD: postgres
