@@ -1,20 +1,26 @@
-# radis/reports/api/views.py
-"""ADRF report views.
+"""ADRF report viewset.
 
-Three async APIViews mirroring what `ReportViewSet` did before:
+Single async ViewSet that mirrors the shape of the legacy DRF ReportViewSet:
+GenericViewSet + selected adrf mixins, dispatched via DefaultRouter. Custom
+behaviour is added by overriding the async mixin methods (acreate /
+aretrieve / aupdate / adestroy) and the @action for bulk-upsert.
 
-  - `ReportListAPIView`  — POST /api/reports/
-  - `ReportDetailAPIView` — GET/PUT/DELETE /api/reports/{document_id}/
-  - `ReportBulkUpsertAPIView` — POST /api/reports/bulk-upsert/
+Note on async/sync hygiene: the `adrf.mixins` inherit from DRF's sync
+mixins, so this class technically has sync `create`/`retrieve`/`update`/
+`destroy` siblings on the MRO. ADRF's `view_is_async` flips the dispatcher
+to the async path whenever any method on the class is a coroutine, so as
+long as our overrides stay `async def`, the sync siblings are never
+reached. The async-shape guard tests in test_report_api.py pin every
+entry point to `inspect.iscoroutinefunction` to catch any accidental
+sync override.
 
 Strategy:
-  - Native async ORM (`.aget`) for single-call lookups; `asyncio.gather`
-    to parallelize independent async work (document fetchers).
-  - `channels.db.database_sync_to_async` for serializer + transaction blocks,
-    which must stay synchronous (DRF serializers, `transaction.atomic()`).
-  - Request body (`request.data`) is materialized on the async thread before
-    entering any sync wrapper, so the ASGI body stream is never touched
-    from a worker thread.
+  - Native async ORM (`.aget`) for single-call lookups.
+  - `channels.db.database_sync_to_async` for serializer + transaction blocks
+    (DRF serializers and `transaction.atomic()` are sync-only).
+  - Request body (`request.data`) is materialised on the async thread
+    before entering any sync wrapper, so the ASGI body stream is never
+    touched from a worker thread.
   - For mutating handlers, the ORM write and `transaction.on_commit`
     registration share one atomic block on the same DB connection so the
     callback is correctly bound to the write's transaction.
@@ -26,11 +32,13 @@ import asyncio
 import logging
 from typing import Any
 
-from adrf.views import APIView as AsyncApiView
+from adrf import mixins as amixins
+from adrf.viewsets import GenericViewSet
 from channels.db import database_sync_to_async
 from django.db import transaction
 from django.http import Http404
 from rest_framework import status
+from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAdminUser
 from rest_framework.request import Request, clone_request
@@ -49,17 +57,27 @@ from .serializers import ReportSerializer
 logger = logging.getLogger(__name__)
 
 
-class ReportListAPIView(AsyncApiView):
+class ReportViewSet(
+    amixins.CreateModelMixin,
+    amixins.RetrieveModelMixin,
+    amixins.UpdateModelMixin,
+    amixins.DestroyModelMixin,
+    GenericViewSet,
+):
+    queryset = Report.objects.all()
+    serializer_class = ReportSerializer
+    lookup_field = "document_id"
     permission_classes = [IsAdminUser]
+    # Block PATCH at the dispatcher level (returns 405). We never define
+    # `partial_update` / `apartial_update` for the same effect.
+    http_method_names = ["get", "post", "put", "delete", "head", "options"]
 
-    async def post(self, request: Request) -> Response:
+    async def acreate(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         data = request.data
 
         @database_sync_to_async
         def _create() -> dict[str, Any]:
-            serializer = ReportSerializer(
-                data=data, context={"request": request}
-            )
+            serializer = self.get_serializer(data=data)
             serializer.is_valid(raise_exception=True)
             report = serializer.save()
 
@@ -76,20 +94,16 @@ class ReportListAPIView(AsyncApiView):
 
         return Response(await _create(), status=status.HTTP_201_CREATED)
 
-
-class ReportDetailAPIView(AsyncApiView):
-    permission_classes = [IsAdminUser]
-
-    async def get(self, request: Request, document_id: str) -> Response:
+    async def aretrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         try:
             report = await Report.objects.select_related("language").aget(
-                document_id=document_id
+                document_id=kwargs[self.lookup_field]
             )
         except Report.DoesNotExist:
             raise Http404
 
         data = await database_sync_to_async(
-            lambda: ReportSerializer(report, context={"request": request}).data
+            lambda: self.get_serializer(report).data
         )()
 
         full = request.GET.get("full", "").lower() in ("true", "1", "yes")
@@ -106,7 +120,8 @@ class ReportDetailAPIView(AsyncApiView):
 
         return Response(data)
 
-    async def put(self, request: Request, document_id: str) -> Response:
+    async def aupdate(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        document_id = kwargs[self.lookup_field]
         upsert = request.GET.get("upsert", "").lower() in ("true", "1", "yes")
         data = request.data
 
@@ -127,9 +142,7 @@ class ReportDetailAPIView(AsyncApiView):
 
         @database_sync_to_async
         def _save() -> tuple[dict[str, Any], int]:
-            serializer = ReportSerializer(
-                report, data=data, context={"request": request}
-            )
+            serializer = self.get_serializer(report, data=data)
             serializer.is_valid(raise_exception=True)
             saved = serializer.save()
 
@@ -155,17 +168,14 @@ class ReportDetailAPIView(AsyncApiView):
         body, http_status = await _save()
         return Response(body, status=http_status)
 
-    async def delete(self, request: Request, document_id: str) -> Response:
+    async def adestroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         try:
-            report = await Report.objects.aget(document_id=document_id)
+            report = await Report.objects.aget(document_id=kwargs[self.lookup_field])
         except Report.DoesNotExist:
             raise Http404
 
         @database_sync_to_async
         def _delete_and_schedule() -> None:
-            # Run delete and on_commit registration in one atomic block on
-            # the same sync connection so the callback is correctly bound
-            # to the delete's transaction (Gemini PR #230 review fix).
             with transaction.atomic():
                 report.delete()
 
@@ -182,11 +192,12 @@ class ReportDetailAPIView(AsyncApiView):
         await _delete_and_schedule()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
-
-class ReportBulkUpsertAPIView(AsyncApiView):
-    permission_classes = [IsAdminUser]
-
-    async def post(self, request: Request) -> Response:
+    # DRF's `@action` stub types its callable argument as a sync view returning
+    # HttpResponseBase, but ADRF's dispatcher handles `async def` actions just
+    # fine (the @action decorator only attaches routing metadata). Narrow
+    # suppression of a stub-only mismatch:
+    @action(detail=False, methods=["post"], url_path="bulk-upsert")  # pyright: ignore[reportArgumentType]
+    async def bulk_upsert(self, request: Request) -> Response:
         payloads = request.data
         if not isinstance(payloads, list):
             return Response(
@@ -211,10 +222,10 @@ class ReportBulkUpsertAPIView(AsyncApiView):
             valid_payloads: list[dict[str, Any]] = []
             errors: list[dict[str, Any]] = []
             for index, payload in enumerate(payloads):
-                serializer = ReportSerializer(
+                serializer = self.get_serializer(
                     data=payload,
                     context={
-                        "request": request,
+                        **self.get_serializer_context(),
                         "skip_document_id_unique": True,
                     },
                 )

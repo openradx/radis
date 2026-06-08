@@ -357,18 +357,20 @@ async def test_bulk_upsert_rejects_non_list_payload(async_client: AsyncClient):
 # Async-shape guards — prevent silent regressions to sync handlers.
 # ---------------------------------------------------------------------------
 
-def test_report_list_post_is_coroutine():
+def test_report_viewset_methods_are_coroutines():
+    """Pin every dispatched method on ReportViewSet to async.
+
+    `adrf.mixins.CreateModelMixin` inherits from DRF's sync mixin, so the
+    class technically has both `create` (sync) and `acreate` (async) on the
+    MRO. ADRF's `view_is_async` flips the dispatcher to the async path only
+    if *all* of our overrides are coroutines. If a future contributor
+    accidentally overrides the sync sibling (`create`/`retrieve`/`update`/
+    `destroy`), the dispatch would silently switch to sync and break the
+    inline-embedding follow-up.
+    """
     views = importlib.import_module("radis.reports.api.views")
-    assert inspect.iscoroutinefunction(views.ReportListAPIView.post)
-
-
-def test_report_detail_methods_are_coroutines():
-    views = importlib.import_module("radis.reports.api.views")
-    assert inspect.iscoroutinefunction(views.ReportDetailAPIView.get)
-    assert inspect.iscoroutinefunction(views.ReportDetailAPIView.put)
-    assert inspect.iscoroutinefunction(views.ReportDetailAPIView.delete)
-
-
-def test_report_bulk_upsert_post_is_coroutine():
-    views = importlib.import_module("radis.reports.api.views")
-    assert inspect.iscoroutinefunction(views.ReportBulkUpsertAPIView.post)
+    vs = views.ReportViewSet
+    for name in ("acreate", "aretrieve", "aupdate", "adestroy", "bulk_upsert"):
+        assert inspect.iscoroutinefunction(getattr(vs, name)), (
+            f"ReportViewSet.{name} must be async"
+        )

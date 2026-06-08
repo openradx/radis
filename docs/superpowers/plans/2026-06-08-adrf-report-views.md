@@ -2,11 +2,11 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Replace the sync DRF `ReportViewSet` with three explicit `adrf.views.APIView` subclasses (list/detail/bulk-upsert) so the report-upload endpoints can `await` the async embedding enqueue in a follow-up PR. No client-visible API change in this PR.
+**Goal:** Replace the sync DRF `ReportViewSet` with one `adrf.viewsets.GenericViewSet` subclass (plus the create / retrieve / update / destroy async mixins from `adrf.mixins` and a `@action` for `bulk_upsert`) so the report-upload endpoints can `await` the async embedding client from inside the view in a follow-up PR. No client-visible API change in this PR.
 
-**Architecture:** Follow ADIT's `adit/dicom_web/views.py` pattern: one class per resource, wired into `urls.py` via explicit `path(...)` entries; no `DefaultRouter`. Use native async ORM (`.aget`, `.adelete`) for simple lookups and `channels.db.database_sync_to_async` to wrap DRF serializer + `transaction.atomic()` blocks. Move the existing `_bulk_upsert_reports` helper into its own module so the views file stays focused.
+**Architecture:** Minimum-diff conversion of the legacy class: same mixin lineup, same `GenericViewSet` base, same routing via `rest_framework.routers.DefaultRouter`. The only structural change is `mixins.* → adrf.mixins.*` and the async-method overrides (`acreate`, `aretrieve`, `aupdate`, `adestroy`, `bulk_upsert`). Use native async ORM (`.aget`) for simple lookups and `channels.db.database_sync_to_async` to wrap DRF serializer + `transaction.atomic()` blocks. Move the existing `_bulk_upsert_reports` helper into its own module so the viewset file stays focused on HTTP.
 
-**Tech Stack:** Django 5.1+, DRF, ADRF (`adrf.views.APIView`), Channels (`database_sync_to_async`), PostgreSQL, Procrastinate, pytest-django.
+**Tech Stack:** Django 5.1+ (CI runs 6.0.1), DRF, ADRF (`adrf.viewsets.GenericViewSet` + `adrf.mixins`), Channels (`database_sync_to_async`), PostgreSQL, Procrastinate, pytest-django.
 
 **Spec:** `docs/superpowers/specs/2026-06-08-adrf-report-views-design.md`
 
@@ -17,11 +17,11 @@
 | Action | Path | Responsibility |
 | --- | --- | --- |
 | Create | `radis/reports/api/bulk.py` | Pure data-layer helper `bulk_upsert_reports(validated_reports)` (renamed from `_bulk_upsert_reports`) plus the `BULK_DB_BATCH_SIZE` constant. No HTTP concerns. |
-| Create | `radis/reports/api/views.py` | Three `adrf.views.APIView` subclasses: `ReportListAPIView`, `ReportDetailAPIView`, `ReportBulkUpsertAPIView`. |
+| Create | `radis/reports/api/views.py` | Single `ReportViewSet` subclassing `adrf.viewsets.GenericViewSet` + the four async mixins from `adrf.mixins` + an `@action` for `bulk_upsert`. |
 | Delete | `radis/reports/api/viewsets.py` | Replaced by `views.py` + `bulk.py`. |
-| Modify | `radis/reports/api/urls.py` | Drop `DefaultRouter`; wire explicit `path()` entries for the three new views. |
-| Modify | `radis/reports/tests/test_bulk_upsert.py` | Update import (`from radis.reports.api.viewsets import _bulk_upsert_reports` → `from radis.reports.api.bulk import bulk_upsert_reports`). Add one `reverse("report-bulk-upsert")` resolve assertion. |
-| Create | `radis/reports/tests/test_report_api.py` | End-to-end coverage for all five endpoints via Django's `Client`; plus `asyncio.iscoroutinefunction` shape guards. |
+| Modify | `radis/reports/api/urls.py` | Keep `DefaultRouter`; register `ReportViewSet` with `basename="report"`. |
+| Modify | `radis/reports/tests/test_bulk_upsert.py` | Update import (`from radis.reports.api.viewsets import _bulk_upsert_reports` → `from radis.reports.api.bulk import bulk_upsert_reports`). |
+| Create | `radis/reports/tests/test_report_api.py` | End-to-end coverage for all five endpoints via Django's `AsyncClient`; plus `inspect.iscoroutinefunction` shape guards on the viewset's async method set. |
 
 Unchanged: `radis/reports/api/serializers.py`, `radis/reports/api/__init__.py`, `radis/reports/api/__pycache__/...`, `radis/urls.py` (mount stays `path("api/reports/", include("radis.reports.api.urls"))`).
 
@@ -815,9 +815,9 @@ EOF
 
 ---
 
-## Task 3: Add the three ADRF view classes
+## Task 3: Add `ReportViewSet`
 
-Create `radis/reports/api/views.py` with three `adrf.views.APIView` subclasses implementing the spec. After this task, the async-shape guards from Task 2 pass; the views are not wired into `urls.py` yet, so endpoint tests still go through the old DRF viewset (and continue to pass).
+Create `radis/reports/api/views.py` with a single `ReportViewSet` class subclassing `adrf.viewsets.GenericViewSet` and the four create / retrieve / update / destroy async mixins from `adrf.mixins`, plus an `@action` for `bulk_upsert`. After this task the async-shape guards from Task 2 pass; the viewset is not wired into `urls.py` yet, so endpoint tests still go through the old DRF `ReportViewSet` from `viewsets.py` (and continue to pass).
 
 **Files:**
 - Create: `radis/reports/api/views.py`
@@ -825,35 +825,37 @@ Create `radis/reports/api/views.py` with three `adrf.views.APIView` subclasses i
 - [ ] **Step 3.1: Write `radis/reports/api/views.py`**
 
 ```python
-# radis/reports/api/views.py
-"""ADRF report views.
+"""ADRF report viewset.
 
-Three async APIViews mirroring what `ReportViewSet` did before:
-
-  - `ReportListAPIView`  — POST /api/reports/
-  - `ReportDetailAPIView` — GET/PUT/DELETE /api/reports/{document_id}/
-  - `ReportBulkUpsertAPIView` — POST /api/reports/bulk-upsert/
+Single async ViewSet that mirrors the shape of the legacy DRF ReportViewSet:
+GenericViewSet + selected adrf mixins, dispatched via DefaultRouter. Custom
+behaviour is added by overriding the async mixin methods (acreate /
+aretrieve / aupdate / adestroy) and the @action for bulk-upsert.
 
 Strategy:
-  - Native async ORM (`.aget`, `.adelete`) for single-call lookups.
-  - `channels.db.database_sync_to_async` for serializer + transaction blocks,
-    which must stay synchronous (DRF serializers, `transaction.atomic()`).
-  - `transaction.on_commit` callbacks fire from inside the wrapped sync
-    block, preserving today's "after commit" semantics for created /
-    updated / deleted handlers.
+  - Native async ORM (`.aget`) for single-call lookups.
+  - `channels.db.database_sync_to_async` for serializer + transaction blocks
+    (DRF serializers and `transaction.atomic()` are sync-only).
+  - Request body materialised on the async thread before entering any sync
+    wrapper, so the ASGI body stream is never touched from a worker thread.
+  - For mutating handlers, the ORM write and `transaction.on_commit`
+    registration share one atomic block on the same DB connection so the
+    callback is correctly bound to the write's transaction.
 
 See the design doc at
 docs/superpowers/specs/2026-06-08-adrf-report-views-design.md.
 """
+import asyncio
 import logging
 from typing import Any
 
-from adrf.views import APIView as AsyncApiView
-from asgiref.sync import sync_to_async
+from adrf import mixins as amixins
+from adrf.viewsets import GenericViewSet
 from channels.db import database_sync_to_async
 from django.db import transaction
 from django.http import Http404
 from rest_framework import status
+from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAdminUser
 from rest_framework.request import Request, clone_request
@@ -872,15 +874,27 @@ from .serializers import ReportSerializer
 logger = logging.getLogger(__name__)
 
 
-class ReportListAPIView(AsyncApiView):
+class ReportViewSet(
+    amixins.CreateModelMixin,
+    amixins.RetrieveModelMixin,
+    amixins.UpdateModelMixin,
+    amixins.DestroyModelMixin,
+    GenericViewSet,
+):
+    queryset = Report.objects.all()
+    serializer_class = ReportSerializer
+    lookup_field = "document_id"
     permission_classes = [IsAdminUser]
+    # Block PATCH at the dispatcher level (returns 405). We never define
+    # `partial_update` / `apartial_update` for the same effect.
+    http_method_names = ["get", "post", "put", "delete", "head", "options"]
 
-    async def post(self, request: Request) -> Response:
+    async def acreate(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        data = request.data
+
         @database_sync_to_async
         def _create() -> dict[str, Any]:
-            serializer = ReportSerializer(
-                data=request.data, context={"request": request}
-            )
+            serializer = self.get_serializer(data=data)
             serializer.is_valid(raise_exception=True)
             report = serializer.save()
 
@@ -895,38 +909,38 @@ class ReportListAPIView(AsyncApiView):
             transaction.on_commit(on_commit)
             return serializer.data
 
-        data = await _create()
-        return Response(data, status=status.HTTP_201_CREATED)
+        return Response(await _create(), status=status.HTTP_201_CREATED)
 
-
-class ReportDetailAPIView(AsyncApiView):
-    permission_classes = [IsAdminUser]
-
-    async def get(self, request: Request, document_id: str) -> Response:
+    async def aretrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         try:
             report = await Report.objects.select_related("language").aget(
-                document_id=document_id
+                document_id=kwargs[self.lookup_field]
             )
         except Report.DoesNotExist:
             raise Http404
 
         data = await database_sync_to_async(
-            lambda: ReportSerializer(report, context={"request": request}).data
+            lambda: self.get_serializer(report).data
         )()
 
         full = request.GET.get("full", "").lower() in ("true", "1", "yes")
         if full:
-            documents: dict[str, Any] = {}
-            for fetcher in document_fetchers.values():
-                doc = await database_sync_to_async(fetcher.fetch)(report)
-                if doc is not None:
-                    documents[fetcher.source] = doc
-            data["documents"] = documents
+            async def _fetch(fetcher):
+                return fetcher.source, await database_sync_to_async(fetcher.fetch)(report)
+
+            results = await asyncio.gather(
+                *(_fetch(f) for f in document_fetchers.values())
+            )
+            data["documents"] = {
+                source: doc for source, doc in results if doc is not None
+            }
 
         return Response(data)
 
-    async def put(self, request: Request, document_id: str) -> Response:
+    async def aupdate(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        document_id = kwargs[self.lookup_field]
         upsert = request.GET.get("upsert", "").lower() in ("true", "1", "yes")
+        data = request.data
 
         try:
             report = await Report.objects.aget(document_id=document_id)
@@ -939,15 +953,13 @@ class ReportDetailAPIView(AsyncApiView):
             # Replicates DRF's `get_object_or_none` + `clone_request("POST")`
             # permission re-check: a non-staff PUT?upsert=true on a missing
             # id must come back as 403, not 404.
-            await sync_to_async(self.check_permissions)(
+            await database_sync_to_async(self.check_permissions)(
                 clone_request(request, "POST")
             )
 
         @database_sync_to_async
         def _save() -> tuple[dict[str, Any], int]:
-            serializer = ReportSerializer(
-                report, data=request.data, context={"request": request}
-            )
+            serializer = self.get_serializer(report, data=data)
             serializer.is_valid(raise_exception=True)
             saved = serializer.save()
 
@@ -970,38 +982,37 @@ class ReportDetailAPIView(AsyncApiView):
                 status.HTTP_201_CREATED if report is None else status.HTTP_200_OK
             )
 
-        data, http_status = await _save()
-        return Response(data, status=http_status)
+        body, http_status = await _save()
+        return Response(body, status=http_status)
 
-    async def delete(self, request: Request, document_id: str) -> Response:
+    async def adestroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         try:
-            report = await Report.objects.aget(document_id=document_id)
+            report = await Report.objects.aget(document_id=kwargs[self.lookup_field])
         except Report.DoesNotExist:
             raise Http404
 
-        await report.adelete()
-
         @database_sync_to_async
-        def _schedule_handlers() -> None:
-            def on_commit():
-                for handler in reports_deleted_handlers:
-                    logger.debug(
-                        f"{handler.name} - handle deleted report: "
-                        f"{report.document_id}"
-                    )
-                    handler.handle([report])
+        def _delete_and_schedule() -> None:
+            with transaction.atomic():
+                report.delete()
 
-            transaction.on_commit(on_commit)
+                def on_commit():
+                    for handler in reports_deleted_handlers:
+                        logger.debug(
+                            f"{handler.name} - handle deleted report: "
+                            f"{report.document_id}"
+                        )
+                        handler.handle([report])
 
-        await _schedule_handlers()
+                transaction.on_commit(on_commit)
+
+        await _delete_and_schedule()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
-
-class ReportBulkUpsertAPIView(AsyncApiView):
-    permission_classes = [IsAdminUser]
-
-    async def post(self, request: Request) -> Response:
-        if not isinstance(request.data, list):
+    @action(detail=False, methods=["post"], url_path="bulk-upsert")
+    async def bulk_upsert(self, request: Request) -> Response:
+        payloads = request.data
+        if not isinstance(payloads, list):
             return Response(
                 {"detail": "Expected a list of report objects."},
                 status=status.HTTP_400_BAD_REQUEST,
@@ -1023,11 +1034,11 @@ class ReportBulkUpsertAPIView(AsyncApiView):
         def _do() -> dict[str, Any]:
             valid_payloads: list[dict[str, Any]] = []
             errors: list[dict[str, Any]] = []
-            for index, payload in enumerate(request.data):
-                serializer = ReportSerializer(
+            for index, payload in enumerate(payloads):
+                serializer = self.get_serializer(
                     data=payload,
                     context={
-                        "request": request,
+                        **self.get_serializer_context(),
                         "skip_document_id_unique": True,
                     },
                 )
@@ -1041,17 +1052,13 @@ class ReportBulkUpsertAPIView(AsyncApiView):
                     )
                     logger.error(
                         "Bulk upsert validation failed (index=%s document_id=%s): %s",
-                        index,
-                        document_id,
-                        exc.detail,
+                        index, document_id, exc.detail,
                     )
-                    errors.append(
-                        {
-                            "index": index,
-                            "document_id": document_id,
-                            "errors": exc.detail,
-                        }
-                    )
+                    errors.append({
+                        "index": index,
+                        "document_id": document_id,
+                        "errors": exc.detail,
+                    })
                     continue
                 valid_payloads.append(serializer.validated_data)
 
@@ -1074,44 +1081,33 @@ class ReportBulkUpsertAPIView(AsyncApiView):
         return Response(await _do())
 ```
 
-- [ ] **Step 3.2: Run the async-shape guards (now expected to PASS)**
+- [ ] **Step 3.2: Update the async-shape guard tests in `radis/reports/tests/test_report_api.py`**
 
-```bash
-uv run cli test -- radis/reports/tests/test_report_api.py -v -k coroutine
+The three guards from Task 2 (which currently look up `ReportListAPIView`, `ReportDetailAPIView`, `ReportBulkUpsertAPIView`) need to point at the viewset's async methods:
+
+```python
+def test_report_viewset_methods_are_coroutines():
+    views = importlib.import_module("radis.reports.api.views")
+    vs = views.ReportViewSet
+    for name in ("acreate", "aretrieve", "aupdate", "adestroy", "bulk_upsert"):
+        assert inspect.iscoroutinefunction(getattr(vs, name)), f"{name} is not async"
 ```
 
-Expected: 3 tests pass (`test_report_list_post_is_coroutine`, `test_report_detail_methods_are_coroutines`, `test_report_bulk_upsert_post_is_coroutine`).
+Replace the previous `test_report_list_post_is_coroutine`, `test_report_detail_methods_are_coroutines`, and `test_report_bulk_upsert_post_is_coroutine` with this single test.
 
-- [ ] **Step 3.3: Run the full new test file to confirm nothing regressed**
-
-```bash
-uv run cli test -- radis/reports/tests/test_report_api.py -v
-```
-
-Expected: all tests pass (the endpoint tests still hit the DRF viewset under `urls.py`, since the swap has not happened yet — confirms no accidental side-effect from creating `views.py`).
-
-- [ ] **Step 3.4: Commit**
+- [ ] **Step 3.3: Lint and commit**
 
 ```bash
-git add radis/reports/api/views.py
-git commit -m "$(cat <<'EOF'
-feat(reports): add ADRF report views (not yet wired into urls)
-
-Introduce ReportListAPIView, ReportDetailAPIView, and
-ReportBulkUpsertAPIView following ADIT's adrf.views.APIView pattern.
-The classes are unreachable until urls.py is swapped in the next
-commit; the async-shape guards in test_report_api.py go green now.
-
-Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
-EOF
-)"
+uv run cli lint
+git add radis/reports/api/views.py radis/reports/tests/test_report_api.py
+git commit -m "feat(reports): add ReportViewSet (not yet wired into urls)"
 ```
 
 ---
 
-## Task 4: Swap `urls.py` to the new ADRF views and delete the DRF viewset
+## Task 4: Swap `urls.py` to use `DefaultRouter` + `ReportViewSet`; delete `viewsets.py`
 
-This is the moment of truth. After this commit, all five endpoints are served by the ADRF classes. The endpoint tests from Task 2 are the regression guard.
+After this commit, all five endpoints are served by the new ADRF viewset. The endpoint tests from Task 2 are the regression guard.
 
 **Files:**
 - Modify: `radis/reports/api/urls.py` (rewrite)
@@ -1119,25 +1115,29 @@ This is the moment of truth. After this commit, all five endpoints are served by
 
 - [ ] **Step 4.1: Rewrite `radis/reports/api/urls.py`**
 
-Replace the entire file contents:
-
 ```python
-from django.urls import path
+from django.urls import include, path
+from rest_framework.routers import DefaultRouter
 
-from .views import (
-    ReportBulkUpsertAPIView,
-    ReportDetailAPIView,
-    ReportListAPIView,
-)
+from .views import ReportViewSet
+
+router = DefaultRouter()
+router.register("", ReportViewSet, basename="report")
 
 urlpatterns = [
-    path("", ReportListAPIView.as_view(), name="report-list"),
-    path("bulk-upsert/", ReportBulkUpsertAPIView.as_view(), name="report-bulk-upsert"),
-    path("<str:document_id>/", ReportDetailAPIView.as_view(), name="report-detail"),
+    path("", include(router.urls)),
 ]
 ```
 
-(`bulk-upsert/` is listed before `<str:document_id>/` so the literal segment matches first.)
+The router auto-generates the same URL patterns and names the legacy code emitted:
+
+| Pattern | Method(s) | Viewset method | Route name |
+| --- | --- | --- | --- |
+| `/api/reports/` | POST | `acreate` | `report-list` |
+| `/api/reports/bulk-upsert/` | POST | `bulk_upsert` (the `@action`) | `report-bulk-upsert` |
+| `/api/reports/{document_id}/` | GET/PUT/DELETE | `aretrieve` / `aupdate` / `adestroy` | `report-detail` |
+
+`lookup_value_regex` defaults to `[^/.]+`, which forbids `.` in `document_id` — the legacy behaviour.
 
 - [ ] **Step 4.2: Delete `radis/reports/api/viewsets.py`**
 
@@ -1145,47 +1145,20 @@ urlpatterns = [
 git rm radis/reports/api/viewsets.py
 ```
 
-- [ ] **Step 4.3: Run the full report API test file**
+- [ ] **Step 4.3: Test the full report API file**
 
 ```bash
 uv run cli test -- radis/reports/tests/test_report_api.py -v
-```
-
-Expected: every test (URL resolution + 5 endpoints + 3 async-shape guards) passes. If any fail, the rewrite diverges from the existing contract — debug, do **not** patch the test to match.
-
-- [ ] **Step 4.4: Run the existing bulk_upsert test file to confirm it still passes**
-
-```bash
 uv run cli test -- radis/reports/tests/test_bulk_upsert.py -v
 ```
 
-Expected: all 3 tests pass (these don't go through the HTTP layer for the helper-level test; for `test_bulk_upsert_creates_and_updates_reports`, they hit `/api/reports/bulk-upsert/` end-to-end through the new ADRF view).
+Expected: all tests pass.
 
-- [ ] **Step 4.5: Run the full reports app test suite**
-
-```bash
-uv run cli test -- radis/reports/tests/ -v
-```
-
-Expected: all green.
-
-- [ ] **Step 4.6: Commit**
+- [ ] **Step 4.4: Commit**
 
 ```bash
 git add radis/reports/api/urls.py radis/reports/api/viewsets.py
-git commit -m "$(cat <<'EOF'
-feat(reports): swap report API URLs to ADRF views; remove ReportViewSet
-
-Drop DefaultRouter in favor of explicit path() entries wired to the
-three new ADRF views. Deletes radis/reports/api/viewsets.py.
-
-URLs, response shapes, status codes, query-param semantics, and
-permission behavior are byte-for-byte identical to the prior DRF
-implementation — guarded by radis/reports/tests/test_report_api.py.
-
-Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
-EOF
-)"
+git commit -m "feat(reports): swap report API URLs to ReportViewSet via DefaultRouter"
 ```
 
 ---
