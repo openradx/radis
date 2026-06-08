@@ -36,14 +36,16 @@ This PR is the structural prerequisite: rewrite the existing DRF `ReportViewSet`
 
 ## Decisions and rationale
 
-### 1. Use `adrf.viewsets.GenericViewSet` + selected mixins + `DefaultRouter`
+### 1. Use `adrf.viewsets.GenericViewSet` + selected mixins + `adrf.routers.DefaultRouter`
 
-We keep the same shape as the legacy DRF `ReportViewSet`: one class subclassing `adrf.viewsets.GenericViewSet` with the create / retrieve / update / destroy async mixins from `adrf.mixins`, and a `@action(detail=False, methods=["post"], url_path="bulk-upsert")` for the bulk endpoint. URLs are wired through `rest_framework.routers.DefaultRouter`. Reasons:
+We keep the same shape as the legacy DRF `ReportViewSet`: one class subclassing `adrf.viewsets.GenericViewSet` with the create / retrieve / update / destroy async mixins from `adrf.mixins`, and a `@action(detail=False, methods=["post"], url_path="bulk-upsert")` for the bulk endpoint. URLs are wired through `adrf.routers.DefaultRouter` (NOT `rest_framework.routers.DefaultRouter` — see below). Reasons:
 
 - **Minimum structural diff vs. legacy.** The old class is `mixins.CreateModelMixin / DestroyModelMixin / RetrieveModelMixin / UpdateModelMixin + GenericViewSet`. The new one is the `adrf.mixins` equivalents + `adrf.viewsets.GenericViewSet`. A reviewer can read the diff as "convert sync mixins to async mixins" without re-learning a different architecture.
 - **Router-generated URLs match the legacy contract for free.** `DefaultRouter` produces the same paths (`/api/reports/`, `/api/reports/{document_id}/`, `/api/reports/bulk-upsert/`) and the same route names (`report-list`, `report-detail`, `report-bulk-upsert`) the legacy code emitted, with no manual `path()`/`re_path()` work. `lookup_value_regex` defaults to `[^/.]+`, which is exactly the document-id constraint we need.
 - **Browsable API root at `/api/reports/` is preserved.** `DefaultRouter` automatically adds an HTML index view there, matching legacy behavior. No regression for anyone navigating with a browser.
 - **One async dispatch decision per class.** ADRF's `view_is_async` flips the entire viewset to the async dispatch path as soon as any method on it is a coroutine. Once we define `acreate`/`aretrieve`/`aupdate`/`adestroy` + the `async def bulk_upsert` action, every entry point is async. There's no per-URL flip-flopping between sync and async.
+
+**Router choice is load-bearing.** DRF's `DefaultRouter` maps HTTP methods to the sync action names (`POST → create`, `PUT → update`, etc.). Because `adrf.mixins.*` inherit from DRF's sync mixins, those sync method names exist on the class, so DRF's router silently dispatches to the inherited sync mixin implementations — *not* our `acreate`/`aretrieve`/`aupdate`/`adestroy` overrides. `adrf.routers.DefaultRouter` rewrites the action mapping to the `a`-prefixed names whenever `view_is_async=True`, so dispatch hits our overrides. The async-shape guard test catches the override identity, but it cannot catch a mis-wired router; we treat the router choice as part of the architectural contract.
 
 **Trade-off accepted:** `adrf.mixins` define both sync `create`/`retrieve`/`update`/`destroy` (inherited from DRF) *and* their async `a*` siblings. Our overrides target the `a*` versions; the sync versions remain on the class but are not dispatched (because `view_is_async` is True). The risk is that a future contributor sees the sync `create()` method on the inheritance chain and "fixes" it without realising the async version is what runs. We mitigate with an explicit module docstring and the async-shape guard tests (described under Tests).
 

@@ -4,7 +4,7 @@
 
 **Goal:** Replace the sync DRF `ReportViewSet` with one `adrf.viewsets.GenericViewSet` subclass (plus the create / retrieve / update / destroy async mixins from `adrf.mixins` and a `@action` for `bulk_upsert`) so the report-upload endpoints can `await` the async embedding client from inside the view in a follow-up PR. No client-visible API change in this PR.
 
-**Architecture:** Minimum-diff conversion of the legacy class: same mixin lineup, same `GenericViewSet` base, same routing via `rest_framework.routers.DefaultRouter`. The only structural change is `mixins.* → adrf.mixins.*` and the async-method overrides (`acreate`, `aretrieve`, `aupdate`, `adestroy`, `bulk_upsert`). Use native async ORM (`.aget`) for simple lookups and `channels.db.database_sync_to_async` to wrap DRF serializer + `transaction.atomic()` blocks. Move the existing `_bulk_upsert_reports` helper into its own module so the viewset file stays focused on HTTP.
+**Architecture:** Minimum-diff conversion of the legacy class: same mixin lineup, same `GenericViewSet` base, routing through `adrf.routers.DefaultRouter` (not DRF's — see Task 4 for why). The only structural change is `mixins.* → adrf.mixins.*` and the async-method overrides (`acreate`, `aretrieve`, `aupdate`, `adestroy`, `bulk_upsert`). Use native async ORM (`.aget`) for simple lookups and `channels.db.database_sync_to_async` to wrap DRF serializer + `transaction.atomic()` blocks. The `_bulk_upsert_reports` helper stays in `viewsets.py` (renamed `bulk_upsert_reports` — no separate `bulk.py` file).
 
 **Tech Stack:** Django 5.1+ (CI runs 6.0.1), DRF, ADRF (`adrf.viewsets.GenericViewSet` + `adrf.mixins`), Channels (`database_sync_to_async`), PostgreSQL, Procrastinate, pytest-django.
 
@@ -771,8 +771,8 @@ The URL config in `radis/reports/api/urls.py` already registers `ReportViewSet` 
 - [ ] **Step 4.1: Confirm `urls.py` contents**
 
 ```python
+from adrf.routers import DefaultRouter
 from django.urls import include, path
-from rest_framework.routers import DefaultRouter
 
 from .viewsets import ReportViewSet
 
@@ -783,6 +783,8 @@ urlpatterns = [
     path("", include(router.urls)),
 ]
 ```
+
+Important: use `adrf.routers.DefaultRouter`, **not** `rest_framework.routers.DefaultRouter`. DRF's router maps HTTP methods to sync action names (`create`/`retrieve`/`update`/`destroy`), which `adrf.mixins.*` inherit from DRF's sync mixins — so dispatch would silently call the inherited sync methods instead of our async overrides. ADRF's router remaps to `acreate`/`aretrieve`/`aupdate`/`adestroy` when `view_is_async=True`.
 
 The router auto-generates the same URL patterns and names the legacy code emitted:
 
