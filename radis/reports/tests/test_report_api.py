@@ -27,6 +27,7 @@ import pytest
 from adit_radis_shared.accounts.factories import GroupFactory, UserFactory
 from adit_radis_shared.accounts.models import User
 from adit_radis_shared.token_authentication.models import Token
+from asgiref.sync import sync_to_async
 from django.contrib.auth.models import Group
 from django.test import AsyncClient
 from django.urls import reverse
@@ -102,7 +103,7 @@ def test_report_detail_url_resolves():
 async def test_post_creates_report_and_fires_created_handler(
     async_client: AsyncClient, django_capture_on_commit_callbacks
 ):
-    _, group, token = _staff_user_and_token()
+    _, group, token = await sync_to_async(_staff_user_and_token)()
     captured: list[Report] = []
     handler = ReportsCreatedHandler(
         name="test-created", handle=lambda reports: captured.extend(reports)
@@ -139,7 +140,7 @@ async def test_post_creates_report_and_fires_created_handler(
 @pytest.mark.asyncio
 @pytest.mark.django_db(transaction=True)
 async def test_get_returns_existing_report(async_client: AsyncClient):
-    _, group, token = _staff_user_and_token()
+    _, group, token = await sync_to_async(_staff_user_and_token)()
     payload = _make_payload(document_id="DOC-GET")
     payload["groups"] = [group.pk]
     await async_client.post(
@@ -161,7 +162,7 @@ async def test_get_returns_existing_report(async_client: AsyncClient):
 @pytest.mark.asyncio
 @pytest.mark.django_db(transaction=True)
 async def test_get_missing_report_returns_404(async_client: AsyncClient):
-    _, _, token = _staff_user_and_token()
+    _, _, token = await sync_to_async(_staff_user_and_token)()
     response = await async_client.get(
         "/api/reports/DOES-NOT-EXIST/",
         headers={"Authorization": f"Token {token}"},
@@ -172,7 +173,7 @@ async def test_get_missing_report_returns_404(async_client: AsyncClient):
 @pytest.mark.asyncio
 @pytest.mark.django_db(transaction=True)
 async def test_get_full_includes_documents_from_fetchers(async_client: AsyncClient):
-    _, group, token = _staff_user_and_token()
+    _, group, token = await sync_to_async(_staff_user_and_token)()
     payload = _make_payload(document_id="DOC-FULL")
     payload["groups"] = [group.pk]
     await async_client.post(
@@ -210,7 +211,7 @@ async def test_get_full_includes_documents_from_fetchers(async_client: AsyncClie
 @pytest.mark.asyncio
 @pytest.mark.django_db(transaction=True)
 async def test_put_updates_existing_report(async_client: AsyncClient):
-    _, group, token = _staff_user_and_token()
+    _, group, token = await sync_to_async(_staff_user_and_token)()
     payload = _make_payload(document_id="DOC-PUT")
     payload["groups"] = [group.pk]
     await async_client.post(
@@ -237,7 +238,7 @@ async def test_put_updates_existing_report(async_client: AsyncClient):
 @pytest.mark.asyncio
 @pytest.mark.django_db(transaction=True)
 async def test_put_upsert_creates_when_missing(async_client: AsyncClient):
-    _, group, token = _staff_user_and_token()
+    _, group, token = await sync_to_async(_staff_user_and_token)()
     payload = _make_payload(document_id="DOC-UPSERT-NEW")
     payload["groups"] = [group.pk]
 
@@ -257,7 +258,7 @@ async def test_put_upsert_creates_when_missing(async_client: AsyncClient):
 async def test_put_upsert_missing_as_non_staff_returns_403(async_client: AsyncClient):
     """When a PUT?upsert=true hits an unknown id, DRF re-checks permissions
     as if it were a POST. IsAdminUser must reject the non-staff caller."""
-    _, token = _non_staff_user_and_token()
+    _, token = await sync_to_async(_non_staff_user_and_token)()
     payload = _make_payload(document_id="DOC-FORBIDDEN")
 
     response = await async_client.put(
@@ -274,7 +275,7 @@ async def test_put_upsert_missing_as_non_staff_returns_403(async_client: AsyncCl
 @pytest.mark.asyncio
 @pytest.mark.django_db(transaction=True)
 async def test_patch_returns_405(async_client: AsyncClient):
-    _, _, token = _staff_user_and_token()
+    _, _, token = await sync_to_async(_staff_user_and_token)()
     response = await async_client.patch(
         "/api/reports/DOC-NA/",
         data=json.dumps({"body": "irrelevant"}),
@@ -293,7 +294,7 @@ async def test_patch_returns_405(async_client: AsyncClient):
 async def test_delete_removes_report_and_fires_deleted_handler(
     async_client: AsyncClient, django_capture_on_commit_callbacks
 ):
-    _, group, token = _staff_user_and_token()
+    _, group, token = await sync_to_async(_staff_user_and_token)()
     payload = _make_payload(document_id="DOC-DEL")
     payload["groups"] = [group.pk]
     await async_client.post(
@@ -329,7 +330,7 @@ async def test_delete_removes_report_and_fires_deleted_handler(
 @pytest.mark.asyncio
 @pytest.mark.django_db(transaction=True)
 async def test_bulk_upsert_rejects_replace_false(async_client: AsyncClient):
-    _, _, token = _staff_user_and_token()
+    _, _, token = await sync_to_async(_staff_user_and_token)()
     response = await async_client.post(
         "/api/reports/bulk-upsert/?replace=false",
         data=json.dumps([]),
@@ -342,7 +343,7 @@ async def test_bulk_upsert_rejects_replace_false(async_client: AsyncClient):
 @pytest.mark.asyncio
 @pytest.mark.django_db(transaction=True)
 async def test_bulk_upsert_rejects_non_list_payload(async_client: AsyncClient):
-    _, _, token = _staff_user_and_token()
+    _, _, token = await sync_to_async(_staff_user_and_token)()
     response = await async_client.post(
         "/api/reports/bulk-upsert/",
         data=json.dumps({"document_id": "DOC-NOT-A-LIST"}),

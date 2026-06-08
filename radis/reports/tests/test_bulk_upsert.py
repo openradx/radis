@@ -4,19 +4,26 @@ from datetime import date
 import pytest
 from adit_radis_shared.accounts.factories import GroupFactory, UserFactory
 from adit_radis_shared.token_authentication.models import Token
+from asgiref.sync import sync_to_async
+from django.contrib.auth.models import Group
 from django.test import AsyncClient
 
 from radis.reports.api.bulk import bulk_upsert_reports
 from radis.reports.models import Language, Metadata, Modality, Report
 
 
-@pytest.mark.asyncio
-@pytest.mark.django_db(transaction=True)
-async def test_bulk_upsert_creates_and_updates_reports(async_client: AsyncClient):
+def _create_staff_user_group_token(label: str) -> tuple[Group, str]:
     user = UserFactory.create(is_active=True, is_staff=True)
     group = GroupFactory.create()
     user.groups.add(group)
-    _, token = Token.objects.create_token(user, "bulk upsert test", None)
+    _, token = Token.objects.create_token(user, label, None)
+    return group, token
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db(transaction=True)
+async def test_bulk_upsert_creates_and_updates_reports(async_client: AsyncClient):
+    group, token = await sync_to_async(_create_staff_user_group_token)("bulk upsert test")
     payload = [
         {
             "document_id": "DOC-1",
@@ -91,10 +98,9 @@ async def test_bulk_upsert_creates_and_updates_reports(async_client: AsyncClient
 @pytest.mark.asyncio
 @pytest.mark.django_db(transaction=True)
 async def test_bulk_upsert_dedupes_payload_entries(async_client: AsyncClient):
-    user = UserFactory.create(is_active=True, is_staff=True)
-    group = GroupFactory.create()
-    user.groups.add(group)
-    _, token = Token.objects.create_token(user, "bulk upsert dedupe test", None)
+    group, token = await sync_to_async(_create_staff_user_group_token)(
+        "bulk upsert dedupe test"
+    )
 
     payload = [
         {
