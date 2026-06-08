@@ -13,8 +13,6 @@ from .utils.prompts import render_gate_prompt, render_label_prompt
 from .utils.schemas import (
     build_gate_schema,
     build_label_classification_schema,
-    parse_gate_results,
-    parse_label_results,
 )
 
 logger = logging.getLogger(__name__)
@@ -61,7 +59,9 @@ def label_report(report_id: int) -> None:
     for gate_batch in batched(groups_needing_gate, settings.LABELING_GATE_BATCH_SIZE):
         schema = build_gate_schema(gate_batch)
         parsed = client.extract_data(render_gate_prompt(report.body), schema)
-        new_gate_results.update(parse_gate_results(parsed))
+        result_map = parsed.model_dump()
+        for g in gate_batch:
+            new_gate_results[g.id] = str(result_map[g.name])
 
     # Phase 2 — process each group.
     for group in active_groups:
@@ -76,19 +76,16 @@ def label_report(report_id: int) -> None:
                 GateAnswer.objects.update_or_create(
                     report=report, label_group=group, defaults={"value": new_value}
                 )
-                if new_value == GateAnswer.Value.NO and old_value in (
-                    GateAnswer.Value.YES,
-                    GateAnswer.Value.MAYBE,
-                ):
+                if new_value == GateAnswer.Value.NO and old_value == GateAnswer.Value.YES:
                     LabelResult.objects.filter(report=report, label__group=group).delete()
 
-            if new_value in (GateAnswer.Value.YES, GateAnswer.Value.MAYBE):
+            if new_value == GateAnswer.Value.YES:
                 labels_to_run = _get_stale_or_missing_labels(report, labels)
                 if labels_to_run:
                     _run_label_set(client, report, labels_to_run)
         else:
             gate_value = groups_with_fresh_gate[group.id]
-            if gate_value in (GateAnswer.Value.YES, GateAnswer.Value.MAYBE):
+            if gate_value == GateAnswer.Value.YES:
                 labels_to_run = _get_stale_or_missing_labels(report, labels)
                 if labels_to_run:
                     _run_label_set(client, report, labels_to_run)
@@ -98,9 +95,10 @@ def label_report(report_id: int) -> None:
 def _run_label_set(client: ChatClient, report: Report, labels: list[Label]) -> None:
     schema = build_label_classification_schema(labels)
     parsed = client.extract_data(render_label_prompt(report.body), schema)
-    for label_id, bucket in parse_label_results(parsed).items():
+    result_map = parsed.model_dump()
+    for lbl in labels:
         LabelResult.objects.update_or_create(
-            report=report, label_id=label_id, defaults={"value": bucket}
+            report=report, label_id=lbl.id, defaults={"value": result_map[lbl.name]}
         )
 
 

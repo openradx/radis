@@ -16,8 +16,9 @@ def test_label_prompt_teaches_all_five_buckets():
 def test_gate_prompt_substitutes_report_and_teaches_gate_values():
     rendered = render_gate_prompt("report body here")
     assert "report body here" in rendered
-    for value in ("YES", "NO", "MAYBE"):
+    for value in ("YES", "NO"):
         assert value in rendered
+    assert "MAYBE" not in rendered
 
 
 def test_prompts_contain_no_label_specific_text():

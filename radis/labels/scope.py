@@ -6,7 +6,7 @@ from .models import GateAnswer, Label
 
 
 def _needs_work_queryset(active_group_count: int) -> QuerySet:
-    """Reports needing labeling work: missing/stale gate (condition A) OR a fresh YES/MAYBE
+    """Reports needing labeling work: missing/stale gate (condition A) OR a fresh YES
     group with a missing/stale label result (condition B)."""
     return Report.objects.annotate(
         non_stale_gate_count=Count(
@@ -22,7 +22,7 @@ def _needs_work_queryset(active_group_count: int) -> QuerySet:
         | Exists(
             GateAnswer.objects.filter(
                 report=OuterRef("pk"),
-                value__in=[GateAnswer.Value.YES, GateAnswer.Value.MAYBE],
+                value=GateAnswer.Value.YES,
                 generated_at__gte=F("label_group__updated_at"),
             ).filter(
                 Exists(

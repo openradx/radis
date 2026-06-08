@@ -461,15 +461,14 @@ Radiology Report:
 $report
 """
 
-# Generic gate (Yes/No/Maybe applicability) system prompt. Only $report is substituted.
+# Generic gate (Yes/No applicability) system prompt. Only $report is substituted.
 _DEFAULT_GATE_SYSTEM_PROMPT = """
 You are an AI medical assistant. The provided schema lists one field per topic, each
 field's description stating the topic's screening question. For every field, answer
 whether the radiology report below contains content relevant to that topic, responding
 with exactly one of:
-  - "YES"   — the report clearly contains relevant content
-  - "NO"    — the report clearly does not
-  - "MAYBE" — the report may contain relevant content; use when uncertain
+  - "YES" — the report clearly contains relevant content
+  - "NO"  — the report clearly does not
 
 Return answers in JSON format matching the provided schema.
 

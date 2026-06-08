@@ -11,7 +11,7 @@ from radis.reports.models import Report
 class LabelGroup(models.Model):
     id: int
     name = models.CharField(max_length=100, unique=True)
-    gate_question = models.TextField()  # upfront Yes/No/Maybe screening question for this group
+    gate_question = models.TextField()  # upfront Yes/No screening question for this group
     updated_at = models.DateTimeField(auto_now=True)  # drives gate stale detection
 
     labels: models.QuerySet["Label"]
@@ -84,14 +84,13 @@ class GateAnswer(models.Model):
     class Value(models.TextChoices):
         YES = "YES", "Yes"
         NO = "NO", "No"
-        MAYBE = "MAYBE", "Maybe"
 
     label_group_id: int
     report = models.ForeignKey(Report, on_delete=models.CASCADE, related_name="gate_answers")
     label_group = models.ForeignKey(
         LabelGroup, on_delete=models.CASCADE, related_name="gate_answers"
     )
-    value = models.CharField(max_length=5, choices=Value.choices)
+    value = models.CharField(max_length=3, choices=Value.choices)
     generated_at = models.DateTimeField(auto_now=True)
 
     class Meta:

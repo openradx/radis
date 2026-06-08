@@ -49,7 +49,7 @@ def test_gate_no_skips_group_entirely():
     report = ReportFactory.create(body="abdomen study")
     group = LabelGroupFactory.create()
     label = LabelFactory.create(group=group)
-    client = FakeChatClient(gate_values={group.id: "NO"})
+    client = FakeChatClient(gate_values={group.name: "NO"})
     with _patch_client(client):
         label_report(report.pk)
 
@@ -69,11 +69,11 @@ def test_gate_yes_runs_labels_and_stores_all_buckets():
     l_absent = LabelFactory.create(group=group)
     l_unmentioned = LabelFactory.create(group=group)
     client = FakeChatClient(
-        gate_values={group.id: "YES"},
+        gate_values={group.name: "YES"},
         label_values={
-            l_present.id: "PRESENT",
-            l_absent.id: "ABSENT",
-            l_unmentioned.id: "UNMENTIONED",
+            l_present.name: "PRESENT",
+            l_absent.name: "ABSENT",
+            l_unmentioned.name: "UNMENTIONED",
         },
     )
     with _patch_client(client):
@@ -93,7 +93,7 @@ def test_gate_batching_two_calls_for_twenty_groups():
     groups = [LabelGroupFactory.create() for _ in range(20)]
     for g in groups:
         LabelFactory.create(group=g)
-    client = FakeChatClient(gate_values={g.id: "NO" for g in groups})
+    client = FakeChatClient(gate_values={g.name: "NO" for g in groups})
     with _patch_client(client):
         label_report(report.pk)
 
@@ -133,12 +133,12 @@ def test_fresh_gate_yes_with_one_stale_label_runs_only_that_label():
     stale_label.description = "edited"
     stale_label.save()
 
-    client = FakeChatClient(label_values={stale_label.id: "ABSENT"})
+    client = FakeChatClient(label_values={stale_label.name: "ABSENT"})
     with _patch_client(client):
         label_report(report.pk)
 
     assert client.gate_calls == []
-    assert client.label_calls == [[stale_label.id]]
+    assert client.label_calls == [[stale_label.name]]
     assert LabelResult.objects.get(report=report, label=stale_label).value == "ABSENT"
 
 
@@ -154,7 +154,7 @@ def test_gate_flip_yes_to_no_deletes_results_atomically():
     group.gate_question = "changed?"
     group.save()
 
-    client = FakeChatClient(gate_values={group.id: "NO"})
+    client = FakeChatClient(gate_values={group.name: "NO"})
     with _patch_client(client):
         label_report(report.pk)
 
@@ -173,52 +173,13 @@ def test_stale_gate_new_yes_old_no_runs_all_labels():
     group.gate_question = "changed?"
     group.save()
 
-    client = FakeChatClient(gate_values={group.id: "YES"}, label_values={label.id: "PRESENT"})
+    client = FakeChatClient(gate_values={group.name: "YES"}, label_values={label.name: "PRESENT"})
     with _patch_client(client):
         label_report(report.pk)
 
     assert len(client.gate_calls) == 1
-    assert client.label_calls == [[label.id]]
+    assert client.label_calls == [[label.name]]
     assert LabelResult.objects.get(report=report, label=label).value == "PRESENT"
-
-
-@pytest.mark.django_db
-def test_gate_maybe_runs_labels():
-    """MAYBE is treated like YES: the group's labels run and results are stored."""
-    from radis.labels.labeling import label_report
-
-    report = ReportFactory.create(body="possible nodule")
-    group = LabelGroupFactory.create()
-    label = LabelFactory.create(group=group)
-    client = FakeChatClient(gate_values={group.id: "MAYBE"}, label_values={label.id: "POSSIBLE"})
-    with _patch_client(client):
-        label_report(report.pk)
-
-    assert len(client.gate_calls) == 1
-    assert client.label_calls == [[label.id]]
-    assert GateAnswer.objects.get(report=report, label_group=group).value == "MAYBE"
-    assert LabelResult.objects.get(report=report, label=label).value == "POSSIBLE"
-
-
-@pytest.mark.django_db
-def test_gate_flip_maybe_to_no_deletes_results_atomically():
-    """A stale gate flipping MAYBE -> NO deletes the group's existing results."""
-    from radis.labels.labeling import label_report
-
-    report = ReportFactory.create(body="lungs clear")
-    group = LabelGroupFactory.create()
-    label = LabelFactory.create(group=group)
-    GateAnswerFactory.create(report=report, label_group=group, value="MAYBE")
-    LabelResult.objects.create(report=report, label=label, value=LabelResult.Value.POSSIBLE)
-    group.gate_question = "changed?"
-    group.save()
-
-    client = FakeChatClient(gate_values={group.id: "NO"})
-    with _patch_client(client):
-        label_report(report.pk)
-
-    assert GateAnswer.objects.get(report=report, label_group=group).value == "NO"
-    assert not LabelResult.objects.filter(report=report, label__group=group).exists()
 
 
 @pytest.mark.django_db
@@ -234,7 +195,7 @@ def test_stale_gate_yes_yes_with_fresh_results_makes_no_label_calls():
     group.gate_question = "changed?"  # makes the gate stale -> re-evaluated
     group.save()
 
-    client = FakeChatClient(gate_values={group.id: "YES"})
+    client = FakeChatClient(gate_values={group.name: "YES"})
     with _patch_client(client):
         label_report(report.pk)
 

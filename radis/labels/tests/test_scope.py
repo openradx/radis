@@ -90,16 +90,6 @@ def test_report_with_stale_gate_needs_work():
 
 
 @pytest.mark.django_db
-def test_report_with_fresh_maybe_gate_but_missing_result_needs_work():
-    # MAYBE is symmetric to YES in condition B (value__in=[YES, MAYBE]).
-    group = LabelGroupFactory.create()
-    LabelFactory.create(group=group)
-    report = ReportFactory.create()
-    GateAnswerFactory.create(report=report, label_group=group, value=GateAnswer.Value.MAYBE)
-    assert report.pk in _ids()
-
-
-@pytest.mark.django_db
 def test_report_with_one_fresh_gate_and_one_missing_gate_needs_work():
     # Two active groups; gate answered for only one -> non_stale_gate_count (1) < count (2).
     # Anchors the distinct=True rationale: the labels__active join must not inflate the count.
