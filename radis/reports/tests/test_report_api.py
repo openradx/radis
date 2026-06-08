@@ -87,7 +87,7 @@ def test_report_detail_url_resolves():
 # POST /api/reports/  (create)
 # ---------------------------------------------------------------------------
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 def test_post_creates_report_and_fires_created_handler(
     client: Client, django_capture_on_commit_callbacks
 ):
@@ -125,7 +125,7 @@ def test_post_creates_report_and_fires_created_handler(
 # GET /api/reports/{document_id}/
 # ---------------------------------------------------------------------------
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 def test_get_returns_existing_report(client: Client):
     _, group, token = _staff_user_and_token()
     payload = _make_payload(document_id="DOC-GET")
@@ -146,7 +146,7 @@ def test_get_returns_existing_report(client: Client):
     assert response.json()["document_id"] == "DOC-GET"
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 def test_get_missing_report_returns_404(client: Client):
     _, _, token = _staff_user_and_token()
     response = client.get(
@@ -156,7 +156,7 @@ def test_get_missing_report_returns_404(client: Client):
     assert response.status_code == 404
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 def test_get_full_includes_documents_from_fetchers(client: Client):
     _, group, token = _staff_user_and_token()
     payload = _make_payload(document_id="DOC-FULL")
@@ -193,7 +193,7 @@ def test_get_full_includes_documents_from_fetchers(client: Client):
 # PUT /api/reports/{document_id}/
 # ---------------------------------------------------------------------------
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 def test_put_updates_existing_report(client: Client):
     _, group, token = _staff_user_and_token()
     payload = _make_payload(document_id="DOC-PUT")
@@ -218,7 +218,7 @@ def test_put_updates_existing_report(client: Client):
     assert Report.objects.get(document_id="DOC-PUT").body == "Updated body"
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 def test_put_upsert_creates_when_missing(client: Client):
     _, group, token = _staff_user_and_token()
     payload = _make_payload(document_id="DOC-UPSERT-NEW")
@@ -235,7 +235,7 @@ def test_put_upsert_creates_when_missing(client: Client):
     assert Report.objects.filter(document_id="DOC-UPSERT-NEW").exists()
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 def test_put_upsert_missing_as_non_staff_returns_403(client: Client):
     """When a PUT?upsert=true hits an unknown id, DRF re-checks permissions
     as if it were a POST. IsAdminUser must reject the non-staff caller."""
@@ -253,7 +253,7 @@ def test_put_upsert_missing_as_non_staff_returns_403(client: Client):
     assert not Report.objects.filter(document_id="DOC-FORBIDDEN").exists()
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 def test_patch_returns_405(client: Client):
     _, _, token = _staff_user_and_token()
     response = client.patch(
@@ -269,7 +269,7 @@ def test_patch_returns_405(client: Client):
 # DELETE /api/reports/{document_id}/
 # ---------------------------------------------------------------------------
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 def test_delete_removes_report_and_fires_deleted_handler(
     client: Client, django_capture_on_commit_callbacks
 ):
@@ -306,7 +306,7 @@ def test_delete_removes_report_and_fires_deleted_handler(
 # POST /api/reports/bulk-upsert/
 # ---------------------------------------------------------------------------
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 def test_bulk_upsert_rejects_replace_false(client: Client):
     _, _, token = _staff_user_and_token()
     response = client.post(
@@ -318,7 +318,7 @@ def test_bulk_upsert_rejects_replace_false(client: Client):
     assert response.status_code == 400
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 def test_bulk_upsert_rejects_non_list_payload(client: Client):
     _, _, token = _staff_user_and_token()
     response = client.post(

@@ -10,7 +10,7 @@ from radis.reports.api.bulk import bulk_upsert_reports
 from radis.reports.models import Language, Metadata, Modality, Report
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 def test_bulk_upsert_creates_and_updates_reports(client: Client):
     user = UserFactory.create(is_active=True, is_staff=True)
     group = GroupFactory.create()
@@ -87,7 +87,7 @@ def test_bulk_upsert_creates_and_updates_reports(client: Client):
     assert Metadata.objects.filter(report=report).count() == 2
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 def test_bulk_upsert_dedupes_payload_entries(client: Client):
     user = UserFactory.create(is_active=True, is_staff=True)
     group = GroupFactory.create()
