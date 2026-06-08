@@ -8,16 +8,21 @@ Three async APIViews mirroring what `ReportViewSet` did before:
   - `ReportBulkUpsertAPIView` — POST /api/reports/bulk-upsert/
 
 Strategy:
-  - Native async ORM (`.aget`, `.adelete`) for single-call lookups.
+  - Native async ORM (`.aget`) for single-call lookups; `asyncio.gather`
+    to parallelize independent async work (document fetchers).
   - `channels.db.database_sync_to_async` for serializer + transaction blocks,
     which must stay synchronous (DRF serializers, `transaction.atomic()`).
-  - `transaction.on_commit` callbacks fire from inside the wrapped sync
-    block, preserving today's "after commit" semantics for created /
-    updated / deleted handlers.
+  - Request body (`request.data`) is materialized on the async thread before
+    entering any sync wrapper, so the ASGI body stream is never touched
+    from a worker thread.
+  - For mutating handlers, the ORM write and `transaction.on_commit`
+    registration share one atomic block on the same DB connection so the
+    callback is correctly bound to the write's transaction.
 
 See the design doc at
 docs/superpowers/specs/2026-06-08-adrf-report-views-design.md.
 """
+import asyncio
 import logging
 from typing import Any
 
@@ -48,10 +53,12 @@ class ReportListAPIView(AsyncApiView):
     permission_classes = [IsAdminUser]
 
     async def post(self, request: Request) -> Response:
+        data = request.data
+
         @database_sync_to_async
         def _create() -> dict[str, Any]:
             serializer = ReportSerializer(
-                data=request.data, context={"request": request}
+                data=data, context={"request": request}
             )
             serializer.is_valid(raise_exception=True)
             report = serializer.save()
@@ -67,8 +74,7 @@ class ReportListAPIView(AsyncApiView):
             transaction.on_commit(on_commit)
             return serializer.data
 
-        data = await _create()
-        return Response(data, status=status.HTTP_201_CREATED)
+        return Response(await _create(), status=status.HTTP_201_CREATED)
 
 
 class ReportDetailAPIView(AsyncApiView):
@@ -88,17 +94,21 @@ class ReportDetailAPIView(AsyncApiView):
 
         full = request.GET.get("full", "").lower() in ("true", "1", "yes")
         if full:
-            documents: dict[str, Any] = {}
-            for fetcher in document_fetchers.values():
-                doc = await database_sync_to_async(fetcher.fetch)(report)
-                if doc is not None:
-                    documents[fetcher.source] = doc
-            data["documents"] = documents
+            async def _fetch(fetcher):
+                return fetcher.source, await database_sync_to_async(fetcher.fetch)(report)
+
+            results = await asyncio.gather(
+                *(_fetch(f) for f in document_fetchers.values())
+            )
+            data["documents"] = {
+                source: doc for source, doc in results if doc is not None
+            }
 
         return Response(data)
 
     async def put(self, request: Request, document_id: str) -> Response:
         upsert = request.GET.get("upsert", "").lower() in ("true", "1", "yes")
+        data = request.data
 
         try:
             report = await Report.objects.aget(document_id=document_id)
@@ -118,7 +128,7 @@ class ReportDetailAPIView(AsyncApiView):
         @database_sync_to_async
         def _save() -> tuple[dict[str, Any], int]:
             serializer = ReportSerializer(
-                report, data=request.data, context={"request": request}
+                report, data=data, context={"request": request}
             )
             serializer.is_valid(raise_exception=True)
             saved = serializer.save()
@@ -142,8 +152,8 @@ class ReportDetailAPIView(AsyncApiView):
                 status.HTTP_201_CREATED if report is None else status.HTTP_200_OK
             )
 
-        data, http_status = await _save()
-        return Response(data, status=http_status)
+        body, http_status = await _save()
+        return Response(body, status=http_status)
 
     async def delete(self, request: Request, document_id: str) -> Response:
         try:
@@ -151,21 +161,25 @@ class ReportDetailAPIView(AsyncApiView):
         except Report.DoesNotExist:
             raise Http404
 
-        await report.adelete()
-
         @database_sync_to_async
-        def _schedule_handlers() -> None:
-            def on_commit():
-                for handler in reports_deleted_handlers:
-                    logger.debug(
-                        f"{handler.name} - handle deleted report: "
-                        f"{report.document_id}"
-                    )
-                    handler.handle([report])
+        def _delete_and_schedule() -> None:
+            # Run delete and on_commit registration in one atomic block on
+            # the same sync connection so the callback is correctly bound
+            # to the delete's transaction (Gemini PR #230 review fix).
+            with transaction.atomic():
+                report.delete()
 
-            transaction.on_commit(on_commit)
+                def on_commit():
+                    for handler in reports_deleted_handlers:
+                        logger.debug(
+                            f"{handler.name} - handle deleted report: "
+                            f"{report.document_id}"
+                        )
+                        handler.handle([report])
 
-        await _schedule_handlers()
+                transaction.on_commit(on_commit)
+
+        await _delete_and_schedule()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
@@ -173,7 +187,8 @@ class ReportBulkUpsertAPIView(AsyncApiView):
     permission_classes = [IsAdminUser]
 
     async def post(self, request: Request) -> Response:
-        if not isinstance(request.data, list):
+        payloads = request.data
+        if not isinstance(payloads, list):
             return Response(
                 {"detail": "Expected a list of report objects."},
                 status=status.HTTP_400_BAD_REQUEST,
@@ -195,7 +210,7 @@ class ReportBulkUpsertAPIView(AsyncApiView):
         def _do() -> dict[str, Any]:
             valid_payloads: list[dict[str, Any]] = []
             errors: list[dict[str, Any]] = []
-            for index, payload in enumerate(request.data):
+            for index, payload in enumerate(payloads):
                 serializer = ReportSerializer(
                     data=payload,
                     context={
