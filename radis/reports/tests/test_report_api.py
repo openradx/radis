@@ -1,12 +1,22 @@
 """End-to-end tests for the report HTTP API.
 
-These tests intentionally exercise behavior through Django's `Client`,
-so they pass against both the legacy DRF viewset and the ADRF rewrite.
-They lock the wire contract before the swap and prove it survives after.
+These tests exercise behavior through Django's `AsyncClient` (HTTP-based
+tests) and direct module imports (URL resolution + async-shape guards).
+They lock the wire contract for the ADRF rewrite.
 
-The `_is_async` shape guards at the bottom fail until
-`radis.reports.api.views` exists with `async def` handlers — they drive
-the rewrite TDD-style.
+The `_is_coroutine` shape guards at the bottom assert each handler is
+`async def`, preventing silent regressions to sync.
+
+Why `AsyncClient` and not `Client`: the sync `Client` dispatches an async
+view via `async_to_sync`, which nested with our own `database_sync_to_async`
+deadlocks asgiref's thread executor under pytest-django. `AsyncClient`
+runs the async view in the test's event loop with no outer wrapping.
+
+Why `transaction=True`: the test client's outer `async_to_sync` thread
+(for sync Client) and the `database_sync_to_async` thread (for our view)
+do not share the test's atomic transaction. With `TransactionTestCase`
+semantics there is no hidden wrapping transaction, so any thread sees
+real committed state.
 """
 import importlib
 import inspect
@@ -17,8 +27,9 @@ import pytest
 from adit_radis_shared.accounts.factories import GroupFactory, UserFactory
 from adit_radis_shared.accounts.models import User
 from adit_radis_shared.token_authentication.models import Token
+from asgiref.sync import sync_to_async
 from django.contrib.auth.models import Group
-from django.test import Client
+from django.test import AsyncClient
 from django.urls import reverse
 
 from radis.reports.models import Report
@@ -87,11 +98,12 @@ def test_report_detail_url_resolves():
 # POST /api/reports/  (create)
 # ---------------------------------------------------------------------------
 
-@pytest.mark.django_db
-def test_post_creates_report_and_fires_created_handler(
-    client: Client, django_capture_on_commit_callbacks
+@pytest.mark.asyncio
+@pytest.mark.django_db(transaction=True)
+async def test_post_creates_report_and_fires_created_handler(
+    async_client: AsyncClient, django_capture_on_commit_callbacks
 ):
-    _, group, token = _staff_user_and_token()
+    _, group, token = await sync_to_async(_staff_user_and_token)()
     captured: list[Report] = []
     handler = ReportsCreatedHandler(
         name="test-created", handle=lambda reports: captured.extend(reports)
@@ -102,7 +114,7 @@ def test_post_creates_report_and_fires_created_handler(
         payload["groups"] = [group.pk]
 
         with django_capture_on_commit_callbacks(execute=True):
-            response = client.post(
+            response = await async_client.post(
                 "/api/reports/",
                 data=json.dumps(payload),
                 content_type="application/json",
@@ -115,7 +127,7 @@ def test_post_creates_report_and_fires_created_handler(
         assert body["language"] == "en"
         assert body["modalities"] == ["CT"]
         assert body["metadata"] == {"ris_filename": "file1"}
-        assert Report.objects.filter(document_id="DOC-CREATE").exists()
+        assert await Report.objects.filter(document_id="DOC-CREATE").aexists()
         assert [r.document_id for r in captured] == ["DOC-CREATE"]
     finally:
         reports_created_handlers.remove(handler)
@@ -125,19 +137,20 @@ def test_post_creates_report_and_fires_created_handler(
 # GET /api/reports/{document_id}/
 # ---------------------------------------------------------------------------
 
-@pytest.mark.django_db
-def test_get_returns_existing_report(client: Client):
-    _, group, token = _staff_user_and_token()
+@pytest.mark.asyncio
+@pytest.mark.django_db(transaction=True)
+async def test_get_returns_existing_report(async_client: AsyncClient):
+    _, group, token = await sync_to_async(_staff_user_and_token)()
     payload = _make_payload(document_id="DOC-GET")
     payload["groups"] = [group.pk]
-    client.post(
+    await async_client.post(
         "/api/reports/",
         data=json.dumps(payload),
         content_type="application/json",
         headers={"Authorization": f"Token {token}"},
     )
 
-    response = client.get(
+    response = await async_client.get(
         "/api/reports/DOC-GET/",
         headers={"Authorization": f"Token {token}"},
     )
@@ -146,22 +159,24 @@ def test_get_returns_existing_report(client: Client):
     assert response.json()["document_id"] == "DOC-GET"
 
 
-@pytest.mark.django_db
-def test_get_missing_report_returns_404(client: Client):
-    _, _, token = _staff_user_and_token()
-    response = client.get(
+@pytest.mark.asyncio
+@pytest.mark.django_db(transaction=True)
+async def test_get_missing_report_returns_404(async_client: AsyncClient):
+    _, _, token = await sync_to_async(_staff_user_and_token)()
+    response = await async_client.get(
         "/api/reports/DOES-NOT-EXIST/",
         headers={"Authorization": f"Token {token}"},
     )
     assert response.status_code == 404
 
 
-@pytest.mark.django_db
-def test_get_full_includes_documents_from_fetchers(client: Client):
-    _, group, token = _staff_user_and_token()
+@pytest.mark.asyncio
+@pytest.mark.django_db(transaction=True)
+async def test_get_full_includes_documents_from_fetchers(async_client: AsyncClient):
+    _, group, token = await sync_to_async(_staff_user_and_token)()
     payload = _make_payload(document_id="DOC-FULL")
     payload["groups"] = [group.pk]
-    client.post(
+    await async_client.post(
         "/api/reports/",
         data=json.dumps(payload),
         content_type="application/json",
@@ -174,7 +189,7 @@ def test_get_full_includes_documents_from_fetchers(client: Client):
     )
     document_fetchers["stub-fetcher"] = fetcher
     try:
-        response = client.get(
+        response = await async_client.get(
             "/api/reports/DOC-FULL/?full=true",
             headers={"Authorization": f"Token {token}"},
         )
@@ -193,12 +208,13 @@ def test_get_full_includes_documents_from_fetchers(client: Client):
 # PUT /api/reports/{document_id}/
 # ---------------------------------------------------------------------------
 
-@pytest.mark.django_db
-def test_put_updates_existing_report(client: Client):
-    _, group, token = _staff_user_and_token()
+@pytest.mark.asyncio
+@pytest.mark.django_db(transaction=True)
+async def test_put_updates_existing_report(async_client: AsyncClient):
+    _, group, token = await sync_to_async(_staff_user_and_token)()
     payload = _make_payload(document_id="DOC-PUT")
     payload["groups"] = [group.pk]
-    client.post(
+    await async_client.post(
         "/api/reports/",
         data=json.dumps(payload),
         content_type="application/json",
@@ -206,7 +222,7 @@ def test_put_updates_existing_report(client: Client):
     )
 
     payload["body"] = "Updated body"
-    response = client.put(
+    response = await async_client.put(
         "/api/reports/DOC-PUT/",
         data=json.dumps(payload),
         content_type="application/json",
@@ -215,16 +231,18 @@ def test_put_updates_existing_report(client: Client):
 
     assert response.status_code == 200
     assert response.json()["body"] == "Updated body"
-    assert Report.objects.get(document_id="DOC-PUT").body == "Updated body"
+    updated = await Report.objects.aget(document_id="DOC-PUT")
+    assert updated.body == "Updated body"
 
 
-@pytest.mark.django_db
-def test_put_upsert_creates_when_missing(client: Client):
-    _, group, token = _staff_user_and_token()
+@pytest.mark.asyncio
+@pytest.mark.django_db(transaction=True)
+async def test_put_upsert_creates_when_missing(async_client: AsyncClient):
+    _, group, token = await sync_to_async(_staff_user_and_token)()
     payload = _make_payload(document_id="DOC-UPSERT-NEW")
     payload["groups"] = [group.pk]
 
-    response = client.put(
+    response = await async_client.put(
         "/api/reports/DOC-UPSERT-NEW/?upsert=true",
         data=json.dumps(payload),
         content_type="application/json",
@@ -232,17 +250,18 @@ def test_put_upsert_creates_when_missing(client: Client):
     )
 
     assert response.status_code == 201
-    assert Report.objects.filter(document_id="DOC-UPSERT-NEW").exists()
+    assert await Report.objects.filter(document_id="DOC-UPSERT-NEW").aexists()
 
 
-@pytest.mark.django_db
-def test_put_upsert_missing_as_non_staff_returns_403(client: Client):
+@pytest.mark.asyncio
+@pytest.mark.django_db(transaction=True)
+async def test_put_upsert_missing_as_non_staff_returns_403(async_client: AsyncClient):
     """When a PUT?upsert=true hits an unknown id, DRF re-checks permissions
     as if it were a POST. IsAdminUser must reject the non-staff caller."""
-    _, token = _non_staff_user_and_token()
+    _, token = await sync_to_async(_non_staff_user_and_token)()
     payload = _make_payload(document_id="DOC-FORBIDDEN")
 
-    response = client.put(
+    response = await async_client.put(
         "/api/reports/DOC-FORBIDDEN/?upsert=true",
         data=json.dumps(payload),
         content_type="application/json",
@@ -250,13 +269,14 @@ def test_put_upsert_missing_as_non_staff_returns_403(client: Client):
     )
 
     assert response.status_code == 403
-    assert not Report.objects.filter(document_id="DOC-FORBIDDEN").exists()
+    assert not await Report.objects.filter(document_id="DOC-FORBIDDEN").aexists()
 
 
-@pytest.mark.django_db
-def test_patch_returns_405(client: Client):
-    _, _, token = _staff_user_and_token()
-    response = client.patch(
+@pytest.mark.asyncio
+@pytest.mark.django_db(transaction=True)
+async def test_patch_returns_405(async_client: AsyncClient):
+    _, _, token = await sync_to_async(_staff_user_and_token)()
+    response = await async_client.patch(
         "/api/reports/DOC-NA/",
         data=json.dumps({"body": "irrelevant"}),
         content_type="application/json",
@@ -269,14 +289,15 @@ def test_patch_returns_405(client: Client):
 # DELETE /api/reports/{document_id}/
 # ---------------------------------------------------------------------------
 
-@pytest.mark.django_db
-def test_delete_removes_report_and_fires_deleted_handler(
-    client: Client, django_capture_on_commit_callbacks
+@pytest.mark.asyncio
+@pytest.mark.django_db(transaction=True)
+async def test_delete_removes_report_and_fires_deleted_handler(
+    async_client: AsyncClient, django_capture_on_commit_callbacks
 ):
-    _, group, token = _staff_user_and_token()
+    _, group, token = await sync_to_async(_staff_user_and_token)()
     payload = _make_payload(document_id="DOC-DEL")
     payload["groups"] = [group.pk]
-    client.post(
+    await async_client.post(
         "/api/reports/",
         data=json.dumps(payload),
         content_type="application/json",
@@ -290,7 +311,7 @@ def test_delete_removes_report_and_fires_deleted_handler(
     reports_deleted_handlers.append(handler)
     try:
         with django_capture_on_commit_callbacks(execute=True):
-            response = client.delete(
+            response = await async_client.delete(
                 "/api/reports/DOC-DEL/",
                 headers={"Authorization": f"Token {token}"},
             )
@@ -298,7 +319,7 @@ def test_delete_removes_report_and_fires_deleted_handler(
         reports_deleted_handlers.remove(handler)
 
     assert response.status_code == 204
-    assert not Report.objects.filter(document_id="DOC-DEL").exists()
+    assert not await Report.objects.filter(document_id="DOC-DEL").aexists()
     assert [r.document_id for r in captured] == ["DOC-DEL"]
 
 
@@ -306,10 +327,11 @@ def test_delete_removes_report_and_fires_deleted_handler(
 # POST /api/reports/bulk-upsert/
 # ---------------------------------------------------------------------------
 
-@pytest.mark.django_db
-def test_bulk_upsert_rejects_replace_false(client: Client):
-    _, _, token = _staff_user_and_token()
-    response = client.post(
+@pytest.mark.asyncio
+@pytest.mark.django_db(transaction=True)
+async def test_bulk_upsert_rejects_replace_false(async_client: AsyncClient):
+    _, _, token = await sync_to_async(_staff_user_and_token)()
+    response = await async_client.post(
         "/api/reports/bulk-upsert/?replace=false",
         data=json.dumps([]),
         content_type="application/json",
@@ -318,10 +340,11 @@ def test_bulk_upsert_rejects_replace_false(client: Client):
     assert response.status_code == 400
 
 
-@pytest.mark.django_db
-def test_bulk_upsert_rejects_non_list_payload(client: Client):
-    _, _, token = _staff_user_and_token()
-    response = client.post(
+@pytest.mark.asyncio
+@pytest.mark.django_db(transaction=True)
+async def test_bulk_upsert_rejects_non_list_payload(async_client: AsyncClient):
+    _, _, token = await sync_to_async(_staff_user_and_token)()
+    response = await async_client.post(
         "/api/reports/bulk-upsert/",
         data=json.dumps({"document_id": "DOC-NOT-A-LIST"}),
         content_type="application/json",
@@ -331,8 +354,7 @@ def test_bulk_upsert_rejects_non_list_payload(client: Client):
 
 
 # ---------------------------------------------------------------------------
-# Async-shape guards — fail until radis.reports.api.views exists with
-# async handlers; prevent silent regressions to sync in the future.
+# Async-shape guards — prevent silent regressions to sync handlers.
 # ---------------------------------------------------------------------------
 
 def test_report_list_post_is_coroutine():
