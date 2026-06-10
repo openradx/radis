@@ -23,7 +23,7 @@ def test_labels_choices_are_active_and_alphabetical() -> None:
     LabelFactory.create(name="legacy", active=False)
 
     form = SearchForm()
-    choices = form.fields["labels"].choices
+    choices = form.fields["labels"].choices  # type: ignore
 
     assert choices == [
         ("aortic_aneurysm", "aortic_aneurysm"),
@@ -50,6 +50,7 @@ def test_labels_field_in_layout_when_active_labels_exist() -> None:
     LabelFactory.create(name="edema", active=True)
 
     form = SearchForm()
+    assert form.filters_helper.layout is not None
     field_names = get_layout_field_names(form.filters_helper.layout)
 
     assert "labels" in field_names
@@ -61,7 +62,8 @@ def test_labels_field_absent_from_layout_when_no_active_labels() -> None:
     LabelFactory.create(name="legacy", active=False)
 
     form = SearchForm()
+    assert form.filters_helper.layout is not None
     field_names = get_layout_field_names(form.filters_helper.layout)
 
     assert "labels" not in field_names
-    assert form.fields["labels"].choices == []
+    assert form.fields["labels"].choices == []  # type: ignore

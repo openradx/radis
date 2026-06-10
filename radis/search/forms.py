@@ -105,7 +105,7 @@ class SearchForm(forms.Form):
     def create_filters_layout(self) -> Layout:
         label_field = (
             [Field("labels", css_class="form-select-sm")]
-            if self.fields["labels"].choices
+            if self.fields["labels"].choices  # type: ignore
             else []
         )
         return Layout(
