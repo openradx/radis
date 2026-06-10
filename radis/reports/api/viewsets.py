@@ -55,18 +55,7 @@ Strategy:
     method (`aget`, `aget_or_create`, `abulk_create`, `aset`, `acreate`,
     `asave`, `adelete`, ...) is literally `await sync_to_async(self.X)()`
     in the source. There is no native async DB backend in Django core
-    today. Active work toward one lives in two places:
-      * django/django PR #18408 — `AsyncConnectionHandler`,
-        `AsyncCursor`, `async_atomic`, async test bases. Open, not
-        draft, ~1300/-40 across 16 files. Django core's stated gate is
-        production evidence from an external prototype first.
-      * `django-async-backend` on PyPI (Arfey) — the external prototype.
-        Async reads shipped in v0.0.3 (March 2026): `aget`, `acount`,
-        `aexists`, `async for`, filtering / ordering / pagination, plus
-        `async_atomic`. Writes (`acreate`, `aupdate`, `adelete`,
-        `abulk_create`, `abulk_update`) are listed as in-progress.
-        `select_related` / `prefetch_related` / single-connection
-        `gather` parallelism remain unimplemented.
+    today.
 
   - Implication for the code below: `async for` / `await` calls in
     Phase 2 currently dispatch to the asgiref thread pool just like our
