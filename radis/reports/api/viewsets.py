@@ -43,6 +43,13 @@ Strategy:
     `bulk_upsert_reports` Phase 4 keeps inline sync ORM (single-statement
     bulk_create / bulk_update / through-table churn) because those don't
     decompose into per-entity ops.
+  - `bulk_upsert_reports` also wraps its CPU-only Phases 1 and 3
+    (payload dedupe and the new/updated-list build) in
+    `@sync_to_async(thread_sensitive=True)` helpers. Today this just
+    schedules them on the same thread pool as the atomic block (no real
+    parallelism win), but it keeps the event loop unblocked for whatever
+    CPU work each phase contains, and the structure is positioned to
+    benefit immediately if Django ever ships a native async DB backend.
 
   - Note that even Django's native async ORM methods (`aget`,
     `abulk_create`, `aget_or_create`, ...) currently just wrap the sync
@@ -97,52 +104,41 @@ async def bulk_upsert_reports(
     if not validated_reports:
         return [], []
 
-    # ── Phase 1: CPU-only dedupe of incoming payload ──
-    deduped_reports: dict[str, dict[str, Any]] = {}
-    duplicate_count = 0
-    for report in validated_reports:
-        document_id = report["document_id"]
-        if document_id in deduped_reports:
-            duplicate_count += 1
-        deduped_reports[document_id] = report
-    if duplicate_count:
-        logger.warning(
-            "Bulk upsert payload contained %s duplicate document_ids; keeping last occurrence.",
-            duplicate_count,
-        )
-        validated_reports = list(deduped_reports.values())
+    report_field_names = (
+        "document_id",
+        "pacs_aet",
+        "pacs_name",
+        "pacs_link",
+        "patient_id",
+        "patient_birth_date",
+        "patient_sex",
+        "study_description",
+        "study_datetime",
+        "study_instance_uid",
+        "accession_number",
+        "body",
+    )
 
-    def _dedupe_by_key(
-        items: list[dict[str, Any]], key_name: str
-    ) -> tuple[list[dict[str, Any]], int]:
-        if not items:
-            return [], 0
-        by_key: dict[str, dict[str, Any]] = {}
-        for item in items:
-            by_key[item[key_name]] = item
-        return list(by_key.values()), len(items) - len(by_key)
+    # ── Phase 1: CPU-only dedupe of incoming payload (off-loop) ──
+    @sync_to_async(thread_sensitive=True)
+    def _dedupe_payload() -> list[dict[str, Any]]:
+        deduped_reports: dict[str, dict[str, Any]] = {}
+        duplicate_count = 0
+        for report in validated_reports:
+            document_id = report["document_id"]
+            if document_id in deduped_reports:
+                duplicate_count += 1
+            deduped_reports[document_id] = report
+        if duplicate_count:
+            logger.warning(
+                "Bulk upsert payload contained %s duplicate document_ids; "
+                "keeping last occurrence.",
+                duplicate_count,
+            )
+            return list(deduped_reports.values())
+        return validated_reports
 
-    def _dedupe_metadata(items: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], int]:
-        if not items:
-            return [], 0
-        by_key: dict[str, dict[str, Any]] = {}
-        duplicates = 0
-        for item in items:
-            key = item["key"]
-            if key in by_key:
-                duplicates += 1
-            by_key[key] = item
-        return list(by_key.values()), duplicates
-
-    def _dedupe_groups(items: list[Any]) -> tuple[list[int], int]:
-        if not items:
-            return [], 0
-        by_id: dict[int, int] = {}
-        for group in items:
-            group_id = int(getattr(group, "pk", group))
-            by_id[group_id] = group_id
-        return list(by_id.values()), len(items) - len(by_id)
-
+    validated_reports = await _dedupe_payload()
     document_ids = [report["document_id"] for report in validated_reports]
 
     # ── Phase 2: preflight reads/writes that do NOT need atomicity ──
@@ -189,56 +185,83 @@ async def bulk_upsert_reports(
         async for report in Report.objects.filter(document_id__in=document_ids)
     }
 
-    # ── Phase 3: CPU-only build of new_reports / updated_reports lists ──
-    now = timezone.now()
-    created_ids: list[str] = []
-    updated_ids: list[str] = []
-    new_reports: list[Report] = []
-    updated_reports: list[Report] = []
+    # ── Phase 3: CPU-only build of new_reports / updated_reports lists (off-loop) ──
+    @sync_to_async(thread_sensitive=True)
+    def _build_report_lists() -> tuple[
+        list[Report], list[Report], list[str], list[str]
+    ]:
+        now = timezone.now()
+        created_ids: list[str] = []
+        updated_ids: list[str] = []
+        new_reports: list[Report] = []
+        updated_reports: list[Report] = []
 
-    report_field_names = (
-        "document_id",
-        "pacs_aet",
-        "pacs_name",
-        "pacs_link",
-        "patient_id",
-        "patient_birth_date",
-        "patient_sex",
-        "study_description",
-        "study_datetime",
-        "study_instance_uid",
-        "accession_number",
-        "body",
-    )
+        for report_data in validated_reports:
+            document_id = report_data["document_id"]
+            language = language_by_code[report_data["language"]["code"]]
+            report_fields = {field: report_data[field] for field in report_field_names}
 
-    for report_data in validated_reports:
-        document_id = report_data["document_id"]
-        language = language_by_code[report_data["language"]["code"]]
-        report_fields = {field: report_data[field] for field in report_field_names}
-
-        existing = existing_by_document_id.get(document_id)
-        if existing:
-            for field, value in report_fields.items():
-                setattr(existing, field, value)
-            existing.language = language
-            existing.updated_at = now
-            updated_reports.append(existing)
-            updated_ids.append(document_id)
-        else:
-            new_reports.append(
-                Report(
-                    **report_fields,
-                    language=language,
-                    created_at=now,
-                    updated_at=now,
+            existing = existing_by_document_id.get(document_id)
+            if existing:
+                for field, value in report_fields.items():
+                    setattr(existing, field, value)
+                existing.language = language
+                existing.updated_at = now
+                updated_reports.append(existing)
+                updated_ids.append(document_id)
+            else:
+                new_reports.append(
+                    Report(
+                        **report_fields,
+                        language=language,
+                        created_at=now,
+                        updated_at=now,
+                    )
                 )
-            )
-            created_ids.append(document_id)
+                created_ids.append(document_id)
+
+        return new_reports, updated_reports, created_ids, updated_ids
+
+    new_reports, updated_reports, created_ids, updated_ids = await _build_report_lists()
 
     # ── Phase 4: atomic writes ──
     @sync_to_async(thread_sensitive=True)
     @transaction.atomic
     def _do_atomic_writes() -> None:
+        def _dedupe_by_key(
+            items: list[dict[str, Any]], key_name: str
+        ) -> tuple[list[dict[str, Any]], int]:
+            if not items:
+                return [], 0
+            by_key: dict[str, dict[str, Any]] = {}
+            for item in items:
+                by_key[item[key_name]] = item
+            return list(by_key.values()), len(items) - len(by_key)
+
+        def _dedupe_metadata(
+            items: list[dict[str, Any]]
+        ) -> tuple[list[dict[str, Any]], int]:
+            if not items:
+                return [], 0
+            by_key: dict[str, dict[str, Any]] = {}
+            duplicates = 0
+            for item in items:
+                key = item["key"]
+                if key in by_key:
+                    duplicates += 1
+                by_key[key] = item
+            return list(by_key.values()), duplicates
+
+        def _dedupe_groups(items: list[Any]) -> tuple[list[int], int]:
+            if not items:
+                return [], 0
+            by_id: dict[int, int] = {}
+            for group in items:
+                group_id = int(getattr(group, "pk", group))
+                by_id[group_id] = group_id
+            return list(by_id.values()), len(items) - len(by_id)
+
+
         if new_reports:
             Report.objects.bulk_create(new_reports, batch_size=BULK_DB_BATCH_SIZE)
         if updated_reports:
