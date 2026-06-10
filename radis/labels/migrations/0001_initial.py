@@ -341,4 +341,16 @@ class Migration(migrations.Migration):
                 fields=("report", "label"), name="unique_result_per_report_label"
             ),
         ),
+        # Enforce "at most one active LabelingJob at a time" at the DB level. A partial unique
+        # index over a constant expression collides for every active row; finished jobs
+        # (SU/WA/FA) are excluded so they never block a new job. Django's UniqueConstraint
+        # cannot express "unique over a constant expression," hence raw SQL.
+        migrations.RunSQL(
+            sql=(
+                "CREATE UNIQUE INDEX one_active_labeling_job "
+                "ON labels_labelingjob ((true)) "
+                "WHERE status IN ('UV', 'PR', 'PE', 'IP', 'CI');"
+            ),
+            reverse_sql="DROP INDEX IF EXISTS one_active_labeling_job;",
+        ),
     ]
