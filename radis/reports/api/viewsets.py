@@ -15,18 +15,33 @@ entry point to `inspect.iscoroutinefunction` to catch any accidental
 sync override.
 
 Strategy:
-  - Native async ORM (`.aget`) for single-call lookups.
-  - `channels.db.database_sync_to_async` for serializer + transaction blocks
-    (DRF serializers and `transaction.atomic()` are sync-only).
-  - Request body (`request.data`) is materialised on the async thread
-    before entering any sync wrapper, so the ASGI body stream is never
-    touched from a worker thread.
-  - For mutating handlers, the ORM write and `transaction.on_commit`
-    registration share one atomic block on the same DB connection so the
-    callback is correctly bound to the write's transaction.
 
-See the design doc at
-docs/superpowers/specs/2026-06-08-adrf-report-views-design.md.
+  - Native async ORM (`aget`, `async for` comprehensions, `abulk_create`,
+    `aexists`, ...) for everything that does NOT need atomicity.
+  - For atomic write blocks, decorate a sync helper closure with
+    `@sync_to_async(thread_sensitive=True)` stacked on `@transaction.atomic`.
+    The decorator stack reads bottom-up at definition time and top-down at
+    call time: the wrapper schedules the sync body on the asgiref thread
+    pool, where `transaction.atomic` opens a transaction, the body runs,
+    and the transaction commits when the function returns. Any
+    `transaction.on_commit()` callbacks registered inside the body fire
+    after that atomic commit.
+
+  - `thread_sensitive=True` is required so the sync helper always runs on
+    Django's shared sync thread; without it, each call would land on a
+    fresh thread with its own DB connection, breaking transaction
+    semantics.
+
+  - Note that even Django's native async ORM methods (`aget`,
+    `abulk_create`, `aget_or_create`, ...) currently just wrap the sync
+    method in `sync_to_async` internally — there is no native async DB
+    backend in Django 6.0/6.1 (see PR #17275, stale since 2024). The
+    `async for` / `await` calls in Phases 1–3 below therefore don't run
+    in true parallel with the atomic block; they run on the asgiref
+    thread pool just like our explicit `sync_to_async` calls. The win is
+    purely architectural clarity: each function reads as "this is the
+    async coordination, this one helper is sync because it owns the
+    transaction".
 """
 import asyncio
 import logging
@@ -34,7 +49,7 @@ from typing import Any
 
 from adrf import mixins as amixins
 from adrf.viewsets import GenericViewSet
-from channels.db import database_sync_to_async
+from asgiref.sync import sync_to_async
 from django.conf import settings
 from django.db import transaction
 from django.http import Http404
@@ -63,12 +78,13 @@ logger = logging.getLogger(__name__)
 BULK_DB_BATCH_SIZE = 1000
 
 
-def bulk_upsert_reports(
+async def bulk_upsert_reports(
     validated_reports: list[dict[str, Any]],
 ) -> tuple[list[str], list[str]]:
     if not validated_reports:
         return [], []
 
+    # ── Phase 1: CPU-only dedupe of incoming payload ──
     deduped_reports: dict[str, dict[str, Any]] = {}
     duplicate_count = 0
     for report in validated_reports:
@@ -90,8 +106,7 @@ def bulk_upsert_reports(
             return [], 0
         by_key: dict[str, dict[str, Any]] = {}
         for item in items:
-            key = item[key_name]
-            by_key[key] = item
+            by_key[item[key_name]] = item
         return list(by_key.values()), len(items) - len(by_key)
 
     def _dedupe_metadata(items: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], int]:
@@ -117,19 +132,22 @@ def bulk_upsert_reports(
 
     document_ids = [report["document_id"] for report in validated_reports]
 
+    # ── Phase 2: preflight reads/writes that do NOT need atomicity ──
     language_codes = {report["language"]["code"] for report in validated_reports}
     language_by_code = {
-        lang.code: lang for lang in Language.objects.filter(code__in=language_codes)
+        lang.code: lang
+        async for lang in Language.objects.filter(code__in=language_codes)
     }
     missing_language_codes = language_codes - language_by_code.keys()
     if missing_language_codes:
-        Language.objects.bulk_create(
+        await Language.objects.abulk_create(
             [Language(code=code) for code in missing_language_codes],
             ignore_conflicts=True,
             batch_size=BULK_DB_BATCH_SIZE,
         )
         language_by_code = {
-            lang.code: lang for lang in Language.objects.filter(code__in=language_codes)
+            lang.code: lang
+            async for lang in Language.objects.filter(code__in=language_codes)
         }
 
     modality_codes = {
@@ -137,21 +155,28 @@ def bulk_upsert_reports(
         for report in validated_reports
         for modality in report.get("modalities", [])
     }
-    modality_by_code = {mod.code: mod for mod in Modality.objects.filter(code__in=modality_codes)}
+    modality_by_code = {
+        mod.code: mod
+        async for mod in Modality.objects.filter(code__in=modality_codes)
+    }
     missing_modality_codes = modality_codes - modality_by_code.keys()
     if missing_modality_codes:
-        Modality.objects.bulk_create(
+        await Modality.objects.abulk_create(
             [Modality(code=code) for code in missing_modality_codes],
             ignore_conflicts=True,
             batch_size=BULK_DB_BATCH_SIZE,
         )
         modality_by_code = {
-            mod.code: mod for mod in Modality.objects.filter(code__in=modality_codes)
+            mod.code: mod
+            async for mod in Modality.objects.filter(code__in=modality_codes)
         }
 
-    existing_reports = Report.objects.filter(document_id__in=document_ids)
-    existing_by_document_id = {report.document_id: report for report in existing_reports}
+    existing_by_document_id = {
+        report.document_id: report
+        async for report in Report.objects.filter(document_id__in=document_ids)
+    }
 
+    # ── Phase 3: CPU-only build of new_reports / updated_reports lists ──
     now = timezone.now()
     created_ids: list[str] = []
     updated_ids: list[str] = []
@@ -197,10 +222,12 @@ def bulk_upsert_reports(
             )
             created_ids.append(document_id)
 
-    with transaction.atomic():
+    # ── Phase 4: atomic writes ──
+    @sync_to_async(thread_sensitive=True)
+    @transaction.atomic
+    def _do_atomic_writes() -> None:
         if new_reports:
             Report.objects.bulk_create(new_reports, batch_size=BULK_DB_BATCH_SIZE)
-
         if updated_reports:
             Report.objects.bulk_update(
                 updated_reports,
@@ -286,9 +313,11 @@ def bulk_upsert_reports(
                 for handler in reports_created_handlers:
                     handler.handle(created_reports)
             if updated_ids:
-                updated_reports = list(Report.objects.filter(document_id__in=updated_ids))
+                updated_reports_after_commit = list(
+                    Report.objects.filter(document_id__in=updated_ids)
+                )
                 for handler in reports_updated_handlers:
-                    handler.handle(updated_reports)
+                    handler.handle(updated_reports_after_commit)
             if touched_report_ids:
                 if settings.PGSEARCH_SYNC_INDEXING:
                     bulk_upsert_report_search_vectors(touched_report_ids)
@@ -297,6 +326,7 @@ def bulk_upsert_reports(
 
         transaction.on_commit(on_commit)
 
+    await _do_atomic_writes()
     return created_ids, updated_ids
 
 
@@ -318,7 +348,8 @@ class ReportViewSet(
     async def acreate(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         data = request.data
 
-        @database_sync_to_async
+        @sync_to_async(thread_sensitive=True)
+        @transaction.atomic
         def _create() -> dict[str, Any]:
             serializer = self.get_serializer(data=data)
             serializer.is_valid(raise_exception=True)
@@ -345,14 +376,17 @@ class ReportViewSet(
         except Report.DoesNotExist:
             raise Http404
 
-        data = await database_sync_to_async(
-            lambda: self.get_serializer(report).data
+        data = await sync_to_async(
+            lambda: self.get_serializer(report).data,
+            thread_sensitive=True,
         )()
 
         full = request.GET.get("full", "").lower() in ("true", "1", "yes")
         if full:
             async def _fetch(fetcher):
-                return fetcher.source, await database_sync_to_async(fetcher.fetch)(report)
+                return fetcher.source, await sync_to_async(
+                    fetcher.fetch, thread_sensitive=True
+                )(report)
 
             results = await asyncio.gather(
                 *(_fetch(f) for f in document_fetchers.values())
@@ -379,11 +413,12 @@ class ReportViewSet(
             # Replicates DRF's `get_object_or_none` + `clone_request("POST")`
             # permission re-check: a non-staff PUT?upsert=true on a missing
             # id must come back as 403, not 404.
-            await database_sync_to_async(self.check_permissions)(
+            await sync_to_async(self.check_permissions, thread_sensitive=True)(
                 clone_request(request, "POST")
             )
 
-        @database_sync_to_async
+        @sync_to_async(thread_sensitive=True)
+        @transaction.atomic
         def _save() -> tuple[dict[str, Any], int]:
             serializer = self.get_serializer(report, data=data)
             serializer.is_valid(raise_exception=True)
@@ -417,20 +452,20 @@ class ReportViewSet(
         except Report.DoesNotExist:
             raise Http404
 
-        @database_sync_to_async
+        @sync_to_async(thread_sensitive=True)
+        @transaction.atomic
         def _delete_and_schedule() -> None:
-            with transaction.atomic():
-                report.delete()
+            report.delete()
 
-                def on_commit():
-                    for handler in reports_deleted_handlers:
-                        logger.debug(
-                            f"{handler.name} - handle deleted report: "
-                            f"{report.document_id}"
-                        )
-                        handler.handle([report])
+            def on_commit():
+                for handler in reports_deleted_handlers:
+                    logger.debug(
+                        f"{handler.name} - handle deleted report: "
+                        f"{report.document_id}"
+                    )
+                    handler.handle([report])
 
-                transaction.on_commit(on_commit)
+            transaction.on_commit(on_commit)
 
         await _delete_and_schedule()
         return Response(status=status.HTTP_204_NO_CONTENT)
@@ -460,8 +495,10 @@ class ReportViewSet(
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        @database_sync_to_async
-        def _do() -> dict[str, Any]:
+        # Per-payload DRF serializer validation is sync (DRF has no async
+        # `ais_valid`). No atomicity needed — validators only read.
+        @sync_to_async(thread_sensitive=True)
+        def _validate() -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
             valid_payloads: list[dict[str, Any]] = []
             errors: list[dict[str, Any]] = []
             for index, payload in enumerate(payloads):
@@ -495,21 +532,22 @@ class ReportViewSet(
                     )
                     continue
                 valid_payloads.append(serializer.validated_data)
+            return valid_payloads, errors
 
-            created_ids: list[str] = []
-            updated_ids: list[str] = []
-            if valid_payloads:
-                created_ids, updated_ids = bulk_upsert_reports(valid_payloads)
+        valid_payloads, errors = await _validate()
 
-            body: dict[str, Any] = {
-                "created": len(created_ids),
-                "updated": len(updated_ids),
-                "invalid": len(errors),
-            }
-            if errors:
-                max_errors = 50
-                body["errors"] = errors[:max_errors]
-                body["errors_truncated"] = len(errors) > max_errors
-            return body
+        created_ids: list[str] = []
+        updated_ids: list[str] = []
+        if valid_payloads:
+            created_ids, updated_ids = await bulk_upsert_reports(valid_payloads)
 
-        return Response(await _do())
+        body: dict[str, Any] = {
+            "created": len(created_ids),
+            "updated": len(updated_ids),
+            "invalid": len(errors),
+        }
+        if errors:
+            max_errors = 50
+            body["errors"] = errors[:max_errors]
+            body["errors_truncated"] = len(errors) > max_errors
+        return Response(body)
