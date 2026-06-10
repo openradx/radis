@@ -57,23 +57,15 @@ Strategy:
     in the source. There is no native async DB backend in Django core
     today.
 
-  - Implication for the code below: `async for` / `await` calls in
-    Phase 2 currently dispatch to the asgiref thread pool just like our
-    explicit `sync_to_async` calls; they don't release the event loop
-    selector during the SQL wait the way a native async backend would.
-    The win today is architectural clarity, not runtime concurrency.
-    The anticipated cleanup (which we are positioned for) when async
-    writes land in django-async-backend / Django core:
-      * `ReportSerializer.acreate` / `aupdate` can drop the
-        `@sync_to_async @transaction.atomic` + `async_to_sync(operations.X)`
-        dance and become `async with async_atomic(): return await
-        operations.X(...)` — 6 lines per method → 3.
-      * `adestroy` and `bulk_upsert_reports` Phase 4 can do the same.
-      * `operations.py` does not change — its `await` calls just stop
-        being sync_to_async-wrapped internally.
-      * Phases 1 and 3 of `bulk_upsert_reports` stay wrapped in
-        `sync_to_async` because they are pure CPU; that is correct
-        regardless of the DB backend.
+    Phase 2's `async for` / `await` calls therefore dispatch to the
+    asgiref thread pool just like our explicit `sync_to_async` calls
+    — the win today is architectural clarity, not runtime concurrency.
+    Once a native async DB backend ships, the
+    `@sync_to_async @transaction.atomic` + `async_to_sync(operations.X)`
+    helpers in the serializer, `adestroy`, and Phase 4 collapse to
+    `async with async_atomic(): return await operations.X(...)`.
+    `operations.py` does not change; Phases 1 and 3 stay
+    `sync_to_async`-wrapped because they are pure CPU.
 """
 import asyncio
 import logging
