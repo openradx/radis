@@ -1,10 +1,12 @@
 from typing import Any
 
+from adrf.serializers import ModelSerializer as AsyncModelSerializer
 from rest_framework import serializers, validators
 from rest_framework.exceptions import ValidationError
 from rest_framework.relations import PrimaryKeyRelatedField
 
 from ..models import Language, Metadata, Modality, Report
+from . import operations
 
 
 class MetadataSerializer(serializers.ModelSerializer):
@@ -41,7 +43,16 @@ class ModalitySerializer(serializers.ModelSerializer):
         return super().run_validation(data)
 
 
-class ReportSerializer(serializers.ModelSerializer):
+class ReportSerializer(AsyncModelSerializer):
+    """Async serializer for Report.
+
+    Subclasses `adrf.serializers.ModelSerializer` so callers can do
+    `await serializer.asave()` directly. `acreate` and `aupdate` below
+    delegate to the async write operations in `operations.py`. None of
+    these methods own a transaction — the caller (the view's
+    `@sync_to_async @transaction.atomic` helper) does.
+    """
+
     language = LanguageSerializer()
     metadata = MetadataSerializer(many=True)
     modalities = ModalitySerializer(many=True)
@@ -74,25 +85,11 @@ class ReportSerializer(serializers.ModelSerializer):
             if not isinstance(validator, validators.UniqueValidator)
         ]
 
-    def create(self, validated_data: Any) -> Any:
-        # The actual multi-row write lives in `operations.create_report_from_validated`
-        # as native async ORM. We bridge here so callers using DRF's
-        # standard `serializer.save()` pattern still work; the caller is
-        # responsible for owning the transaction (see ReportViewSet.acreate).
-        from asgiref.sync import async_to_sync
+    async def acreate(self, validated_data: Any) -> Report:
+        return await operations.create_report_from_validated(validated_data)
 
-        from . import operations
-
-        return async_to_sync(operations.create_report_from_validated)(validated_data)
-
-    def update(self, report: Report, validated_data: Any) -> Any:
-        from asgiref.sync import async_to_sync
-
-        from . import operations
-
-        return async_to_sync(operations.update_report_from_validated)(
-            report, validated_data
-        )
+    async def aupdate(self, report: Report, validated_data: Any) -> Report:
+        return await operations.update_report_from_validated(report, validated_data)
 
     def to_internal_value(self, data: Any) -> Any:
         if "language" in data:

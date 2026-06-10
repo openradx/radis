@@ -54,7 +54,7 @@ Strategy:
 """
 import asyncio
 import logging
-from typing import Any
+from typing import Any, cast
 
 from adrf import mixins as amixins
 from adrf.viewsets import GenericViewSet
@@ -361,14 +361,14 @@ class ReportViewSet(
         @sync_to_async(thread_sensitive=True)
         @transaction.atomic
         def _create() -> dict[str, Any]:
-            serializer = self.get_serializer(data=data)
+            serializer = cast(ReportSerializer, self.get_serializer(data=data))
             serializer.is_valid(raise_exception=True)
-            # `serializer.save()` → `ReportSerializer.create` →
-            # `async_to_sync(operations.create_report_from_validated)(...)`.
-            # The async operation runs on this same thread (thread-sensitive),
-            # so its native async ORM writes join the transaction this helper
-            # holds.
-            report = serializer.save()
+            # `serializer.asave()` is async-native (calls `acreate` →
+            # native async ORM in `operations.py`). Bridge it back to sync
+            # here so its writes join the transaction this helper holds.
+            # Thread-sensitivity ensures everything runs on the same
+            # Django thread.
+            report = async_to_sync(serializer.asave)()
 
             def on_commit():
                 for handler in reports_created_handlers:
@@ -435,11 +435,14 @@ class ReportViewSet(
         @sync_to_async(thread_sensitive=True)
         @transaction.atomic
         def _save() -> tuple[dict[str, Any], int]:
-            serializer = self.get_serializer(report, data=data)
+            serializer = cast(
+                ReportSerializer, self.get_serializer(report, data=data)
+            )
             serializer.is_valid(raise_exception=True)
-            # `serializer.save()` dispatches to `ReportSerializer.create` or
-            # `.update`, both of which delegate to `async_to_sync(operations.*)`.
-            saved = serializer.save()
+            # `serializer.asave()` dispatches to `acreate` (if `report is None`)
+            # or `aupdate` (otherwise); both are async-native and call into
+            # `operations.py`. Bridge back to sync inside this atomic helper.
+            saved = async_to_sync(serializer.asave)()
 
             def on_commit():
                 handlers = (
