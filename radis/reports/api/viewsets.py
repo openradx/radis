@@ -51,16 +51,40 @@ Strategy:
     CPU work each phase contains, and the structure is positioned to
     benefit immediately if Django ever ships a native async DB backend.
 
-  - Note that even Django's native async ORM methods (`aget`,
-    `abulk_create`, `aget_or_create`, ...) currently just wrap the sync
-    method in `sync_to_async` internally — there is no native async DB
-    backend in Django 6.0/6.1 (see PR #17275, stale since 2024). The
-    `async for` / `await` calls in Phases 1–3 below therefore don't run
-    in true parallel with the atomic block; they run on the asgiref
-    thread pool just like our explicit `sync_to_async` calls. The win is
-    purely architectural clarity: each function reads as "this is the
-    async coordination, this one helper is sync because it owns the
-    transaction".
+  - Note on the current Django ORM async surface (6.0 / 6.1): every `a*`
+    method (`aget`, `aget_or_create`, `abulk_create`, `aset`, `acreate`,
+    `asave`, `adelete`, ...) is literally `await sync_to_async(self.X)()`
+    in the source. There is no native async DB backend in Django core
+    today. Active work toward one lives in two places:
+      * django/django PR #18408 — `AsyncConnectionHandler`,
+        `AsyncCursor`, `async_atomic`, async test bases. Open, not
+        draft, ~1300/-40 across 16 files. Django core's stated gate is
+        production evidence from an external prototype first.
+      * `django-async-backend` on PyPI (Arfey) — the external prototype.
+        Async reads shipped in v0.0.3 (March 2026): `aget`, `acount`,
+        `aexists`, `async for`, filtering / ordering / pagination, plus
+        `async_atomic`. Writes (`acreate`, `aupdate`, `adelete`,
+        `abulk_create`, `abulk_update`) are listed as in-progress.
+        `select_related` / `prefetch_related` / single-connection
+        `gather` parallelism remain unimplemented.
+
+  - Implication for the code below: `async for` / `await` calls in
+    Phase 2 currently dispatch to the asgiref thread pool just like our
+    explicit `sync_to_async` calls; they don't release the event loop
+    selector during the SQL wait the way a native async backend would.
+    The win today is architectural clarity, not runtime concurrency.
+    The anticipated cleanup (which we are positioned for) when async
+    writes land in django-async-backend / Django core:
+      * `ReportSerializer.acreate` / `aupdate` can drop the
+        `@sync_to_async @transaction.atomic` + `async_to_sync(operations.X)`
+        dance and become `async with async_atomic(): return await
+        operations.X(...)` — 6 lines per method → 3.
+      * `adestroy` and `bulk_upsert_reports` Phase 4 can do the same.
+      * `operations.py` does not change — its `await` calls just stop
+        being sync_to_async-wrapped internally.
+      * Phases 1 and 3 of `bulk_upsert_reports` stay wrapped in
+        `sync_to_async` because they are pure CPU; that is correct
+        regardless of the DB backend.
 """
 import asyncio
 import logging
