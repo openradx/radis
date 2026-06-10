@@ -1,44 +1,68 @@
 # Auto-Labeling Feature — Design
 
-**Status:** Approved design, ready for implementation planning
-**Date:** 2026-05-21 (revised 2026-06-03)
+**Status:** Implemented (consolidated final-state spec)
+**Date:** 2026-05-21 (consolidated 2026-06-10)
 **Owner:** Kai Schlamp
+
+> This is the single consolidated design spec for the auto-labeling feature. It folds in the
+> later refinements that shipped (name-keyed LLM schema fields, a YES/NO-only group gate, and
+> the search-page **Filters** widget that replaced the typed `label:` query syntax) and
+> describes the system as actually built.
 
 ## Overview
 
-Add an auto-labeling feature to RADIS that classifies radiology reports against admin-defined labels using an LLM. Labels are organised into `LabelGroup`s. Each group carries a **gate question** — a single upfront Yes/No screening question asked before the group's labels. For each label the LLM assigns exactly one of five buckets: `PRESENT`, `LIKELY`, `POSSIBLE`, `ABSENT`, `UNMENTIONED`. The three "some evidence" buckets (`PRESENT`, `LIKELY`, `POSSIBLE`) attach the label to the report; `ABSENT` and `UNMENTIONED` are stored but hidden. Results are stored per `(report, label)` pair; gate answers per `(report, label_group)` pair.
+Auto-labeling classifies radiology reports against admin-defined labels using an LLM. Labels are
+organised into `LabelGroup`s. Each group carries a **gate question** — a single upfront Yes/No
+applicability screen asked before the group's labels. For each label the LLM assigns exactly one
+of five buckets: `PRESENT`, `LIKELY`, `POSSIBLE`, `ABSENT`, `UNMENTIONED`. The three "some
+evidence" buckets (`PRESENT`, `LIKELY`, `POSSIBLE`) attach the label to the report; `ABSENT` and
+`UNMENTIONED` are stored but never surface. Results are stored per `(report, label)`; gate answers
+per `(report, label_group)`.
 
-The gate is intentionally a different value space from the labels. A gate question ("Is this a Head CT?") is a categorical *applicability* check — Yes/No — answering "do this group's labels even apply to this report?". The five buckets answer a different question per label — "does this finding appear, and how strongly?" — where `UNMENTIONED` (the report never discusses the topic) is a genuinely distinct and useful state that a gate has no analogue for.
+The gate is intentionally a different value space from the labels. A gate question ("Is this a
+Head CT?") is a categorical *applicability* check — Yes/No — answering "do this group's labels
+even apply to this report?". The five buckets answer a different question per label — "does this
+finding appear, and how strongly?" — where `UNMENTIONED` (the report never discusses the topic) is
+a genuinely distinct state a gate has no analogue for.
 
 Two execution paths share the same labeling logic:
 
-1. **Periodic scan path** — A Procrastinate periodic task runs on a configurable cron schedule. It finds reports created since the last scan tick and enqueues batched labeling tasks. If an admin-triggered backfill is active, the scan yields to the backfill for that tick without enqueuing anything and without advancing the checkpoint.
-2. **Backfill path** — An admin-triggered `LabelingJob` walks the existing report corpus and produces missing or stale results. Used for the initial bulk upload and any future large-scale re-labeling (e.g. after a label update). Only one backfill may be active at a time.
+1. **Periodic scan path** — A Procrastinate periodic task runs on a configurable cron schedule. It
+   finds reports created since the last scan tick and enqueues batched labeling tasks. If a
+   backfill (or a prior scan job) is active, the scan yields for that tick without enqueuing and
+   without advancing the checkpoint.
+2. **Backfill path** — An admin-triggered `LabelingJob` walks the existing corpus and produces
+   missing or stale results. Used for the initial bulk labeling and any future large-scale
+   re-labeling (e.g. after a label edit). Only one job may be active at a time.
 
-Labels surface on the report detail page (badges) and in search (`label:` query filter + facet panel).
+Labels surface on the report detail page (badges) and in search (a multi-select **Filters**-panel
+widget, OR semantics across selected labels).
 
 ## Goals
 
-- Admins can author label groups (with gate questions) and labels (name + description) in the Django admin and see them applied to reports automatically.
+- Admins author label groups (with gate questions) and labels (name + description) in the Django
+  admin and see them applied automatically.
 - New and updated reports are labeled in the background without blocking ingest.
 - Existing reports (up to ~1M scale) can be backfilled.
 - Gating reduces LLM calls by skipping irrelevant label groups entirely.
-- Edits to a label or gate question naturally produce stale results, which the next backfill refreshes.
+- Edits to a label or gate question naturally produce stale results, which the next backfill
+  refreshes.
 - End users see applied labels on each report and can filter search by label.
 
 ## Non-Goals (v1)
 
-- Manual label editing by end users.
+- Manual label editing / user correction.
 - Versioned result history (only the latest result per `(report, label)` is kept).
 - Per-label backfill targeting (backfill is system-wide).
-- A `label:foo:present` search syntax that filters by specific bucket (revisit if requested).
-- Surfacing `ABSENT` or `UNMENTIONED` results anywhere user-facing.
-- Performance dashboards beyond the live progress shown in the `LabelingJob` admin.
-- Localized prompts — labels and reports can be in any language and are passed verbatim to the LLM.
+- A bucket-specific search syntax (`label:foo:present`).
+- Surfacing `ABSENT`/`UNMENTIONED` anywhere user-facing.
+- Performance dashboards beyond the live status in the `LabelingJob` admin and `labels_status`.
+- Localized prompts — labels and reports may be in any language and are passed verbatim.
+- Web-based label/gate management or job-progress web pages — everything stays in Django admin.
 
 ## Data Model
 
-A new Django app `radis.labels` with five models.
+A Django app `radis.labels` with the following models (see `radis/labels/models.py`).
 
 ```python
 class LabelGroup(models.Model):
@@ -46,94 +70,38 @@ class LabelGroup(models.Model):
     gate_question = models.TextField()        # upfront Yes/No screening question for this group
     updated_at    = models.DateTimeField(auto_now=True)  # drives gate stale detection
 
-    class Meta:
-        ordering = ["name"]
-
-
 class Label(models.Model):
-    group       = models.ForeignKey(LabelGroup, on_delete=models.CASCADE,
-                                    related_name="labels")
-    name        = models.CharField(max_length=100)   # the label string that surfaces (e.g. "pneumonia")
-    description = models.TextField()                  # definition sent to the LLM to classify this label
+    group       = models.ForeignKey(LabelGroup, on_delete=models.CASCADE, related_name="labels")
+    name        = models.CharField(max_length=100)   # label string that surfaces (e.g. "pneumonia")
+    description = models.TextField()                  # definition sent to the LLM
     active      = models.BooleanField(default=True)
     created_at  = models.DateTimeField(auto_now_add=True)
     updated_at  = models.DateTimeField(auto_now=True)  # drives result stale detection
-
-    class Meta:
-        constraints = [models.UniqueConstraint(fields=["name"], name="unique_label_name")]
-        indexes     = [models.Index(fields=["active"])]
-
+    # Meta: UniqueConstraint(["name"]); Index(["active"])
 
 class LabelResult(models.Model):
     class Value(models.TextChoices):
-        PRESENT     = "PRESENT",     "Present"
-        LIKELY      = "LIKELY",      "Likely"
-        POSSIBLE    = "POSSIBLE",    "Possible"
-        ABSENT      = "ABSENT",      "Absent"
-        UNMENTIONED = "UNMENTIONED", "Unmentioned"
-
-    # Buckets that attach the label to the report / search.
+        PRESENT, LIKELY, POSSIBLE, ABSENT, UNMENTIONED
     SURFACING_VALUES = (Value.PRESENT, Value.LIKELY, Value.POSSIBLE)
-
-    report       = models.ForeignKey(Report, on_delete=models.CASCADE, related_name="label_results")
-    label        = models.ForeignKey(Label, on_delete=models.CASCADE, related_name="results")
-    value        = models.CharField(max_length=11, choices=Value.choices)
-    generated_at = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        constraints = [
-            models.UniqueConstraint(fields=["report", "label"],
-                                    name="unique_result_per_report_label"),
-        ]
-        indexes = [
-            models.Index(fields=["label", "value"]),  # search facet lookups
-            models.Index(fields=["report"]),          # report detail page render
-        ]
-
+    report       = FK(Report,  related_name="label_results")
+    label        = FK(Label,   related_name="results")
+    value        = CharField(choices=Value.choices)
+    generated_at = DateTimeField(auto_now=True)
+    # Meta: UniqueConstraint(["report","label"]); Index(["label","value"]); Index(["report"])
 
 class GateAnswer(models.Model):
     class Value(models.TextChoices):
-        YES   = "YES",   "Yes"
-        NO    = "NO",    "No"
+        YES, NO
+    report       = FK(Report,     related_name="gate_answers")
+    label_group  = FK(LabelGroup, related_name="gate_answers")
+    value        = CharField(choices=Value.choices)
+    generated_at = DateTimeField(auto_now=True)
+    # Meta: UniqueConstraint(["report","label_group"]); Index(["label_group","value"])
 
-    report      = models.ForeignKey(Report, on_delete=models.CASCADE,
-                                    related_name="gate_answers")
-    label_group = models.ForeignKey(LabelGroup, on_delete=models.CASCADE,
-                                    related_name="gate_answers")
-    value       = models.CharField(max_length=3, choices=Value.choices)
-    generated_at = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        constraints = [
-            models.UniqueConstraint(fields=["report", "label_group"],
-                                    name="unique_gate_answer_per_report_group"),
-        ]
-        indexes = [
-            models.Index(fields=["label_group", "value"]),
-        ]
-
-
-class LabelingScanCheckpoint(models.Model):
-    last_scanned_at = models.DateTimeField(null=True, blank=True)
-
-    class Meta:
-        verbose_name = "Labeling scan checkpoint"
-        constraints = [
-            models.CheckConstraint(check=models.Q(id=1),
-                                   name="singleton_labeling_scan_checkpoint"),
-        ]
-
-    def save(self, *args, **kwargs):
-        self.pk = 1
-        super().save(*args, **kwargs)
+class LabelingScanCheckpoint(models.Model):     # singleton, pk pinned to 1
+    last_scanned_at = DateTimeField(null=True, blank=True)
+    # CheckConstraint(Q(id=1)); save() forces pk=1
 ```
-
-### Migration note
-
-Removing `MAYBE` from `GateAnswer.Value` requires a two-step migration in one file:
-
-1. **Data**: `GateAnswer.objects.filter(value="MAYBE").delete()` — existing MAYBE rows are deleted; they will be regenerated as YES or NO on the next scan.
-2. **Schema**: alter `GateAnswer.value` `max_length` 5 → 3.
 
 ### Stale detection
 
@@ -144,728 +112,312 @@ No snapshot columns, no `is_stale` flags. Both comparisons are pure joins over i
 
 ### Buckets and surfacing
 
-All five bucket values are **stored**. `ABSENT` and `UNMENTIONED` produce real `LabelResult` rows — exactly as the old design stored `NO` answers — so stale detection and the backfill's "needs work" predicate treat a label that came back `ABSENT`/`UNMENTIONED` as *done*, with no re-labeling churn. Surfacing (report badges and search) filters to `LabelResult.SURFACING_VALUES`. The control flow never branches on a label's bucket value; the LLM returns a bucket and we store it.
+All five bucket values are **stored**. `ABSENT`/`UNMENTIONED` produce real `LabelResult` rows, so
+stale detection and the backfill's "needs work" predicate treat a label that came back
+`ABSENT`/`UNMENTIONED` as *done*, with no re-labeling churn. Surfacing (report badges and search)
+filters to `LabelResult.SURFACING_VALUES`. The control flow never branches on a label's bucket
+value; the LLM returns a bucket and we store it.
 
 ### Constraints
 
-- `LabelGroup.name` is unique. Groups are the unit of gate authoring.
-- `Label.name` is unique. Two labels sharing a name would be ambiguous.
-- `(LabelResult.report, LabelResult.label)` is unique. Re-labeling replaces via `update_or_create`.
-- `(GateAnswer.report, GateAnswer.label_group)` is unique. Re-evaluation replaces via `update_or_create`.
-- Cascade deletes on all FKs. Deleting a `LabelGroup` cascades to its `Label`s and `GateAnswer`s; deleting a `Label` cascades to its `LabelResult`s. Admins are warned by Django's standard delete confirmation.
+- `LabelGroup.name` and `Label.name` are unique. Name uniqueness is also the contract for the
+  name-keyed LLM schema (below).
+- `(report, label)` and `(report, label_group)` are unique; re-labeling/re-evaluation replaces via
+  `update_or_create`.
+- Cascade deletes on all FKs (group → labels + gate answers; label → results).
+
+### Migration
+
+A single `labels/0001_initial` creates all tables, indexes, and constraints, and folds in the
+singleton partial unique index via `RunSQL` (below). The feature was never in production, so the
+intermediate migrations were squashed into this one initial migration.
+
+## Singleton: one active LabelingJob
+
+`LabelingJob` (subclass of `core.AnalysisJob`) and `LabelingTask` (subclass of `core.AnalysisTask`)
+reuse the Job → Task pattern. A `trigger` field distinguishes `SCAN` from `MANUAL`; `scan_from` is
+set for SCAN jobs (the checkpoint timestamp at creation) and `None` for MANUAL. `owner` is nullable
+(scan jobs have no human owner). `LabelingTask.reports` is an M2M so one task covers a batch.
+Labeling jobs never send completion mail (`_send_job_finished_mail` is a no-op; there is no mail
+template and scan jobs are owner-less).
+
+**At most one `LabelingJob` may be active at a time**, enforced at the DB level by a partial unique
+index over a constant expression (Django's `UniqueConstraint` cannot express this):
+
+```sql
+CREATE UNIQUE INDEX one_active_labeling_job
+ON labels_labelingjob ((true))
+WHERE status IN ('UV', 'PR', 'PE', 'IP', 'CI');   -- ACTIVE_STATUSES DB codes
+```
+
+Every active row shares the key `(true)`, so a second active insert raises `IntegrityError`.
+Terminal statuses (`SU`/`WA`/`FA`) are excluded, so finished jobs never block a new one.
 
 ## Execution Path 1: Periodic Incremental Scan
 
-Replaces the original signal-based per-report path. RADIS controls batching entirely — no dependency on the shape or cadence of any external ETL pipeline.
+`incremental_label_scan` is an `@app.periodic(cron=settings.LABELING_SCAN_CRON)` task. The
+`LabelingScanCheckpoint` (single row, `pk=1`) tracks `last_scanned_at` — the scan window is
+`created_at >= last_scanned_at`. Logic per tick (Procrastinate passes the scheduled tick time):
 
-### Design rationale
+1. If any `LabelingJob` is active → return immediately, **checkpoint unchanged** (yield to the
+   active job; the next tick resumes from the same point and covers everything since).
+2. First run (`last_scanned_at is None`) → record `now` and exit without creating a job. Existing
+   reports belong to a manual backfill.
+3. No active labels → return **without advancing**, so re-activation still covers the gap.
+4. If reports exist with `created_at >= last_scanned_at` → create a `LabelingJob(trigger=SCAN,
+   scan_from=last_scanned_at)` and `delay()` it.
+5. Advance the checkpoint to `now`.
 
-The signal-based approach tied task granularity to the ETL pipeline's call size: a bulk ingest of 1,000 reports would produce 1,000 individual queue tasks. The periodic scan decouples these concerns: reports accumulate in the database via normal ingest, and RADIS labels them on its own schedule in controlled batches.
-
-The scan's responsibility is narrow: label newly ingested reports. Finding reports with missing or stale results (e.g. after a label edit) is exclusively the backfill's job.
-
-Both paths are symmetric: each creates a `LabelingJob` (distinguished by `trigger`) that flows through the same Job → Task machinery. This keeps the processing layer, admin visibility, priority handling, and singleton constraint identical for both.
-
-### Trigger
-
-A Procrastinate periodic task registered with `@app.periodic(cron=settings.LABELING_SCAN_CRON)`.
-
-### Checkpoint
-
-`LabelingScanCheckpoint` (single row, `pk=1`) tracks `last_scanned_at`. It defines the scan window — reports with `created_at >= last_scanned_at` are in scope for the next scan job. The checkpoint advances to the current tick's timestamp whenever the scan creates a job or finds no new reports to process. It does **not** advance when the tick is skipped because an active `LabelingJob` exists.
-
-On the very first tick (`last_scanned_at is None`), the scan records the current timestamp and exits without creating a job. Existing reports at that point must be handled by a manual backfill.
-
-### Guard: yield to active LabelingJob
-
-When any `LabelingJob` is active (whether a prior scan job or a manual backfill), the scan returns immediately and **does not advance the checkpoint**. Once the active job completes, the next scan tick resumes from the unchanged checkpoint and covers all reports created since that point. Reports already labeled by a backfill are processed by `label_report` at zero LLM cost (all results fresh). The checkpoint then advances to the current tick time.
-
-### Create scan job
-
-```python
-@app.periodic(cron=settings.LABELING_SCAN_CRON)
-@app.task()
-def incremental_label_scan(timestamp: int) -> None:
-    now = datetime.fromtimestamp(timestamp, tz=timezone.utc)
-    checkpoint, _ = LabelingScanCheckpoint.objects.get_or_create(pk=1)
-
-    if LabelingJob.objects.filter(status__in=LabelingJob.ACTIVE_STATUSES).exists():
-        logger.info("Active LabelingJob found, skipping scan tick (checkpoint unchanged).")
-        return
-
-    if checkpoint.last_scanned_at is None:
-        # First run: record this moment; existing reports belong to the manual backfill.
-        checkpoint.last_scanned_at = now
-        checkpoint.save()
-        return
-
-    if not Label.objects.filter(active=True).exists():
-        return
-
-    if Report.objects.filter(created_at__gte=checkpoint.last_scanned_at).exists():
-        job = LabelingJob.objects.create(
-            trigger=LabelingJob.Trigger.SCAN,
-            scan_from=checkpoint.last_scanned_at,
-        )
-        job.delay()
-
-    checkpoint.last_scanned_at = now
-    checkpoint.save()
-```
-
-The periodic task's only responsibility is deciding whether to create a `LabelingJob` and advancing the checkpoint. All report iteration, task creation, and LLM work is handled by the shared Job → Task machinery. If there are no new reports the checkpoint still advances so the next tick doesn't re-query the same empty window.
-
-### Scale
-
-At ~100 reports/day with a daily cron schedule, each tick produces at most one `LabelingJob` containing one `LabelingTask`. No task explosion tied to ETL call size.
+The periodic task only decides whether to create a job and advances the checkpoint; all report
+iteration, task creation, and LLM work happen in the shared Job → Task machinery. At ~100
+reports/day with a daily cron, each tick produces at most one job with one task — no task explosion
+tied to ETL call size.
 
 ## Execution Path 2: Manual Backfill
 
-Uses the same Job/Task machinery as the periodic scan. The only differences are the trigger value and the report scope (full corpus vs. recent window).
+Same Job/Task machinery; differs only by `trigger` and report scope (full corpus vs recent window).
 
-### Models
+### Phase 1 — PREPARING (default queue): `process_labeling_job`
 
-```python
-class LabelingJob(AnalysisJob):
-    class Trigger(models.TextChoices):
-        SCAN   = "SCAN",   "Periodic scan"
-        MANUAL = "MANUAL", "Manual backfill"
+- Accepts only `PENDING`/`PREPARING` entry states. Any other state (a spurious re-fire on a
+  running/finished job) logs a warning and bails — it must not wipe in-flight tasks.
+- `job.tasks.all().delete()` at the top makes prep idempotent across Procrastinate retries (only
+  this job's own partial tasks are cleared). `started_at` is preserved across retries.
+- Streams the scope queryset into `LABELING_TASK_BATCH_SIZE` tasks using a chunked server-side
+  cursor (`.iterator(chunk_size=...)`), so the scope is frozen at cursor-open time — reports
+  ingested afterward are invisible to this job (the scan checkpoint, held frozen while the job is
+  active, catches them later).
+- **Empty scope** (e.g. a backfill where everything is already fresh) finishes the job `SUCCESS`
+  immediately instead of leaving it stuck in `PENDING` — `PENDING` is active and would block the
+  singleton index forever.
+- Scope:
+  - **SCAN** (`scan_from` set): `Report.objects.filter(created_at__gte=scan_from).order_by("pk")`.
+  - **MANUAL** (`scan_from is None`): `_needs_work_queryset(active_group_count).order_by("pk")`.
 
-    trigger   = models.CharField(max_length=10, choices=Trigger.choices, default=Trigger.MANUAL)
-    scan_from = models.DateTimeField(null=True, blank=True)
-    # scan_from: set for SCAN jobs to the checkpoint timestamp at job creation time,
-    # defining the report window (created_at >= scan_from). None for MANUAL jobs.
+### "Needs work" predicate (`radis/labels/scope.py`)
 
-    default_priority = settings.LABELING_JOB_PRIORITY
-    urgent_priority  = settings.LABELING_JOB_PRIORITY  # labeling is never urgent
+Used only by the backfill. A report needs work if **either**:
 
-    # Singleton constraint: at most one LabelingJob may be in an active status at any time.
-    # Implemented as a partial unique index in the migration.
-    ACTIVE_STATUSES = (
-        AnalysisJob.Status.UNVERIFIED,
-        AnalysisJob.Status.PREPARING,
-        AnalysisJob.Status.PENDING,
-        AnalysisJob.Status.IN_PROGRESS,
-        AnalysisJob.Status.CANCELING,
-    )
+- **Condition A** — missing or stale gate answers for any active group
+  (`non_stale_gate_count < active_group_count`).
+- **Condition B** — there exists a fresh `YES` gate answer whose group contains at least one active
+  label without a fresh `LabelResult` for this report ("not fresh" = no row, or
+  `result.generated_at < label.updated_at`). The inner `Exists` uses a double `OuterRef`.
 
-    def delay(self) -> None:
-        queued_job_id = app.configure_task(
-            "radis.labels.tasks.process_labeling_job",
-            allow_unknown=False,
-            priority=self.default_priority,
-        ).defer(job_id=self.pk)
-        self.queued_job_id = queued_job_id
-        self.save()
+`active_label_count` is deliberately not a parameter: NO-gated groups have no `LabelResult` rows by
+design, so comparing a flat result count to the active-label count would always re-flag them.
 
+### Phase 2 — IN_PROGRESS (`llm` queue): `process_labeling_task`
 
-class LabelingTask(AnalysisTask):
-    job     = models.ForeignKey(LabelingJob, on_delete=models.CASCADE, related_name="tasks")
-    reports = models.ManyToManyField(Report, related_name="+")
-```
-
-### Phase 1 — PREPARING (default queue)
-
-```python
-@app.task()
-def process_labeling_job(job_id: int) -> None:
-    job = LabelingJob.objects.get(id=job_id)
-    job.tasks.all().delete()  # wipe partial rows from any prior crashed attempt
-    job.status = AnalysisJob.Status.PREPARING
-    job.started_at = timezone.now()
-    job.save()
-
-    create_labeling_tasks_streaming(job)
-    job.status = AnalysisJob.Status.PENDING
-    job.save()
-
-    enqueue_all_pending_tasks(job)
-```
-
-`create_labeling_tasks_streaming` determines its report scope from `job.scan_from`:
-
-- **SCAN job** (`scan_from` is set): `Report.objects.filter(created_at__gte=job.scan_from).order_by("pk")` — only newly ingested reports since the checkpoint.
-- **MANUAL job** (`scan_from` is `None`): `_needs_work_queryset(active_group_count).order_by("pk")` — all reports with missing or stale results across the full corpus.
-
-For each chunk it bulk-creates `LabelingTask` rows of `LABELING_TASK_BATCH_SIZE` reports each.
-
-Django's `iterator(chunk_size=...)` opens a PostgreSQL server-side cursor, so the result set is frozen at the moment the cursor opens. Reports ingested after that point are invisible to the job — they are not added to its task list and do not extend its runtime. The periodic scan's checkpoint is held frozen while any `LabelingJob` is active (the guard returns without advancing it); once the job completes, the next scan tick resumes from the unchanged checkpoint and covers the full window including reports the prior job's cursor never saw.
-
-The `tasks.all().delete()` at the top makes the preparation phase idempotent. If Procrastinate retries the task after a crash mid-streaming, any partial `LabelingTask` rows from the previous attempt are cleared before streaming restarts. The cost is bounded — only this job's own tasks are deleted, however many the prior attempt managed to create.
-
-### "Needs work" predicate
-
-Used exclusively by the backfill. A report needs work if **either** condition holds:
-
-```python
-def _needs_work_queryset(
-    active_group_count: int,
-) -> QuerySet:
-    return (
-        Report.objects.annotate(
-            non_stale_gate_count=Count(
-                "gate_answers",
-                filter=Q(
-                    gate_answers__label_group__labels__active=True,
-                    gate_answers__generated_at__gte=F(
-                        "gate_answers__label_group__updated_at"
-                    ),
-                ),
-                distinct=True,
-            ),
-        )
-        .filter(
-            Q(non_stale_gate_count__lt=active_group_count)
-            | Exists(
-                GateAnswer.objects.filter(
-                    report=OuterRef("pk"),
-                    value=GateAnswer.Value.YES,
-                    generated_at__gte=F("label_group__updated_at"),
-                ).filter(
-                    Exists(
-                        Label.objects.filter(
-                            group_id=OuterRef("label_group_id"),
-                            active=True,
-                        ).exclude(
-                            results__report_id=OuterRef(OuterRef("pk")),
-                            results__generated_at__gte=F("updated_at"),
-                        )
-                    )
-                )
-            )
-        )
-    )
-```
-
-- **Condition A** — missing or stale gate answers for any active group (`non_stale_gate_count < active_group_count`).
-- **Condition B** — there exists a fresh `YES`/`MAYBE` gate answer whose group contains at least one active label without a fresh `LabelResult` for this report. "Not fresh" means either no row at all, or `result.generated_at < label.updated_at` (label edited after the result was written). The inner `Exists` uses a double `OuterRef` — `OuterRef("label_group_id")` references the `GateAnswer` row; `OuterRef(OuterRef("pk"))` references the `Report.pk` two levels up.
-
-`active_label_count` is no longer a parameter. NO-gated groups have no `LabelResult` rows by design, so comparing a flat total-result count to the total active label count would always flag those reports as needing work.
-
-### Phase 2 — IN_PROGRESS (`llm` queue)
-
-```python
-@app.task(queue="llm")
-def process_labeling_task(task_id: int) -> None:
-    LabelingTaskProcessor(LabelingTask.objects.get(id=task_id)).start()
-```
-
-`LabelingTaskProcessor` subclasses `AnalysisTaskProcessor` and overrides `process_task`. For each report in the task, it calls `label_report(report_id)`. Within the task it uses a `ThreadPoolExecutor(max_workers=LABELING_LLM_CONCURRENCY_LIMIT)`, mirroring extractions.
+`LabelingTaskProcessor` (subclass of `AnalysisTaskProcessor`) calls `label_report(report_id)` for
+each report in the task under a `ThreadPoolExecutor(max_workers=LABELING_LLM_CONCURRENCY_LIMIT)`. A
+single report's exception is caught and logged with full traceback; it downgrades the task to
+`WARNING` rather than failing the batch. `db.close_old_connections()` is called per worker thread
+and at task end.
 
 ### Cancellation and resumability
 
-- **Cancel:** admin clicks Cancel → status flips to `CANCELING`. The base processor marks tasks `CANCELED`.
-- **Resume:** the next backfill recomputes its scope from current state. Non-stale pairs are skipped. Backfill is idempotent and safe to start, cancel, and restart.
-- **Procrastinate retry after crash:** if `process_labeling_job` raises before completing, Procrastinate retries it. The `tasks.all().delete()` at the top ensures any partial `LabelingTask` rows from the failed attempt are wiped before the preparation phase reruns.
+- **Cancel** → `CANCELING`; the base processor marks tasks `CANCELED`.
+- **Resume** → the next backfill recomputes scope from current state; non-stale pairs are skipped.
+  Backfill is idempotent and safe to start, cancel, and restart.
+- **Crash mid-prep** → Procrastinate retries; the top-of-task delete wipes partial tasks first.
 
-### Scale estimate
+## Core Labeling Function (`radis/labels/labeling.py`)
 
-With defaults (`concurrency=6`, `groups_per_report≈3`, `seconds_per_call≈3 s`): ≈ 0.67 reports/sec without gating. Gating reduces effective LLM calls per report significantly when most groups screen negative, improving throughput proportionally.
-
-## Core Labeling Function
-
-`label_report` is the single function used by both execution paths. It encapsulates the two-phase gate-then-label logic. Nothing in its control flow branches on a label's bucket value — the LLM returns a bucket per label and the result is stored as-is.
+`label_report(report_id)` is the single function used by both paths. Nothing branches on a label's
+bucket value — the LLM returns a bucket per label and it is stored as-is.
 
 ### Dynamic schema and generic prompt
 
-Labels and groups are admin-authored at runtime, so the structured-output schema sent to the LLM is **generated on the fly** from the database rows; nothing about specific labels is hardcoded. The division of labour is:
+Labels/groups are authored at runtime, so the structured-output schema is **generated on the fly**
+from DB rows (`radis/labels/utils/schemas.py`):
 
-- **The schema enforces the choice.** Each label/group becomes one required field whose type is a fixed enum. Structured output guarantees the model returns exactly one valid value per field. The enum types are **static** (the five buckets and the three gate values never change at runtime); only the *set of fields* is dynamic.
-- **The prompt teaches the choice.** A static, generic prompt explains what each bucket/gate value *means* and carries the report body. It contains **no label-specific text** — the prompt is identical for every label and every report.
-- **Each field's `description=` carries the label.** The label `name` + `description` (or the group's `gate_question`) go into the Pydantic `Field(description=...)`, which the LLM reads via the JSON schema to understand that field. This is the *only* place per-label content lives.
-
-**Name-keyed fields are the contract between schema and LLM.** A label field is keyed by `lbl.name`; a gate field by `g.name`. The LLM sees the label name directly as the JSON property key, making the schema self-documenting. The label description rides in `Field(description=lbl.description)`; for gate groups, the gate question rides in `Field(description=g.gate_question)`. Since `Label.name` is unique (database constraint), key collisions are impossible. The model returns `{"pneumonia": "PRESENT", ...}`; the caller maps names back to ids inline using the labels list it already holds. Parse helpers (`parse_label_results`, `parse_gate_results`) are not needed — callers inline the mapping.
-
-The builders live in `radis/labels/utils/` (`schemas.py`, `prompts.py`) and are **owned by the labels app**. They import `pydantic.create_model` and `radis.chats.utils.chat_client.ChatClient` (the same edge extractions already uses) and import **nothing** from `radis.extractions` — the extractions app's `generate_output_fields_schema` is deliberately not reused, keeping the apps decoupled.
-
-```python
-# radis/labels/utils/schemas.py — static enums, dynamic fields.
-class BucketValue(StrEnum):   # PRESENT, LIKELY, POSSIBLE, ABSENT, UNMENTIONED — mirrors LabelResult.Value
-    ...
-class GateValue(StrEnum):     # YES, NO — mirrors GateAnswer.Value
-    ...
-
-def build_label_classification_schema(labels: Sequence[Label]) -> type[BaseModel]:
-    fields = {
-        lbl.name: (BucketValue, Field(description=lbl.description))
-        for lbl in labels
-    }
-    return create_model("LabelClassification", **fields)
-
-def build_gate_schema(groups: Sequence[LabelGroup]) -> type[BaseModel]:
-    fields = {
-        g.name: (GateValue, Field(description=g.gate_question))
-        for g in groups
-    }
-    return create_model("GateScreening", **fields)
-```
+- **The schema enforces the choice.** Each label/group becomes one required field whose type is a
+  fixed enum (`BucketValue` = the five buckets; `GateValue` = YES/NO). The enum *types* are static;
+  only the *set of fields* is dynamic.
+- **The prompt teaches the choice.** A static, generic prompt (`utils/prompts.py`) explains what
+  each value means and carries the report body. It contains **no label-specific text** — only
+  `$report` is substituted.
+- **Fields are keyed by name.** A label field is keyed by `lbl.name` (description =
+  `lbl.description`); a gate field by `g.name` (description = `g.gate_question`). The LLM sees the
+  name as the JSON property key (self-documenting). `Label.name`/`LabelGroup.name` uniqueness makes
+  key collisions impossible. The caller maps names back to ids inline — no parse helpers needed.
 
 ```python
-# radis/labels/utils/prompts.py — generic prompts, only $report substituted.
-def render_label_prompt(report_body: str) -> str:
-    return Template(settings.LABELING_SYSTEM_PROMPT).substitute(report=report_body)
+def build_label_classification_schema(labels):
+    return create_model("LabelClassification",
+        **{lbl.name: (BucketValue, Field(description=lbl.description)) for lbl in labels})
 
-def render_gate_prompt(report_body: str) -> str:
-    return Template(settings.LABELING_GATE_SYSTEM_PROMPT).substitute(report=report_body)
+def build_gate_schema(groups):
+    return create_model("GateScreening",
+        **{g.name: (GateValue, Field(description=g.gate_question)) for g in groups})
 ```
 
-A unit test asserts `BucketValue`/`GateValue` values equal `LabelResult.Value`/`GateAnswer.Value` (drift guard — the static enums must stay in sync with the model `TextChoices`). Every generated field is required (no default), so every label receives a bucket and every group a gate answer. Empty label/group subsets never reach the builders — `label_report` already guards against empty LLM calls, which also avoids a zero-field `create_model`.
+The builders live in `radis/labels/utils/` and import `pydantic.create_model` and
+`radis.chats.utils.chat_client.ChatClient` (the same edge extractions uses) — **nothing** from
+`radis.extractions`, keeping the apps decoupled. A unit test asserts `BucketValue`/`GateValue`
+equal `LabelResult.Value`/`GateAnswer.Value` (drift guard). Every field is required, so every label
+gets a bucket and every group a gate answer; empty subsets never reach the builders.
 
-```python
-def label_report(report_id: int) -> None:
-    report = Report.objects.get(id=report_id)
-    if not report.body or not report.body.strip():
-        return
+### Flow
 
-    active_groups = (
-        LabelGroup.objects
-        .filter(labels__active=True)
-        .prefetch_related("labels")
-        .distinct()
-    )
-    if not active_groups:
-        return
+1. Skip if body empty/whitespace or no active groups.
+2. Load existing gate answers; a group needs re-gating if its answer is missing or stale.
+3. **Phase 1 — Gate:** batch groups-needing-gate `LABELING_GATE_BATCH_SIZE` at a time; one LLM call
+   per batch returns `{g.name: "YES"|"NO"}`.
+4. **Phase 2 — per group:**
+   - Re-evaluated this run → `update_or_create` the gate answer; if it flips `YES→NO`, delete the
+     group's results (gate save + delete wrapped in `transaction.atomic()` so an interrupted flip
+     can't orphan results that condition B would never re-detect). If now `YES`, run
+     stale/missing labels.
+   - Fresh gate → use stored value; `YES` runs stale/missing labels, `NO` skips the group.
+5. `_run_label_set` builds the dynamic schema for the stale/missing labels, one LLM call, maps the
+   response back to ids inline, `update_or_create` per label.
 
-    client = ChatClient()
-
-    # Load existing gate answers to classify groups by gate status
-    existing_gates = {
-        ga.label_group_id: ga
-        for ga in GateAnswer.objects.filter(report=report, label_group__in=active_groups)
-    }
-
-    groups_needing_gate = [
-        g for g in active_groups
-        if g.id not in existing_gates
-        or existing_gates[g.id].generated_at < g.updated_at
-    ]
-    groups_with_fresh_gate = {
-        g.id: existing_gates[g.id].value
-        for g in active_groups
-        if g.id not in [ng.id for ng in groups_needing_gate]
-    }
-
-    # Phase 1 — Gate: only for groups with stale or missing gate answers
-    new_gate_results: dict[int, str] = {}
-    for gate_batch in batched(groups_needing_gate, settings.LABELING_GATE_BATCH_SIZE):
-        schema = build_gate_schema(gate_batch)
-        prompt = render_gate_prompt(report.body)
-        parsed = client.extract_data(prompt, schema)
-        result_map = parsed.model_dump()          # {g.name: "YES"|"NO"}
-        for g in gate_batch:
-            new_gate_results[g.id] = str(result_map[g.name])
-
-    # Phase 2 — Process each group
-    for group in active_groups:
-        labels = [l for l in group.labels.all() if l.active]
-
-        if group.id in new_gate_results:
-            # Gate was re-evaluated this run
-            new_value = new_gate_results[group.id]
-            old_gate  = existing_gates.get(group.id)
-            old_value = old_gate.value if old_gate else None
-
-            with transaction.atomic():
-                GateAnswer.objects.update_or_create(
-                    report=report, label_group=group,
-                    defaults={"value": new_value},
-                )
-                if new_value == GateAnswer.Value.NO and old_value == GateAnswer.Value.YES:
-                    LabelResult.objects.filter(report=report, label__group=group).delete()
-
-            if new_value == GateAnswer.Value.YES:
-                labels_to_run = _get_stale_or_missing_labels(report, labels)
-                if labels_to_run:
-                    _run_label_set(client, report, labels_to_run)
-
-        else:
-            # Gate is fresh — use stored value, no gate LLM call
-            gate_value = groups_with_fresh_gate[group.id]
-
-            if gate_value == GateAnswer.Value.YES:
-                labels_to_run = _get_stale_or_missing_labels(report, labels)
-                if labels_to_run:
-                    _run_label_set(client, report, labels_to_run)
-            # else: gate = NO, fresh — skip group entirely
-```
-
-`_run_label_set` builds a dynamic schema for the stale/missing labels via `build_label_classification_schema` (each field keyed by `lbl.name`, description = `lbl.description`), renders the generic label prompt, sends both to the LLM in one call, then maps the response back to label ids inline and stores the returned bucket per label via `update_or_create`:
-
-```python
-def _run_label_set(client: ChatClient, report: Report, labels: list[Label]) -> None:
-    schema = build_label_classification_schema(labels)
-    parsed = client.extract_data(render_label_prompt(report.body), schema)
-    result_map = parsed.model_dump()          # {lbl.name: bucket}
-    for lbl in labels:
-        LabelResult.objects.update_or_create(
-            report=report, label_id=lbl.id, defaults={"value": result_map[lbl.name]},
-        )
-```
-
-### `_get_stale_or_missing_labels`
-
-```python
-def _get_stale_or_missing_labels(
-    report: Report,
-    labels: list[Label],
-) -> list[Label]:
-    fresh_ids = set(
-        LabelResult.objects.filter(
-            report=report,
-            label_id__in=[l.id for l in labels],
-            generated_at__gte=F("label__updated_at"),
-        ).values_list("label_id", flat=True)
-    )
-    return [l for l in labels if l.id not in fresh_ids]
-```
-
-One DB query that simultaneously answers "should we run?" (non-empty result) and "what to run?" (the list itself). Only labels whose `LabelResult` is missing or whose `result.generated_at < label.updated_at` are returned. A label that previously came back `ABSENT`/`UNMENTIONED` still has a fresh result row, so it is naturally excluded. When the gate answer was previously `NO` or absent, there are no result rows for the group, so all labels are returned naturally.
+`_get_stale_or_missing_labels` is one query that answers both "should we run?" and "what to run?":
+labels whose result is missing or stale. A label that came back `ABSENT`/`UNMENTIONED` still has a
+fresh row → excluded.
 
 ### Decision table
 
-*Gate answer re-evaluated (stale or no prior gate answer):*
+*Gate re-evaluated (stale or no prior answer):*
 
-| Gate answer was | Gate answer is now | Action |
+| Was | Now | Action |
 |---|---|---|
-| YES | YES | Save gate answer + run stale/missing labels (may be zero) |
-| YES | NO | Save gate answer + delete all results for group |
-| NO | YES | Save gate answer + run all labels (none have results) |
-| NO | NO | Save gate answer *(no results to delete)* |
-| no prior answer | YES | Save gate answer + run all labels (none have results) |
-| no prior answer | NO | Save gate answer *(no results to delete)* |
+| YES | YES | Save gate + run stale/missing labels (may be zero) |
+| YES | NO  | Save gate + delete all results for group |
+| NO / none | YES | Save gate + run all labels (none have results) |
+| NO / none | NO  | Save gate *(no results to delete)* |
 
-*Gate answer fresh (no re-evaluation):*
-
-| Gate answer value | Action |
-|---|---|
-| YES | Run stale/missing labels (skip group if all fresh) |
-| NO | Skip group entirely |
-
-`GateAnswer.update_or_create` is called only when the gate answer is re-evaluated (stale or no prior answer); it bumps `generated_at` even when the value is unchanged. When the gate flips to `NO`, the gate save and the result deletion are wrapped in `transaction.atomic()` so the two operations are all-or-nothing. If the deletion were to happen outside the transaction and the process crashed after the gate save, the orphaned results would never be detected by condition B of the "needs work" predicate (gate is `NO`, so that `Exists` subquery skips it), leaving them stuck indefinitely. The transaction prevents that inconsistency.
-
-The label-result column is omitted from the re-evaluated table because `_get_stale_or_missing_labels` handles it uniformly: only labels without a fresh result are passed to the LLM, regardless of how many that is or what bucket they previously held. The caller does not need to know the prior result state to decide what to run.
-
-### LLM call count (20 groups, gate batch 10, 3 pass gate, 4 labels per group)
-
-"Group call" here means one LLM call containing only the stale/missing labels for that group — not the full label set.
-
-| Scenario | Without gating | With gating |
-|---|---|---|
-| First labeling (all fresh) | 20 | 2 gate + 3 group calls (4 labels each) = **5** |
-| Re-run, 1 label stale in 1 group (gate fresh) | 20 | 0 gate + **1 label** in 1 call = **1** |
-| Re-run, gate text changed (still YES, results fresh) | 20 | 2 gate + 0 group = **2** |
-| Re-run, gate flips NO→YES (no prior results) | 20 | 2 gate + 3 group calls (4 labels each) = **5** |
-
-### Skip conditions
-
-- `report.body` empty/whitespace.
-- No active labels / no active groups.
+*Gate fresh (no re-evaluation):* `YES` → run stale/missing labels (skip if all fresh); `NO` → skip
+group.
 
 ### Failure handling
 
-Per-report exceptions are caught inside `LabelingTaskProcessor`; one report's LLM failure does not abort the rest of the batch. Failures are logged at `ERROR` level with full traceback. A report that fails in a scan job will not be re-attempted by the next scan (the checkpoint will have advanced past its `created_at`); the next manual backfill will catch it via the missing-results predicate. Procrastinate retries the `process_labeling_task` job itself only on uncaught exceptions (i.e. infrastructure failures outside the per-report loop).
+Per-report exceptions are caught inside `LabelingTaskProcessor`; one failure doesn't abort the
+batch (task → `WARNING`). A report that fails in a scan job is not retried by the next scan (the
+checkpoint advanced past its `created_at`); the next manual backfill catches it via the
+missing-results predicate. Procrastinate retries the task only on uncaught (infra) exceptions.
 
-## Admin UX
+## Admin UX (`radis/labels/admin.py`)
 
-### `LabelGroupAdmin`
+As built — read-only monitoring plus a backfill button; no live-count widgets or progress banners.
 
-Primary surface for authoring groups and their gate questions.
-
-```python
-class LabelGroupAdmin(admin.ModelAdmin):
-    list_display    = ("name", "gate_question_preview", "active_label_count", "updated_at")
-    search_fields   = ("name",)   # required for autocomplete in LabelAdmin
-    ordering        = ("name",)
-    readonly_fields = ("updated_at", "gate_answer_summary")
-    fieldsets = (
-        (None,    {"fields": ("name", "gate_question")}),
-        ("Stats", {"fields": ("gate_answer_summary", "updated_at")}),
-    )
-```
-
-- `gate_question_preview` truncates to ~80 chars in list view.
-- `gate_answer_summary` shows live gate counts: `12,345 Yes · 44,500 No · 87 stale`.
-- `updated_at` is read-only — bumps automatically on any save, driving gate staleness.
-- Admins must create a `LabelGroup` before adding labels to it; the gate question is a required part of the group.
-
-### `LabelAdmin`
-
-`group` is a proper FK autocomplete:
-
-```python
-class LabelAdmin(admin.ModelAdmin):
-    autocomplete_fields = ["group"]
-    list_display        = ("name", "group", "active", "description_preview", "updated_at", "result_summary")
-    list_filter         = ("active", "group")
-    search_fields       = ("name", "group__name", "description")
-    ordering            = ("group__name", "name")
-    readonly_fields     = ("created_at", "updated_at", "result_summary")
-    fieldsets = (
-        (None,    {"fields": ("group", "name", "description", "active")}),
-        ("Stats", {"fields": ("result_summary", "created_at", "updated_at")}),
-    )
-```
-
-- `result_summary` shows live 5-bucket counts: `120 Present · 30 Likely · 15 Possible · 200 Absent · 9,000 Unmentioned · 12 stale`.
-
-### `LabelingScanCheckpointAdmin`
-
-Read-only ops view showing the current checkpoint timestamp:
-
-```python
-class LabelingScanCheckpointAdmin(admin.ModelAdmin):
-    list_display    = ("last_scanned_at",)
-    readonly_fields = ("last_scanned_at",)
-
-    def has_add_permission(self, request):    return False
-    def has_change_permission(self, *a):      return False
-    def has_delete_permission(self, *a):      return False
-```
-
-### `LabelingJobAdmin`
-
-The backfill cockpit with Run/Cancel banner and live progress panel. `trigger` is added to `list_display` so admins can distinguish nightly scan jobs from manually triggered backfills at a glance. Scan-triggered jobs (`trigger=SCAN`) are created automatically and cannot be initiated from the admin form; only `MANUAL` jobs expose the Run button.
-
-### `LabelResultAdmin`
-
-Read-only ops/debugging view.
-
-```python
-class LabelResultAdmin(admin.ModelAdmin):
-    list_display    = ("report", "label", "value", "is_stale", "generated_at")
-    list_filter     = ("value", "label")   # value filter exposes all 5 buckets
-    search_fields   = ("report__document_id", "label__name")
-    raw_id_fields   = ("report", "label")
-    readonly_fields = tuple(f.name for f in LabelResult._meta.fields)
-
-    def has_add_permission(self, request):    return False
-    def has_change_permission(self, *a):      return False
-```
-
-`is_stale` annotated via `F("label__updated_at") > F("generated_at")`.
-
-### `GateAnswerAdmin`
-
-Read-only, mirrors `LabelResultAdmin`:
-
-```python
-class GateAnswerAdmin(admin.ModelAdmin):
-    list_display    = ("report", "label_group", "value", "is_stale", "generated_at")
-    list_filter     = ("value", "label_group")
-    search_fields   = ("report__document_id", "label_group__name")
-    raw_id_fields   = ("report", "label_group")
-    readonly_fields = tuple(f.name for f in GateAnswer._meta.fields)
-
-    def has_add_permission(self, request):    return False
-    def has_change_permission(self, *a):      return False
-```
-
-`is_stale` annotated via `F("label_group__updated_at") > F("generated_at")`.
-
-### `ReportAdmin` inline
-
-`LabelResultInline` on the Report change form shows per-label results.
-
-### Intentionally omitted (v1)
-
-- "Preview LLM call" button on `LabelGroupAdmin`.
-- Bulk "mark stale" action.
-- Per-label backfill.
+- **`LabelGroupAdmin`** — authoring: `list_display=(name, gate_question, updated_at)`,
+  `search_fields=("name",)` (required for `LabelAdmin` autocomplete), `updated_at` read-only.
+- **`LabelAdmin`** — authoring: `autocomplete_fields=["group"]`,
+  `list_display=(name, group, active, updated_at)`, `list_filter=(active, group)`, search on
+  name/group/description, `created_at`/`updated_at` read-only.
+- **`LabelResultAdmin`, `GateAnswerAdmin`, `LabelingTaskAdmin`** — fully read-only (no add/change/
+  delete) via a shared `_ReadOnlyAdmin` base; list/filter/search + an `is_stale` display column on
+  results and gate answers.
+- **`LabelingScanCheckpointAdmin`** — read-only view of the checkpoint timestamp.
+- **`LabelingJobAdmin`** — read-only monitoring with a custom changelist template adding a
+  **"Run backfill now"** button (Django actions require a row selection; this does not). The view
+  creates a `MANUAL` `PENDING` job inside `transaction.atomic()` + `except IntegrityError`, relying
+  on the singleton index and reporting a friendly "already active" message on conflict.
+  `has_add_permission` is `False`; every field is read-only. `trigger` is in `list_display` to
+  distinguish scan vs manual at a glance.
+- **`ReportAdmin` inline** — `LabelResultInline` (read-only) on the report change form.
 
 ## End-User Surfacing
 
 ### Report detail page
 
-Cotton component `<c-report-labels :report="report" />` renders labels whose `LabelResult.value IN (PRESENT, LIKELY, POSSIBLE)`, grouped by `label_group.name`. All three surfacing buckets render an **identical badge**; the exact bucket is shown on hover/tooltip. `ABSENT` and `UNMENTIONED` results are not shown. Stale results are shown with a muted style and tooltip.
+`Report.surfacing_label_results` (cached property) returns the report's `SURFACING_VALUES` results,
+`select_related` on label+group, ordered by group then label name. A cotton component
+`report_labels` renders them as badges grouped by `label_group.name`. `ABSENT`/`UNMENTIONED` are
+never shown.
 
-### Search filter (`label:`)
+### Search filter — Filters-panel widget (replaces typed `label:` syntax)
 
-`label:pneumonia` filters by `label.name` and `value IN (PRESENT, LIKELY, POSSIBLE)`. Facet panel lists top N label names with counts over those three buckets.
+Users filter by selecting one or more active labels from a multi-select listbox in the search
+**Filters** panel, mirroring the modalities filter. The earlier typed `label:<name>` query syntax
+(and its parser) was removed in favour of this widget — typing the prefix was awkward and
+undiscoverable, and a literal `label:foo` typed now is ordinary search text.
 
-## Settings
+| Decision | Choice | Rationale |
+|---|---|---|
+| Widget | Multi-select listbox (`size=6`) | Mirrors modalities; least new code. |
+| Which labels | Active only (`active=True`) | Inactive labels stop getting new results. |
+| Ordering | Alphabetical by `name` | Names are globally unique → flat list is unambiguous. |
+| Combine | **OR** (any selected label surfaces) | Matches modalities (`__in`). |
 
-Added to `radis/settings/base.py`:
+Wiring:
+
+- `SearchForm` (`radis/search/forms.py`) adds `labels = forms.MultipleChoiceField(required=False)`,
+  populated in `__init__` from active labels (alphabetical, `size=6`); the field is included in the
+  layout **only when at least one active label exists** (no empty listbox).
+- `SearchFilters` (`radis/search/site.py`) gains `labels: list[str]`; `SearchView` threads
+  `form.cleaned_data["labels"]` in.
+- `_build_filter_query` (`radis/pgsearch/providers.py`) adds a single
+  `Q(report__in=<Report.objects.filter(label_results__label__name__in=labels,
+  label_results__value__in=SURFACING_VALUES).values("pk")>)` — deduplicated, OR across labels,
+  surfacing buckets only regardless of staleness.
+
+## Settings (`radis/settings/base.py`, `example.env`)
 
 ```python
-# Priorities (Procrastinate uses higher = sooner).
-# Existing baseline:
-#   EXTRACTION_DEFAULT_PRIORITY = 2 · EXTRACTION_URGENT_PRIORITY = 3
-#   SUBSCRIPTION_DEFAULT_PRIORITY = 3 · SUBSCRIPTION_URGENT_PRIORITY = 4
-# Scan and manual backfill share one priority: only one LabelingJob runs at a time
-# so relative priority between them is meaningless.
-LABELING_JOB_PRIORITY = env.int("LABELING_JOB_PRIORITY", default=1)
-
+LABELING_JOB_PRIORITY          = env.int("LABELING_JOB_PRIORITY",          default=1)   # scan and backfill share one priority (only one runs at a time)
 LABELING_TASK_BATCH_SIZE       = env.int("LABELING_TASK_BATCH_SIZE",       default=100)
 LABELING_LLM_CONCURRENCY_LIMIT = env.int("LABELING_LLM_CONCURRENCY_LIMIT", default=6)
 LABELING_GATE_BATCH_SIZE       = env.int("LABELING_GATE_BATCH_SIZE",       default=10)
-
-# Cron schedule for the periodic incremental scan (default: daily at 2 AM).
-LABELING_SCAN_CRON = env.str("LABELING_SCAN_CRON", default="0 2 * * *")
-
-LABELING_SYSTEM_PROMPT      = env.str("LABELING_SYSTEM_PROMPT",      default=DEFAULT_LABELING_SYSTEM_PROMPT)
-LABELING_GATE_SYSTEM_PROMPT = env.str("LABELING_GATE_SYSTEM_PROMPT", default=DEFAULT_GATE_SYSTEM_PROMPT)
+LABELING_SCAN_CRON             = env.str("LABELING_SCAN_CRON",             default="0 2 * * *")
+LABELING_SYSTEM_PROMPT         = env.str("LABELING_SYSTEM_PROMPT",         default=_DEFAULT_LABELING_SYSTEM_PROMPT)
+LABELING_GATE_SYSTEM_PROMPT    = env.str("LABELING_GATE_SYSTEM_PROMPT",    default=_DEFAULT_GATE_SYSTEM_PROMPT)
 ```
 
-Both prompts are **generic** — they carry no label- or group-specific text. Each label/group is a field in the dynamically generated schema, and its name/description (or gate question) rides in that field's `description=`. The prompt only teaches what the enum values mean and supplies the report body, so the single substituted placeholder is `$report`.
-
-Default label prompt:
-
-```text
-You are an AI medical assistant. The provided schema lists one field per label, each
-field's description defining the label. For every field, decide how strongly the report
-below supports that label, choosing exactly one of:
-  - "PRESENT"     — the report clearly states this is present
-  - "LIKELY"      — the report strongly suggests it, without stating it outright
-  - "POSSIBLE"    — the report leaves it as a possibility / cannot be excluded
-  - "ABSENT"      — the report explicitly states this is not present
-  - "UNMENTIONED" — the report does not address this at all
-
-Return answers in JSON format matching the provided schema.
-
-Radiology Report:
-$report
-```
-
-Default gate prompt (a Yes/No applicability screen):
-
-```text
-You are an AI medical assistant. The provided schema lists one field per topic, each
-field's description stating the topic's screening question. For every field, answer
-whether the radiology report below contains content relevant to that topic, responding
-with exactly one of:
-  - "YES" — the report clearly contains relevant content
-  - "NO"  — the report clearly does not
-
-Return answers in JSON format matching the provided schema.
-
-Radiology Report:
-$report
-```
+Both prompts are generic — they carry no label/group-specific text (that rides in each schema
+field's `description=`) and substitute only `$report`. The default label prompt enumerates the five
+bucket meanings; the default gate prompt enumerates YES/NO. The labeling task reuses the existing
+`ChatClient`/LLM provider settings — no new LLM endpoint config.
 
 ## Operational Considerations
 
-### Worker / queue topology
-
-No new queues or containers. Priority table updated (scan and manual backfill share one priority since the singleton constraint prevents them from competing):
-
-| Source | Priority |
-|---|---|
-| Urgent subscriptions | 4 |
-| Urgent extractions / default subs | 3 |
-| Default extractions | 2 |
-| Labeling (scan and manual backfill) | 1 |
-
-### Database growth
-
-- `LabelResult` table: reports × active labels (1M × 20 ≈ 20M rows).
-- `GateAnswer` table: reports × active groups (1M × 5 ≈ 5M rows, assuming ~4 labels per group averages to ~5 groups).
-- Indexes declared on initial migrations (built while tables are empty).
-
-### Logging
-
-`radis.labels` logger:
-- `INFO` on batch task start/finish (batch size + duration).
-- `INFO` on gate phase: groups evaluated, groups skipped (gate fresh).
-- `WARNING` on skip (empty body, no active labels).
-- `ERROR` with full traceback on LLM failure after retries.
-
-### Observability
-
-- Live progress in `LabelingJobAdmin` change form.
-- Management command `uv run cli labels-status`: last scan checkpoint timestamp (or "never"), total reports, fully-current count, missing/stale count, per-label Present/Likely/Possible/Absent/Unmentioned/stale counts, per-group gate Yes/Maybe/No/stale counts.
-- No Prometheus metrics in v1.
-
-### Documentation updates
-
-- `CLAUDE.md`: add `radis.labels` to Django Apps list; add the seven new env vars; add Troubleshooting subsection.
-- `KNOWLEDGE.md`: document prompt design, label authoring guidelines (label description should be self-contained and define the finding precisely), and gate-question authoring guidelines (gate question is an applicability screen answerable from the report body; phrase as a topic-level Yes/No screen, not a specific finding).
-- `example.env`: seven new env vars with comments and defaults.
-
-### Existing-system touchpoints
-
-1. `radis/reports/admin.py` — add `LabelResultInline` to `ReportAdmin.inlines`.
-2. `radis/search/parser.py` — register `label:` as a known field filter.
-3. `radis/pgsearch/` — translator for the `label:` AST node.
-4. `radis/settings/base.py` — new settings block (additive).
-5. Templates — Cotton component on report detail and search facet panel.
-
-No touch to `radis/reports/site.py` — the periodic scan does not use the reports created/updated handler extension points.
+- **Queues:** no new queues/containers. `process_labeling_job` runs on `default`,
+  `process_labeling_task` on `llm`. Priority table: urgent subs 4, urgent extractions / default
+  subs 3, default extractions 2, **labeling 1**.
+- **DB growth:** `LabelResult` ≈ reports × active labels (1M × 20 ≈ 20M); `GateAnswer` ≈ reports ×
+  active groups. Indexes are declared on the initial migration (built while empty).
+- **Logging:** `radis.labels` logger — INFO on job prep / scan decisions, WARNING on skips (empty
+  body, no active labels) and partial failures, ERROR with traceback on LLM failure.
+- **Observability:** live status in `LabelingJobAdmin`; `labels_status` management command
+  (`uv run cli shell` + `labels_status`, or `manage.py labels_status`) reports corpus-wide
+  label/gate/result counts and the scan checkpoint.
+- **Docs:** `CLAUDE.md` (apps list, env vars, troubleshooting), `KNOWLEDGE.md` (prompt/label/gate
+  authoring guidance), `example.env`.
 
 ## Testing Strategy
 
-### Unit tests (no DB)
-
-- **Prompt rendering** (`test_prompts.py`) — `render_label_prompt` and `render_gate_prompt` substitute `$report` (incl. unicode content) and contain the bucket/gate value meanings; assert **no label name or description appears in the prompt** (per-label content belongs only in the schema).
-- **Schema building** (`test_schemas.py`) — `build_label_classification_schema` produces a Pydantic model whose fields are keyed by `lbl.name`, each accepting only the five bucket values and rejecting unknown buckets / missing fields, with `lbl.description` in the field `description`; `build_gate_schema` produces fields keyed by `g.name` validating Yes/No and rejecting unknown values, with the gate question in the field `description`; a **drift guard** asserts `BucketValue` / `GateValue` values equal `LabelResult.Value` / `GateAnswer.Value`.
-
-### Model / DB tests
-
-- **Stale detection** (`test_stale_detection.py`) — assert result and gate-answer stale predicates over hand-built rows.
-- **Backfill scope query** (`test_scope.py`) — reports covering all combinations of gate-answer freshness and YES-gate answer freshness; a report with a fresh NO gate and no results is not included; a report with a fresh YES gate but a stale result is included; a report whose only results are `ABSENT`/`UNMENTIONED` but fresh is not included; the scope query returns exactly those needing work.
-- **Singleton backfill** (`test_singleton.py`) — second concurrent active `LabelingJob` raises `IntegrityError`.
-- **Backfill restart safety** (`test_singleton.py`) — if `process_labeling_job` is called twice for the same job (simulating a Procrastinate retry), partial `LabelingTask` rows from the first call are deleted before the second call recreates them; no duplicates result.
-- **Cascade and uniqueness** (`test_models.py`) — group delete cascades to labels and gate answers; label delete cascades to results; unique constraints enforced; upserts work.
-
-### Integration tests (LLM mocked)
-
-- **Gate batching** (`test_gate.py`) — 20 groups with gate batch size 10 → exactly 2 gate LLM calls; only YES groups produce label-set calls.
-- **Gate = NO, fresh** (`test_gate.py`) — group is skipped entirely; no `LabelResult` rows written, no LLM call.
-- **Bucket storage and surfacing** (`test_buckets.py`) — a label-set call returning each of the five buckets writes a `LabelResult` for all of them; only PRESENT/LIKELY/POSSIBLE surface in badges and `label:` search, while ABSENT/UNMENTIONED are stored but hidden.
-- **Gate answer fresh + YES + results all fresh** → zero LLM calls.
-- **Gate answer fresh + YES + 1 label stale** → 1 LLM call containing only that 1 label, 0 gate calls.
-- **Gate answer stale + new YES, old NO** → 1 gate call + 1 label-set call (all labels, no prior results).
-- **Gate answer stale + new YES, old YES + results fresh** → 1 gate call only, 0 label calls.
-- **Gate stale + new NO, old YES** → 1 gate call, existing results deleted, no label-set call.
-- **Gate stale + new NO, old NO** → 1 gate call, no results to delete, no label-set call.
-- **Gate flips YES → NO: atomicity** (`test_gate.py`) — gate save and result deletion succeed together; no orphaned `LabelResult` rows exist after the call.
-- **Skip conditions** (`test_skips.py`) — empty body / no active labels → no LLM call.
-- **Backfill task processor** (`test_processor.py`) — partial failure on one report yields task `WARNING`; successful reports still have results written.
-- **Incremental scan: first run** (`test_scan.py`) — null checkpoint → no `LabelingJob` created, checkpoint set to `now`.
-- **Incremental scan: guard** (`test_scan.py`) — active `LabelingJob` → no job created, checkpoint unchanged.
-- **Incremental scan: no new reports** (`test_scan.py`) — checkpoint set, no reports after it → no `LabelingJob` created, checkpoint still advances.
-- **Incremental scan: creates scan job** (`test_scan.py`) — reports exist after checkpoint → one `LabelingJob(trigger=SCAN, scan_from=checkpoint)` created and `delay()` called; checkpoint advances to `now`.
-- **Incremental scan: scope isolation** (`test_scan.py`) — scan job's `create_labeling_tasks_streaming` only includes reports with `created_at >= scan_from`; older reports produce no tasks.
-- **Incremental scan: checkpoint singleton** (`test_scan.py`) — calling `save()` twice on separate `LabelingScanCheckpoint` instances does not create a second row; `has_add_permission` returns `False` in admin.
-
-### Admin tests
-
-- **`LabelGroupAdmin`** — duplicate name surfaces as form error; `updated_at` bumps on save.
-- **`LabelAdmin`** — autocomplete on group FK works; duplicate label name surfaces as form error.
-- **`LabelingJobAdmin`** — Run/conflict/Cancel flows unchanged.
-
-### Search integration tests
-
-`label:pneumonia` returns reports with a surfacing-bucket result for that label and excludes reports whose only `pneumonia` result is `ABSENT`/`UNMENTIONED`.
-
-### UI tests (Playwright, `@pytest.mark.acceptance`)
-
-Badges render for surfacing buckets only; tooltip exposes the exact bucket; stale results show muted styling.
-
-### One real-LLM acceptance test (`@pytest.mark.acceptance`, `cpu` profile)
-
-- Create one group ("Lung findings", gate: "Does this report contain lung-related findings?"), one label ("clear chest", description "The lungs are clear with no abnormality."), ingest a synthetic report stating "No abnormalities, lungs clear.", trigger `incremental_label_scan` directly, assert a `GateAnswer(value=YES)` and a `LabelResult` in a surfacing bucket (`PRESENT`/`LIKELY`/`POSSIBLE`) appear.
-
-### Out of scope (test-wise)
-
-- Performance / load tests on 1M-row backfill.
-- Procrastinate's retry semantics.
-- Migrations on existing data — all tables start empty.
+- **Unit (no DB):** prompt rendering substitutes `$report` and contains no label text; schema
+  builders produce name-keyed fields validating the right value sets, with a drift guard against
+  the model `TextChoices`.
+- **Model/DB:** stale-detection predicates; backfill scope query across all gate/result freshness
+  combinations; singleton index raises on a second active job; idempotent prep on retry; cascade +
+  uniqueness; empty-scope job finishes `SUCCESS`.
+- **Engine (LLM mocked):** gate batching; NO-gate skips the group; five-bucket storage with only
+  surfacing buckets visible; all decision-table transitions incl. atomic `YES→NO` flip; skip
+  conditions; per-report failure → task `WARNING`.
+- **Scan:** first run, active-job guard, no-new-reports (checkpoint still advances), creates scan
+  job, scope isolation, checkpoint singleton.
+- **Admin:** backfill creates a MANUAL job; conflict is a no-op when active; group search; read-only
+  admins block writes; duplicate group/label name rejected.
+- **Search filter:** single-label match; OR across multiple; only surfacing buckets match; no
+  selection applies no filter; form lists only active labels alphabetically and omits the field
+  when none exist.
+- **Surfacing:** badges render for surfacing buckets only.
 
 ## Risks and Open Questions
 
-- **LLM cost on the 1M-report backfill.** Gating reduces per-report cost significantly, but a full backfill is still a multi-day operation. Cost should be modeled before turning on for production.
-- **Gate question wording quality.** A poorly worded gate question can screen out reports incorrectly. Admins are expected to author gate questions carefully; no safeguards in v1.
-- **Label description quality.** Bucket assignments are only as good as the label descriptions; vague descriptions yield inconsistent PRESENT/LIKELY/POSSIBLE boundaries. Authoring guidance lives in `KNOWLEDGE.md`; no automated validation in v1.
-- **`label:` token in user queries.** If free-text search contains `label:`, the parser treats it as a field filter. Matches behavior of other field filters; acceptable.
-- **Report deletion blast radius.** Cascade to `LabelResult` and `GateAnswer` rows. Standard Django behavior.
+- **LLM cost on a 1M-report backfill** — gating helps, but a full backfill is a multi-day, costed
+  operation; model cost before production.
+- **Gate/label wording quality** — bad gate questions screen incorrectly; vague label descriptions
+  yield inconsistent bucket boundaries. Authoring guidance in `KNOWLEDGE.md`; no automated
+  validation in v1.
+- **Report deletion blast radius** — cascades to `LabelResult`/`GateAnswer` (standard Django).
 
 ## Out of Scope (Future Work)
 
-- Manual override / user-correction of labels.
-- Versioned result history.
-- Per-label or per-group backfill triggered from admin.
-- A "stale" search filter modifier.
-- A `label:foo:present` bucket-specific search syntax.
-- LLM call preview in the label group admin.
-- Prometheus metrics on labeling throughput.
-- Localized prompts.
+Manual override/correction; versioned history; per-label/group backfill from admin; a "stale"
+search modifier; bucket-specific search syntax; LLM-call preview in admin; Prometheus metrics;
+localized prompts; clickable label badges; grouping the filter widget by `LabelGroup`.
