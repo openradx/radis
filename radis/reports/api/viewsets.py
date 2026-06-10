@@ -18,19 +18,23 @@ Strategy:
 
   - Native async ORM (`aget`, `async for` comprehensions, `abulk_create`,
     `aexists`, ...) for everything that does NOT need atomicity.
-  - For atomic write blocks, decorate a sync helper closure with
-    `@sync_to_async(thread_sensitive=True)` stacked on `@transaction.atomic`.
-    The decorator stack reads bottom-up at definition time and top-down at
-    call time: the wrapper schedules the sync body on the asgiref thread
-    pool, where `transaction.atomic` opens a transaction, the body runs,
-    and the transaction commits when the function returns. Any
-    `transaction.on_commit()` callbacks registered inside the body fire
-    after that atomic commit.
-
-  - `thread_sensitive=True` is required so the sync helper always runs on
-    Django's shared sync thread; without it, each call would land on a
-    fresh thread with its own DB connection, breaking transaction
-    semantics.
+  - Sync helper closure per handler, decorated with
+    `@sync_to_async(thread_sensitive=True)`. The wrapper schedules the
+    sync body on the asgiref thread pool. `thread_sensitive=True` is
+    required so the sync helper always runs on Django's shared sync
+    thread; without it, each call would land on a fresh thread with its
+    own DB connection, breaking transaction semantics.
+  - Stack `@transaction.atomic` *on top of* the sync_to_async decorator
+    ONLY when the helper itself needs to own a transaction — i.e. when
+    it issues multiple writes that must commit together and/or registers
+    `transaction.on_commit` callbacks whose binding to that write must
+    be guaranteed. Concretely: `_do_atomic_writes` inside
+    `bulk_upsert_reports` (multi-table churn) and
+    `_delete_and_schedule` inside `adestroy` (delete + on_commit
+    binding). The `acreate` and `aupdate` helpers do NOT get
+    `@transaction.atomic` because `ReportSerializer.create` /
+    `ReportSerializer.update` already open their own atomic block for
+    the multi-step write.
 
   - Note that even Django's native async ORM methods (`aget`,
     `abulk_create`, `aget_or_create`, ...) currently just wrap the sync
@@ -348,8 +352,13 @@ class ReportViewSet(
     async def acreate(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         data = request.data
 
+        # No `@transaction.atomic` here: `ReportSerializer.create` already
+        # opens its own `with transaction.atomic():` block for the multi-step
+        # write of Language → Report → groups → Metadata → Modalities.
+        # `transaction.on_commit` registered after that block exits fires
+        # immediately under no outer transaction (production) or queues until
+        # the test wrapper commits (under `django_capture_on_commit_callbacks`).
         @sync_to_async(thread_sensitive=True)
-        @transaction.atomic
         def _create() -> dict[str, Any]:
             serializer = self.get_serializer(data=data)
             serializer.is_valid(raise_exception=True)
@@ -417,8 +426,10 @@ class ReportViewSet(
                 clone_request(request, "POST")
             )
 
+        # No `@transaction.atomic` here: `ReportSerializer.create` /
+        # `ReportSerializer.update` already open their own
+        # `with transaction.atomic():` block for the multi-step writes.
         @sync_to_async(thread_sensitive=True)
-        @transaction.atomic
         def _save() -> tuple[dict[str, Any], int]:
             serializer = self.get_serializer(report, data=data)
             serializer.is_valid(raise_exception=True)
