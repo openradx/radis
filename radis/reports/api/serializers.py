@@ -1,6 +1,8 @@
 from typing import Any
 
 from adrf.serializers import ModelSerializer as AsyncModelSerializer
+from asgiref.sync import async_to_sync, sync_to_async
+from django.db import transaction
 from rest_framework import serializers, validators
 from rest_framework.exceptions import ValidationError
 from rest_framework.relations import PrimaryKeyRelatedField
@@ -86,10 +88,24 @@ class ReportSerializer(AsyncModelSerializer):
         ]
 
     async def acreate(self, validated_data: Any) -> Report:
-        return await operations.create_report_from_validated(validated_data)
+        @sync_to_async(thread_sensitive=True)
+        @transaction.atomic
+        def _atomic() -> Report:
+            return async_to_sync(operations.create_report_from_validated)(
+                validated_data
+            )
+
+        return await _atomic()
 
     async def aupdate(self, report: Report, validated_data: Any) -> Report:
-        return await operations.update_report_from_validated(report, validated_data)
+        @sync_to_async(thread_sensitive=True)
+        @transaction.atomic
+        def _atomic() -> Report:
+            return async_to_sync(operations.update_report_from_validated)(
+                report, validated_data
+            )
+
+        return await _atomic()
 
     def to_internal_value(self, data: Any) -> Any:
         if "language" in data:

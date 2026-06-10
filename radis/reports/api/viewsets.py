@@ -18,28 +18,31 @@ Strategy:
 
   - Domain writes are defined as `async def` operations in
     `operations.py`. They use native async ORM (`aget_or_create`,
-    `acreate`, `asave`, `aset`, `aclear`, `adelete`) and do NOT open
+    `acreate`, `asave`, `aset`, `aclear`, `adelete`) and do NOT own
     their own transactions.
-  - Each view handler delegates its atomic block to a sync helper
-    closure decorated with:
+  - `ReportSerializer` (an `adrf.serializers.ModelSerializer`) owns the
+    atomic block for create/update. `acreate` and `aupdate` on the
+    serializer wrap the corresponding operation in:
         @sync_to_async(thread_sensitive=True)
         @transaction.atomic
-    The helper holds the transaction; inside it, the async operations
-    are invoked via `async_to_sync(operations.<name>)(...)`.
-    `thread_sensitive=True` ensures the outer wrapper, the inner
-    `async_to_sync` event loop, and the sync adapters that Django's
-    async ORM calls internally all land on the same Django thread, so
-    the transaction context held by the outer helper applies to every
-    write the operation performs.
-  - `ReportSerializer.create` / `.update` are thin sync shims that
-    delegate to `async_to_sync(operations.create_report_from_validated)`
-    / `update_report_from_validated`. This keeps the standard DRF
-    `serializer.save()` idiom working inside the view's atomic helper.
-  - Native async ORM (`aget`, `async for` comprehensions, `abulk_create`)
-    is used directly for the non-atomic preflight phases of
-    `bulk_upsert_reports`. The bulk Phase 4 atomic helper keeps its
-    sync ORM calls inline because the writes are single-statement
-    bulk operations that don't decompose into per-entity ops.
+        def _atomic():
+            return async_to_sync(operations.X)(...)
+    so `await serializer.asave()` returns only after the multi-step
+    write has committed.
+  - View handlers for create/update are pure async orchestration: validate
+    via `await sync_to_async(serializer.is_valid)(...)`, save via
+    `await serializer.asave()`, register `transaction.on_commit(...)`
+    after asave returns (the inner atomic has already committed, so
+    the callback either fires immediately or is captured by the test
+    fixture), then render the response via
+    `await sync_to_async(lambda: serializer.data)()`.
+  - `adestroy` and the bulk-upsert helper own their atomic blocks
+    directly with `@sync_to_async(thread_sensitive=True) @transaction.atomic`
+    since neither involves a serializer: `adestroy` invokes
+    `async_to_sync(operations.delete_report)(report)` inside its helper;
+    `bulk_upsert_reports` Phase 4 keeps inline sync ORM (single-statement
+    bulk_create / bulk_update / through-table churn) because those don't
+    decompose into per-entity ops.
 
   - Note that even Django's native async ORM methods (`aget`,
     `abulk_create`, `aget_or_create`, ...) currently just wrap the sync
@@ -356,32 +359,38 @@ class ReportViewSet(
     http_method_names = ["get", "post", "put", "delete", "head", "options"]
 
     async def acreate(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        data = request.data
+        serializer = cast(ReportSerializer, self.get_serializer(data=request.data))
+        # `is_valid` is sync (DRF has no `ais_valid`) and hits the DB for
+        # the `groups` PrimaryKeyRelatedField validator. Run it via
+        # `sync_to_async` so we don't trip Django's async-unsafe guard.
+        await sync_to_async(serializer.is_valid, thread_sensitive=True)(
+            raise_exception=True
+        )
 
-        @sync_to_async(thread_sensitive=True)
-        @transaction.atomic
-        def _create() -> dict[str, Any]:
-            serializer = cast(ReportSerializer, self.get_serializer(data=data))
-            serializer.is_valid(raise_exception=True)
-            # `serializer.asave()` is async-native (calls `acreate` →
-            # native async ORM in `operations.py`). Bridge it back to sync
-            # here so its writes join the transaction this helper holds.
-            # Thread-sensitivity ensures everything runs on the same
-            # Django thread.
-            report = async_to_sync(serializer.asave)()
+        # `asave` owns its own `@transaction.atomic` block (inside
+        # `ReportSerializer.acreate`). The atomic commits before `asave`
+        # returns, so on_commit registered below fires immediately under
+        # no outer transaction (production) or is captured by the test
+        # fixture (`django_capture_on_commit_callbacks`).
+        report = await serializer.asave()
 
-            def on_commit():
-                for handler in reports_created_handlers:
-                    logger.debug(
-                        f"{handler.name} - handle newly created reports: "
-                        f"{[report.document_id]}"
-                    )
-                    handler.handle([report])
+        def on_commit():
+            for handler in reports_created_handlers:
+                logger.debug(
+                    f"{handler.name} - handle newly created reports: "
+                    f"{[report.document_id]}"
+                )
+                handler.handle([report])
 
-            transaction.on_commit(on_commit)
-            return serializer.data
+        transaction.on_commit(on_commit)
 
-        return Response(await _create(), status=status.HTTP_201_CREATED)
+        # `serializer.data` walks the model's related fields synchronously
+        # (FK/M2M access). Wrap in `sync_to_async` for the same reason as
+        # `is_valid`.
+        response_data = await sync_to_async(
+            lambda: serializer.data, thread_sensitive=True
+        )()
+        return Response(response_data, status=status.HTTP_201_CREATED)
 
     async def aretrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         try:
@@ -432,39 +441,41 @@ class ReportViewSet(
                 clone_request(request, "POST")
             )
 
-        @sync_to_async(thread_sensitive=True)
-        @transaction.atomic
-        def _save() -> tuple[dict[str, Any], int]:
-            serializer = cast(
-                ReportSerializer, self.get_serializer(report, data=data)
-            )
-            serializer.is_valid(raise_exception=True)
-            # `serializer.asave()` dispatches to `acreate` (if `report is None`)
-            # or `aupdate` (otherwise); both are async-native and call into
-            # `operations.py`. Bridge back to sync inside this atomic helper.
-            saved = async_to_sync(serializer.asave)()
+        serializer = cast(
+            ReportSerializer, self.get_serializer(report, data=data)
+        )
+        await sync_to_async(serializer.is_valid, thread_sensitive=True)(
+            raise_exception=True
+        )
 
-            def on_commit():
-                handlers = (
-                    reports_created_handlers
-                    if report is None
-                    else reports_updated_handlers
+        # `asave` dispatches to `acreate` (if `report is None`) or
+        # `aupdate` (otherwise); both own a `@transaction.atomic` block
+        # internally.
+        saved = await serializer.asave()
+
+        def on_commit():
+            handlers = (
+                reports_created_handlers
+                if report is None
+                else reports_updated_handlers
+            )
+            event = "newly created" if report is None else "updated"
+            for handler in handlers:
+                logger.debug(
+                    f"{handler.name} - handle {event} reports: "
+                    f"{[saved.document_id]}"
                 )
-                event = "newly created" if report is None else "updated"
-                for handler in handlers:
-                    logger.debug(
-                        f"{handler.name} - handle {event} reports: "
-                        f"{[saved.document_id]}"
-                    )
-                    handler.handle([saved])
+                handler.handle([saved])
 
-            transaction.on_commit(on_commit)
-            return serializer.data, (
-                status.HTTP_201_CREATED if report is None else status.HTTP_200_OK
-            )
+        transaction.on_commit(on_commit)
 
-        body, http_status = await _save()
-        return Response(body, status=http_status)
+        response_data = await sync_to_async(
+            lambda: serializer.data, thread_sensitive=True
+        )()
+        http_status = (
+            status.HTTP_201_CREATED if report is None else status.HTTP_200_OK
+        )
+        return Response(response_data, status=http_status)
 
     async def adestroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         try:
