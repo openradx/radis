@@ -1,6 +1,5 @@
 from typing import Any
 
-from django.db import transaction
 from rest_framework import serializers, validators
 from rest_framework.exceptions import ValidationError
 from rest_framework.relations import PrimaryKeyRelatedField
@@ -76,59 +75,24 @@ class ReportSerializer(serializers.ModelSerializer):
         ]
 
     def create(self, validated_data: Any) -> Any:
-        language = validated_data.pop("language")
-        groups = validated_data.pop("groups")
-        metadata = validated_data.pop("metadata")
-        modalities = validated_data.pop("modalities")
+        # The actual multi-row write lives in `operations.create_report_from_validated`
+        # as native async ORM. We bridge here so callers using DRF's
+        # standard `serializer.save()` pattern still work; the caller is
+        # responsible for owning the transaction (see ReportViewSet.acreate).
+        from asgiref.sync import async_to_sync
 
-        with transaction.atomic():
-            language_instance, _ = Language.objects.get_or_create(**language)
+        from . import operations
 
-            report = Report.objects.create(**validated_data, language=language_instance)
-
-            report.groups.set(groups)
-
-            for metadata in metadata:
-                Metadata.objects.create(report=report, **metadata)
-
-            modality_instances: list[Modality] = []
-            for modality in modalities:
-                modality_instance, _ = Modality.objects.get_or_create(**modality)
-                modality_instances.append(modality_instance)
-
-            report.modalities.set(modality_instances)
-
-        return report
+        return async_to_sync(operations.create_report_from_validated)(validated_data)
 
     def update(self, report: Report, validated_data: Any) -> Any:
-        language = validated_data.pop("language")
-        groups = validated_data.pop("groups")
-        metadata = validated_data.pop("metadata")
-        modalities = validated_data.pop("modalities")
+        from asgiref.sync import async_to_sync
 
-        with transaction.atomic():
-            language_instance = Language.objects.get(**language)
-            report.language = language_instance
+        from . import operations
 
-            for attr, value in validated_data.items():
-                setattr(report, attr, value)
-
-            report.save()
-
-            report.groups.set(groups)
-
-            report.metadata.all().delete()
-            for metadata in metadata:
-                Metadata.objects.create(report=report, **metadata)
-
-            report.modalities.clear()
-            modality_instances: list[Modality] = []
-            for modality in modalities:
-                modality_instance, _ = Modality.objects.get_or_create(**modality)
-                modality_instances.append(modality_instance)
-            report.modalities.set(modality_instances)
-
-        return report
+        return async_to_sync(operations.update_report_from_validated)(
+            report, validated_data
+        )
 
     def to_internal_value(self, data: Any) -> Any:
         if "language" in data:

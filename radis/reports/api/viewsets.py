@@ -16,25 +16,30 @@ sync override.
 
 Strategy:
 
-  - Native async ORM (`aget`, `async for` comprehensions, `abulk_create`,
-    `aexists`, ...) for everything that does NOT need atomicity.
-  - Sync helper closure per handler, decorated with
-    `@sync_to_async(thread_sensitive=True)`. The wrapper schedules the
-    sync body on the asgiref thread pool. `thread_sensitive=True` is
-    required so the sync helper always runs on Django's shared sync
-    thread; without it, each call would land on a fresh thread with its
-    own DB connection, breaking transaction semantics.
-  - Stack `@transaction.atomic` *on top of* the sync_to_async decorator
-    ONLY when the helper itself needs to own a transaction — i.e. when
-    it issues multiple writes that must commit together and/or registers
-    `transaction.on_commit` callbacks whose binding to that write must
-    be guaranteed. Concretely: `_do_atomic_writes` inside
-    `bulk_upsert_reports` (multi-table churn) and
-    `_delete_and_schedule` inside `adestroy` (delete + on_commit
-    binding). The `acreate` and `aupdate` helpers do NOT get
-    `@transaction.atomic` because `ReportSerializer.create` /
-    `ReportSerializer.update` already open their own atomic block for
-    the multi-step write.
+  - Domain writes are defined as `async def` operations in
+    `operations.py`. They use native async ORM (`aget_or_create`,
+    `acreate`, `asave`, `aset`, `aclear`, `adelete`) and do NOT open
+    their own transactions.
+  - Each view handler delegates its atomic block to a sync helper
+    closure decorated with:
+        @sync_to_async(thread_sensitive=True)
+        @transaction.atomic
+    The helper holds the transaction; inside it, the async operations
+    are invoked via `async_to_sync(operations.<name>)(...)`.
+    `thread_sensitive=True` ensures the outer wrapper, the inner
+    `async_to_sync` event loop, and the sync adapters that Django's
+    async ORM calls internally all land on the same Django thread, so
+    the transaction context held by the outer helper applies to every
+    write the operation performs.
+  - `ReportSerializer.create` / `.update` are thin sync shims that
+    delegate to `async_to_sync(operations.create_report_from_validated)`
+    / `update_report_from_validated`. This keeps the standard DRF
+    `serializer.save()` idiom working inside the view's atomic helper.
+  - Native async ORM (`aget`, `async for` comprehensions, `abulk_create`)
+    is used directly for the non-atomic preflight phases of
+    `bulk_upsert_reports`. The bulk Phase 4 atomic helper keeps its
+    sync ORM calls inline because the writes are single-statement
+    bulk operations that don't decompose into per-entity ops.
 
   - Note that even Django's native async ORM methods (`aget`,
     `abulk_create`, `aget_or_create`, ...) currently just wrap the sync
@@ -53,7 +58,7 @@ from typing import Any
 
 from adrf import mixins as amixins
 from adrf.viewsets import GenericViewSet
-from asgiref.sync import sync_to_async
+from asgiref.sync import async_to_sync, sync_to_async
 from django.conf import settings
 from django.db import transaction
 from django.http import Http404
@@ -75,6 +80,7 @@ from ..site import (
     reports_deleted_handlers,
     reports_updated_handlers,
 )
+from . import operations
 from .serializers import ReportSerializer
 
 logger = logging.getLogger(__name__)
@@ -352,16 +358,16 @@ class ReportViewSet(
     async def acreate(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         data = request.data
 
-        # No `@transaction.atomic` here: `ReportSerializer.create` already
-        # opens its own `with transaction.atomic():` block for the multi-step
-        # write of Language → Report → groups → Metadata → Modalities.
-        # `transaction.on_commit` registered after that block exits fires
-        # immediately under no outer transaction (production) or queues until
-        # the test wrapper commits (under `django_capture_on_commit_callbacks`).
         @sync_to_async(thread_sensitive=True)
+        @transaction.atomic
         def _create() -> dict[str, Any]:
             serializer = self.get_serializer(data=data)
             serializer.is_valid(raise_exception=True)
+            # `serializer.save()` → `ReportSerializer.create` →
+            # `async_to_sync(operations.create_report_from_validated)(...)`.
+            # The async operation runs on this same thread (thread-sensitive),
+            # so its native async ORM writes join the transaction this helper
+            # holds.
             report = serializer.save()
 
             def on_commit():
@@ -426,13 +432,13 @@ class ReportViewSet(
                 clone_request(request, "POST")
             )
 
-        # No `@transaction.atomic` here: `ReportSerializer.create` /
-        # `ReportSerializer.update` already open their own
-        # `with transaction.atomic():` block for the multi-step writes.
         @sync_to_async(thread_sensitive=True)
+        @transaction.atomic
         def _save() -> tuple[dict[str, Any], int]:
             serializer = self.get_serializer(report, data=data)
             serializer.is_valid(raise_exception=True)
+            # `serializer.save()` dispatches to `ReportSerializer.create` or
+            # `.update`, both of which delegate to `async_to_sync(operations.*)`.
             saved = serializer.save()
 
             def on_commit():
@@ -466,7 +472,7 @@ class ReportViewSet(
         @sync_to_async(thread_sensitive=True)
         @transaction.atomic
         def _delete_and_schedule() -> None:
-            report.delete()
+            async_to_sync(operations.delete_report)(report)
 
             def on_commit():
                 for handler in reports_deleted_handlers:
