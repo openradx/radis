@@ -8,7 +8,6 @@ from django.http import Http404, HttpRequest
 from django.shortcuts import render
 from django.views import View
 
-from radis.labels.query import extract_label_filters
 from radis.search.forms import SearchForm
 from radis.search.utils.query_parser import QueryParser
 
@@ -38,6 +37,7 @@ class SearchView(LoginRequiredMixin, UserPassesTestMixin, View):
         patient_sex = form.cleaned_data["patient_sex"]
         age_from = form.cleaned_data["age_from"]
         age_till = form.cleaned_data["age_till"]
+        labels = form.cleaned_data["labels"]
 
         if search_provider is None:
             raise ImproperlyConfigured("Search provider is not configured.")
@@ -57,9 +57,7 @@ class SearchView(LoginRequiredMixin, UserPassesTestMixin, View):
         # TODO: when no active group is selected show user a error
         assert active_group
 
-        remaining_query, label_names = extract_label_filters(query)
-
-        query_node, fixes = QueryParser().parse(remaining_query)
+        query_node, fixes = QueryParser().parse(query)
 
         if query_node is not None:
             if len(fixes) > 0:
@@ -77,7 +75,7 @@ class SearchView(LoginRequiredMixin, UserPassesTestMixin, View):
                     patient_sex=patient_sex,
                     patient_age_from=age_from,
                     patient_age_till=age_till,
-                    labels=label_names,
+                    labels=labels,
                 ),
                 offset=offset,
                 limit=page_size,

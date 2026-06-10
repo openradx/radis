@@ -59,7 +59,7 @@ uv run cli db-backup                 # Backup database
 - **radis.notes/**: User annotations on reports for adding context.
 - **radis.chats/**: Chat functionality for interacting with reports using LLM.
 - **radis.extractions/**: Data extraction from reports using LLM. Models: `ExtractionJob`, `ExtractionTask`.
-- **radis.labels/**: LLM auto-labeling of reports. A per-group Yes/No/Maybe gate screens applicability, then each active label is classified into one of five buckets (`PRESENT`/`LIKELY`/`POSSIBLE`/`ABSENT`/`UNMENTIONED`); the three surfacing buckets drive report-detail badges and the `label:` search filter. Models: `LabelGroup`, `Label`, `LabelResult`, `GateAnswer`, `LabelingScanCheckpoint`, `LabelingJob`, `LabelingTask`.
+- **radis.labels/**: LLM auto-labeling of reports. A per-group Yes/No/Maybe gate screens applicability, then each active label is classified into one of five buckets (`PRESENT`/`LIKELY`/`POSSIBLE`/`ABSENT`/`UNMENTIONED`); the three surfacing buckets drive report-detail badges and the label filter in the search Filters panel. Models: `LabelGroup`, `Label`, `LabelResult`, `GateAnswer`, `LabelingScanCheckpoint`, `LabelingJob`, `LabelingTask`.
 
 Shared utilities come from `adit-radis-shared` package (accounts, token auth, common utilities).
 

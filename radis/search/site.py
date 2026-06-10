@@ -44,7 +44,7 @@ class SearchFilters:
         - patient_age_from: Filter only reports where the patient is at least this age
         - patient_age_till: Filter only reports where the patient is at most this age
         - labels: only reports having a surfacing-bucket (PRESENT/LIKELY/POSSIBLE) result for
-          ALL of the given label names
+          ANY of the given label names
     """
 
     group: int  # TODO: Rename to group_id
