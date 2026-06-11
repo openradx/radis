@@ -174,11 +174,10 @@ pgvector columns and HNSW indexes are bound to a fixed dimension at create time,
 1. Drop the HNSW index and the `embedding` column.
 2. Re-run `0002_hybrid_search` with the new `EMBEDDING_DIM`. This re-creates
    the column at the new dim plus the HNSW index.
-3. New report writes start populating the column automatically (the ADRF
-   views embed inline on every POST/PUT/bulk-upsert — §6). For historical
-   reports whose `embedding` is now NULL, the operator re-PUTs each affected
-   document (idempotent — same body, new vector). No backfill command is
-   provided.
+3. Run `./manage.py embed_pending` to re-embed every row through the same
+   `AsyncEmbeddingClient` path the API uses. The command is idempotent and
+   resumable; killed mid-run, just re-run it. See §6.5.
+4. From here on, new writes embed inline against the new dim automatically.
 
 This is documented as a deployment-time decision and intentionally not automated.
 
@@ -318,7 +317,7 @@ class EmbeddingClient:
   EMBEDDING_MODEL_NAME=dengcao/Qwen3-Embedding-4B:Q5_K_M
   EMBEDDING_DIM=2560
   ```
-  GGUF-quantized embedding models produce slightly different vectors than the bf16 reference, so dev embeddings are not interchangeable with prod embeddings. After swapping the model between dev/prod, follow the §4.5 dim-change procedure (drop column, re-migrate, re-PUT historical reports).
+  GGUF-quantized embedding models produce slightly different vectors than the bf16 reference, so dev embeddings are not interchangeable with prod embeddings. After swapping the model between dev/prod, clear the column (`ReportSearchVector.objects.update(embedding=None)`) and run `./manage.py embed_pending`.
 
 ## 6. Async indexing (inline, per-API-call)
 
@@ -393,11 +392,78 @@ Both pull from a shared `_resolve_config()` (validation of `EMBEDDING_*` setting
 
 The write path never fails because of embedding. Reports are always saved.
 
-### 6.5 What about historical NULLs?
+### 6.5 Operator-driven recovery: `embed_pending`
 
-No backfill command. Reports loaded before the inline path was in place keep `embedding=NULL` until re-PUT. They remain hybrid-searchable via the FTS half. Operators who need vector coverage on a historical corpus re-upload each affected document; the inline path embeds it on the way through.
+A single management command handles all three "rows are NULL and need
+embedding" scenarios:
 
-This is a deliberate trade-off: the orchestrator-and-launcher infrastructure that used to handle "backfill the existing corpus" was substantial (≈400 lines plus a dedicated worker), and the inline path makes new writes immediately hybrid-searchable, which is what the architecture optimises for. A one-time backfill is a one-time concern.
+1. **Historical backfill** — reports loaded before the inline wiring shipped.
+2. **Dim or model change** — after §4.5 (or
+   `ReportSearchVector.objects.update(embedding=None)` for a same-dim model
+   swap), every row is NULL.
+3. **Outage recovery** — reports whose ADRF write succeeded but whose
+   inline embedding step caught an `EmbeddingClientError` and left
+   `embedding=NULL`.
+
+```
+./manage.py embed_pending [--batch-size N] [--limit N]
+```
+
+Implementation (`radis/pgsearch/management/commands/embed_pending.py`):
+
+```python
+class Command(BaseCommand):
+    def handle(self, *args, **opts) -> None:
+        ids = list(
+            ReportSearchVector.objects.filter(embedding__isnull=True)
+            .order_by("report_id")
+            .values_list("report_id", flat=True)
+        )
+        if opts["limit"] is not None:
+            ids = ids[: opts["limit"]]
+        if not ids:
+            self.stdout.write("Nothing to embed.")
+            return
+        asyncio.run(self._drain(ids, opts["batch_size"]))
+        self.stdout.write(self.style.SUCCESS("Done."))
+
+    async def _drain(self, ids, batch_size):
+        for i in range(0, len(ids), batch_size):
+            chunk = ids[i : i + batch_size]
+            await embed_reports_inline(chunk)
+            self.stdout.write(f"  {i + len(chunk)}/{len(ids)}")
+```
+
+Each batch calls the exact same `embed_reports_inline` helper the ADRF
+views call — one embedding code path in the system, two call sites.
+
+Properties:
+
+- **Idempotent.** Filter is `embedding IS NULL`; re-runs do nothing once
+  drained.
+- **Resumable.** No checkpoint state. Killed mid-run → re-run picks up the
+  remaining NULLs.
+- **Race-tolerant with live API traffic.** Concurrent ADRF writes that
+  touch overlapping rows both compute identical vectors (the model is
+  deterministic for a given body + config); the second writer overwrites
+  with the same value. Cost: one extra embedding HTTP call per overlap.
+  Run during quiet periods for best efficiency.
+- **Failure-tolerant within a run.** `embed_reports_inline` catches
+  `EmbeddingClientError`, logs WARNING, leaves the chunk's rows NULL,
+  returns. The command's loop continues; the next run retries them.
+- **Bounded memory.** ID list ~30 MB for 1M reports; per-batch
+  ~300 KB.
+
+Wall-clock for 1M reports is dominated entirely by the embedding service
+throughput (typically 6–24 h on a single GPU at the default batch size of
+32). The DB and Python layers add < 5 % overhead.
+
+No periodic launcher is provided in v1 — extended-outage recovery is
+operator-triggered via this command. A future enhancement could wrap
+`_drain` in a Procrastinate periodic task with a `queueing_lock` and a
+per-tick row cap (so the default worker is not monopolised); this would
+recover the original orchestrator's auto-recovery behaviour at ~20 lines
+of code.
 
 ## 7. Hybrid search provider
 
@@ -746,7 +812,7 @@ See §4.5.
 
 ### 11.3 GGUF dev embeddings ≠ bf16 prod embeddings
 
-Documented in §5.4. Mitigated by following §4.5 after a model swap: drop the column, re-migrate, re-PUT historical reports through the ADRF API to embed them with the new model.
+Documented in §5.4. Mitigated by following §4.5 after a model swap and then running `./manage.py embed_pending` (§6.5) to re-embed everything with the new model.
 
 ### 11.4 No body-change detection for re-embedding
 
@@ -803,7 +869,7 @@ A `run_search_eval` management command loops a set of test queries through all s
 2. **Embedding clients + inline helper + tests.** Land `EmbeddingClient`, `AsyncEmbeddingClient`, and `embed_reports_inline`. No callers wired up yet.
 3. **ADRF views wiring (depends on PR #230).** Once PR #230 lands, modify the three ADRF views to `await embed_reports_inline(...)` after their sync write blocks. From this point on, **every report write embeds inline**.
 4. **Provider switch.** Replace the body of `radis.pgsearch.providers.search()` and `retrieve()` with the hybrid implementation. Rows still missing an embedding participate via the FTS half only.
-5. **(Optional) historical backfill.** Operators re-PUT each previously-loaded document to trigger an embedding. No dedicated tool; the ingest API is the embedding tool.
+5. **(Optional) historical backfill.** Run `./manage.py embed_pending` once to embed every existing report with `embedding=NULL`. Same command serves all outage-recovery and dim/model-change scenarios (§6.5).
 6. **Monitor.** Watch search latency p95, write latency p95 (now includes embedding), and the rate of FTS-only-fallback WARNING logs. Tune `HYBRID_VECTOR_TOP_K` / `HYBRID_FTS_MAX_RESULTS` if needed.
 
 Each step is independently mergeable; steps 1–2 ship as quiet infrastructure with no user-visible effect, step 3 starts populating the column on every write, step 4 is the moment hybrid search goes live for users.
