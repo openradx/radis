@@ -100,8 +100,6 @@ from .serializers import ReportSerializer
 
 logger = logging.getLogger(__name__)
 
-BULK_DB_BATCH_SIZE = 1000
-
 
 async def bulk_upsert_reports(
     validated_reports: list[dict[str, Any]],
@@ -157,7 +155,7 @@ async def bulk_upsert_reports(
         await Language.objects.abulk_create(
             [Language(code=code) for code in missing_language_codes],
             ignore_conflicts=True,
-            batch_size=BULK_DB_BATCH_SIZE,
+            batch_size=settings.REPORTS_BULK_DB_BATCH_SIZE,
         )
         language_by_code = {
             lang.code: lang
@@ -178,7 +176,7 @@ async def bulk_upsert_reports(
         await Modality.objects.abulk_create(
             [Modality(code=code) for code in missing_modality_codes],
             ignore_conflicts=True,
-            batch_size=BULK_DB_BATCH_SIZE,
+            batch_size=settings.REPORTS_BULK_DB_BATCH_SIZE,
         )
         modality_by_code = {
             mod.code: mod
@@ -268,12 +266,12 @@ async def bulk_upsert_reports(
 
 
         if new_reports:
-            Report.objects.bulk_create(new_reports, batch_size=BULK_DB_BATCH_SIZE)
+            Report.objects.bulk_create(new_reports, batch_size=settings.REPORTS_BULK_DB_BATCH_SIZE)
         if updated_reports:
             Report.objects.bulk_update(
                 updated_reports,
                 fields=[*report_field_names, "language", "updated_at"],
-                batch_size=BULK_DB_BATCH_SIZE,
+                batch_size=settings.REPORTS_BULK_DB_BATCH_SIZE,
             )
 
         report_id_by_document_id = {
@@ -298,7 +296,9 @@ async def bulk_upsert_reports(
                         Metadata(report_id=report_id, key=item["key"], value=item["value"])
                     )
             if metadata_rows:
-                Metadata.objects.bulk_create(metadata_rows, batch_size=BULK_DB_BATCH_SIZE)
+                Metadata.objects.bulk_create(
+                    metadata_rows, batch_size=settings.REPORTS_BULK_DB_BATCH_SIZE
+                )
 
             modality_through = Report.modalities.through
             modality_through.objects.filter(report_id__in=report_ids).delete()
@@ -317,7 +317,9 @@ async def bulk_upsert_reports(
                         modality_through(report_id=report_id, modality_id=modality_id)
                     )
             if modality_rows:
-                modality_through.objects.bulk_create(modality_rows, batch_size=BULK_DB_BATCH_SIZE)
+                modality_through.objects.bulk_create(
+                    modality_rows, batch_size=settings.REPORTS_BULK_DB_BATCH_SIZE
+                )
 
             group_through = Report.groups.through
             group_through.objects.filter(report_id__in=report_ids).delete()
@@ -331,7 +333,9 @@ async def bulk_upsert_reports(
                 for group_id in group_items:
                     group_rows.append(group_through(report_id=report_id, group_id=group_id))
             if group_rows:
-                group_through.objects.bulk_create(group_rows, batch_size=BULK_DB_BATCH_SIZE)
+                group_through.objects.bulk_create(
+                    group_rows, batch_size=settings.REPORTS_BULK_DB_BATCH_SIZE
+                )
 
             if metadata_duplicate_count or modality_duplicate_count or group_duplicate_count:
                 logger.warning(
