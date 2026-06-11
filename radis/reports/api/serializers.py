@@ -48,11 +48,12 @@ class ModalitySerializer(serializers.ModelSerializer):
 class ReportSerializer(AsyncModelSerializer):
     """Async serializer for Report.
 
-    Subclasses `adrf.serializers.ModelSerializer` so callers can do
-    `await serializer.asave()` directly. `acreate` and `aupdate` below
-    delegate to the async write operations in `operations.py`. None of
-    these methods own a transaction — the caller (the view's
-    `@sync_to_async @transaction.atomic` helper) does.
+    Subclasses `adrf.serializers.ModelSerializer` so callers can
+    `await serializer.asave()` directly. `acreate` / `aupdate` each
+    wrap the corresponding async operation in a
+    `@sync_to_async(thread_sensitive=True) @transaction.atomic` helper,
+    so the serializer owns the transaction that bounds the multi-step
+    write of Language → Report → groups → Metadata → Modalities.
     """
 
     language = LanguageSerializer()

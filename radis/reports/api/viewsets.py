@@ -1,71 +1,20 @@
 """ADRF report viewset.
 
-Single async ViewSet that mirrors the shape of the legacy DRF ReportViewSet:
-GenericViewSet + selected adrf mixins, dispatched via DefaultRouter. Custom
-behaviour is added by overriding the async mixin methods (acreate /
-aretrieve / aupdate / adestroy) and the @action for bulk-upsert.
+1:1 async conversion of the legacy DRF `ReportViewSet`: same mixin
+lineup (now from `adrf.mixins`), same `GenericViewSet` base, routed via
+`adrf.routers.DefaultRouter` so the router maps HTTP methods to the
+async action names (`acreate` / `aretrieve` / `aupdate` / `adestroy`).
+Per-handler architectural notes live at each method.
 
-Note on async/sync hygiene: the `adrf.mixins` inherit from DRF's sync
-mixins, so this class technically has sync `create`/`retrieve`/`update`/
-`destroy` siblings on the MRO. ADRF's `view_is_async` flips the dispatcher
-to the async path whenever any method on the class is a coroutine, so as
-long as our overrides stay `async def`, the sync siblings are never
-reached. The async-shape guard tests in test_report_api.py pin every
-entry point to `inspect.iscoroutinefunction` to catch any accidental
-sync override.
+Sync-mixin trap: `adrf.mixins.*ModelMixin` inherits from DRF's sync
+mixins, so the class has both sync `create` and async `acreate` (etc.)
+on the MRO. The async-shape guard in test_report_api.py pins every
+dispatched method to `iscoroutinefunction` to catch a future contributor
+accidentally overriding the sync sibling. That guard cannot catch a
+mis-wired router — `adrf.routers.DefaultRouter` is part of the contract.
 
-Strategy:
-
-  - Domain writes are defined as `async def` operations in
-    `operations.py`. They use native async ORM (`aget_or_create`,
-    `acreate`, `asave`, `aset`, `aclear`, `adelete`) and do NOT own
-    their own transactions.
-  - `ReportSerializer` (an `adrf.serializers.ModelSerializer`) owns the
-    atomic block for create/update. `acreate` and `aupdate` on the
-    serializer wrap the corresponding operation in:
-        @sync_to_async(thread_sensitive=True)
-        @transaction.atomic
-        def _atomic():
-            return async_to_sync(operations.X)(...)
-    so `await serializer.asave()` returns only after the multi-step
-    write has committed.
-  - View handlers for create/update are pure async orchestration: validate
-    via `await sync_to_async(serializer.is_valid)(...)`, save via
-    `await serializer.asave()`, register `transaction.on_commit(...)`
-    after asave returns (the inner atomic has already committed, so
-    the callback either fires immediately or is captured by the test
-    fixture), then render the response via
-    `await sync_to_async(lambda: serializer.data)()`.
-  - `adestroy` and the bulk-upsert helper own their atomic blocks
-    directly with `@sync_to_async(thread_sensitive=True) @transaction.atomic`
-    since neither involves a serializer: `adestroy` invokes
-    `async_to_sync(operations.delete_report)(report)` inside its helper;
-    `bulk_upsert_reports` Phase 4 keeps inline sync ORM (single-statement
-    bulk_create / bulk_update / through-table churn) because those don't
-    decompose into per-entity ops.
-  - `bulk_upsert_reports` also wraps its CPU-only Phases 1 and 3
-    (payload dedupe and the new/updated-list build) in
-    `@sync_to_async(thread_sensitive=True)` helpers. Today this just
-    schedules them on the same thread pool as the atomic block (no real
-    parallelism win), but it keeps the event loop unblocked for whatever
-    CPU work each phase contains, and the structure is positioned to
-    benefit immediately if Django ever ships a native async DB backend.
-
-  - Note on the current Django ORM async surface (6.0 / 6.1): every `a*`
-    method (`aget`, `aget_or_create`, `abulk_create`, `aset`, `acreate`,
-    `asave`, `adelete`, ...) is literally `await sync_to_async(self.X)()`
-    in the source. There is no native async DB backend in Django core
-    today.
-
-    Phase 2's `async for` / `await` calls therefore dispatch to the
-    asgiref thread pool just like our explicit `sync_to_async` calls
-    — the win today is architectural clarity, not runtime concurrency.
-    Once a native async DB backend ships, the
-    `@sync_to_async @transaction.atomic` + `async_to_sync(operations.X)`
-    helpers in the serializer, `adestroy`, and Phase 4 collapse to
-    `async with async_atomic(): return await operations.X(...)`.
-    `operations.py` does not change; Phases 1 and 3 stay
-    `sync_to_async`-wrapped because they are pure CPU.
+PATCH is blocked at the dispatcher level via `http_method_names`; we
+never define `partial_update` / `apartial_update`.
 """
 import asyncio
 import logging
@@ -104,6 +53,25 @@ logger = logging.getLogger(__name__)
 async def bulk_upsert_reports(
     validated_reports: list[dict[str, Any]],
 ) -> tuple[list[str], list[str]]:
+    """Bulk-upsert validated report payloads.
+
+    Four phases:
+      1. Dedupe input by document_id  (CPU,    `@sync_to_async` helper)
+      2. Preflight Language/Modality/existing-Report reads  (native async ORM)
+      3. Build new_reports / updated_reports lists  (CPU, `@sync_to_async` helper)
+      4. Atomic writes  (`@sync_to_async @transaction.atomic` helper, inline
+         sync ORM since the writes are single-statement bulk ops that don't
+         decompose into per-entity operations)
+
+    Phase 1 / 3 run off the event loop so the CPU loops don't block other
+    requests. Phase 2 uses native async ORM — but note that as of Django
+    6.0/6.1 every `a*` method is internally `sync_to_async`-wrapped, so
+    those calls dispatch to the asgiref thread pool just like our explicit
+    `sync_to_async` calls. The win today is architectural clarity; once a
+    native async DB backend ships, Phase 2 (and Phase 4's atomic helper
+    + the serializer/adestroy helpers) collapse to `async with async_atomic():`
+    + direct `await operations.X(...)`.
+    """
     if not validated_reports:
         return [], []
 
@@ -515,6 +483,11 @@ class ReportViewSet(
         except Report.DoesNotExist:
             raise Http404
 
+        # No serializer involved here, so adestroy owns the atomic helper
+        # directly (instead of delegating it to a serializer like acreate /
+        # aupdate do). The helper holds the transaction across the delete
+        # and the `transaction.on_commit` registration so the callback is
+        # correctly bound to the delete's transaction.
         @sync_to_async(thread_sensitive=True)
         @transaction.atomic
         def _delete_and_schedule() -> None:

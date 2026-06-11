@@ -1,17 +1,7 @@
 """Async domain operations for the report API.
 
-Each function is a pure async write operation using native async ORM
-methods (`aget_or_create`, `acreate`, `aset`, `asave`, `adelete`, ...).
-None of these functions open their own transactions — atomicity is the
-caller's responsibility. The caller is a sync helper decorated with
-`@sync_to_async(thread_sensitive=True)` + `@transaction.atomic` that
-invokes these operations via `async_to_sync(...)`.
-
-The `thread_sensitive=True` chain ensures the outer sync helper and any
-nested `sync_to_async` adapters (which Django's `a*` ORM methods use
-internally) all run on the same Django thread, so the transaction
-context held by the outer helper applies to every write performed by
-these operations.
+Pure async write operations using native async ORM. None of these
+functions own a transaction; atomicity is the caller's responsibility.
 """
 import logging
 from typing import Any
