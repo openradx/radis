@@ -23,8 +23,7 @@ class LanguageSerializer(serializers.ModelSerializer):
         fields = ("code",)
 
     def run_validation(self, data: dict[str, Any]) -> Any:
-        # We don't want to check if this modality already exists in the database
-        # as we later use get_or_create.
+        # Strip the UniqueValidator; `acreate`/`aupdate` use `get_or_create`.
         for validator in self.fields["code"].validators:
             if isinstance(validator, validators.UniqueValidator):
                 self.fields["code"].validators.remove(validator)
@@ -37,8 +36,7 @@ class ModalitySerializer(serializers.ModelSerializer):
         fields = ("code",)
 
     def run_validation(self, data: dict[str, Any]) -> Any:
-        # We don't want to check if this modality already exists in the database
-        # as we later use get_or_create.
+        # Strip the UniqueValidator; `acreate`/`aupdate` use `get_or_create`.
         for validator in self.fields["code"].validators:
             if isinstance(validator, validators.UniqueValidator):
                 self.fields["code"].validators.remove(validator)
@@ -46,15 +44,8 @@ class ModalitySerializer(serializers.ModelSerializer):
 
 
 class ReportSerializer(AsyncModelSerializer):
-    """Async serializer for Report.
-
-    Subclasses `adrf.serializers.ModelSerializer` so callers can
-    `await serializer.asave()` directly. `acreate` / `aupdate` each
-    wrap the corresponding async operation in a
-    `@sync_to_async(thread_sensitive=True) @transaction.atomic` helper,
-    so the serializer owns the transaction that bounds the multi-step
-    write of Language → Report → groups → Metadata → Modalities.
-    """
+    """`acreate`/`aupdate` own the atomic block that bounds the multi-step
+    write of Language → Report → groups → Metadata → Modalities."""
 
     language = LanguageSerializer()
     metadata = MetadataSerializer(many=True)

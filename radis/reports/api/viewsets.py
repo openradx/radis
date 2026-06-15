@@ -1,20 +1,11 @@
 """ADRF report viewset.
 
-1:1 async conversion of the legacy DRF `ReportViewSet`: same mixin
-lineup (now from `adrf.mixins`), same `GenericViewSet` base, routed via
-`adrf.routers.DefaultRouter` so the router maps HTTP methods to the
-async action names (`acreate` / `aretrieve` / `aupdate` / `adestroy`).
-Per-handler architectural notes live at each method.
-
-Sync-mixin trap: `adrf.mixins.*ModelMixin` inherits from DRF's sync
-mixins, so the class has both sync `create` and async `acreate` (etc.)
-on the MRO. The async-shape guard in test_report_api.py pins every
-dispatched method to `iscoroutinefunction` to catch a future contributor
-accidentally overriding the sync sibling. That guard cannot catch a
-mis-wired router — `adrf.routers.DefaultRouter` is part of the contract.
-
-PATCH is blocked at the dispatcher level via `http_method_names`; we
-never define `partial_update` / `apartial_update`.
+URLs must be wired through `adrf.routers.DefaultRouter` (not DRF's). DRF's
+router dispatches HTTP methods to the sync action names (`create`/`retrieve`/
+`update`/`destroy`) which `adrf.mixins.*` inherits as fully-functional sync
+methods from DRF — so DRF-router dispatch silently bypasses the async
+overrides on this class. `adrf.routers.DefaultRouter` remaps to the
+`a`-prefixed names whenever `view_is_async=True`.
 """
 import asyncio
 import logging
@@ -56,21 +47,12 @@ async def bulk_upsert_reports(
     """Bulk-upsert validated report payloads.
 
     Four phases:
-      1. Dedupe input by document_id  (CPU,    `@sync_to_async` helper)
-      2. Preflight Language/Modality/existing-Report reads  (native async ORM)
-      3. Build new_reports / updated_reports lists  (CPU, `@sync_to_async` helper)
-      4. Atomic writes  (`@sync_to_async @transaction.atomic` helper, inline
-         sync ORM since the writes are single-statement bulk ops that don't
-         decompose into per-entity operations)
+      1. Dedupe input by document_id (CPU)
+      2. Preflight Language/Modality/existing-Report reads
+      3. Build new_reports / updated_reports lists (CPU)
+      4. Atomic writes — bulk_create/bulk_update + through-table churn
 
-    Phase 1 / 3 run off the event loop so the CPU loops don't block other
-    requests. Phase 2 uses native async ORM — but note that as of Django
-    6.0/6.1 every `a*` method is internally `sync_to_async`-wrapped, so
-    those calls dispatch to the asgiref thread pool just like our explicit
-    `sync_to_async` calls. The win today is architectural clarity; once a
-    native async DB backend ships, Phase 2 (and Phase 4's atomic helper
-    + the serializer/adestroy helpers) collapse to `async with async_atomic():`
-    + direct `await operations.X(...)`.
+    The CPU phases run off the event loop via `@sync_to_async` helpers.
     """
     if not validated_reports:
         return [], []
@@ -354,24 +336,14 @@ class ReportViewSet(
     serializer_class = ReportSerializer
     lookup_field = "document_id"
     permission_classes = [IsAdminUser]
-    # Block PATCH at the dispatcher level (returns 405). We never define
-    # `partial_update` / `apartial_update` for the same effect.
     http_method_names = ["get", "post", "put", "delete", "head", "options"]
 
     async def acreate(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         serializer = cast(ReportSerializer, self.get_serializer(data=request.data))
-        # `is_valid` is sync (DRF has no `ais_valid`) and hits the DB for
-        # the `groups` PrimaryKeyRelatedField validator. Run it via
-        # `sync_to_async` so we don't trip Django's async-unsafe guard.
         await sync_to_async(serializer.is_valid, thread_sensitive=True)(
             raise_exception=True
         )
 
-        # `asave` owns its own `@transaction.atomic` block (inside
-        # `ReportSerializer.acreate`). The atomic commits before `asave`
-        # returns, so on_commit registered below fires immediately under
-        # no outer transaction (production) or is captured by the test
-        # fixture (`django_capture_on_commit_callbacks`).
         report = await serializer.asave()
 
         def on_commit():
@@ -382,13 +354,10 @@ class ReportViewSet(
                 )
                 handler.handle([report])
 
-        # `transaction.on_commit` internally hits `ensure_connection()`
-        # which is sync-only; we're in an async handler, so wrap.
+        # `transaction.on_commit` hits `ensure_connection()`, which is
+        # sync-only; we're in an async handler, so wrap.
         await sync_to_async(transaction.on_commit, thread_sensitive=True)(on_commit)
 
-        # `serializer.data` walks the model's related fields synchronously
-        # (FK/M2M access). Wrap in `sync_to_async` for the same reason as
-        # `is_valid`.
         response_data = await sync_to_async(
             lambda: serializer.data, thread_sensitive=True
         )()
@@ -436,9 +405,8 @@ class ReportViewSet(
         if report is None and not upsert:
             raise Http404
         if report is None and upsert:
-            # Replicates DRF's `get_object_or_none` + `clone_request("POST")`
-            # permission re-check: a non-staff PUT?upsert=true on a missing
-            # id must come back as 403, not 404.
+            # A non-staff PUT?upsert=true on a missing id must return 403,
+            # not 404 — re-check permissions against a synthetic POST.
             await sync_to_async(self.check_permissions, thread_sensitive=True)(
                 clone_request(request, "POST")
             )
@@ -450,9 +418,6 @@ class ReportViewSet(
             raise_exception=True
         )
 
-        # `asave` dispatches to `acreate` (if `report is None`) or
-        # `aupdate` (otherwise); both own a `@transaction.atomic` block
-        # internally.
         saved = await serializer.asave()
 
         def on_commit():
@@ -485,11 +450,9 @@ class ReportViewSet(
         except Report.DoesNotExist:
             raise Http404
 
-        # No serializer involved here, so adestroy owns the atomic helper
-        # directly (instead of delegating it to a serializer like acreate /
-        # aupdate do). The helper holds the transaction across the delete
-        # and the `transaction.on_commit` registration so the callback is
-        # correctly bound to the delete's transaction.
+        # The helper holds the transaction across the delete and the
+        # `transaction.on_commit` registration so the callback is bound
+        # to the delete's transaction.
         @sync_to_async(thread_sensitive=True)
         @transaction.atomic
         def _delete_and_schedule() -> None:
@@ -508,10 +471,8 @@ class ReportViewSet(
         await _delete_and_schedule()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
-    # DRF's `@action` stub types its callable argument as a sync view returning
-    # HttpResponseBase, but ADRF's dispatcher handles `async def` actions just
-    # fine (the @action decorator only attaches routing metadata). Narrow
-    # suppression of a stub-only mismatch:
+    # DRF's `@action` stub types its arg as a sync view returning
+    # HttpResponseBase, but ADRF dispatches `async def` actions fine.
     @action(detail=False, methods=["post"], url_path="bulk-upsert")  # pyright: ignore[reportArgumentType]
     async def bulk_upsert(self, request: Request) -> Response:
         payloads = request.data
@@ -533,8 +494,6 @@ class ReportViewSet(
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Per-payload DRF serializer validation is sync (DRF has no async
-        # `ais_valid`). No atomicity needed — validators only read.
         @sync_to_async(thread_sensitive=True)
         def _validate() -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
             valid_payloads: list[dict[str, Any]] = []

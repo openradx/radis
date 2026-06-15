@@ -1,23 +1,4 @@
-"""End-to-end tests for the report HTTP API.
-
-These tests exercise behavior through Django's `AsyncClient` (HTTP-based
-tests) and direct module imports (URL resolution + async-shape guards).
-They lock the wire contract for the ADRF rewrite.
-
-The `_is_coroutine` shape guards at the bottom assert each handler is
-`async def`, preventing silent regressions to sync.
-
-Why `AsyncClient` and not `Client`: the sync `Client` dispatches an async
-view via `async_to_sync`, which nested with our own `database_sync_to_async`
-deadlocks asgiref's thread executor under pytest-django. `AsyncClient`
-runs the async view in the test's event loop with no outer wrapping.
-
-Why `transaction=True`: the test client's outer `async_to_sync` thread
-(for sync Client) and the `database_sync_to_async` thread (for our view)
-do not share the test's atomic transaction. With `TransactionTestCase`
-semantics there is no hidden wrapping transaction, so any thread sees
-real committed state.
-"""
+"""End-to-end tests for the report HTTP API."""
 import importlib
 import inspect
 import json
@@ -358,15 +339,12 @@ async def test_bulk_upsert_rejects_non_list_payload(async_client: AsyncClient):
 # ---------------------------------------------------------------------------
 
 def test_report_viewset_methods_are_coroutines():
-    """Pin every dispatched method on ReportViewSet to async.
+    """Every dispatched method on ReportViewSet must be `async def`.
 
-    `adrf.mixins.CreateModelMixin` inherits from DRF's sync mixin, so the
-    class technically has both `create` (sync) and `acreate` (async) on the
-    MRO. ADRF's `view_is_async` flips the dispatcher to the async path only
-    if *all* of our overrides are coroutines. If a future contributor
-    accidentally overrides the sync sibling (`create`/`retrieve`/`update`/
-    `destroy`), the dispatch would silently switch to sync and break the
-    inline-embedding follow-up.
+    `adrf.mixins.*ModelMixin` inherits from DRF's sync mixins, so the class
+    has both sync `create` and async `acreate` (etc.) on the MRO. ADRF's
+    `view_is_async` only flips the dispatcher to the async path when *all*
+    overrides are coroutines.
     """
     views = importlib.import_module("radis.reports.api.viewsets")
     vs = views.ReportViewSet

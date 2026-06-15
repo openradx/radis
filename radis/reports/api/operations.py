@@ -1,8 +1,4 @@
-"""Async domain operations for the report API.
-
-Pure async write operations using native async ORM. None of these
-functions own a transaction; atomicity is the caller's responsibility.
-"""
+"""Async write operations for Report. Callers own atomicity."""
 import logging
 from typing import Any
 
@@ -14,11 +10,6 @@ logger = logging.getLogger(__name__)
 async def create_report_from_validated(
     validated_data: dict[str, Any],
 ) -> Report:
-    """Create a Report and its nested associations from validated payload.
-
-    Pops `language`, `groups`, `metadata`, `modalities` out of
-    `validated_data` and uses the remaining keys as direct Report fields.
-    """
     language = validated_data.pop("language")
     groups = validated_data.pop("groups")
     metadata = validated_data.pop("metadata")
@@ -48,9 +39,8 @@ async def update_report_from_validated(
 ) -> Report:
     """Replace all mutable fields and nested associations on an existing Report.
 
-    Matches the legacy `ReportSerializer.update` semantics: metadata is
-    fully replaced (delete + recreate), modalities and groups are reset
-    to the provided sets.
+    Metadata is fully replaced (delete + recreate); modalities and groups
+    are reset to the provided sets.
     """
     language = validated_data.pop("language")
     groups = validated_data.pop("groups")
@@ -80,5 +70,4 @@ async def update_report_from_validated(
 
 
 async def delete_report(report: Report) -> None:
-    """Delete a single Report row."""
     await report.adelete()
