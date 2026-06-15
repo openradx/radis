@@ -164,6 +164,9 @@ PGSEARCH_BULK_INDEX_CHUNK_SIZE = env.int("PGSEARCH_BULK_INDEX_CHUNK_SIZE", defau
 PGSEARCH_BULK_INSERT_BATCH_SIZE = env.int("PGSEARCH_BULK_INSERT_BATCH_SIZE", default=1000)
 PGSEARCH_SYNC_INDEXING = env.bool("PGSEARCH_SYNC_INDEXING", default=False)
 
+# Report API bulk-upsert batch size (used by radis.reports.api.viewsets.bulk_upsert_reports)
+REPORTS_BULK_DB_BATCH_SIZE = 1000
+
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.0/ref/settings/#default-auto-field
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
@@ -319,9 +322,7 @@ STORAGES = {
     },
     "dbbackup": {
         "BACKEND": "django.core.files.storage.FileSystemStorage",
-        "OPTIONS": {
-            "location": env.str("DBBACKUP_STORAGE_LOCATION", default="/tmp/backups-radis")
-        },
+        "OPTIONS": {"location": env.str("DBBACKUP_STORAGE_LOCATION", default="/tmp/backups-radis")},
     },
 }
 DBBACKUP_CLEANUP_KEEP = 30

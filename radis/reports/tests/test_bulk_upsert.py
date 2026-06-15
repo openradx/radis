@@ -4,18 +4,26 @@ from datetime import date
 import pytest
 from adit_radis_shared.accounts.factories import GroupFactory, UserFactory
 from adit_radis_shared.token_authentication.models import Token
-from django.test import Client
+from asgiref.sync import sync_to_async
+from django.contrib.auth.models import Group
+from django.test import AsyncClient
 
-from radis.reports.api.viewsets import _bulk_upsert_reports
+from radis.reports.api.viewsets import bulk_upsert_reports
 from radis.reports.models import Language, Metadata, Modality, Report
 
 
-@pytest.mark.django_db
-def test_bulk_upsert_creates_and_updates_reports(client: Client):
+def _create_staff_user_group_token(label: str) -> tuple[Group, str]:
     user = UserFactory.create(is_active=True, is_staff=True)
     group = GroupFactory.create()
     user.groups.add(group)
-    _, token = Token.objects.create_token(user, "bulk upsert test", None)
+    _, token = Token.objects.create_token(user, label, None)
+    return group, token
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db(transaction=True)
+async def test_bulk_upsert_creates_and_updates_reports(async_client: AsyncClient):
+    group, token = await sync_to_async(_create_staff_user_group_token)("bulk upsert test")
     payload = [
         {
             "document_id": "DOC-1",
@@ -55,7 +63,7 @@ def test_bulk_upsert_creates_and_updates_reports(client: Client):
         },
     ]
 
-    response = client.post(
+    response = await async_client.post(
         "/api/reports/bulk-upsert/",
         data=json.dumps(payload),
         content_type="application/json",
@@ -64,16 +72,16 @@ def test_bulk_upsert_creates_and_updates_reports(client: Client):
     assert response.status_code == 200
     assert response.json() == {"created": 2, "updated": 0, "invalid": 0}
 
-    assert Report.objects.count() == 2
-    assert Language.objects.filter(code="en").exists()
-    assert Language.objects.filter(code="de").exists()
-    assert Modality.objects.filter(code="CT").exists()
-    assert Modality.objects.filter(code="MR").exists()
+    assert await Report.objects.acount() == 2
+    assert await Language.objects.filter(code="en").aexists()
+    assert await Language.objects.filter(code="de").aexists()
+    assert await Modality.objects.filter(code="CT").aexists()
+    assert await Modality.objects.filter(code="MR").aexists()
 
     payload[0]["body"] = "Updated body"
     payload[0]["metadata"] = {"ris_filename": "file1", "extra": "value"}
 
-    response = client.post(
+    response = await async_client.post(
         "/api/reports/bulk-upsert/",
         data=json.dumps(payload),
         content_type="application/json",
@@ -82,17 +90,17 @@ def test_bulk_upsert_creates_and_updates_reports(client: Client):
     assert response.status_code == 200
     assert response.json() == {"created": 0, "updated": 2, "invalid": 0}
 
-    report = Report.objects.get(document_id="DOC-1")
+    report = await Report.objects.aget(document_id="DOC-1")
     assert report.body == "Updated body"
-    assert Metadata.objects.filter(report=report).count() == 2
+    assert await Metadata.objects.filter(report=report).acount() == 2
 
 
-@pytest.mark.django_db
-def test_bulk_upsert_dedupes_payload_entries(client: Client):
-    user = UserFactory.create(is_active=True, is_staff=True)
-    group = GroupFactory.create()
-    user.groups.add(group)
-    _, token = Token.objects.create_token(user, "bulk upsert dedupe test", None)
+@pytest.mark.asyncio
+@pytest.mark.django_db(transaction=True)
+async def test_bulk_upsert_dedupes_payload_entries(async_client: AsyncClient):
+    group, token = await sync_to_async(_create_staff_user_group_token)(
+        "bulk upsert dedupe test"
+    )
 
     payload = [
         {
@@ -133,7 +141,7 @@ def test_bulk_upsert_dedupes_payload_entries(client: Client):
         },
     ]
 
-    response = client.post(
+    response = await async_client.post(
         "/api/reports/bulk-upsert/",
         data=json.dumps(payload),
         content_type="application/json",
@@ -142,16 +150,17 @@ def test_bulk_upsert_dedupes_payload_entries(client: Client):
     assert response.status_code == 200
     assert response.json() == {"created": 1, "updated": 0, "invalid": 0}
 
-    report = Report.objects.get(document_id="DOC-1")
+    report = await Report.objects.aget(document_id="DOC-1")
     assert report.body == "Second version"
-    assert report.modalities.count() == 1
-    assert report.groups.count() == 1
-    assert Metadata.objects.filter(report=report).count() == 2
+    assert await report.modalities.acount() == 1
+    assert await report.groups.acount() == 1
+    assert await Metadata.objects.filter(report=report).acount() == 2
 
 
-@pytest.mark.django_db
-def test_bulk_upsert_dedupes_metadata_keys():
-    group = GroupFactory.create()
+@pytest.mark.asyncio
+@pytest.mark.django_db(transaction=True)
+async def test_bulk_upsert_dedupes_metadata_keys():
+    group = await sync_to_async(GroupFactory.create, thread_sensitive=True)()
 
     validated_reports = [
         {
@@ -177,10 +186,10 @@ def test_bulk_upsert_dedupes_metadata_keys():
         },
     ]
 
-    created_ids, updated_ids = _bulk_upsert_reports(validated_reports)
+    created_ids, updated_ids = await bulk_upsert_reports(validated_reports)
     assert created_ids == ["DOC-1"]
     assert updated_ids == []
 
-    report = Report.objects.get(document_id="DOC-1")
-    metadata = Metadata.objects.get(report=report, key="ris_filename")
+    report = await Report.objects.aget(document_id="DOC-1")
+    metadata = await Metadata.objects.aget(report=report, key="ris_filename")
     assert metadata.value == "file2"

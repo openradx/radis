@@ -1,11 +1,14 @@
 from typing import Any
 
+from adrf.serializers import ModelSerializer as AsyncModelSerializer
+from asgiref.sync import async_to_sync, sync_to_async
 from django.db import transaction
 from rest_framework import serializers, validators
 from rest_framework.exceptions import ValidationError
 from rest_framework.relations import PrimaryKeyRelatedField
 
 from ..models import Language, Metadata, Modality, Report
+from . import operations
 
 
 class MetadataSerializer(serializers.ModelSerializer):
@@ -20,8 +23,7 @@ class LanguageSerializer(serializers.ModelSerializer):
         fields = ("code",)
 
     def run_validation(self, data: dict[str, Any]) -> Any:
-        # We don't want to check if this modality already exists in the database
-        # as we later use get_or_create.
+        # Strip the UniqueValidator; `acreate`/`aupdate` use `get_or_create`.
         for validator in self.fields["code"].validators:
             if isinstance(validator, validators.UniqueValidator):
                 self.fields["code"].validators.remove(validator)
@@ -34,15 +36,17 @@ class ModalitySerializer(serializers.ModelSerializer):
         fields = ("code",)
 
     def run_validation(self, data: dict[str, Any]) -> Any:
-        # We don't want to check if this modality already exists in the database
-        # as we later use get_or_create.
+        # Strip the UniqueValidator; `acreate`/`aupdate` use `get_or_create`.
         for validator in self.fields["code"].validators:
             if isinstance(validator, validators.UniqueValidator):
                 self.fields["code"].validators.remove(validator)
         return super().run_validation(data)
 
 
-class ReportSerializer(serializers.ModelSerializer):
+class ReportSerializer(AsyncModelSerializer):
+    """`acreate`/`aupdate` own the atomic block that bounds the multi-step
+    write of Language → Report → groups → Metadata → Modalities."""
+
     language = LanguageSerializer()
     metadata = MetadataSerializer(many=True)
     modalities = ModalitySerializer(many=True)
@@ -75,60 +79,25 @@ class ReportSerializer(serializers.ModelSerializer):
             if not isinstance(validator, validators.UniqueValidator)
         ]
 
-    def create(self, validated_data: Any) -> Any:
-        language = validated_data.pop("language")
-        groups = validated_data.pop("groups")
-        metadata = validated_data.pop("metadata")
-        modalities = validated_data.pop("modalities")
+    async def acreate(self, validated_data: Any) -> Report:
+        @sync_to_async(thread_sensitive=True)
+        @transaction.atomic
+        def _atomic() -> Report:
+            return async_to_sync(operations.create_report_from_validated)(
+                validated_data
+            )
 
-        with transaction.atomic():
-            language_instance, _ = Language.objects.get_or_create(**language)
+        return await _atomic()
 
-            report = Report.objects.create(**validated_data, language=language_instance)
+    async def aupdate(self, report: Report, validated_data: Any) -> Report:
+        @sync_to_async(thread_sensitive=True)
+        @transaction.atomic
+        def _atomic() -> Report:
+            return async_to_sync(operations.update_report_from_validated)(
+                report, validated_data
+            )
 
-            report.groups.set(groups)
-
-            for metadata in metadata:
-                Metadata.objects.create(report=report, **metadata)
-
-            modality_instances: list[Modality] = []
-            for modality in modalities:
-                modality_instance, _ = Modality.objects.get_or_create(**modality)
-                modality_instances.append(modality_instance)
-
-            report.modalities.set(modality_instances)
-
-        return report
-
-    def update(self, report: Report, validated_data: Any) -> Any:
-        language = validated_data.pop("language")
-        groups = validated_data.pop("groups")
-        metadata = validated_data.pop("metadata")
-        modalities = validated_data.pop("modalities")
-
-        with transaction.atomic():
-            language_instance = Language.objects.get(**language)
-            report.language = language_instance
-
-            for attr, value in validated_data.items():
-                setattr(report, attr, value)
-
-            report.save()
-
-            report.groups.set(groups)
-
-            report.metadata.all().delete()
-            for metadata in metadata:
-                Metadata.objects.create(report=report, **metadata)
-
-            report.modalities.clear()
-            modality_instances: list[Modality] = []
-            for modality in modalities:
-                modality_instance, _ = Modality.objects.get_or_create(**modality)
-                modality_instances.append(modality_instance)
-            report.modalities.set(modality_instances)
-
-        return report
+        return await _atomic()
 
     def to_internal_value(self, data: Any) -> Any:
         if "language" in data:

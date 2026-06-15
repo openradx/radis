@@ -15,7 +15,7 @@ def test_report_data_valid():
     assert report.is_valid()
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 def test_report_data_post(live_server: LiveServer, mocker: MockerFixture):
     # Make sure it won't try to save created reports to any full text search database
     # as those are not available during test
