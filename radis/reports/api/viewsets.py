@@ -382,7 +382,9 @@ class ReportViewSet(
                 )
                 handler.handle([report])
 
-        transaction.on_commit(on_commit)
+        # `transaction.on_commit` internally hits `ensure_connection()`
+        # which is sync-only; we're in an async handler, so wrap.
+        await sync_to_async(transaction.on_commit, thread_sensitive=True)(on_commit)
 
         # `serializer.data` walks the model's related fields synchronously
         # (FK/M2M access). Wrap in `sync_to_async` for the same reason as
@@ -467,7 +469,7 @@ class ReportViewSet(
                 )
                 handler.handle([saved])
 
-        transaction.on_commit(on_commit)
+        await sync_to_async(transaction.on_commit, thread_sensitive=True)(on_commit)
 
         response_data = await sync_to_async(
             lambda: serializer.data, thread_sensitive=True
