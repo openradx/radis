@@ -338,6 +338,28 @@ EXTERNAL_LLM_PROVIDER_API_KEY = env.str("EXTERNAL_LLM_PROVIDER_API_KEY", default
 LLM_SERVICE_DEV_PORT = env.int("LLM_SERVICE_DEV_PORT", default=8080)
 LLM_SERVICE_URL = env.str("LLM_SERVICE_URL", default=f"http://localhost:{LLM_SERVICE_DEV_PORT}/v1")
 
+# Embedding service (per-deployment, see hybrid-search spec §8.1)
+EMBEDDING_BACKEND = env.str("EMBEDDING_BACKEND", default="openai")
+EMBEDDING_PROVIDER_URL = env.str("EMBEDDING_PROVIDER_URL", default="")
+EMBEDDING_PROVIDER_PATH = env.str("EMBEDDING_PROVIDER_PATH", default="")
+EMBEDDING_PROVIDER_API_KEY = env.str("EMBEDDING_PROVIDER_API_KEY", default="")
+EMBEDDING_MODEL_NAME = env.str("EMBEDDING_MODEL_NAME", default="Qwen/Qwen3-Embedding-4B")
+EMBEDDING_DIM = env.int("EMBEDDING_DIM", default=1024)
+
+# Embedding tuning constants (see hybrid-search spec §8.2)
+EMBEDDING_REQUEST_TIMEOUT = 30
+EMBEDDING_MAX_INPUT_CHARS = 60_000
+EMBEDDING_QUERY_INSTRUCTION = (
+    "Instruct: Given a radiology search query, retrieve relevant radiology reports.\n"
+    "Query: "
+)
+EMBEDDING_BATCH_SIZE = 32
+
+# Hybrid search tuning
+HYBRID_VECTOR_TOP_K = 100
+HYBRID_FTS_MAX_RESULTS = 10_000
+HYBRID_RRF_K = 60
+
 # Chat
 CHAT_GENERATE_TITLE_SYSTEM_PROMPT = """
 Summarize the following conversation in $num_words words or less and in the same language as

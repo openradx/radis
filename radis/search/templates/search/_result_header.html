@@ -12,7 +12,9 @@
     <div>
         <div class="d-flex flex-column">
             <small>Result: #{{ counter|add:offset }}</small>
-            <small>Relevance: {{ document.relevance|floatformat:3 }}</small>
+            <small title="PostgreSQL full-text ts_rank; 0 for vector-only hits">FTS rank: {{ document.relevance|floatformat:3 }}</small>
+            <small title="pgvector cosine distance from the query embedding (lower = more similar)">Cosine dist: {{ document.cosine_distance|floatformat:3|default:"—" }}</small>
+            <small title="Reciprocal Rank Fusion score; this determines the result ordering">RRF score: {{ document.rrf_score|floatformat:4 }}</small>
         </div>
     </div>
 </div>
