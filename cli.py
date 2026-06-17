@@ -254,8 +254,8 @@ def generate_example_reports(
         if param_name not in exclude and param_value not in (None, "", False):
             context_lines.append(f"{param_help}: {str(param_value)}")
 
-    system_prompt = """You are a radiologist. Write a radiology report. 
-    If context is provided, follow all context variables when generating your report. 
+    system_prompt = """You are a radiologist. Write a radiology report.
+    If context is provided, follow all context variables when generating your report.
     Output only the report text."""
     user_prompt = "Write the radiology report."
     context_block = "\n".join(context_lines)

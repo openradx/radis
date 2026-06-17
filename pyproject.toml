@@ -66,6 +66,7 @@ dev = [
     "ipykernel>=6.29.5",
     "ipython>=8.32.0",
     "nest-asyncio>=1.6.0",
+    "pre-commit>=4.0.0",
     "pydicom>=2.4.4",
     "pyright>=1.1.402",
     "pytest>=8.3.4",
