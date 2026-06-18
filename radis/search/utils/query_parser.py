@@ -1,6 +1,7 @@
 import re
 import unicodedata
-from typing import Callable, Literal, cast
+from collections.abc import Callable
+from typing import Literal, cast
 
 import pyparsing as pp
 

@@ -1,4 +1,5 @@
-from typing import Callable, Iterable, NamedTuple
+from collections.abc import Callable, Iterable
+from typing import NamedTuple
 
 from radis.search.site import Search
 

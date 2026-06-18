@@ -5,7 +5,7 @@ import sys
 import time
 import uuid
 from contextlib import nullcontext
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from datetime import time as time_of_day
 from pathlib import Path
 from random import randint
@@ -241,7 +241,7 @@ def generate_example_reports(
     params: dict[str, Any] = ctx.params
 
     if study_date:
-        params["study_date"] = datetime.combine(study_date, time_of_day(12, 0, tzinfo=timezone.utc))
+        params["study_date"] = datetime.combine(study_date, time_of_day(12, 0, tzinfo=UTC))
 
     # Build prompt context from the command parameters
     context_lines = []  # All parameter values are given as context to the LLM except for below
@@ -386,7 +386,7 @@ def _create_report_data(
         patient_sex=params.get("patient_sex") or faker.random_element(elements=("M", "F", "O")),
         study_description=params.get("study_description") or faker.text(max_nb_chars=64),
         study_datetime=params.get("study_date")
-        or faker.date_time_between(start_date="-5y", end_date="now", tzinfo=timezone.utc),
+        or faker.date_time_between(start_date="-5y", end_date="now", tzinfo=UTC),
         study_instance_uid=generate_uid(),
         accession_number=faker.numerify("############"),
         modalities=[params.get("modality") or "CT"],
