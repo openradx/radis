@@ -281,9 +281,10 @@ class ExtractionJobWizardView(
         return redirect(job)
 
 
-class ExtractionSearchPreviewView(LoginRequiredMixin, View):
+class ExtractionSearchPreviewView(LoginRequiredMixin, PermissionRequiredMixin, View):
     """HTMX endpoint for live search preview: count and link."""
 
+    permission_required = "extractions.add_extractionjob"
     request: AuthenticatedHttpRequest
 
     def get(self, request: AuthenticatedHttpRequest):
@@ -449,9 +450,10 @@ class ExtractionJobResumeView(ExtractionsLockedMixin, AnalysisJobResumeView):
     model = ExtractionJob
 
 
-class ExtractionQueryGeneratorView(LoginRequiredMixin, View):
+class ExtractionQueryGeneratorView(LoginRequiredMixin, PermissionRequiredMixin, View):
     """HTMX endpoint for async query generation from output fields."""
 
+    permission_required = "extractions.add_extractionjob"
     request: AuthenticatedHttpRequest
 
     async def post(self, request: AuthenticatedHttpRequest):
