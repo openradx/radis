@@ -216,9 +216,9 @@ class TestAnalysisJob:
         expected_time = timezone.now()
         assert abs((job.ended_at - expected_time).total_seconds()) < 1
         # Verify that it normalized to UTC
-        assert job.ended_at.tzinfo == datetime.timezone.utc
+        assert job.ended_at.tzinfo == datetime.UTC
         # Verify the UTC conversion is correct
-        expected_utc = expected_time.astimezone(datetime.timezone.utc)
+        expected_utc = expected_time.astimezone(datetime.UTC)
         assert abs((job.ended_at - expected_utc).total_seconds()) < 1
 
     @pytest.mark.django_db

@@ -1,4 +1,4 @@
-from typing import Any, Type, cast
+from typing import Any, cast
 
 from adit_radis_shared.common.mixins import (
     PageSizeSelectMixin,
@@ -253,7 +253,7 @@ class ExtractionResultListView(
 
     def get_queryset(self) -> QuerySet[ExtractionJob]:
         assert self.model
-        model = cast(Type[ExtractionJob], self.model)
+        model = cast(type[ExtractionJob], self.model)
         if self.request.user.is_staff:
             return model.objects.all()
         return model.objects.filter(owner=self.request.user)

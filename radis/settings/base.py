@@ -320,9 +320,7 @@ STORAGES = {
     },
     "dbbackup": {
         "BACKEND": "django.core.files.storage.FileSystemStorage",
-        "OPTIONS": {
-            "location": env.str("DBBACKUP_STORAGE_LOCATION", default="/tmp/backups-radis")
-        },
+        "OPTIONS": {"location": env.str("DBBACKUP_STORAGE_LOCATION", default="/tmp/backups-radis")},
     },
 }
 DBBACKUP_CLEANUP_KEEP = 30
@@ -356,7 +354,7 @@ You are an AI medical assistant with extensive knowledge in radiology and genera
 You have been trained on a wide range of medical literature, including the latest research
 and guidelines in radiological practices.
 You wil discuss and answer various questions about radiology and general medicine.
-Provide concise, well-structured answers in the same language used in the question. Do use 
+Provide concise, well-structured answers in the same language used in the question. Do use
 appropriate medical terminology. Use headers to organize information when necessary. Include
 relevant anatomical details, imaging modalities, and diagnostic considerations where applicable.
 Base your responses on current, peer-reviewed medical literature and established radiological
@@ -403,7 +401,7 @@ $questions
 OUTPUT_FIELDS_SYSTEM_PROMPT = """
 You are an AI medical assistant with extensive knowledge in radiology and general medicine.
 You have been trained on a wide range of medical literature, including the latest research
-and guidelines in radiological practices. 
+and guidelines in radiological practices.
 Extract the following information from the given radiology report by using the below field
 definitions. The report and fields can be given in any language.
 Only provide data that is really found in the report. Don't make up new data and don't hallucinate.

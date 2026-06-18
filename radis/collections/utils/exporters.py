@@ -40,11 +40,11 @@ def export_collection(collection: Collection) -> BytesIO:
 
     file = BytesIO()
     with pd.ExcelWriter(
-        file,  # type: ignore
+        file,
         date_format=formats.get_format("SHORT_DATE_FORMAT"),
         engine="openpyxl",
     ) as writer:
-        df = pd.DataFrame(rows, columns=header)  # type: ignore
+        df = pd.DataFrame(rows, columns=header)
         df.to_excel(writer, index=False)
 
     return file

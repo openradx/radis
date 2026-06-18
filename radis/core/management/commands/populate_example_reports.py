@@ -56,7 +56,7 @@ class Command(BaseCommand):
             raise ValueError(f"Language {language} is not supported.")
 
         samples_path = Path(settings.BASE_PATH / "samples" / sample_file)
-        with open(samples_path, "r") as f:
+        with open(samples_path, encoding="utf-8") as f:
             report_bodies = json.load(f)
 
         self.stdout.write(
