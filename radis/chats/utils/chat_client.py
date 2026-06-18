@@ -1,5 +1,6 @@
 import logging
-from typing import Iterable, NoReturn
+from collections.abc import Iterable
+from typing import NoReturn
 
 import openai
 from django.conf import settings

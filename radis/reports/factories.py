@@ -1,5 +1,5 @@
 import random
-from datetime import timezone
+from datetime import UTC
 
 import factory
 from faker import Faker
@@ -58,7 +58,7 @@ class ReportFactory(BaseDjangoModelFactory[Report]):
     patient_birth_date = factory.Faker("date_of_birth", minimum_age=15)
     patient_sex = factory.Faker("random_element", elements=["M", "F", "O"])
     study_description = factory.Faker("text", max_nb_chars=64)
-    study_datetime = factory.Faker("date_time_between", start_date="-10y", tzinfo=timezone.utc)
+    study_datetime = factory.Faker("date_time_between", start_date="-10y", tzinfo=UTC)
     study_instance_uid = factory.LazyFunction(generate_uid)
     accession_number = factory.Faker("numerify", text="############")
     metadata = factory.RelatedFactoryList(

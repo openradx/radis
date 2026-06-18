@@ -1,7 +1,7 @@
 import csv
 from collections.abc import Generator
 from logging import getLogger
-from typing import Any, Type, cast
+from typing import Any, cast
 
 from adit_radis_shared.accounts.models import User
 from adit_radis_shared.common.mixins import (
@@ -209,7 +209,7 @@ class SubscriptionInboxView(
 
     def get_queryset(self) -> QuerySet[Subscription]:
         assert self.model
-        model = cast(Type[Subscription], self.model)
+        model = cast(type[Subscription], self.model)
         user = cast(User, self.request.user)
         if user.is_staff:
             return model.objects.all()
@@ -311,7 +311,7 @@ class SubscriptionInboxDownloadView(LoginRequiredMixin, RelatedFilterMixin, Deta
     def get_queryset(self) -> QuerySet[Subscription]:
         """Return only subscriptions owned by the current user."""
         assert self.model
-        model = cast(Type[Subscription], self.model)
+        model = cast(type[Subscription], self.model)
         user = cast(User, self.request.user)
         if user.is_staff:
             return model.objects.all()

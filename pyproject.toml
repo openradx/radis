@@ -5,9 +5,9 @@ authors = [{ name = "Kai Schlamp" }]
 license = "AGPL-3.0-or-later"
 version = "0.0.0"
 readme = "README.md"
-requires-python = ">=3.12,<4.0"
+requires-python = ">=3.12"
 dependencies = [
-    "adit-radis-shared @ git+https://github.com/openradx/adit-radis-shared.git@0.19.1",
+    "adit-radis-shared @ git+https://github.com/openradx/adit-radis-shared.git@0.23.0",
     "adrf>=0.1.9",
     "aiofiles>=24.1.0",
     "asyncinotify>=4.2.0",
@@ -19,7 +19,7 @@ dependencies = [
     "django-block-fragments>=0.1.1",
     "django-cotton>=1.6.0",
     "django-crispy-forms>=2.3",
-    "django-dbbackup>=4.2.1",
+    "django-dbbackup>=5.3.0",
     "django-extensions>=3.2.3",
     "django-filter>=25.1",
     "django-formtools>=2.5.1",
@@ -47,6 +47,9 @@ dependencies = [
     "xlsxwriter>=3.2.2",
 ]
 
+[project.scripts]
+cli = "cli:app"
+
 [dependency-groups]
 docs = ["mkdocs-material>=9.7.0", "mkdocs-minify-plugin>=0.8.0"]
 dev = [
@@ -62,7 +65,8 @@ dev = [
     "Faker>=36.1.1",
     "ipykernel>=6.29.5",
     "ipython>=8.32.0",
-    "nest-asyncio>=1.6.0",
+    "nest-asyncio2>=1.7.2",
+    "pre-commit>=4.0.0",
     "pydicom>=2.4.4",
     "pyright>=1.1.402",
     "pytest>=8.3.4",
@@ -85,9 +89,6 @@ dev = [
 ]
 client = ["radis-client"]
 
-[project.scripts]
-cli = "cli:app"
-
 [tool.uv]
 default-groups = ["dev", "client", "docs"]
 constraint-dependencies = ["autobahn<25.11.1"]
@@ -100,7 +101,7 @@ ignore = ["**/migrations", "**/*.ipynb"]
 typeCheckingMode = "basic"
 reportUnnecessaryTypeIgnoreComment = true
 
-[tool.pytest.ini_options]
+[tool.pytest]
 DJANGO_SETTINGS_MODULE = "radis.settings.development"
 python_files = ["tests.py", "test_*.py", "*_tests.py"]
 testpaths = ["radis/**/tests", "radis-client/**/tests"]
@@ -115,7 +116,7 @@ filterwarnings = [
     'ignore:.*use of fork\(\) may lead to deadlocks.*:DeprecationWarning',
     "ignore:.*Converter 'drf_format_suffix' is already registered.*",
 ]
-timeout = 60
+timeout = "60"
 
 [tool.coverage.run]
 branch = true
@@ -129,16 +130,16 @@ show_missing = true
 target-version = "py312"
 exclude = ["migrations", "notebooks"]
 line-length = 100
-lint.select = ["E", "F", "I", "DJ"]
+lint.select = ["E", "F", "I", "DJ", "UP"]
 
 [tool.djlint]
 profile = "django"
 max_line_length = 120
 ignore = "H021,H030,H031,T002"
 
+[tool.hatch.metadata]
+allow-direct-references = true
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
-
-[tool.hatch.metadata]
-allow-direct-references = true

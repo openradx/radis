@@ -1,5 +1,5 @@
 x-app: &default-app
-  image: ghcr.io/openradx/radis:latest
+  image: ${RADIS_IMAGE:-ghcr.io/openradx/radis:latest}
   volumes:
     - web_data:/var/www/web
     - ${SSL_SERVER_CERT_FILE:?}:/etc/web/ssl/cert.pem
@@ -26,7 +26,7 @@ services:
     hostname: init.local
     command: >
       bash -c "
-        wait-for-it -s postgres.local:5432 -t 120 && 
+        wait-for-it -s postgres.local:5432 -t ${WAIT_POSTGRES_TIMEOUT:-180} &&
         ./manage.py migrate &&
         ./manage.py collectstatic --no-input &&
         ./manage.py create_superuser &&
@@ -52,7 +52,7 @@ services:
           radis.asgi:application
       "
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost/health/"]
+      test: ["CMD", "curl", "-fk", "https://localhost/health/"]
     deploy:
       <<: *deploy
       replicas: 3
@@ -61,7 +61,7 @@ services:
     <<: *default-app
     command: >
       bash -c "
-        wait-for-it -s postgres.local:5432 -t 60 &&
+        wait-for-it -s postgres.local:5432 -t ${WAIT_POSTGRES_TIMEOUT:-180} &&
         ./manage.py bg_worker -q default
       "
     deploy:
@@ -71,7 +71,7 @@ services:
     <<: *default-app
     command: >
       bash -c "
-        wait-for-it -s postgres.local:5432 -t 60 &&
+        wait-for-it -s postgres.local:5432 -t ${WAIT_POSTGRES_TIMEOUT:-180} &&
         ./manage.py bg_worker -q llm
       "
     deploy:

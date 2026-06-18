@@ -1,6 +1,7 @@
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import date, datetime
-from typing import Callable, Literal, NamedTuple
+from typing import Literal, NamedTuple
 
 from radis.reports.models import Report
 from radis.search.utils.query_parser import QueryNode

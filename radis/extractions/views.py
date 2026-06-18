@@ -1,6 +1,6 @@
 import csv
 from collections.abc import Generator
-from typing import Any, Type, Union, cast
+from typing import Any, cast
 from urllib.parse import urlencode
 
 from adit_radis_shared.accounts.models import User
@@ -386,7 +386,7 @@ class ExtractionSearchPreviewView(LoginRequiredMixin, View):
         retrieval_count = extraction_retrieval_provider.count(search)
 
         # Generate search URL with codes (FIX: use codes not PKs!)
-        search_params: dict[str, Union[str, list[str]]] = {"query": query_str}
+        search_params: dict[str, str | list[str]] = {"query": query_str}
 
         if language_code:
             search_params["language"] = language_code
@@ -630,7 +630,7 @@ class ExtractionResultListView(
 
     def get_queryset(self) -> QuerySet[ExtractionJob]:
         assert self.model
-        model = cast(Type[ExtractionJob], self.model)
+        model = cast(type[ExtractionJob], self.model)
         if self.request.user.is_staff:
             return model.objects.all()
         return model.objects.filter(owner=self.request.user)
@@ -667,7 +667,7 @@ class ExtractionResultDownloadView(ExtractionsLockedMixin, LoginRequiredMixin, D
     def get_queryset(self) -> QuerySet[ExtractionJob]:
         """Return the accessible extraction jobs for the current user."""
         assert self.model
-        model = cast(Type[ExtractionJob], self.model)
+        model = cast(type[ExtractionJob], self.model)
         if self.request.user.is_staff:
             return model.objects.all()
         return model.objects.filter(owner=self.request.user)

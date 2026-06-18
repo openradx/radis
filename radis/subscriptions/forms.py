@@ -77,13 +77,13 @@ class SubscriptionForm(forms.ModelForm):
             )
         )
 
-    def clean_age_from(self) -> int:
+    def clean_age_from(self) -> int | None:
         age_from = self.cleaned_data["age_from"]
         if age_from is not None and age_from % AGE_STEP != 0:
             raise forms.ValidationError(f"Age from must be a multiple of {AGE_STEP}")
         return age_from
 
-    def clean_age_till(self) -> int:
+    def clean_age_till(self) -> int | None:
         age_till = self.cleaned_data["age_till"]
         if age_till is not None and age_till % AGE_STEP != 0:
             raise forms.ValidationError(f"Age till must be a multiple of {AGE_STEP}")

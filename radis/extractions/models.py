@@ -1,4 +1,4 @@
-from typing import Callable
+from collections.abc import Callable
 
 from adit_radis_shared.common.models import AppSettings
 from django.conf import settings

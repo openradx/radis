@@ -1,22 +1,15 @@
 {
-  "cSpell.diagnosticLevel": "Hint",
-  "docker.containers.label": "ContainerName",
-  "editor.formatOnSave": true,
-  "evenBetterToml.schema.enabled": false,
-  "javascript.validate.enable": true,
-  "js/ts.implicitProjectConfig.checkJs": true,
-  "notebook.formatOnSave.enabled": true,
-  "notebook.codeActionsOnSave": {
-    "notebook.source.fixAll": "explicit",
-    "notebook.source.organizeImports": "explicit"
-  },
-  "python.analysis.typeCheckingMode": "off",
-  "python.defaultInterpreterPath": "${workspaceFolder}/.venv/bin/python",
-  "python.testing.pytestArgs": ["radis"],
-  "python.testing.pytestEnabled": true,
-  "python.testing.unittestEnabled": false,
   "[css]": {
     "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  "[dockercompose]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  "[dockerfile]": {
+    "editor.defaultFormatter": "ms-azuretools.vscode-containers"
+  },
+  "[html][django-html]": {
+    "editor.defaultFormatter": "monosans.djlint"
   },
   "[javascript]": {
     "editor.defaultFormatter": "esbenp.prettier-vscode"
@@ -26,15 +19,6 @@
   },
   "[jsonc]": {
     "editor.defaultFormatter": "esbenp.prettier-vscode"
-  },
-  "[dockercompose]": {
-    "editor.defaultFormatter": "esbenp.prettier-vscode"
-  },
-  "[dockerfile]": {
-    "editor.defaultFormatter": "ms-azuretools.vscode-docker"
-  },
-  "[html][django-html]": {
-    "editor.defaultFormatter": "monosans.djlint"
   },
   "[markdown]": {
     "editor.defaultFormatter": "esbenp.prettier-vscode"
@@ -76,5 +60,21 @@
     "HTML (EEx)",
     "HTML (Eex)",
     "plist"
-  ]
+  ],
+  "cSpell.diagnosticLevel": "Hint",
+  "docker.containers.label": "ContainerName",
+  "editor.formatOnSave": true,
+  "evenBetterToml.schema.enabled": false,
+  "javascript.validate.enable": true,
+  "js/ts.implicitProjectConfig.checkJs": true,
+  "notebook.codeActionsOnSave": {
+    "notebook.source.fixAll": "explicit",
+    "notebook.source.organizeImports": "explicit"
+  },
+  "notebook.formatOnSave.enabled": true,
+  "python.analysis.typeCheckingMode": "off",
+  "python.defaultInterpreterPath": "${workspaceFolder}/.venv/bin/python",
+  "python.testing.pytestArgs": ["radis"],
+  "python.testing.pytestEnabled": true,
+  "python.testing.unittestEnabled": false
 }

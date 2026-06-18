@@ -24,6 +24,11 @@ def initialize_debugger():
 def main():
     os.environ.setdefault("DJANGO_SETTINGS_MODULE", "radis.settings.development")
 
+    # Initialize OpenTelemetry before Django loads to ensure all requests are traced
+    from adit_radis_shared.telemetry import setup_opentelemetry
+
+    setup_opentelemetry()
+
     initialize_debugger()
 
     try:
