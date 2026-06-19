@@ -1,6 +1,5 @@
 import logging
-from datetime import datetime
-from datetime import timezone as dt_timezone
+from datetime import UTC, datetime
 
 from django.conf import settings
 from django.db.models import QuerySet
@@ -103,7 +102,7 @@ def process_labeling_task(task_id: int) -> None:
 @app.task()
 def incremental_label_scan(timestamp: int) -> None:
     # Procrastinate passes the scheduled tick time; use it so the scan window tracks the cron.
-    now = datetime.fromtimestamp(timestamp, tz=dt_timezone.utc)
+    now = datetime.fromtimestamp(timestamp, tz=UTC)
     checkpoint, _ = LabelingScanCheckpoint.objects.get_or_create(pk=1)
 
     if LabelingJob.objects.filter(status__in=LabelingJob.ACTIVE_STATUSES).exists():
