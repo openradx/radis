@@ -13,7 +13,7 @@ from rest_framework.request import Request, clone_request
 from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
 
-from radis.pgsearch.tasks import enqueue_bulk_index_reports
+from radis.pgsearch.tasks import embed_reports_task, enqueue_bulk_index_reports
 from radis.pgsearch.utils.indexing import bulk_upsert_report_search_vectors
 
 from ..models import Language, Metadata, Modality, Report
@@ -259,7 +259,11 @@ def _bulk_upsert_reports(
             if touched_report_ids:
                 if settings.PGSEARCH_SYNC_INDEXING:
                     bulk_upsert_report_search_vectors(touched_report_ids)
+                    embed_reports_task.defer(report_ids=touched_report_ids)
                 else:
+                    # bulk_index_reports chains into embed_reports_task at the
+                    # end of its run, so embedding always follows FTS regardless
+                    # of which mode is active.
                     enqueue_bulk_index_reports(touched_report_ids)
 
         transaction.on_commit(on_commit)
@@ -322,6 +326,7 @@ class ReportViewSet(
                 document_ids = [report.document_id for report in reports]
                 logger.debug(f"{handler.name} - handle newly created reports: {document_ids}")
                 handler.handle(reports)
+            embed_reports_task.defer(report_ids=[report.pk for report in reports])
 
         transaction.on_commit(on_commit)
 
@@ -429,6 +434,7 @@ class ReportViewSet(
                 document_ids = [report.document_id for report in reports]
                 logger.debug(f"{handler.name} - handle updated reports: {document_ids}")
                 handler.handle(reports)
+            embed_reports_task.defer(report_ids=[report.pk for report in reports])
 
         transaction.on_commit(on_commit)
 
