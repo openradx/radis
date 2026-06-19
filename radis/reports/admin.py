@@ -65,6 +65,8 @@ class LabelResultInline(admin.TabularInline):
     extra = 0
     can_delete = False
     readonly_fields = ("label", "value", "generated_at")
+    # `label` is read-only here and the inline disables adds, so this never renders today;
+    # kept so that if `label` is ever made editable it degrades to an ID input.
     raw_id_fields = ("label",)
 
     def has_add_permission(self, request: HttpRequest, obj: object = None) -> bool:

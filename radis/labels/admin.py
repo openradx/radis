@@ -48,6 +48,9 @@ class LabelResultAdmin(_ReadOnlyAdmin):
     list_display = ("report", "label", "value", "is_stale", "generated_at")
     list_filter = ("value", "label")
     search_fields = ("report__document_id", "label__name")
+    # Inert while this admin is read-only (read-only fields never render as editable widgets),
+    # but kept as a safety net: if the read-only guard is ever loosened, these degrade to ID
+    # inputs instead of a <select> dropdown over the huge Report table.
     raw_id_fields = ("report", "label")
 
     @admin.display(boolean=True, description="Stale")
@@ -60,6 +63,8 @@ class GateAnswerAdmin(_ReadOnlyAdmin):
     list_display = ("report", "label_group", "value", "is_stale", "generated_at")
     list_filter = ("value", "label_group")
     search_fields = ("report__document_id", "label_group__name")
+    # See LabelResultAdmin: inert under read-only, kept so a future editable admin degrades to
+    # ID inputs instead of a dropdown over the huge Report table.
     raw_id_fields = ("report", "label_group")
 
     @admin.display(boolean=True, description="Stale")
@@ -146,4 +151,6 @@ class LabelingJobAdmin(admin.ModelAdmin):
 class LabelingTaskAdmin(_ReadOnlyAdmin):
     list_display = ("id", "job", "status", "started_at", "ended_at")
     list_filter = ("status",)
+    # Inert under read-only; kept for consistency with the other label admins so a future
+    # editable admin degrades to an ID input rather than a full LabelingJob dropdown.
     raw_id_fields = ("job",)
