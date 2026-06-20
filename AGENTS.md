@@ -59,7 +59,7 @@ uv run cli db-backup                 # Backup database
 - **radis.notes/**: User annotations on reports for adding context.
 - **radis.chats/**: Chat functionality for interacting with reports using LLM.
 - **radis.extractions/**: Data extraction from reports using LLM. Models: `ExtractionJob`, `ExtractionTask`.
-- **radis.labels/**: LLM auto-labeling of reports. A per-group Yes/No/Maybe gate screens applicability, then each active label is classified into one of five buckets (`PRESENT`/`LIKELY`/`POSSIBLE`/`ABSENT`/`UNMENTIONED`); the three surfacing buckets drive report-detail badges and the label filter in the search Filters panel. Models: `LabelGroup`, `Label`, `LabelResult`, `GateAnswer`, `LabelingScanCheckpoint`, `LabelingJob`, `LabelingTask`.
+- **radis.labels/**: LLM auto-labeling of reports. A per-group Yes/No gate screens applicability, then each active label is classified into one of five buckets (`PRESENT`/`LIKELY`/`POSSIBLE`/`ABSENT`/`UNMENTIONED`); the three surfacing buckets drive report-detail badges and the label filter in the search Filters panel. Models: `LabelGroup`, `Label`, `LabelResult`, `GateAnswer`, `LabelingScanCheckpoint`, `LabelingJob`, `LabelingTask`.
 
 Shared utilities come from `adit-radis-shared` package (accounts, token auth, common utilities).
 
@@ -110,7 +110,7 @@ Key variables in `.env` (see `example.env`):
 Auto-labeling (`radis.labels`):
 
 - `LABELING_SYSTEM_PROMPT`: Generic per-label classification prompt (only `$report` is substituted). Has a built-in default.
-- `LABELING_GATE_SYSTEM_PROMPT`: Generic group gate (Yes/No/Maybe) prompt. Has a built-in default.
+- `LABELING_GATE_SYSTEM_PROMPT`: Generic group gate (Yes/No) prompt. Has a built-in default.
 - `LABELING_JOB_PRIORITY`: Procrastinate priority for labeling jobs (default `1`).
 - `LABELING_TASK_BATCH_SIZE`: Reports per labeling task (default `100`).
 - `LABELING_LLM_CONCURRENCY_LIMIT`: Max concurrent LLM calls per task (default `6`).
@@ -224,6 +224,6 @@ reports = response.json()
 
 - Confirm the label exists and is `active`
 - Ensure a backfill has run or the periodic scan (`LABELING_SCAN_CRON`) has ticked since the label/report was created
-- Check the group gate was answered `YES`/`MAYBE` for the report (a `NO` gate skips per-label classification)
+- Check the group gate was answered `YES` for the report (a `NO` gate skips per-label classification)
 - Verify the result is a surfacing bucket (`PRESENT`/`LIKELY`/`POSSIBLE`); `ABSENT`/`UNMENTIONED` never surface
 - Use `uv run cli shell` + `labels_status` (or `manage.py labels_status`) to inspect corpus-wide counts and the scan checkpoint
