@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 def label_report(report_id: int) -> None:
     """Classify one report against all active label groups using the gate-then-label flow.
 
-    The single function used by both execution paths (Plan 2). Nothing in its control flow
+    The single function used by both execution paths. Nothing in its control flow
     branches on a label's bucket value — the LLM returns a bucket per label and it is stored
     as-is.
     """

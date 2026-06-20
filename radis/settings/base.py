@@ -486,7 +486,7 @@ LABELING_TASK_BATCH_SIZE = env.int("LABELING_TASK_BATCH_SIZE", default=100)
 LABELING_LLM_CONCURRENCY_LIMIT = env.int("LABELING_LLM_CONCURRENCY_LIMIT", default=6)
 LABELING_GATE_BATCH_SIZE = env.int("LABELING_GATE_BATCH_SIZE", default=10)
 
-# Cron schedule for the periodic incremental scan (default: daily at 2 AM). Used in Plan 2.
+# Cron schedule for the periodic incremental scan (default: daily at 2 AM).
 LABELING_SCAN_CRON = env.str("LABELING_SCAN_CRON", default="0 2 * * *")
 
 # The priority for stalled jobs that are retried.
