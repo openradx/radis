@@ -1,4 +1,4 @@
-"""Tests for `embed_reports_task` and the `bulk_index_reports` → embedding chain."""
+"""Tests for `embed_reports_task`."""
 import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 from radis.pgsearch.models import ReportSearchVector
-from radis.pgsearch.tasks import bulk_index_reports, embed_reports_task
+from radis.pgsearch.tasks import embed_reports_task
 from radis.pgsearch.utils.embedding_client import EmbeddingClientError
 from radis.reports.factories import ReportFactory
 
@@ -35,6 +35,9 @@ def test_empty_input_no_ops():
 
 
 def test_no_matching_rsvs_no_ops():
+    """Report ids that don't resolve to actual reports must not blow up;
+    bulk_upsert_report_search_vectors logs+skips missing rows and the task
+    returns without calling the embedding service."""
     with patch("radis.pgsearch.tasks.AsyncEmbeddingClient") as client_cls:
         asyncio.run(embed_reports_task(report_ids=[999_999]))
     client_cls.assert_not_called()
@@ -73,14 +76,23 @@ def test_embedding_error_propagates():
     assert ReportSearchVector.objects.filter(embedding__isnull=True).count() == 2
 
 
-def test_bulk_index_reports_chains_into_embed_reports_task():
-    """When PGSEARCH_SYNC_INDEXING=False, the deferred FTS task must enqueue
-    the embedding task at the end so embedding always follows FTS."""
-    reports = [ReportFactory.create() for _ in range(3)]
+def test_ensures_rsv_rows_exist_before_embedding(settings):
+    """If a report has no ReportSearchVector yet (e.g., bulk_index_reports
+    hasn't run, or an admin/shell edit bypassed the signal), the embed task
+    must create the row + tsvector before reading body. This is the safety
+    net that lets the handler enqueue embed without waiting for the
+    deferred FTS task to land first."""
+    reports = [ReportFactory.create() for _ in range(2)]
     pks = [r.pk for r in reports]
+    ReportSearchVector.objects.filter(report_id__in=pks).delete()
+    assert ReportSearchVector.objects.filter(report_id__in=pks).count() == 0
 
-    with patch("radis.pgsearch.tasks.embed_reports_task") as task:
-        bulk_index_reports(report_ids=pks)
+    vec = _unit_vec(settings.EMBEDDING_DIM)
+    fake = _make_fake_async_client(vec)
+    with patch("radis.pgsearch.tasks.AsyncEmbeddingClient", return_value=fake):
+        asyncio.run(embed_reports_task(report_ids=pks))
 
-    task.defer.assert_called_once()
-    assert sorted(task.defer.call_args.kwargs["report_ids"]) == sorted(pks)
+    rsvs = ReportSearchVector.objects.filter(report_id__in=pks)
+    assert rsvs.count() == 2
+    assert rsvs.filter(search_vector__isnull=True).count() == 0
+    assert rsvs.filter(embedding__isnull=True).count() == 0

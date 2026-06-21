@@ -71,12 +71,43 @@ def check_embedding_dim_matches_migration(app_configs, **kwargs):
     return []
 
 
+def _handle_reports_changed(reports):
+    """pgsearch's subscriber on reports_created_handlers / reports_updated_handlers.
+
+    Owns both FTS indexing and embedding for the touched reports. The mode
+    flag `PGSEARCH_SYNC_INDEXING` controls whether FTS runs inline on the
+    request thread or is deferred to a Procrastinate task on the `default`
+    queue. Embedding is always deferred to the `embeddings` queue; the
+    embed task is itself defensive about RSV rows being absent (see
+    `embed_reports_task`), so it doesn't need to wait for the deferred FTS
+    task to finish.
+    """
+    if not reports:
+        return
+
+    from radis.pgsearch.tasks import embed_reports_task, enqueue_bulk_index_reports
+    from radis.pgsearch.utils.indexing import bulk_upsert_report_search_vectors
+
+    report_ids = [report.pk for report in reports]
+    if settings.PGSEARCH_SYNC_INDEXING:
+        bulk_upsert_report_search_vectors(report_ids)
+    else:
+        enqueue_bulk_index_reports(report_ids)
+    embed_reports_task.defer(report_ids=report_ids)
+
+
 def register_app():
     from django.conf import settings
 
     from radis.extractions.site import (
         ExtractionRetrievalProvider,
         register_extraction_retrieval_provider,
+    )
+    from radis.reports.site import (
+        ReportsCreatedHandler,
+        ReportsUpdatedHandler,
+        register_reports_created_handler,
+        register_reports_updated_handler,
     )
     from radis.search.site import SearchProvider, register_search_provider
     from radis.subscriptions.site import (
@@ -87,6 +118,13 @@ def register_app():
     )
 
     from .providers import count, filter, retrieve, search
+
+    register_reports_created_handler(
+        ReportsCreatedHandler(name="PG Search", handle=_handle_reports_changed)
+    )
+    register_reports_updated_handler(
+        ReportsUpdatedHandler(name="PG Search", handle=_handle_reports_changed)
+    )
 
     register_search_provider(
         SearchProvider(

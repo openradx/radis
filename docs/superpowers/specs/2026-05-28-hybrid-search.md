@@ -62,29 +62,35 @@ The public `SearchProvider` API (`radis.search.site`) is unchanged. Callers — 
 └──────────────────────────────────────────────────────────────────────┘
 
 ┌──────────────────────────────────────────────────────────────────────┐
-│  Async indexing path  (deferred via Procrastinate)                   │
+│  Async indexing path  (handler-registry → deferred via Procrastinate)│
 │                                                                      │
 │  Report view  (single-create / PUT / bulk-upsert)                    │
 │        │                                                             │
 │        ▼  transaction.atomic() block                                 │
 │  ReportSerializer / bulk_upsert_reports                              │
 │    ├─ DB write (Report rows)                                         │
-│    ├─ FTS path creates ReportSearchVector(embedding=NULL):           │
-│    │     post_save signal (single) or                                │
-│    │     sync `bulk_upsert_report_search_vectors` (bulk, when        │
-│    │     PGSEARCH_SYNC_INDEXING=True) or                             │
-│    │     deferred `bulk_index_reports` (bulk, default; chains into   │
-│    │     embed_reports_task at its end — see §6.6)                   │
-│    └─ transaction.on_commit registers:                               │
-│           embed_reports_task.defer(report_ids=touched_pks)           │
-│           (sync FTS paths only — the deferred FTS task chains the    │
-│           embed enqueue itself; see §6.6)                            │
+│    └─ transaction.on_commit:                                         │
+│         dispatches reports_created_handlers / reports_updated_       │
+│         handlers (radis.reports.site registry) with the touched      │
+│         Report instances                                             │
+│        │                                                             │
+│        ▼  (one of the registered subscribers is pgsearch:)           │
+│  pgsearch._handle_reports_changed(reports)                           │
+│    ├─ FTS step (mode-dependent):                                     │
+│    │     PGSEARCH_SYNC_INDEXING=True  → bulk_upsert_report_search_   │
+│    │       vectors(report_ids) inline                                │
+│    │     PGSEARCH_SYNC_INDEXING=False → enqueue_bulk_index_reports   │
+│    │       (deferred to the `default` queue)                         │
+│    └─ embed_reports_task.defer(report_ids=...)                       │
 │        │                                                             │
 │        ▼  HTTP response returned (201 / 200) immediately             │
 │                                                                      │
 │  ──── elsewhere, on the embeddings_worker process ────               │
 │                                                                      │
 │  embed_reports_task(report_ids)   (async task, embeddings queue)     │
+│    ├─ defensive: bulk_upsert_report_search_vectors(report_ids)       │
+│    │   (idempotent; ensures RSV rows + tsvector exist when this      │
+│    │   task wins the race against deferred bulk_index_reports)       │
 │    ├─ load RSVs (database_sync_to_async)                             │
 │    ├─ await AsyncEmbeddingClient.embed_documents([body, ...])        │
 │    ├─ L2-normalize; ReportSearchVector.objects.bulk_update           │
@@ -93,11 +99,14 @@ The public `SearchProvider` API (`radis.search.site`) is unchanged. Callers — 
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
-Both ingest paths — single-create (`POST /api/reports/`, `PUT /api/reports/{id}/?upsert=true`) and bulk-upsert (`POST /api/reports/bulk-upsert/`) — enqueue an async Procrastinate task on the dedicated `embeddings` queue. The write path returns immediately after the transaction commits; the embedding service is touched only by the worker. This:
+`radis.reports` already exposes a handler registry (`reports_created_handlers` / `reports_updated_handlers` in `radis.reports.site`) whose docstring is explicit about its purpose: *"The handler can be used to index those reports in an external search database."* Pgsearch registers `_handle_reports_changed` on both. The view layer never imports anything from `pgsearch`; it only dispatches the registry.
+
+Both ingest paths — single-create (`POST /api/reports/`, `PUT /api/reports/{id}/?upsert=true`) and bulk-upsert (`POST /api/reports/bulk-upsert/`) — flow through the same handler, which defers an async Procrastinate task on the dedicated `embeddings` queue. The write path returns immediately after the transaction commits; the embedding service is touched only by the worker. This:
 
 - **Decouples write-path uptime from the embedding service.** API responses succeed even when the embedding endpoint is down or slow.
 - **Bounds concurrent load on the embedding service** via the worker's `--concurrency K` — explicit, configurable backpressure rather than implicit request-driven concurrency.
 - **Auto-recovers from transient outages** via Procrastinate's retry policy with exponential backoff.
+- **Inverts the dependency** so `radis.reports` stays unaware of search/indexing concerns; adding or swapping a search provider is a registration call, not a view edit.
 - **Symmetric across single-create and bulk-upsert** — one enqueue site, one task, one worker.
 
 **Components added inside `radis.pgsearch`:**
@@ -105,11 +114,12 @@ Both ingest paths — single-create (`POST /api/reports/`, `PUT /api/reports/{id
 | File | Purpose |
 |---|---|
 | `utils/embedding_client.py` | `EmbeddingClient` (sync, used by the query path) + `AsyncEmbeddingClient` (async, used by `embed_reports_task` on the worker); pluggable backends (`openai`, `ollama`) |
-| `tasks.py` (embedding entries) | `embed_reports_task(report_ids)` async Procrastinate task on the `embeddings` queue. Looks up RSVs via `database_sync_to_async`, calls `AsyncEmbeddingClient.embed_documents`, bulk-updates the column. Raises on `EmbeddingClientError` so the Procrastinate retry policy applies. |
+| `apps.py` (modified) | `register_app()` now also registers `_handle_reports_changed` on both `reports_created_handlers` and `reports_updated_handlers`. The handler runs FTS (sync or deferred per `PGSEARCH_SYNC_INDEXING`) + defers `embed_reports_task` for the touched reports. This is the only place pgsearch wires itself into the reports app. |
+| `tasks.py` (embedding entries) | `embed_reports_task(report_ids)` async Procrastinate task on the `embeddings` queue. Defensively calls `bulk_upsert_report_search_vectors` first to ensure RSV rows exist (covers the race with deferred FTS, plus shell/admin edits), then `AsyncEmbeddingClient.embed_documents`, then `bulk_update`. Raises on `EmbeddingClientError` so the Procrastinate retry policy applies. |
 | `migrations/0002_hybrid_search.py` | Single schema migration: `CREATE EXTENSION vector`; adds `embedding vector(N)` column + HNSW index |
 | `models.py` (modified) | Adds `embedding` field + `HnswIndex` to `ReportSearchVector`. No Job/Task models. |
 | `signals.py` (unchanged from FTS-only) | The FTS `create_or_update_report_search_vector` receiver stays; **no embedding signal** |
-| `tasks.py` (FTS bits) | FTS bulk-indexing helper `bulk_upsert_report_search_vectors`. The existing `bulk_index_reports` Procrastinate task and `enqueue_bulk_index_reports` helper are retained; `bulk_index_reports` is extended to defer `embed_reports_task` at the end of its run so embedding always follows FTS in either mode (see §6.6). |
+| `tasks.py` (FTS bits) | FTS bulk-indexing helper `bulk_upsert_report_search_vectors`. The existing `bulk_index_reports` Procrastinate task and `enqueue_bulk_index_reports` helper are retained unchanged from pre-hybrid-search — they remain pure FTS. The handler defers `embed_reports_task` independently; ordering between FTS and embedding is guaranteed by the defensive `bulk_upsert_report_search_vectors` call at the top of `embed_reports_task`, not by chaining (see §6.6). |
 | `providers.py` (modified) | Replaces `search()` and `retrieve()` bodies with hybrid logic |
 | `tests/...` | Coverage per §10 |
 
@@ -121,7 +131,7 @@ Both ingest paths — single-create (`POST /api/reports/`, `PUT /api/reports/{id
 | `radis/settings/base.py` | New env-driven + constant settings (§8) |
 | `radis/settings/test.py` | Override `EMBEDDING_PROVIDER_URL=""` so any incidental construction of `EmbeddingClient` / `AsyncEmbeddingClient` fast-fails into `EmbeddingClientError` in CI (no live embedding service). Tests that exercise embedding patch the client explicitly. |
 | `example.env` | Document `EMBEDDING_*` env vars for openai and ollama backends |
-| `radis/reports/api/viewsets.py` | `ReportViewSet.perform_create` / `perform_update` / `bulk_upsert` register `embed_reports_task.defer(report_ids=...)` inside their `transaction.on_commit` callbacks. Sync DRF; no async machinery needed because the enqueue is a synchronous Procrastinate API call. |
+| `radis/reports/api/viewsets.py` | **Unchanged from main** in shape. It already dispatches `reports_created_handlers` / `reports_updated_handlers` from `on_commit`; pgsearch hooks in via that registry. Nothing in `viewsets.py` imports from `radis.pgsearch`. |
 
 ## 4. Schema and migrations
 
@@ -341,35 +351,36 @@ Every successful report write enqueues an async Procrastinate task that embeds t
 
 ### 6.1 The enqueue at write time
 
-Both ingest paths register a `transaction.on_commit` callback that defers an `embed_reports_task` once the FTS rows exist:
+`viewsets.py` is unchanged from main — it already dispatches `reports_created_handlers` / `reports_updated_handlers` inside `transaction.on_commit`. Pgsearch subscribes to those at app startup:
 
 ```python
-# single-create (POST) / PUT — inside the view's on_commit
-def on_commit():
-    # ... existing reports_created_handlers / reports_updated_handlers calls ...
-    embed_reports_task.defer(report_ids=[report.pk])
+# radis/pgsearch/apps.py — inside register_app()
+
+def _handle_reports_changed(reports):
+    if not reports:
+        return
+    report_ids = [r.pk for r in reports]
+    if settings.PGSEARCH_SYNC_INDEXING:
+        bulk_upsert_report_search_vectors(report_ids)
+    else:
+        enqueue_bulk_index_reports(report_ids)
+    embed_reports_task.defer(report_ids=report_ids)
+
+register_reports_created_handler(
+    ReportsCreatedHandler(name="PG Search", handle=_handle_reports_changed)
+)
+register_reports_updated_handler(
+    ReportsUpdatedHandler(name="PG Search", handle=_handle_reports_changed)
+)
 ```
 
-The single-create / PUT path always has FTS done by the time `on_commit` fires because the FTS `post_save` signal on `Report` runs sync inline during `serializer.save()`. The bulk-upsert path keeps its existing two FTS modes governed by `PGSEARCH_SYNC_INDEXING`; both modes chain into `embed_reports_task` (see §6.6):
-
-```python
-# bulk-upsert — inside bulk_upsert_reports' on_commit
-def on_commit():
-    # ... existing reports_created_handlers / reports_updated_handlers calls ...
-    if touched_report_ids:
-        if settings.PGSEARCH_SYNC_INDEXING:
-            bulk_upsert_report_search_vectors(touched_report_ids)  # FTS sync
-            embed_reports_task.defer(report_ids=touched_report_ids)
-        else:
-            # bulk_index_reports chains embed_reports_task at its end (see §6.6)
-            enqueue_bulk_index_reports(touched_report_ids)
-```
+The view contributes nothing pgsearch-specific. Whatever fires `reports_created_handlers` / `reports_updated_handlers` (the API viewsets, the Django admin's `save_model`, any future caller) automatically gets FTS + embedding for free.
 
 When the `transaction.atomic()` block commits:
 
 1. Report rows are durable.
-2. RSV rows exist (or will exist once `bulk_index_reports` runs, in the deferred FTS mode).
-3. A row is inserted into `procrastinate_jobs` describing the embedding work (immediately in the sync FTS mode, or at the tail of `bulk_index_reports` in the deferred mode).
+2. RSV rows exist (or will exist once `bulk_index_reports` runs, in the deferred FTS mode — see §6.6).
+3. A row is inserted into `procrastinate_jobs` describing the embedding work.
 
 The HTTP response returns at that point. The view handler does **not** await embedding.
 
@@ -389,6 +400,13 @@ async def embed_reports_task(report_ids: list[int]) -> None:
     """
     if not report_ids:
         return
+
+    # Defensive: ensure RSV rows exist with up-to-date tsvectors. Covers
+    # the race against deferred `bulk_index_reports` (PGSEARCH_SYNC_INDEXING
+    # =False) and the shell/admin path that may have bypassed the bulk
+    # indexer entirely. Idempotent — no-op when the row + tsvector already
+    # match.
+    await database_sync_to_async(bulk_upsert_report_search_vectors)(report_ids)
 
     @database_sync_to_async
     def _load_rsvs() -> list[ReportSearchVector]:
@@ -496,33 +514,30 @@ Properties:
 - **Rate-limited.** The worker's `--concurrency K` caps concurrent embedding HTTP calls regardless of how many tasks the command enqueues. Operators cannot accidentally hammer the embedding service.
 - **Visible.** Enqueued tasks appear in the standard Procrastinate observability surface (admin, logs, telemetry). Failed retries surface there as well.
 
-### 6.6 `PGSEARCH_SYNC_INDEXING` retained; FTS chains to embedding
+### 6.6 `PGSEARCH_SYNC_INDEXING` retained; ordering enforced by defensive FTS in the embed task
 
-The pre-existing `PGSEARCH_SYNC_INDEXING` switch is **retained**, unchanged in semantics: it controls *how* FTS bulk-indexing happens on the bulk-upsert path. The hybrid-search work adds one new property — both FTS modes chain into `embed_reports_task` so embedding always follows FTS by construction.
+The pre-existing `PGSEARCH_SYNC_INDEXING` switch is **retained** with the same semantics it had before hybrid search: it controls whether FTS bulk-indexing runs inline on the request thread or is deferred to a `bulk_index_reports` Procrastinate task. Pgsearch's `_handle_reports_changed` reads the flag and dispatches accordingly:
 
 | Mode | `PGSEARCH_SYNC_INDEXING` | FTS step | Embedding step |
 |---|---|---|---|
-| Sync | `True` | `bulk_upsert_report_search_vectors(ids)` runs inline inside `on_commit` | `embed_reports_task.defer(report_ids=ids)` immediately follows in the same `on_commit` |
-| Deferred (default) | `False` | `enqueue_bulk_index_reports(ids)` defers the `bulk_index_reports` Procrastinate task | `bulk_index_reports` calls `embed_reports_task.defer(report_ids=ids)` at the end of its run |
+| Sync | `True` | `bulk_upsert_report_search_vectors(ids)` inline inside the handler | `embed_reports_task.defer(...)` immediately after, in the same handler call |
+| Deferred (default) | `False` | `enqueue_bulk_index_reports(ids)` defers `bulk_index_reports` to the `default` queue | `embed_reports_task.defer(...)` immediately after; ordering vs the deferred FTS task is unspecified (see below) |
 
-The chain is enforced inside `bulk_index_reports`:
+`bulk_index_reports` is **unchanged from pre-hybrid-search**: it's purely an FTS task. It does *not* chain into `embed_reports_task`.
 
-```python
-@app.task
-def bulk_index_reports(report_ids: list[int]) -> None:
-    if not report_ids:
-        return
-    bulk_upsert_report_search_vectors(report_ids)
-    embed_reports_task.defer(report_ids=list(report_ids))
-```
+In the deferred FTS mode both Procrastinate jobs (the bulk-index task on `default` and the embed task on `embeddings`) are inserted in the same DB transaction. The two workers pick them up independently; either can win the race. The defensive `bulk_upsert_report_search_vectors` call at the top of `embed_reports_task` covers the case where the embed task wins — it idempotently produces the RSV rows it needs before reading `report.body`, costing one extra (no-op in the common case) tsvector recompute. This is the trade I picked over chaining the two tasks together:
+
+- **No coupling between tasks.** `bulk_index_reports` stays pure FTS; `embed_reports_task` stays self-sufficient. Either can be reused, tested, or replaced in isolation.
+- **Same safety net protects shell/admin edits.** A Python-shell `report.body = x; report.save()` fires the FTS signal but no handler. If an operator manually `embed_reports_task.defer([pk])` after such an edit, the defensive call still ensures the RSV is current. With chaining the safety net only existed for the bulk path.
+- **Cheap idempotent cost.** `bulk_upsert_report_search_vectors([pk])` for an already-indexed row is one INSERT ON CONFLICT DO NOTHING + one UPDATE that rewrites `search_vector = to_tsvector(...)` to the same value. ~1 ms per chunk.
 
 Properties:
 
-- **No race between embedding and FTS.** Embedding is only enqueued after the RSV rows exist (either inline in the sync path or at the tail of `bulk_index_reports` in the deferred path).
-- **Operator choice preserved.** Deployments that prefer sync FTS (small bulks, deterministic end-to-end ordering with subscription handlers) keep that option. Deployments that prefer deferred FTS (large bulks, fast HTTP response) keep that option. The hybrid-search work is orthogonal.
-- **One queue per concern.** FTS deferral runs on the `default` queue (where `bulk_index_reports` already lived); embedding runs on the dedicated `embeddings` queue. FTS-only worker capacity does not compete with embedding capacity.
+- **No correctness race.** Embedding either finds the RSV already indexed (common case) or creates+indexes it on the fly (defensive case). It never reads a NULL `body` or skips a missing RSV.
+- **Operator choice preserved.** Deployments that prefer sync FTS keep that option; deployments that prefer the deferred FTS task for large bulks keep that option. Hybrid search is orthogonal to the FTS-mode decision.
+- **Two queues, two concerns.** FTS deferral runs on the `default` queue (where `bulk_index_reports` already lived); embedding runs on the dedicated `embeddings` queue. FTS-only worker capacity does not compete with embedding capacity.
 
-The single-create / PUT path is unaffected by `PGSEARCH_SYNC_INDEXING`: its FTS step is the `post_save` signal on `Report`, which is always sync inline by construction (not under the switch's control).
+The single-create / PUT path is unaffected by `PGSEARCH_SYNC_INDEXING`. Its FTS step is the `post_save` signal on `Report`, which is always sync inline by construction. The same handler still fires for it; the handler's FTS call in sync mode is a redundant (idempotent, ~1 ms) recompute, and in async mode adds one Procrastinate job per single create. The redundancy is the cost of the clean abstraction — the handler doesn't know whether it was triggered by a single-create or a bulk write.
 
 ### 6.7 Sync DRF; no async views required
 

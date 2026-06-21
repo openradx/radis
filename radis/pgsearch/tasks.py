@@ -15,17 +15,11 @@ logger = logging.getLogger(__name__)
 @app.task
 def bulk_index_reports(report_ids: list[int]) -> None:
     """Deferred FTS bulk-indexing for the bulk-upsert path
-    (when `PGSEARCH_SYNC_INDEXING=False`).
-
-    Chains into `embed_reports_task` so the embedding step is enqueued
-    immediately after FTS rows exist, regardless of whether FTS ran sync inline
-    or via this deferred task.
-    """
+    (when `PGSEARCH_SYNC_INDEXING=False`)."""
     if not report_ids:
         return
     logger.info("Indexing %s reports in bulk.", len(report_ids))
     bulk_upsert_report_search_vectors(report_ids)
-    embed_reports_task.defer(report_ids=list(report_ids))
 
 
 def enqueue_bulk_index_reports(report_ids: list[int]) -> int | None:
@@ -50,9 +44,18 @@ async def embed_reports_task(report_ids: list[int]) -> None:
     Reports are sent to the embedding service in batches of
     `EMBEDDING_BATCH_SIZE` to bound per-call payload size regardless of how
     many `report_ids` the caller passed.
+
+    Defensive about missing RSV rows: when `PGSEARCH_SYNC_INDEXING=False`,
+    the handler enqueues this task alongside `bulk_index_reports` and the
+    embeddings worker may pick this task up first. Calling
+    `bulk_upsert_report_search_vectors` at the top ensures RSV rows exist
+    with up-to-date `search_vector` before we read `report.body`. The same
+    safety net covers shell/admin edits that bypass the bulk path.
     """
     if not report_ids:
         return
+
+    await database_sync_to_async(bulk_upsert_report_search_vectors)(report_ids)
 
     @database_sync_to_async
     def _load_rsvs() -> list[ReportSearchVector]:
