@@ -5,6 +5,13 @@ DEBUG = True
 
 ENVIRONMENT = "development"
 
+# Developer evaluation harness is on in development by default. Production
+# and test environments inherit the False default from base. See
+# LABELS_EVAL_ENABLED in base.py for the gating semantics. Tests run
+# against this settings module (pyproject.toml: DJANGO_SETTINGS_MODULE =
+# "radis.settings.development") so they pick up True automatically.
+LABELS_EVAL_ENABLED = True
+
 INTERNAL_IPS = env.list("DJANGO_INTERNAL_IPS")
 
 REMOTE_DEBUGGING_ENABLED = env.bool("REMOTE_DEBUGGING_ENABLED")

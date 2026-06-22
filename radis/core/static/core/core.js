@@ -70,10 +70,18 @@ function FormSet(rootEl) {
       console.log(this.formCount);
     },
     addForm() {
+      if (!template || !container || !totalForms) {
+        return;
+      }
       const newForm = template.content.cloneNode(true);
       const idx = totalForms.value;
       container.append(newForm);
-      const lastForm = container.querySelector(".formset-form:last-child");
+      const lastForm =
+        container.querySelector(".formset-form:last-child") ??
+        container.querySelector("c-formset-form:last-child");
+      if (!lastForm) {
+        return;
+      }
       lastForm.innerHTML = lastForm.innerHTML.replace(/__prefix__/g, idx);
       totalForms.value = (parseInt(idx) + 1).toString();
       this.formCount = parseInt(totalForms.value);
@@ -82,7 +90,12 @@ function FormSet(rootEl) {
      * @param {HTMLElement} btnEl - The delete button element that was clicked
      */
     removeForm(btnEl) {
-      btnEl.closest(".formset-form").remove();
+      const formEl =
+        btnEl.closest(".formset-form") ?? btnEl.closest("c-formset-form");
+      if (!formEl) {
+        return;
+      }
+      formEl.remove();
       const idx = totalForms.value;
       totalForms.value = (parseInt(idx) - 1).toString();
       this.formCount = parseInt(totalForms.value);
