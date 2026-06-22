@@ -12,7 +12,10 @@ from .views import (
     ExtractionJobRetryView,
     ExtractionJobVerifyView,
     ExtractionJobWizardView,
+    ExtractionQueryGeneratorView,
+    ExtractionResultDownloadView,
     ExtractionResultListView,
+    ExtractionSearchPreviewView,
     ExtractionTaskDeleteView,
     ExtractionTaskDetailView,
     ExtractionTaskResetView,
@@ -38,6 +41,16 @@ urlpatterns = [
         "jobs/new/",
         ExtractionJobWizardView.as_view(),
         name="extraction_job_create",
+    ),
+    path(
+        "jobs/new/search-preview/",
+        ExtractionSearchPreviewView.as_view(),
+        name="extraction_search_preview",
+    ),
+    path(
+        "jobs/new/generate-query/",
+        ExtractionQueryGeneratorView.as_view(),
+        name="extraction_generate_query",
     ),
     path(
         "jobs/<int:pk>/",
@@ -98,6 +111,11 @@ urlpatterns = [
         "jobs/<int:pk>/results/",
         ExtractionResultListView.as_view(),
         name="extraction_result_list",
+    ),
+    path(
+        "jobs/<int:pk>/results/download/",
+        ExtractionResultDownloadView.as_view(),
+        name="extraction_result_download",
     ),
     path(
         "instances/<int:pk>/",

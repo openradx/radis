@@ -1,3 +1,4 @@
+{% load subscriptions_extras %}
 <div class="card mb-3">
     <div class="card-body" x-data="{full: false, questions: false}">
         <div class="d-flex flex-column gap-1">
@@ -17,6 +18,24 @@
                             x-cloak
                             x-show="full">[Show summary]</button>
                 </div>
+                {% if subscribed_item.extraction_results %}
+                    <div class="border-top pt-2 mt-1">
+                        <div class="fw-semibold small text-muted mb-1">Extracted Fields</div>
+                        <dl class="row mb-0 small">
+                            {# LLM-generated content - ensure HTML escaping for XSS protection #}
+                            {% autoescape on %}
+                                {% for field in subscribed_item.subscription.output_fields.all %}
+                                    {% with field_key=field.pk|stringformat:"s" %}
+                                        <dt class="col-sm-4">{{ field.name }}</dt>
+                                        <dd class="col-sm-8">
+                                            {{ subscribed_item.extraction_results|get_item:field_key|default_if_none:"—" }}
+                                        </dd>
+                                    {% endwith %}
+                                {% endfor %}
+                            {% endautoescape %}
+                        </dl>
+                    </div>
+                {% endif %}
             </div>
             {% include "reports/_report_buttons_panel.html" with report=subscribed_item.report %}
         </div>

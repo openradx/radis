@@ -1,15 +1,16 @@
+from typing import cast
+
 import factory
+from adit_radis_shared.accounts.factories import GroupFactory, UserFactory
+from adit_radis_shared.accounts.models import User
+from adit_radis_shared.common.utils.testing_helpers import add_user_to_group
+from django.contrib.auth.models import Group
+from factory.declarations import SKIP
 from faker import Faker
 
 from radis.reports.factories import ModalityFactory
 
-from .models import (
-    ExtractionInstance,
-    ExtractionJob,
-    ExtractionTask,
-    OutputField,
-    OutputType,
-)
+from .models import ExtractionInstance, ExtractionJob, ExtractionTask, OutputField, OutputType
 
 fake = Faker()
 
@@ -26,8 +27,9 @@ class ExtractionJobFactory(BaseDjangoModelFactory):
     class Meta:
         model = ExtractionJob
 
+    owner = factory.SubFactory(UserFactory)
     title = factory.Faker("sentence", nb_words=3)
-    group = factory.SubFactory("adit_radis_shared.accounts.factories.GroupFactory")
+    group = factory.SubFactory(GroupFactory)
     query = factory.Faker("word")
     language = factory.SubFactory("radis.reports.factories.LanguageFactory")
     study_date_from = factory.Faker("date")
@@ -56,15 +58,34 @@ class ExtractionJobFactory(BaseDjangoModelFactory):
             # django_get_or_create would not be respected then
             self.modalities.add(ModalityFactory(code=modality))  # type: ignore
 
+    @factory.post_generation
+    def ensure_owner_in_group(obj, create, extracted, **kwargs):
+        owner = cast(User, obj.owner)
+        group = cast(Group, obj.group)
+
+        if not create:
+            return
+
+        add_user_to_group(owner, group)
+
 
 class OutputFieldFactory(BaseDjangoModelFactory[OutputField]):
     class Meta:
         model = OutputField
 
-    job = factory.SubFactory("radis.extractions.factories.ExtractionJobFactory")
+    # Use factory.Maybe to conditionally create job only when subscription is None
+    job = factory.Maybe(
+        factory.SelfAttribute("subscription"),
+        yes_declaration=SKIP,  # If subscription exists, skip job creation
+        no_declaration=factory.SubFactory("radis.extractions.factories.ExtractionJobFactory"),  # type: ignore[arg-type]
+    )
+    subscription = None
     name = factory.Sequence(lambda n: f"output_field_{n}")
     description = factory.Faker("sentence", nb_words=10)
     output_type = factory.Faker("random_element", elements=[a[0] for a in OutputType.choices])
+    selection_options = factory.LazyAttribute(
+        lambda obj: ["Option 1", "Option 2"] if obj.output_type == OutputType.SELECTION else []
+    )
 
 
 class ExtractionTaskFactory(BaseDjangoModelFactory[ExtractionTask]):
