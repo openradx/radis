@@ -1,4 +1,7 @@
 """Tests for the ReportSearchIndex admin pipeline-stats badge."""
+from unittest.mock import MagicMock
+
+from django.contrib.admin.sites import AdminSite
 from django.db import connection
 
 import pytest
@@ -75,3 +78,40 @@ def test_pipeline_stats_zero_when_no_queue_activity():
         "doing": 0,
         "failed": 0,
     }
+
+
+def test_delete_permission_denied():
+    """RSI rows are managed by the post_save signal on Report — admin must
+    not let operators delete them out from under the model."""
+    admin_instance = ReportSearchIndexAdmin(ReportSearchIndex, AdminSite())
+    assert admin_instance.has_delete_permission(MagicMock()) is False
+
+
+def test_clear_embeddings_for_remodel_nulls_only_selected_rows_with_embeddings():
+    """Same-dim model swap: NULL the existing embeddings on selected rows.
+    Rows already NULL are no-ops; rows outside the selection are untouched."""
+    targets = [ReportFactory.create() for _ in range(3)]
+    untouched = ReportFactory.create()
+    for r in targets + [untouched]:
+        rsi = ReportSearchIndex.objects.get(report_id=r.pk)
+        rsi.embedding = [0.1] * 1024
+        rsi.save()
+    # One target already NULL — should be skipped by the filter.
+    ReportSearchIndex.objects.filter(report_id=targets[0].pk).update(embedding=None)
+
+    selected = ReportSearchIndex.objects.filter(
+        report_id__in=[r.pk for r in targets]
+    )
+    admin_instance = ReportSearchIndexAdmin(ReportSearchIndex, AdminSite())
+    admin_instance.message_user = MagicMock()
+    admin_instance.clear_embeddings_for_remodel(MagicMock(), selected)
+
+    # Two of three targets had embeddings and got cleared.
+    assert ReportSearchIndex.objects.filter(
+        report_id__in=[r.pk for r in targets], embedding__isnull=True
+    ).count() == 3
+    # The non-selected row is untouched.
+    assert ReportSearchIndex.objects.get(report_id=untouched.pk).embedding is not None
+    # message_user reports the number cleared, not the number selected.
+    msg_args = admin_instance.message_user.call_args
+    assert "Cleared embeddings on 2 row(s)" in msg_args.args[1]
