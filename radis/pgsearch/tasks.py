@@ -53,14 +53,14 @@ def bulk_index_reports(report_ids: list[int]) -> None:
     """Deferred FTS bulk-indexing for the bulk-upsert path
     (when `PGSEARCH_SYNC_INDEXING=False`).
 
-    Chains into `embed_reports_task` once RSV rows exist, so the embeddings
-    worker never reads a missing `report.body` or a stale tsvector.
+    Chains into `embed_reports_task` subjobs once RSV rows exist, so the
+    embeddings worker never reads a missing `report.body` or a stale tsvector.
     """
     if not report_ids:
         return
     logger.info("Indexing %s reports in bulk.", len(report_ids))
     bulk_upsert_report_search_vectors(report_ids)
-    embed_reports_task.defer(report_ids=report_ids)
+    enqueue_embed_reports(report_ids)
 
 
 def enqueue_bulk_index_reports(report_ids: list[int]) -> int | None:
@@ -75,6 +75,35 @@ def enqueue_bulk_index_reports(report_ids: list[int]) -> int | None:
         "radis.pgsearch.tasks.bulk_index_reports",
         allow_unknown=False,
     ).defer(report_ids=payload)
+
+
+def enqueue_embed_reports(
+    report_ids: list[int], *, subjob_size: int | None = None
+) -> int:
+    """Chunk `report_ids` into subjobs and defer one `embed_reports_task`
+    per chunk. Returns the number of subjobs deferred.
+
+    Subjob size defaults to `settings.EMBEDDING_SUBJOB_SIZE` (the
+    Procrastinate-task granularity). It's distinct from
+    `settings.EMBEDDING_BATCH_SIZE` (the per-HTTP-call size inside one
+    task). A 1M-report backfill becomes ~10k subjobs of 100, each making
+    ~3 HTTP calls of 32 — many workers can drain in parallel, retries
+    have bounded blast radius, and a stuck task can't tie up the worker
+    on the whole queue's worth of work.
+
+    Single call site for every place that enqueues embedding work: the
+    write-path handler, the FTS chain tail, `embed_pending`, and the
+    admin action. Operators read one knob, not several.
+    """
+    if not report_ids:
+        return 0
+    size = subjob_size if subjob_size is not None else settings.EMBEDDING_SUBJOB_SIZE
+    count = 0
+    for start in range(0, len(report_ids), size):
+        chunk = report_ids[start : start + size]
+        embed_reports_task.defer(report_ids=list(chunk))
+        count += 1
+    return count
 
 
 def _embed_with_bisect(

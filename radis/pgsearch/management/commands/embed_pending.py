@@ -10,9 +10,13 @@ Operators run this for three scenarios:
 3. **Outage recovery.** Tasks that exhausted Procrastinate retries during an
    extended embedding-service outage — re-run after the service recovers.
 
-The command itself does no HTTP work; it enqueues tasks onto the `embeddings`
-queue. The embeddings worker drains them at its configured `--concurrency`,
-so operators cannot accidentally hammer the embedding service.
+The command itself does no HTTP work; it defers Procrastinate tasks onto the
+`embeddings` queue. The embeddings worker drains them at its configured
+`--concurrency`, so operators cannot accidentally hammer the embedding service.
+
+Chunking goes through the shared `enqueue_embed_reports` helper, so the
+subjob size matches what the write-path handler and the admin action use
+(default `settings.EMBEDDING_SUBJOB_SIZE`).
 
 Properties:
 
@@ -27,25 +31,26 @@ from django.conf import settings
 from django.core.management.base import BaseCommand
 
 from radis.pgsearch.models import ReportSearchVector
-from radis.pgsearch.tasks import embed_reports_task
+from radis.pgsearch.tasks import enqueue_embed_reports
 
 
 class Command(BaseCommand):
     help = (
-        "Enqueue embed_reports_task for every ReportSearchVector with "
-        "embedding=NULL. The embeddings worker drains the queue at its "
-        "configured concurrency."
+        "Enqueue embed_reports_task subjobs for every ReportSearchVector "
+        "with embedding=NULL. The embeddings worker drains the queue at "
+        "its configured concurrency."
     )
 
     def add_arguments(self, parser) -> None:
         parser.add_argument(
-            "--batch-size",
+            "--subjob-size",
             type=int,
-            default=settings.EMBEDDING_BATCH_SIZE,
+            default=settings.EMBEDDING_SUBJOB_SIZE,
             help=(
-                f"Reports per enqueued task (default "
-                f"{settings.EMBEDDING_BATCH_SIZE}). The worker further chunks "
-                f"each task by EMBEDDING_BATCH_SIZE internally."
+                f"Reports per Procrastinate subjob (default "
+                f"{settings.EMBEDDING_SUBJOB_SIZE}). The worker further "
+                f"chunks each subjob into HTTP calls of "
+                f"EMBEDDING_BATCH_SIZE={settings.EMBEDDING_BATCH_SIZE}."
             ),
         )
         parser.add_argument(
@@ -67,12 +72,11 @@ class Command(BaseCommand):
             self.stdout.write("Nothing to embed.")
             return
 
-        batch_size = opts["batch_size"]
+        subjob_size = opts["subjob_size"]
         self.stdout.write(
-            f"Enqueuing {len(ids)} report(s) in tasks of {batch_size}..."
+            f"Enqueuing {len(ids)} report(s) in subjobs of {subjob_size}..."
         )
-        for i in range(0, len(ids), batch_size):
-            chunk = ids[i : i + batch_size]
-            embed_reports_task.defer(report_ids=list(chunk))
-            self.stdout.write(f"  enqueued {i + len(chunk)}/{len(ids)}")
-        self.stdout.write(self.style.SUCCESS("Done."))
+        subjob_count = enqueue_embed_reports(ids, subjob_size=subjob_size)
+        self.stdout.write(
+            self.style.SUCCESS(f"Done. Deferred {subjob_count} subjob(s).")
+        )

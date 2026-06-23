@@ -350,6 +350,7 @@ EMBEDDING_QUERY_INSTRUCTION = (
     "Instruct: Given a radiology search query, retrieve relevant radiology reports.\nQuery: "
 )
 EMBEDDING_BATCH_SIZE = 32
+EMBEDDING_SUBJOB_SIZE = 1000
 
 # Hybrid search tuning
 HYBRID_VECTOR_TOP_K = 100

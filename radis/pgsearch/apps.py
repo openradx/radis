@@ -89,13 +89,13 @@ def _handle_reports_changed(reports):
     if not reports:
         return
 
-    from radis.pgsearch.tasks import embed_reports_task, enqueue_bulk_index_reports
+    from radis.pgsearch.tasks import enqueue_bulk_index_reports, enqueue_embed_reports
     from radis.pgsearch.utils.indexing import bulk_upsert_report_search_vectors
 
     report_ids = [report.pk for report in reports]
     if settings.PGSEARCH_SYNC_INDEXING:
         bulk_upsert_report_search_vectors(report_ids)
-        embed_reports_task.defer(report_ids=report_ids)
+        enqueue_embed_reports(report_ids)
     else:
         enqueue_bulk_index_reports(report_ids)
 

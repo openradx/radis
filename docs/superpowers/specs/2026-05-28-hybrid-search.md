@@ -337,7 +337,7 @@ class EmbeddingClient:
 - **Overlength inputs:** the client does *not* truncate. The model's context window is the authoritative limit, and the backend signals overlength via HTTP 413 or 400/422 with a context-length message in the body. The client detects that via a loose substring match on common keywords (`context length`, `max tokens`, `too long`, `exceeds`, …) and raises the typed `EmbeddingPayloadTooLargeError`. The `embed_reports_task` worker catches that subclass and bisects the chunk (§6.2); the query path lets it propagate (which the search view treats the same as any other `EmbeddingClientError` — fall back to FTS-only for that request).
 - **Normalization:** every returned vector is L2-normalized client-side, unconditionally. With unit vectors, cosine distance is monotonic in dot product, which makes the HNSW `vector_cosine_ops` operator effectively a fast inner-product search. Whether the upstream server normalizes is irrelevant.
 - **Dimension validation:** every vector is checked to have length `EMBEDDING_DIM`. A mismatch raises `EmbeddingClientError`.
-- **Batching:** `embed_documents` sends a single HTTP call per invocation. The write path enqueues an `embed_reports_task` per ingest event (one task per single-create, one task per bulk-upsert); each task in turn issues one batched embedding HTTP call covering all the report bodies it owns. The `EMBEDDING_BATCH_SIZE` constant is used by `embed_pending` to chunk large drains into tasks of reasonable size.
+- **Batching:** `embed_documents` sends a single HTTP call per invocation. The write path and `embed_pending` both go through `enqueue_embed_reports(report_ids)` (defined in `tasks.py`), which chunks the input by `EMBEDDING_SUBJOB_SIZE` and defers one `embed_reports_task` per subjob. Inside each task, `EMBEDDING_BATCH_SIZE` controls the per-HTTP-call size. See §6.3 for the three-layer batching model.
 - **Errors:** non-2xx, timeout, malformed JSON, missing key, or wrong dim all raise `EmbeddingClientError`. The client never falls back internally — fallback policy is owned by the caller.
 - **Dev recipe (Ollama):**
   ```bash
@@ -499,13 +499,16 @@ Three explicit choices:
 - **`--concurrency 4`** (the concurrency knob): up to 4 `embed_reports_task` slots in flight on the worker at once. Each slot processes its batches sequentially, so `--concurrency K` translates directly to "up to K embedding HTTP requests in flight to the embedding service per worker process." Total system concurrency = `worker_count × --concurrency`. The default of 4 leaves capacity for the query path's `embed_query` to share the same embedding service. Tunable per deployment.
 - **Sync task body**: the task is `def`, not `async def`. Procrastinate gives concurrency through K independent task slots regardless of sync vs async, and the embedding batch loop is sequential by design — switching to async would not add any in-task concurrency, just a `database_sync_to_async` shim layer.
 
-**Two layers of "batching"**, easy to confuse, kept separate by design:
+**Three layers of "batching"**, easy to confuse, kept separate by design:
 
 | Layer | Knob | What it controls |
 |---|---|---|
-| Per-HTTP-call size | `EMBEDDING_BATCH_SIZE` (settings constant; default 32) | How many report bodies are sent in one `embed_documents` call inside the task. |
-| Concurrent HTTP calls per worker | `--concurrency K` (compose flag; default 4) | How many `embed_documents` calls can be in flight at the same time. |
+| Per-Procrastinate-task size | `EMBEDDING_SUBJOB_SIZE` (settings constant; default 100) | How many report ids one `embed_reports_task` instance carries. The single chunking point for *every* enqueue — write-path handler, FTS chain tail, `embed_pending`, admin action — via `enqueue_embed_reports(report_ids)`. |
+| Per-HTTP-call size | `EMBEDDING_BATCH_SIZE` (settings constant; default 32) | How many report bodies are sent in one `embed_documents` call *inside* one task. One subjob of 100 → ~3 HTTP calls of 32. |
+| Concurrent task slots per worker | `--concurrency K` (compose flag; default 4) | How many `embed_reports_task` instances run in parallel on a single worker. |
 | Concurrent HTTP calls across all workers | `worker_count × --concurrency K` | The system's actual load ceiling on the embedding service. |
+
+Why subjob granularity matters: a 1M-row `embed_pending` backfill becomes ~10k subjobs of 100, not one giant task. Multiple workers can drain in parallel; a stuck or failing subjob has bounded blast radius (retries reprocess only 100 ids, not 1M); Procrastinate's `--concurrency K` actually means something for backfill throughput. Write-path bulk-upserts get the same treatment: a 1000-row upload → 10 embed subjobs, not one.
 
 To scale up, prefer adding worker processes (crash isolation + connection-pool fan-out) over raising `--concurrency` past ~8 (the embedding service typically saturates around there anyway). Total embedding load on the service is `worker_count × --concurrency`.
 
@@ -815,6 +818,7 @@ EMBEDDING_QUERY_INSTRUCTION = (
     "Query: "
 )
 EMBEDDING_BATCH_SIZE = 32
+EMBEDDING_SUBJOB_SIZE = 100
 
 HYBRID_VECTOR_TOP_K    = 100
 HYBRID_FTS_MAX_RESULTS = 10_000

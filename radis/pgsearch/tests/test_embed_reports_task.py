@@ -7,7 +7,11 @@ import pytest
 import stamina
 
 from radis.pgsearch.models import ReportSearchVector
-from radis.pgsearch.tasks import bulk_index_reports, embed_reports_task
+from radis.pgsearch.tasks import (
+    bulk_index_reports,
+    embed_reports_task,
+    enqueue_embed_reports,
+)
 from radis.pgsearch.utils.embedding_client import (
     EmbeddingClientError,
     EmbeddingPayloadTooLargeError,
@@ -89,10 +93,12 @@ def test_embedding_error_propagates():
     assert ReportSearchVector.objects.filter(embedding__isnull=True).count() == 2
 
 
-def test_bulk_index_reports_chains_into_embed_reports_task():
-    """`bulk_index_reports` upserts RSVs and then defers `embed_reports_task`.
-    The chain is the ordering guarantee: the embeddings worker only ever sees
-    report ids whose RSV rows are already committed."""
+def test_bulk_index_reports_chains_into_embed_reports_task(settings):
+    """`bulk_index_reports` upserts RSVs and then chunks the embed work via
+    `enqueue_embed_reports`. The chain is the ordering guarantee: the
+    embeddings worker only ever sees report ids whose RSV rows are already
+    committed."""
+    settings.EMBEDDING_SUBJOB_SIZE = 100
     reports = [ReportFactory.create() for _ in range(3)]
     pks = [r.pk for r in reports]
     ReportSearchVector.objects.filter(report_id__in=pks).delete()
@@ -100,9 +106,68 @@ def test_bulk_index_reports_chains_into_embed_reports_task():
     with patch("radis.pgsearch.tasks.embed_reports_task.defer") as defer:
         bulk_index_reports(report_ids=pks)
 
-    # RSVs were upserted, then the embed task was deferred with the same ids.
+    # RSVs were upserted, then one embed subjob covering all 3 ids was
+    # deferred (3 < SUBJOB_SIZE so the whole batch fits in one subjob).
     assert ReportSearchVector.objects.filter(report_id__in=pks).count() == 3
     defer.assert_called_once_with(report_ids=pks)
+
+
+def test_bulk_index_reports_splits_into_subjobs_when_exceeding_subjob_size(settings):
+    """A bulk-upsert larger than `EMBEDDING_SUBJOB_SIZE` must defer multiple
+    embed subjobs so the embeddings worker can drain them in parallel and
+    retries/failures have bounded blast radius."""
+    settings.EMBEDDING_SUBJOB_SIZE = 4
+    reports = [ReportFactory.create() for _ in range(10)]
+    pks = [r.pk for r in reports]
+
+    with patch("radis.pgsearch.tasks.embed_reports_task.defer") as defer:
+        bulk_index_reports(report_ids=pks)
+
+    # 10 reports / subjob 4 → 3 defer calls of sizes 4, 4, 2.
+    assert defer.call_count == 3
+    enqueued_chunks = [call.kwargs["report_ids"] for call in defer.call_args_list]
+    assert [len(c) for c in enqueued_chunks] == [4, 4, 2]
+    # The union of all chunks covers exactly the input ids in order.
+    assert [pk for c in enqueued_chunks for pk in c] == pks
+
+
+def test_enqueue_embed_reports_helper_chunks_by_subjob_size(settings):
+    """The shared `enqueue_embed_reports` helper is the single chunking
+    point. A 1M-row backfill becomes ~10k subjobs (no single huge task);
+    a single create with one id becomes one subjob (no overhead)."""
+    settings.EMBEDDING_SUBJOB_SIZE = 3
+
+    with patch("radis.pgsearch.tasks.embed_reports_task.defer") as defer:
+        count = enqueue_embed_reports([1, 2, 3, 4, 5, 6, 7])
+
+    assert count == 3
+    assert defer.call_count == 3
+    assert [c.kwargs["report_ids"] for c in defer.call_args_list] == [
+        [1, 2, 3],
+        [4, 5, 6],
+        [7],
+    ]
+
+
+def test_enqueue_embed_reports_helper_empty_input_is_noop():
+    with patch("radis.pgsearch.tasks.embed_reports_task.defer") as defer:
+        count = enqueue_embed_reports([])
+    assert count == 0
+    defer.assert_not_called()
+
+
+def test_enqueue_embed_reports_helper_explicit_subjob_size_overrides_setting(settings):
+    """Operators (e.g., `embed_pending --subjob-size=…`) can pass a
+    one-off override without mutating the global setting."""
+    settings.EMBEDDING_SUBJOB_SIZE = 100
+
+    with patch("radis.pgsearch.tasks.embed_reports_task.defer") as defer:
+        count = enqueue_embed_reports([1, 2, 3, 4, 5], subjob_size=2)
+
+    assert count == 3
+    assert [c.kwargs["report_ids"] for c in defer.call_args_list] == [
+        [1, 2], [3, 4], [5]
+    ]
 
 
 def test_bisects_on_too_large_and_isolates_offender(settings, caplog, monkeypatch):
