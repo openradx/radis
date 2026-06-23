@@ -72,7 +72,6 @@ def test_backends_registry_keys():
     EMBEDDING_MODEL_NAME="qwen3",
     EMBEDDING_DIM=4,
     EMBEDDING_REQUEST_TIMEOUT=10,
-    EMBEDDING_MAX_INPUT_CHARS=100,
     EMBEDDING_QUERY_INSTRUCTION="INST: ",
 )
 def test_embed_documents_posts_payload_and_normalizes(monkeypatch):
@@ -111,7 +110,6 @@ def test_embed_documents_posts_payload_and_normalizes(monkeypatch):
     EMBEDDING_MODEL_NAME="qwen3",
     EMBEDDING_DIM=2,
     EMBEDDING_REQUEST_TIMEOUT=10,
-    EMBEDDING_MAX_INPUT_CHARS=100,
     EMBEDDING_QUERY_INSTRUCTION="",
 )
 def test_provider_path_override(monkeypatch):
@@ -138,7 +136,6 @@ def test_provider_path_override(monkeypatch):
     EMBEDDING_MODEL_NAME="qwen3",
     EMBEDDING_DIM=2,
     EMBEDDING_REQUEST_TIMEOUT=10,
-    EMBEDDING_MAX_INPUT_CHARS=100,
     EMBEDDING_QUERY_INSTRUCTION="INST: ",
 )
 def test_embed_query_prepends_instruction(monkeypatch):
@@ -165,34 +162,6 @@ def test_embed_query_prepends_instruction(monkeypatch):
     EMBEDDING_MODEL_NAME="qwen3",
     EMBEDDING_DIM=2,
     EMBEDDING_REQUEST_TIMEOUT=10,
-    EMBEDDING_MAX_INPUT_CHARS=5,
-    EMBEDDING_QUERY_INSTRUCTION="",
-)
-def test_truncates_long_input(monkeypatch):
-    from radis.pgsearch.utils import embedding_client as ec
-
-    seen = {}
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        seen["body"] = json.loads(request.content)
-        return httpx.Response(200, json={"data": [{"embedding": [1.0, 0.0]}]})
-
-    monkeypatch.setattr(
-        ec, "_build_http_client", lambda: httpx.Client(transport=httpx.MockTransport(handler))
-    )
-    ec.EmbeddingClient().embed_documents(["abcdefghij"])
-    assert seen["body"]["input"] == ["abcde"]
-
-
-@override_settings(
-    EMBEDDING_BACKEND="openai",
-    EMBEDDING_PROVIDER_URL="http://embed.example",
-    EMBEDDING_PROVIDER_PATH="",
-    EMBEDDING_PROVIDER_API_KEY="",
-    EMBEDDING_MODEL_NAME="qwen3",
-    EMBEDDING_DIM=2,
-    EMBEDDING_REQUEST_TIMEOUT=10,
-    EMBEDDING_MAX_INPUT_CHARS=100,
     EMBEDDING_QUERY_INSTRUCTION="",
 )
 def test_dim_too_small_raises(monkeypatch):
@@ -217,7 +186,6 @@ def test_dim_too_small_raises(monkeypatch):
     EMBEDDING_MODEL_NAME="qwen3",
     EMBEDDING_DIM=2,
     EMBEDDING_REQUEST_TIMEOUT=10,
-    EMBEDDING_MAX_INPUT_CHARS=100,
     EMBEDDING_QUERY_INSTRUCTION="",
 )
 def test_oversized_embedding_truncates_and_renormalizes(monkeypatch):
@@ -243,7 +211,6 @@ def test_oversized_embedding_truncates_and_renormalizes(monkeypatch):
     EMBEDDING_MODEL_NAME="qwen3",
     EMBEDDING_DIM=2,
     EMBEDDING_REQUEST_TIMEOUT=10,
-    EMBEDDING_MAX_INPUT_CHARS=100,
     EMBEDDING_QUERY_INSTRUCTION="",
 )
 def test_5xx_raises(monkeypatch):
@@ -267,7 +234,6 @@ def test_5xx_raises(monkeypatch):
     EMBEDDING_MODEL_NAME="qwen3",
     EMBEDDING_DIM=2,
     EMBEDDING_REQUEST_TIMEOUT=10,
-    EMBEDDING_MAX_INPUT_CHARS=100,
     EMBEDDING_QUERY_INSTRUCTION="",
 )
 def test_close_releases_http_client(monkeypatch):
@@ -296,7 +262,6 @@ def test_close_releases_http_client(monkeypatch):
     EMBEDDING_MODEL_NAME="qwen3",
     EMBEDDING_DIM=2,
     EMBEDDING_REQUEST_TIMEOUT=10,
-    EMBEDDING_MAX_INPUT_CHARS=100,
     EMBEDDING_QUERY_INSTRUCTION="",
 )
 def test_context_manager_closes_http_client(monkeypatch):
@@ -325,7 +290,6 @@ def test_context_manager_closes_http_client(monkeypatch):
     EMBEDDING_MODEL_NAME="qwen3",
     EMBEDDING_DIM=2,
     EMBEDDING_REQUEST_TIMEOUT=10,
-    EMBEDDING_MAX_INPUT_CHARS=100,
     EMBEDDING_QUERY_INSTRUCTION="",
 )
 def test_provider_path_without_leading_slash_raises():
@@ -343,7 +307,6 @@ def test_provider_path_without_leading_slash_raises():
     EMBEDDING_MODEL_NAME="qwen3",
     EMBEDDING_DIM=2,
     EMBEDDING_REQUEST_TIMEOUT=10,
-    EMBEDDING_MAX_INPUT_CHARS=100,
     EMBEDDING_QUERY_INSTRUCTION="",
 )
 def test_response_count_mismatch_raises(monkeypatch):
@@ -358,3 +321,85 @@ def test_response_count_mismatch_raises(monkeypatch):
     )
     with pytest.raises(ec.EmbeddingClientError, match="count mismatch"):
         ec.EmbeddingClient().embed_documents(["a", "b"])
+
+
+@pytest.mark.parametrize(
+    "status, body",
+    [
+        (413, "Payload too large"),
+        (400, "This model's maximum context length is 8192 tokens, however your "
+              "messages resulted in 9143 tokens"),
+        (400, '{"error": {"code": "context_length_exceeded"}}'),
+        (422, "input exceeds the model context"),
+        (400, "request too long"),
+    ],
+)
+def test_is_payload_too_large_detects_overlength_responses(status, body):
+    from radis.pgsearch.utils.embedding_client import _is_payload_too_large
+
+    assert _is_payload_too_large(httpx.Response(status, text=body)) is True
+
+
+@pytest.mark.parametrize(
+    "status, body",
+    [
+        (400, "missing required field 'model'"),
+        (401, "invalid api key"),
+        (500, "internal server error"),
+        (503, "service unavailable"),
+    ],
+)
+def test_is_payload_too_large_negatives(status, body):
+    from radis.pgsearch.utils.embedding_client import _is_payload_too_large
+
+    assert _is_payload_too_large(httpx.Response(status, text=body)) is False
+
+
+@override_settings(
+    EMBEDDING_BACKEND="openai",
+    EMBEDDING_PROVIDER_URL="http://embed.example",
+    EMBEDDING_PROVIDER_PATH="",
+    EMBEDDING_PROVIDER_API_KEY="",
+    EMBEDDING_MODEL_NAME="qwen3",
+    EMBEDDING_DIM=2,
+    EMBEDDING_REQUEST_TIMEOUT=10,
+    EMBEDDING_QUERY_INSTRUCTION="",
+)
+def test_overlength_response_raises_typed_subclass(monkeypatch):
+    from radis.pgsearch.utils import embedding_client as ec
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            400,
+            text="This model's maximum context length is 8192 tokens.",
+        )
+
+    monkeypatch.setattr(
+        ec, "_build_http_client", lambda: httpx.Client(transport=httpx.MockTransport(handler))
+    )
+    with pytest.raises(ec.EmbeddingPayloadTooLargeError):
+        ec.EmbeddingClient().embed_documents(["x"])
+
+
+@override_settings(
+    EMBEDDING_BACKEND="openai",
+    EMBEDDING_PROVIDER_URL="http://embed.example",
+    EMBEDDING_PROVIDER_PATH="",
+    EMBEDDING_PROVIDER_API_KEY="",
+    EMBEDDING_MODEL_NAME="qwen3",
+    EMBEDDING_DIM=2,
+    EMBEDDING_REQUEST_TIMEOUT=10,
+    EMBEDDING_QUERY_INSTRUCTION="",
+)
+def test_generic_4xx_still_raises_base_error(monkeypatch):
+    from radis.pgsearch.utils import embedding_client as ec
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(401, text="invalid api key")
+
+    monkeypatch.setattr(
+        ec, "_build_http_client", lambda: httpx.Client(transport=httpx.MockTransport(handler))
+    )
+    with pytest.raises(ec.EmbeddingClientError) as excinfo:
+        ec.EmbeddingClient().embed_documents(["x"])
+    assert not isinstance(excinfo.value, ec.EmbeddingPayloadTooLargeError)

@@ -319,9 +319,7 @@ STORAGES = {
     },
     "dbbackup": {
         "BACKEND": "django.core.files.storage.FileSystemStorage",
-        "OPTIONS": {
-            "location": env.str("DBBACKUP_STORAGE_LOCATION", default="/tmp/backups-radis")
-        },
+        "OPTIONS": {"location": env.str("DBBACKUP_STORAGE_LOCATION", default="/tmp/backups-radis")},
     },
 }
 DBBACKUP_CLEANUP_KEEP = 30
@@ -338,7 +336,7 @@ EXTERNAL_LLM_PROVIDER_API_KEY = env.str("EXTERNAL_LLM_PROVIDER_API_KEY", default
 LLM_SERVICE_DEV_PORT = env.int("LLM_SERVICE_DEV_PORT", default=8080)
 LLM_SERVICE_URL = env.str("LLM_SERVICE_URL", default=f"http://localhost:{LLM_SERVICE_DEV_PORT}/v1")
 
-# Embedding service (per-deployment, see hybrid-search spec §8.1)
+# Embedding service (per-deployment)
 EMBEDDING_BACKEND = env.str("EMBEDDING_BACKEND", default="openai")
 EMBEDDING_PROVIDER_URL = env.str("EMBEDDING_PROVIDER_URL", default="")
 EMBEDDING_PROVIDER_PATH = env.str("EMBEDDING_PROVIDER_PATH", default="")
@@ -346,12 +344,10 @@ EMBEDDING_PROVIDER_API_KEY = env.str("EMBEDDING_PROVIDER_API_KEY", default="")
 EMBEDDING_MODEL_NAME = env.str("EMBEDDING_MODEL_NAME", default="Qwen/Qwen3-Embedding-4B")
 EMBEDDING_DIM = env.int("EMBEDDING_DIM", default=1024)
 
-# Embedding tuning constants (see hybrid-search spec §8.2)
+# Embedding tuning constants
 EMBEDDING_REQUEST_TIMEOUT = 30
-EMBEDDING_MAX_INPUT_CHARS = 60_000
 EMBEDDING_QUERY_INSTRUCTION = (
-    "Instruct: Given a radiology search query, retrieve relevant radiology reports.\n"
-    "Query: "
+    "Instruct: Given a radiology search query, retrieve relevant radiology reports.\nQuery: "
 )
 EMBEDDING_BATCH_SIZE = 32
 

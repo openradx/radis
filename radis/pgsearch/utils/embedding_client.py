@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import math
 from dataclasses import dataclass
-from typing import Iterable, Protocol
+from typing import Protocol
 
 import httpx
 from django.conf import settings
@@ -11,6 +11,12 @@ from django.conf import settings
 
 class EmbeddingClientError(Exception):
     """Raised when the embedding service returns an error or a malformed response."""
+
+
+class EmbeddingPayloadTooLargeError(EmbeddingClientError):
+    """Raised when the backend rejects a request because one or more inputs
+    exceed the model's context window. Callers can bisect the batch and
+    retry — `embed_reports_task` does exactly that."""
 
 
 class EmbeddingBackend(Protocol):
@@ -64,11 +70,6 @@ def _build_http_client() -> httpx.Client:
     return httpx.Client(timeout=settings.EMBEDDING_REQUEST_TIMEOUT)
 
 
-def _build_async_http_client() -> httpx.AsyncClient:
-    """Indirection so tests can swap in a MockTransport."""
-    return httpx.AsyncClient(timeout=settings.EMBEDDING_REQUEST_TIMEOUT)
-
-
 def _l2_normalize(vec: list[float]) -> list[float]:
     norm = math.sqrt(sum(x * x for x in vec))
     if norm == 0.0:
@@ -76,17 +77,33 @@ def _l2_normalize(vec: list[float]) -> list[float]:
     return [x / norm for x in vec]
 
 
-def _truncate(texts: Iterable[str], max_chars: int) -> list[str]:
-    out: list[str] = []
-    for t in texts:
-        if len(t) > max_chars:
-            logger.warning(
-                "Truncating embedding input from %d to %d chars", len(t), max_chars
-            )
-            out.append(t[:max_chars])
-        else:
-            out.append(t)
-    return out
+# Substrings (case-insensitive) seen in embedding-service responses when one
+# or more inputs exceed the model's context window. Kept loose because the
+# exact phrasing varies across OpenAI / vLLM / Ollama and minor version bumps.
+_TOO_LARGE_MARKERS = (
+    "context length",
+    "context_length",
+    "maximum context",
+    "max_tokens",
+    "max tokens",
+    "max_position",
+    "too long",
+    "too large",
+    "too many tokens",
+    "exceeds",
+    "exceeded",
+)
+
+
+def _is_payload_too_large(response: httpx.Response) -> bool:
+    """Best-effort detection: is this 4xx caused by an input exceeding the
+    model's context window (i.e., bisecting the batch could resolve it)?"""
+    if response.status_code == 413:
+        return True
+    if response.status_code not in (400, 422):
+        return False
+    body_lower = response.text.lower()
+    return any(marker in body_lower for marker in _TOO_LARGE_MARKERS)
 
 
 @dataclass(frozen=True)
@@ -95,7 +112,6 @@ class _ResolvedConfig:
     url: str
     model: str
     dim: int
-    max_chars: int
     instruction: str
     headers: dict[str, str]
 
@@ -125,7 +141,6 @@ def _resolve_config() -> _ResolvedConfig:
         url=f"{base}{path}",
         model=settings.EMBEDDING_MODEL_NAME,
         dim=settings.EMBEDDING_DIM,
-        max_chars=settings.EMBEDDING_MAX_INPUT_CHARS,
         instruction=settings.EMBEDDING_QUERY_INSTRUCTION,
         headers=headers,
     )
@@ -163,22 +178,27 @@ class EmbeddingClient:
         self._http = _build_http_client()
 
     def embed_documents(self, texts: list[str]) -> list[list[float]]:
-        truncated_texts = _truncate(texts, self._cfg.max_chars)
-        payload = self._cfg.backend.build_payload(self._cfg.model, truncated_texts)
+        payload = self._cfg.backend.build_payload(self._cfg.model, texts)
         try:
             response = self._http.post(self._cfg.url, json=payload, headers=self._cfg.headers)
         except httpx.HTTPError as e:
             raise EmbeddingClientError(f"HTTP error contacting {self._cfg.url}: {e}") from e
         if response.status_code >= 400:
+            snippet = response.text[:200]
+            if _is_payload_too_large(response):
+                raise EmbeddingPayloadTooLargeError(
+                    f"Embedding service rejected payload as too large "
+                    f"({response.status_code}): {snippet}"
+                )
             raise EmbeddingClientError(
-                f"Embedding service returned {response.status_code}: {response.text[:200]}"
+                f"Embedding service returned {response.status_code}: {snippet}"
             )
         try:
             body = response.json()
         except ValueError as e:
             raise EmbeddingClientError(f"Embedding response is not JSON: {e}") from e
         raw = self._cfg.backend.parse_response(body)
-        return _normalize_response(raw, len(truncated_texts), self._cfg.dim)
+        return _normalize_response(raw, len(texts), self._cfg.dim)
 
     def embed_query(self, text: str) -> list[float]:
         prefixed = f"{self._cfg.instruction}{text}" if self._cfg.instruction else text
@@ -195,53 +215,3 @@ class EmbeddingClient:
 
     def __exit__(self, exc_type, exc_val, exc_tb) -> None:
         self.close()
-
-
-class AsyncEmbeddingClient:
-    """Async sibling of `EmbeddingClient` for ADRF view paths.
-
-    Same backend protocol, same config, same response handling. Differs only
-    in using `httpx.AsyncClient` and exposing `await`-able methods + an async
-    context-manager lifecycle (`async with AsyncEmbeddingClient() as c:`).
-    """
-
-    def __init__(self) -> None:
-        cfg = _resolve_config()
-        self._cfg = cfg
-        self._http = _build_async_http_client()
-
-    async def embed_documents(self, texts: list[str]) -> list[list[float]]:
-        truncated_texts = _truncate(texts, self._cfg.max_chars)
-        payload = self._cfg.backend.build_payload(self._cfg.model, truncated_texts)
-        try:
-            response = await self._http.post(
-                self._cfg.url, json=payload, headers=self._cfg.headers
-            )
-        except httpx.HTTPError as e:
-            raise EmbeddingClientError(f"HTTP error contacting {self._cfg.url}: {e}") from e
-        if response.status_code >= 400:
-            raise EmbeddingClientError(
-                f"Embedding service returned {response.status_code}: {response.text[:200]}"
-            )
-        try:
-            body = response.json()
-        except ValueError as e:
-            raise EmbeddingClientError(f"Embedding response is not JSON: {e}") from e
-        raw = self._cfg.backend.parse_response(body)
-        return _normalize_response(raw, len(truncated_texts), self._cfg.dim)
-
-    async def embed_query(self, text: str) -> list[float]:
-        prefixed = f"{self._cfg.instruction}{text}" if self._cfg.instruction else text
-        vectors = await self.embed_documents([prefixed])
-        if not vectors:
-            raise EmbeddingClientError("Embedding service returned no vectors for query")
-        return vectors[0]
-
-    async def aclose(self) -> None:
-        await self._http.aclose()
-
-    async def __aenter__(self) -> "AsyncEmbeddingClient":
-        return self
-
-    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
-        await self.aclose()

@@ -76,23 +76,26 @@ The public `SearchProvider` API (`radis.search.site`) is unchanged. Callers — 
 │        │                                                             │
 │        ▼  (one of the registered subscribers is pgsearch:)           │
 │  pgsearch._handle_reports_changed(reports)                           │
-│    ├─ FTS step (mode-dependent):                                     │
-│    │     PGSEARCH_SYNC_INDEXING=True  → bulk_upsert_report_search_   │
-│    │       vectors(report_ids) inline                                │
-│    │     PGSEARCH_SYNC_INDEXING=False → enqueue_bulk_index_reports   │
-│    │       (deferred to the `default` queue)                         │
-│    └─ embed_reports_task.defer(report_ids=...)                       │
+│    ├─ PGSEARCH_SYNC_INDEXING=True:                                   │
+│    │     bulk_upsert_report_search_vectors(report_ids) inline,       │
+│    │     then embed_reports_task.defer(report_ids=...)               │
+│    └─ PGSEARCH_SYNC_INDEXING=False:                                  │
+│          enqueue_bulk_index_reports(report_ids); the embed task is   │
+│          chained at the tail of bulk_index_reports (see below)       │
 │        │                                                             │
 │        ▼  HTTP response returned (201 / 200) immediately             │
 │                                                                      │
+│  ──── elsewhere, on the default_worker process ────                  │
+│                                                                      │
+│  bulk_index_reports(report_ids)   (default queue)                    │
+│    ├─ bulk_upsert_report_search_vectors(report_ids)                  │
+│    └─ embed_reports_task.defer(report_ids=...)                       │
+│                                                                      │
 │  ──── elsewhere, on the embeddings_worker process ────               │
 │                                                                      │
-│  embed_reports_task(report_ids)   (async task, embeddings queue)     │
-│    ├─ defensive: bulk_upsert_report_search_vectors(report_ids)       │
-│    │   (idempotent; ensures RSV rows + tsvector exist when this      │
-│    │   task wins the race against deferred bulk_index_reports)       │
-│    ├─ load RSVs (database_sync_to_async)                             │
-│    ├─ await AsyncEmbeddingClient.embed_documents([body, ...])        │
+│  embed_reports_task(report_ids)   (embeddings queue)                 │
+│    ├─ load RSVs (select_related("report"))                           │
+│    ├─ EmbeddingClient.embed_documents([body, ...])  (batched)        │
 │    ├─ L2-normalize; ReportSearchVector.objects.bulk_update           │
 │    └─ on EmbeddingClientError: raise                                 │
 │         → Procrastinate retry policy (exp backoff, N attempts)       │
@@ -101,7 +104,7 @@ The public `SearchProvider` API (`radis.search.site`) is unchanged. Callers — 
 
 `radis.reports` already exposes a handler registry (`reports_created_handlers` / `reports_updated_handlers` in `radis.reports.site`) whose docstring is explicit about its purpose: *"The handler can be used to index those reports in an external search database."* Pgsearch registers `_handle_reports_changed` on both. The view layer never imports anything from `pgsearch`; it only dispatches the registry.
 
-Both ingest paths — single-create (`POST /api/reports/`, `PUT /api/reports/{id}/?upsert=true`) and bulk-upsert (`POST /api/reports/bulk-upsert/`) — flow through the same handler, which defers an async Procrastinate task on the dedicated `embeddings` queue. The write path returns immediately after the transaction commits; the embedding service is touched only by the worker. This:
+Both ingest paths — single-create (`POST /api/reports/`, `PUT /api/reports/{id}/?upsert=true`) and bulk-upsert (`POST /api/reports/bulk-upsert/`) — flow through the same handler, which schedules a Procrastinate task on the dedicated `embeddings` queue (directly in sync FTS mode; chained at the end of `bulk_index_reports` in deferred FTS mode). The write path returns immediately after the transaction commits; the embedding service is touched only by the worker. This:
 
 - **Decouples write-path uptime from the embedding service.** API responses succeed even when the embedding endpoint is down or slow.
 - **Bounds concurrent load on the embedding service** via the worker's `--concurrency K` — explicit, configurable backpressure rather than implicit request-driven concurrency.
@@ -113,13 +116,14 @@ Both ingest paths — single-create (`POST /api/reports/`, `PUT /api/reports/{id
 
 | File | Purpose |
 |---|---|
-| `utils/embedding_client.py` | `EmbeddingClient` (sync, used by the query path) + `AsyncEmbeddingClient` (async, used by `embed_reports_task` on the worker); pluggable backends (`openai`, `ollama`) |
-| `apps.py` (modified) | `register_app()` now also registers `_handle_reports_changed` on both `reports_created_handlers` and `reports_updated_handlers`. The handler runs FTS (sync or deferred per `PGSEARCH_SYNC_INDEXING`) + defers `embed_reports_task` for the touched reports. This is the only place pgsearch wires itself into the reports app. |
-| `tasks.py` (embedding entries) | `embed_reports_task(report_ids)` async Procrastinate task on the `embeddings` queue. Defensively calls `bulk_upsert_report_search_vectors` first to ensure RSV rows exist (covers the race with deferred FTS, plus shell/admin edits), then `AsyncEmbeddingClient.embed_documents`, then `bulk_update`. Raises on `EmbeddingClientError` so the Procrastinate retry policy applies. |
+| `utils/embedding_client.py` | `EmbeddingClient` used by both the query path and `embed_reports_task` on the worker; pluggable backends (`openai`, `ollama`) |
+| `apps.py` (modified) | `register_app()` now also registers `_handle_reports_changed` on both `reports_created_handlers` and `reports_updated_handlers`. In sync FTS mode the handler upserts inline then defers `embed_reports_task`; in deferred FTS mode it enqueues `bulk_index_reports`, which chains the embed task at the end of its own run. This is the only place pgsearch wires itself into the reports app. |
+| `tasks.py` (embedding entries) | `embed_reports_task(report_ids)` Procrastinate task on the `embeddings` queue. Loads RSVs by `report_id`, calls `EmbeddingClient.embed_documents`, then `bulk_update`. Raises on `EmbeddingClientError` so the Procrastinate retry policy applies. |
+| `admin.py` | Registers `ReportSearchVector` with a `has_embedding` list display, an `embedding` `IsNull` filter, and an admin action `enqueue_pending_embeddings` that defers `embed_reports_task` for the selected rows whose embedding is NULL. Mirrors the `embed_pending` management command for operators who prefer the UI. |
 | `migrations/0002_hybrid_search.py` | Single schema migration: `CREATE EXTENSION vector`; adds `embedding vector(N)` column + HNSW index |
 | `models.py` (modified) | Adds `embedding` field + `HnswIndex` to `ReportSearchVector`. No Job/Task models. |
 | `signals.py` (unchanged from FTS-only) | The FTS `create_or_update_report_search_vector` receiver stays; **no embedding signal** |
-| `tasks.py` (FTS bits) | FTS bulk-indexing helper `bulk_upsert_report_search_vectors`. The existing `bulk_index_reports` Procrastinate task and `enqueue_bulk_index_reports` helper are retained unchanged from pre-hybrid-search — they remain pure FTS. The handler defers `embed_reports_task` independently; ordering between FTS and embedding is guaranteed by the defensive `bulk_upsert_report_search_vectors` call at the top of `embed_reports_task`, not by chaining (see §6.6). |
+| `tasks.py` (FTS bits) | FTS bulk-indexing helper `bulk_upsert_report_search_vectors` and the `bulk_index_reports` Procrastinate task. `bulk_index_reports` upserts the RSV rows and then chains `embed_reports_task.defer(...)` at the end of its run, so the embeddings worker only ever sees report ids whose RSV rows are already committed (see §6.6). |
 | `providers.py` (modified) | Replaces `search()` and `retrieve()` bodies with hybrid logic |
 | `tests/...` | Coverage per §10 |
 
@@ -129,7 +133,7 @@ Both ingest paths — single-create (`POST /api/reports/`, `PUT /api/reports/{id
 |---|---|
 | `pyproject.toml` | Add `pgvector>=0.3` dependency |
 | `radis/settings/base.py` | New env-driven + constant settings (§8) |
-| `radis/settings/test.py` | Override `EMBEDDING_PROVIDER_URL=""` so any incidental construction of `EmbeddingClient` / `AsyncEmbeddingClient` fast-fails into `EmbeddingClientError` in CI (no live embedding service). Tests that exercise embedding patch the client explicitly. |
+| `radis/settings/test.py` | Override `EMBEDDING_PROVIDER_URL=""` so any incidental construction of `EmbeddingClient` fast-fails into `EmbeddingClientError` in CI (no live embedding service). Tests that exercise embedding patch the client explicitly. |
 | `example.env` | Document `EMBEDDING_*` env vars for openai and ollama backends |
 | `radis/reports/api/viewsets.py` | **Unchanged from main** in shape. It already dispatches `reports_created_handlers` / `reports_updated_handlers` from `on_commit`; pgsearch hooks in via that registry. Nothing in `viewsets.py` imports from `radis.pgsearch`. |
 
@@ -293,8 +297,7 @@ check stays correct without any code change to `apps.py`.
 - `class OllamaBackend(EmbeddingBackend)` — default path `/api/embed`, body `{model, input: [...]}`, response `{embeddings: [[...]]}`.
 - `BACKENDS: dict[str, EmbeddingBackend] = {"openai": OpenAIBackend(), "ollama": OllamaBackend()}`.
 - `class EmbeddingClientError(Exception)`.
-- `class EmbeddingClient` — sync client used by the query path (`providers.search` / `providers.retrieve`).
-- `class AsyncEmbeddingClient` — async sibling of `EmbeddingClient`, used by the `embed_reports_task` worker task (§6.2). Same backend protocol; differs only in using `httpx.AsyncClient` + an `async with` lifecycle. The async surface lets a single embeddings worker run K embedding HTTP calls concurrently via asyncio at low memory overhead.
+- `class EmbeddingClient` — sync client used by both the query path (`providers.search` / `providers.retrieve`) and the `embed_reports_task` worker task (§6.2). A single client class keeps the configuration surface narrow; worker-side concurrency is provided by Procrastinate's `--concurrency K` flag spawning K sync task slots, not by intra-task asyncio.
 
 ### 5.2 Interface
 
@@ -310,8 +313,10 @@ class EmbeddingClient:
                         if settings.EMBEDDING_PROVIDER_API_KEY else {}
 
     def embed_documents(self, texts: list[str]) -> list[list[float]]:
-        """Embed texts verbatim. Truncates each to EMBEDDING_MAX_INPUT_CHARS first.
-        Returns L2-normalized vectors of length EMBEDDING_DIM."""
+        """Embed texts verbatim. Returns L2-normalized vectors of length
+        EMBEDDING_DIM. Raises `EmbeddingPayloadTooLargeError` (subclass of
+        `EmbeddingClientError`) when the backend rejects the request because
+        one or more inputs exceed the model's context window."""
 
     def embed_query(self, text: str) -> list[float]:
         """Prepend EMBEDDING_QUERY_INSTRUCTION, then embed_documents([text])[0]."""
@@ -329,7 +334,7 @@ class EmbeddingClient:
 ### 5.4 Behavior details
 
 - **Query instruction:** the model card for Qwen3-Embedding recommends a task-specific instruction prefix on the query side only. `embed_query` prepends `EMBEDDING_QUERY_INSTRUCTION` (a Python constant in `base.py`); `embed_documents` does not.
-- **Truncation:** any text longer than `EMBEDDING_MAX_INPUT_CHARS` is truncated at the character limit before being sent. A WARNING is logged with the report id (when known) and char count. Qwen3-Embedding-4B supports up to 32k tokens, so truncation will be rare for radiology bodies but is bounded as a defense against pathological inputs.
+- **Overlength inputs:** the client does *not* truncate. The model's context window is the authoritative limit, and the backend signals overlength via HTTP 413 or 400/422 with a context-length message in the body. The client detects that via a loose substring match on common keywords (`context length`, `max tokens`, `too long`, `exceeds`, …) and raises the typed `EmbeddingPayloadTooLargeError`. The `embed_reports_task` worker catches that subclass and bisects the chunk (§6.2); the query path lets it propagate (which the search view treats the same as any other `EmbeddingClientError` — fall back to FTS-only for that request).
 - **Normalization:** every returned vector is L2-normalized client-side, unconditionally. With unit vectors, cosine distance is monotonic in dot product, which makes the HNSW `vector_cosine_ops` operator effectively a fast inner-product search. Whether the upstream server normalizes is irrelevant.
 - **Dimension validation:** every vector is checked to have length `EMBEDDING_DIM`. A mismatch raises `EmbeddingClientError`.
 - **Batching:** `embed_documents` sends a single HTTP call per invocation. The write path enqueues an `embed_reports_task` per ingest event (one task per single-create, one task per bulk-upsert); each task in turn issues one batched embedding HTTP call covering all the report bodies it owns. The `EMBEDDING_BATCH_SIZE` constant is used by `embed_pending` to chunk large drains into tasks of reasonable size.
@@ -362,9 +367,12 @@ def _handle_reports_changed(reports):
     report_ids = [r.pk for r in reports]
     if settings.PGSEARCH_SYNC_INDEXING:
         bulk_upsert_report_search_vectors(report_ids)
+        embed_reports_task.defer(report_ids=report_ids)
     else:
+        # bulk_index_reports chains embed_reports_task at the end of its run,
+        # so the embeddings worker never sees a report id before its RSV row
+        # is committed.
         enqueue_bulk_index_reports(report_ids)
-    embed_reports_task.defer(report_ids=report_ids)
 
 register_reports_created_handler(
     ReportsCreatedHandler(name="PG Search", handle=_handle_reports_changed)
@@ -390,58 +398,86 @@ The HTTP response returns at that point. The view handler does **not** await emb
 
 ```python
 @app.task(queue="embeddings")
-async def embed_reports_task(report_ids: list[int]) -> None:
-    """Embed the named reports. Raises on EmbeddingClientError so
-    Procrastinate's retry policy applies.
-
-    Reports are sent to the embedding service in batches of
-    `EMBEDDING_BATCH_SIZE` to bound per-call payload size and per-call
-    GPU-side latency regardless of how many report_ids the caller passed.
-    """
+def embed_reports_task(report_ids: list[int]) -> None:
     if not report_ids:
         return
 
-    # Defensive: ensure RSV rows exist with up-to-date tsvectors. Covers
-    # the race against deferred `bulk_index_reports` (PGSEARCH_SYNC_INDEXING
-    # =False) and the shell/admin path that may have bypassed the bulk
-    # indexer entirely. Idempotent — no-op when the row + tsvector already
-    # match.
-    await database_sync_to_async(bulk_upsert_report_search_vectors)(report_ids)
-
-    @database_sync_to_async
-    def _load_rsvs() -> list[ReportSearchVector]:
-        return list(
-            ReportSearchVector.objects.filter(report_id__in=report_ids)
-            .select_related("report")
-            .only("id", "report_id", "report__body")
-        )
-
-    rsvs = await _load_rsvs()
+    rsvs = list(
+        ReportSearchVector.objects.filter(report_id__in=report_ids)
+        .select_related("report")
+        .only("id", "report_id", "report__body")
+    )
     if not rsvs:
         logger.warning("embed_reports_task: no RSVs for report ids %s", report_ids)
         return
 
     batch_size = settings.EMBEDDING_BATCH_SIZE
-    async with AsyncEmbeddingClient() as client:
+    embedded: list[ReportSearchVector] = []
+    skipped: list[ReportSearchVector] = []
+    with EmbeddingClient() as client:
         for start in range(0, len(rsvs), batch_size):
             chunk = rsvs[start : start + batch_size]
-            vectors = await client.embed_documents(
-                [rsv.report.body for rsv in chunk]
-            )
-            for rsv, vec in zip(chunk, vectors, strict=True):
-                rsv.embedding = vec
+            _embed_with_bisect(client, chunk, embedded, skipped)
 
-    @database_sync_to_async
-    def _save():
-        ReportSearchVector.objects.bulk_update(rsvs, fields=["embedding"])
-    await _save()
+    if embedded:
+        ReportSearchVector.objects.bulk_update(embedded, fields=["embedding"])
+    if skipped:
+        logger.error("…skipped as too large; report_ids=%s", [r.report_id for r in skipped])
+
+
+def _embed_with_bisect(client, rsvs, embedded, skipped):
+    """Embed rsvs. On EmbeddingPayloadTooLargeError, bisect until we isolate
+    the single offender — then log report_id + body_chars and skip it.
+    Other EmbeddingClientError types propagate so Procrastinate retries."""
+    if not rsvs:
+        return
+    try:
+        vectors = client.embed_documents([rsv.report.body for rsv in rsvs])
+    except EmbeddingPayloadTooLargeError as exc:
+        if len(rsvs) == 1:
+            logger.error(
+                "embed_reports_task: report_id=%s body_chars=%d rejected as too "
+                "large; skipping. Backend: %s",
+                rsvs[0].report_id, len(rsvs[0].report.body), exc,
+            )
+            skipped.append(rsvs[0])
+            return
+        mid = len(rsvs) // 2
+        _embed_with_bisect(client, rsvs[:mid], embedded, skipped)
+        _embed_with_bisect(client, rsvs[mid:], embedded, skipped)
+        return
+    for rsv, vec in zip(rsvs, vectors, strict=True):
+        rsv.embedding = vec
+        embedded.append(rsv)
 ```
 
-**Why async**: the work is dominated by HTTP wait. Procrastinate's worker is asyncio-based; an async task lets `--concurrency K` mean "K embedding HTTP calls in flight on a single event loop" without spinning OS threads. DB parts wrap `database_sync_to_async` so sync ORM doesn't block the loop.
+**Sync, not async**: each task issues batches sequentially (one HTTP round-trip at a time, waiting for the response before launching the next), so asyncio inside a single task wouldn't add concurrency. Worker concurrency comes from Procrastinate's `--concurrency K` flag, which gives K independent task slots regardless of whether the task body is `def` or `async def`. A sync task keeps the call graph readable — direct ORM, direct `httpx.Client`, no `database_sync_to_async` shims.
 
 **Internal batching**: a single task accepts an arbitrarily-sized `report_ids` list (e.g., a 1000-row bulk-upsert dispatches one task) and chunks it into HTTP calls of `EMBEDDING_BATCH_SIZE` reports each. This decouples the *enqueue size* (one task per ingest event, naturally sized to the workload) from the *embedding service call size* (always bounded by `EMBEDDING_BATCH_SIZE`, regardless of input). The vLLM endpoint sees a steady stream of equally-sized batches rather than occasional spike requests.
 
-**No internal catch**: the task lets `EmbeddingClientError` propagate. Procrastinate handles retry — see §6.4. On retry, the entire batch loop reruns (idempotent: `bulk_update` overwrites identical vectors with no change).
+**Bisect on payload-too-large**: the client signals overlength inputs via the typed `EmbeddingPayloadTooLargeError` subclass (§5.4). The task catches it in `_embed_with_bisect` and recursively halves the failing chunk; the recursion terminates either when a sub-chunk succeeds or when a single rsv is isolated. In the isolated case the task logs ERROR with the specific `report_id` + `body_chars`, appends to `skipped`, and continues — the rest of the batch still gets embedded. At task end, ERROR-level summary lists all skipped ids so operators can find them with one log search. The skipped reports' RSVs stay NULL; re-running `embed_pending` will re-attempt and re-log them, which is the expected stop signal for the operator to fix the upstream report or raise the model's context window. Bisect cost: worst case `O(K log K)` extra HTTP calls per offending chunk, but only when an offender exists — the common case is one HTTP call per chunk.
+
+**Two layers of retry for transient errors**: the actual embed call is wrapped in `_embed_chunk_with_retry`, a [stamina](https://stamina.hynek.me/)-decorated function:
+
+```python
+def _is_retryable_embedding_error(exc: Exception) -> bool:
+    return isinstance(exc, EmbeddingClientError) and not isinstance(
+        exc, EmbeddingPayloadTooLargeError
+    )
+
+@stamina.retry(
+    on=_is_retryable_embedding_error,
+    attempts=3, timeout=30.0, wait_initial=0.5, wait_max=8.0,
+)
+def _embed_chunk_with_retry(client, texts):
+    return client.embed_documents(texts)
+```
+
+- **stamina (inline, per-call):** 3 attempts within ~30 s, exponential backoff with jitter. Handles brief blips — a single 5xx, a network jitter, a transient timeout. The predicate `_is_retryable_embedding_error` explicitly *excludes* `EmbeddingPayloadTooLargeError` so the bisect logic owns that case end-to-end without burning retry budget on a deterministic rejection.
+- **Procrastinate (task-level, per-task):** when stamina's budget is exhausted the exception escapes the task, and Procrastinate's exponential-backoff retry kicks in for the whole batch. Handles extended outages where the embedding service is down for minutes-to-hours. On retry the entire batch loop reruns (idempotent: `bulk_update` overwrites identical vectors with no change).
+- **Why two layers and not just one:** stamina inside the task absorbs the common case of "the service blipped once" without the operator-visible noise of a Procrastinate retry event, and without re-doing all the bookkeeping (`SELECT FOR UPDATE SKIP LOCKED`, lease, ack). Procrastinate above the task covers the long-tail case stamina is not budgeted for. Stamina alone would mean a single 30-s outage permanently fails the task; Procrastinate alone would mean every blip incurs a full task replay.
+
+For tests, the repo-wide `conftest.py` disables stamina globally via `stamina.set_active(False)`; specific tests that exercise retry behaviour opt back in with the `stamina_active` fixture.
 
 ### 6.3 The worker and the concurrency model
 
@@ -460,8 +496,8 @@ embeddings_worker:
 Three explicit choices:
 
 - **Dedicated queue (`embeddings`)**: isolated from `default` (extraction / subscription) and `llm`. A backfill or write burst can't starve unrelated tasks.
-- **`--concurrency 4`** (the concurrency knob): up to 4 `embed_reports_task` coroutines in flight on the worker's event loop at once. Each coroutine has at most one embedding HTTP call outstanding at a time (the task's internal batch loop is sequential), so `--concurrency K` translates directly to "up to K embedding HTTP requests in flight to the embedding service per worker process." Total system concurrency = `worker_count × --concurrency`. The default of 4 leaves capacity for the query path's `embed_query` to share the same embedding service. Tunable per deployment.
-- **Async-native**: the worker runs a single asyncio event loop; async tasks slot in directly. One `httpx.AsyncClient` connection pool per worker process; one async Postgres pool. Low overhead compared to threaded workers.
+- **`--concurrency 4`** (the concurrency knob): up to 4 `embed_reports_task` slots in flight on the worker at once. Each slot processes its batches sequentially, so `--concurrency K` translates directly to "up to K embedding HTTP requests in flight to the embedding service per worker process." Total system concurrency = `worker_count × --concurrency`. The default of 4 leaves capacity for the query path's `embed_query` to share the same embedding service. Tunable per deployment.
+- **Sync task body**: the task is `def`, not `async def`. Procrastinate gives concurrency through K independent task slots regardless of sync vs async, and the embedding batch loop is sequential by design — switching to async would not add any in-task concurrency, just a `database_sync_to_async` shim layer.
 
 **Two layers of "batching"**, easy to confuse, kept separate by design:
 
@@ -479,8 +515,9 @@ Procrastinate handles transient failures automatically; `embed_pending` (§6.5) 
 
 | Failure | What happens |
 |---|---|
-| **Transient outage** (5xx / timeout / network blip ≲ minutes) | Task raises → Procrastinate retries with exponential backoff. Most cases auto-recover; the embedding is written without operator action. |
-| **Extended outage** (service down longer than retry window) | Task ends in `failed` state in `procrastinate_jobs`. RSV stays NULL. Operator runs `./manage.py embed_pending` once the service recovers to re-enqueue the affected rows. |
+| **Brief blip** (single 5xx / timeout / network jitter ≲ seconds) | stamina inside the task retries the same HTTP call up to 3 times within ~30 s. Most cases recover before the task even completes its current batch loop iteration. No Procrastinate retry event. |
+| **Transient outage** (service degraded for minutes; outlasts stamina's 30 s budget) | Stamina exhausts → exception escapes the task → Procrastinate's task-level retry kicks in with exponential backoff. Most cases auto-recover; the embedding is written without operator action. |
+| **Extended outage** (service down longer than Procrastinate's retry window) | Task ends in `failed` state in `procrastinate_jobs`. RSV stays NULL. Operator runs `./manage.py embed_pending` (or the admin action) once the service recovers to re-enqueue the affected rows. |
 | **Wrong-dim vector returned by backend** | `EmbeddingClientError` raised → retries → all fail the same way → task ends `failed`. Operator inspects, fixes config (or the `pgsearch.E001` system check catches it at deploy time). |
 | **Worker offline / crashed** | Tasks pile up in `procrastinate_jobs.todo`. When a worker starts, it picks them up via `SELECT ... FOR UPDATE SKIP LOCKED`. No data loss. Write path unaffected. |
 | **Embedding written and report immediately deleted** | `bulk_update` updates zero rows for the deleted RSV; rest of the batch is unaffected. Benign. |
@@ -514,30 +551,26 @@ Properties:
 - **Rate-limited.** The worker's `--concurrency K` caps concurrent embedding HTTP calls regardless of how many tasks the command enqueues. Operators cannot accidentally hammer the embedding service.
 - **Visible.** Enqueued tasks appear in the standard Procrastinate observability surface (admin, logs, telemetry). Failed retries surface there as well.
 
-### 6.6 `PGSEARCH_SYNC_INDEXING` retained; ordering enforced by defensive FTS in the embed task
+### 6.6 `PGSEARCH_SYNC_INDEXING` retained; ordering enforced by chaining
 
 The pre-existing `PGSEARCH_SYNC_INDEXING` switch is **retained** with the same semantics it had before hybrid search: it controls whether FTS bulk-indexing runs inline on the request thread or is deferred to a `bulk_index_reports` Procrastinate task. Pgsearch's `_handle_reports_changed` reads the flag and dispatches accordingly:
 
 | Mode | `PGSEARCH_SYNC_INDEXING` | FTS step | Embedding step |
 |---|---|---|---|
-| Sync | `True` | `bulk_upsert_report_search_vectors(ids)` inline inside the handler | `embed_reports_task.defer(...)` immediately after, in the same handler call |
-| Deferred (default) | `False` | `enqueue_bulk_index_reports(ids)` defers `bulk_index_reports` to the `default` queue | `embed_reports_task.defer(...)` immediately after; ordering vs the deferred FTS task is unspecified (see below) |
+| Sync | `True` | `bulk_upsert_report_search_vectors(ids)` inline inside the handler | `embed_reports_task.defer(...)` immediately after, in the same handler call. RSV rows are already committed. |
+| Deferred (default) | `False` | `enqueue_bulk_index_reports(ids)` defers `bulk_index_reports` to the `default` queue | `bulk_index_reports` itself defers `embed_reports_task` at the end of its run. Handler does *not* defer embed directly. |
 
-`bulk_index_reports` is **unchanged from pre-hybrid-search**: it's purely an FTS task. It does *not* chain into `embed_reports_task`.
-
-In the deferred FTS mode both Procrastinate jobs (the bulk-index task on `default` and the embed task on `embeddings`) are inserted in the same DB transaction. The two workers pick them up independently; either can win the race. The defensive `bulk_upsert_report_search_vectors` call at the top of `embed_reports_task` covers the case where the embed task wins — it idempotently produces the RSV rows it needs before reading `report.body`, costing one extra (no-op in the common case) tsvector recompute. This is the trade I picked over chaining the two tasks together:
-
-- **No coupling between tasks.** `bulk_index_reports` stays pure FTS; `embed_reports_task` stays self-sufficient. Either can be reused, tested, or replaced in isolation.
-- **Same safety net protects shell/admin edits.** A Python-shell `report.body = x; report.save()` fires the FTS signal but no handler. If an operator manually `embed_reports_task.defer([pk])` after such an edit, the defensive call still ensures the RSV is current. With chaining the safety net only existed for the bulk path.
-- **Cheap idempotent cost.** `bulk_upsert_report_search_vectors([pk])` for an already-indexed row is one INSERT ON CONFLICT DO NOTHING + one UPDATE that rewrites `search_vector = to_tsvector(...)` to the same value. ~1 ms per chunk.
+`bulk_index_reports` now ends with `embed_reports_task.defer(report_ids=...)`. The defer happens inside the same task body, after `bulk_upsert_report_search_vectors` has committed the RSV rows, so the embeddings worker can only observe a `report_ids` payload whose RSV rows already exist. This replaces the earlier "defensive idempotent re-upsert at the top of the embed task" design — the chain is the ordering guarantee.
 
 Properties:
 
-- **No correctness race.** Embedding either finds the RSV already indexed (common case) or creates+indexes it on the fly (defensive case). It never reads a NULL `body` or skips a missing RSV.
+- **No race.** The embeddings worker never picks up a report id before its RSV row is committed. The embed task can read `report.body` and write `embedding` without checking for RSV existence.
+- **Simple embed task.** No `bulk_upsert_report_search_vectors` shim at the top, no idempotent re-upsert cost on the embeddings worker, no extra commit hop.
 - **Operator choice preserved.** Deployments that prefer sync FTS keep that option; deployments that prefer the deferred FTS task for large bulks keep that option. Hybrid search is orthogonal to the FTS-mode decision.
 - **Two queues, two concerns.** FTS deferral runs on the `default` queue (where `bulk_index_reports` already lived); embedding runs on the dedicated `embeddings` queue. FTS-only worker capacity does not compete with embedding capacity.
+- **Operator-triggered re-embed.** The `embed_pending` management command and the `enqueue_pending_embeddings` admin action defer `embed_reports_task` directly. Both bypass `bulk_index_reports` but the invariant still holds: their queries are over existing `ReportSearchVector` rows with `embedding IS NULL`, so the RSV rows exist by construction.
 
-The single-create / PUT path is unaffected by `PGSEARCH_SYNC_INDEXING`. Its FTS step is the `post_save` signal on `Report`, which is always sync inline by construction. The same handler still fires for it; the handler's FTS call in sync mode is a redundant (idempotent, ~1 ms) recompute, and in async mode adds one Procrastinate job per single create. The redundancy is the cost of the clean abstraction — the handler doesn't know whether it was triggered by a single-create or a bulk write.
+The single-create / PUT path is unaffected by `PGSEARCH_SYNC_INDEXING`. Its FTS step is the `post_save` signal on `Report`, which is always sync inline by construction. The same handler still fires for it; the handler then takes the sync-mode branch's behaviour (immediate embed defer), which is correct since the RSV row was just written sync by the signal.
 
 ### 6.7 Sync DRF; no async views required
 
@@ -777,7 +810,6 @@ These vary across dev/staging/prod and are operator-controlled. `EMBEDDING_DIM` 
 
 ```python
 EMBEDDING_REQUEST_TIMEOUT = 30  # seconds
-EMBEDDING_MAX_INPUT_CHARS = 60_000
 EMBEDDING_QUERY_INSTRUCTION = (
     "Instruct: Given a radiology search query, retrieve relevant radiology reports.\n"
     "Query: "
@@ -816,7 +848,7 @@ Both files add an `embeddings_worker.command` block. Dev uses `-l debug --autore
 | Embedding service down during `embed_reports_task` execution | Task raises `EmbeddingClientError`; Procrastinate retries with exponential backoff. After retries exhaust, task ends `failed`; `embedding` stays NULL. **API request was never affected** (already returned at the on_commit point). | WARNING per retry; ERROR on final failure |
 | Orchestrator crashes during task creation (partial dispatch) | Job stays in `PREPARING`. Next launcher tick sees in-flight job and no-ops. Operator marks job `FAILURE` in admin to allow a fresh run | ERROR + operator action |
 | Sub-task fails after Procrastinate retries exhausted | Task ends as `FAILURE`. `update_job_state` rolls the job to `WARNING` (some tasks succeeded) or `FAILURE` (all failed). NULL rows remain; next launcher creates a new job to retry them | ERROR |
-| Report body > `EMBEDDING_MAX_INPUT_CHARS` | Truncate, embed truncated text | WARNING with report_id and char count |
+| Report body exceeds embedding model's context window (backend returns 413, or 400/422 with a context-length message) | Client raises `EmbeddingPayloadTooLargeError`. Task bisects the chunk and retries; once the offender is isolated to one report, it is skipped and its RSV stays NULL. The rest of the chunk still gets embedded. | ERROR per offender (report_id + body_chars) and ERROR summary listing all skipped ids |
 | Report deleted between task creation and execution | Sub-task's `task.reports.values_list(...)` returns fewer rows; `embed_documents` called on smaller list; no error | DEBUG |
 | Vector dim mismatch on write | Postgres raises; sub-task fails, retried | ERROR — escalate to admin |
 | `EMBEDDING_PROVIDER_URL` empty at startup | `EmbeddingClient` construction defers to call site; calls log + raise; query falls back to FTS-only | WARNING once on first request |
@@ -826,7 +858,7 @@ Both files add an `embeddings_worker.command` block. Dev uses `-l debug --autore
 
 - The product never fails a search request because the embedding service is down. It degrades to FTS-only.
 - Query embeddings are not cached. The complexity and freshness trade-off is not worth it at the corpora sizes RADIS targets.
-- `EmbeddingClient` does not retry internally. Procrastinate retries the whole task; the query path uses a single shot.
+- `EmbeddingClient` does not retry internally. The worker path layers `stamina.retry` over the client call inside `_embed_chunk_with_retry` (3 attempts / 30 s budget) and lets Procrastinate's task-level retry handle anything stamina can't absorb. The query path uses a single shot and falls back to FTS-only on any `EmbeddingClientError`.
 
 **Observability:**
 
@@ -842,7 +874,7 @@ Both files add an `embeddings_worker.command` block. Dev uses `-l debug --autore
 |---|---|
 | `tests/unit/test_embedding_client.py` | Backend payload/response round-trip, path override, instruction prefix, normalization, dim validation, all error modes, truncation |
 | `tests/unit/test_provider_fusion.py` | `_rrf_fuse(vec_rank, fts_rank, k)` pure-Python helper: disjoint, overlapping, FTS-only, vector-only, both-empty, tiebreak by report_id |
-| `tests/unit/test_embed_reports_task.py` | Loads RSVs by report_id, calls `AsyncEmbeddingClient.embed_documents`, bulk-updates vectors. Asserts that `EmbeddingClientError` propagates so Procrastinate's retry policy applies (the task does not swallow). |
+| `tests/unit/test_embed_reports_task.py` | Loads RSVs by report_id, calls `EmbeddingClient.embed_documents`, bulk-updates vectors. Asserts internal batching by `EMBEDDING_BATCH_SIZE`, that `EmbeddingClientError` propagates so Procrastinate's retry policy applies (the task does not swallow), and that `bulk_index_reports` chains `embed_reports_task.defer(...)` at the end of its run so the embeddings worker only sees report ids whose RSV rows are committed. |
 
 ### 10.2 Integration tests (real Postgres + pgvector)
 

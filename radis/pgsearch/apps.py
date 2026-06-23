@@ -77,10 +77,14 @@ def _handle_reports_changed(reports):
     Owns both FTS indexing and embedding for the touched reports. The mode
     flag `PGSEARCH_SYNC_INDEXING` controls whether FTS runs inline on the
     request thread or is deferred to a Procrastinate task on the `default`
-    queue. Embedding is always deferred to the `embeddings` queue; the
-    embed task is itself defensive about RSV rows being absent (see
-    `embed_reports_task`), so it doesn't need to wait for the deferred FTS
-    task to finish.
+    queue. Embedding is always deferred to the `embeddings` queue.
+
+    Ordering between FTS and embedding is the same in both modes: RSV rows
+    exist (and `report.body` is reachable) before `embed_reports_task` runs.
+    In sync mode the handler upserts inline, then defers embed. In async
+    mode the handler only enqueues `bulk_index_reports`; that task chains
+    `embed_reports_task` at the end of its own run, so the embeddings worker
+    never picks up a report before its RSV row is committed.
     """
     if not reports:
         return
@@ -91,9 +95,9 @@ def _handle_reports_changed(reports):
     report_ids = [report.pk for report in reports]
     if settings.PGSEARCH_SYNC_INDEXING:
         bulk_upsert_report_search_vectors(report_ids)
+        embed_reports_task.defer(report_ids=report_ids)
     else:
         enqueue_bulk_index_reports(report_ids)
-    embed_reports_task.defer(report_ids=report_ids)
 
 
 def register_app():
