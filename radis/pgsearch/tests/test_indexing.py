@@ -1,7 +1,7 @@
 import pytest
 
-from radis.pgsearch.models import ReportSearchVector
-from radis.pgsearch.utils.indexing import bulk_upsert_report_search_vectors
+from radis.pgsearch.models import ReportSearchIndex
+from radis.pgsearch.utils.indexing import bulk_upsert_report_search_indexes
 from radis.reports.models import Language, Report
 
 
@@ -24,10 +24,10 @@ def test_bulk_index_matches_signal_vector() -> None:
         language=language,
     )
 
-    signal_vector = ReportSearchVector.objects.get(report=report).search_vector
-    ReportSearchVector.objects.filter(report=report).delete()
+    signal_vector = ReportSearchIndex.objects.get(report=report).search_vector
+    ReportSearchIndex.objects.filter(report=report).delete()
 
-    bulk_upsert_report_search_vectors([report.pk])
-    bulk_vector = ReportSearchVector.objects.get(report=report).search_vector
+    bulk_upsert_report_search_indexes([report.pk])
+    bulk_vector = ReportSearchIndex.objects.get(report=report).search_vector
 
     assert signal_vector == bulk_vector

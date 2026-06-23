@@ -4,22 +4,22 @@ from django.db.models.query import QuerySet
 from django.http.request import HttpRequest
 from procrastinate.contrib.django.models import ProcrastinateJob
 
-from .models import ReportSearchVector
+from .models import ReportSearchIndex
 from .tasks import enqueue_embed_reports
 
 EMBEDDINGS_QUEUE = "embeddings"
 
 
-@admin.register(ReportSearchVector)
-class ReportSearchVectorAdmin(admin.ModelAdmin):
+@admin.register(ReportSearchIndex)
+class ReportSearchIndexAdmin(admin.ModelAdmin):
     list_display = ("id", "report_id", "has_embedding")
-    list_filter = ("embedding",)
+    list_filter = (("embedding", admin.EmptyFieldListFilter),)
     search_fields = ("report__document_id",)
     actions = ("enqueue_pending_embeddings",)
-    change_list_template = "admin/pgsearch/reportsearchvector/change_list.html"
+    change_list_template = "admin/pgsearch/reportsearchindex/change_list.html"
 
     @admin.display(boolean=True, description="Embedded")
-    def has_embedding(self, obj: ReportSearchVector) -> bool:
+    def has_embedding(self, obj: ReportSearchIndex) -> bool:
         return obj.embedding is not None
 
     def changelist_view(self, request, extra_context=None):
@@ -32,7 +32,7 @@ class ReportSearchVectorAdmin(admin.ModelAdmin):
         """Snapshot of the embedding pipeline for the admin badge: how many
         reports are still missing an embedding, and what Procrastinate is
         doing about it right now."""
-        pending = ReportSearchVector.objects.filter(embedding__isnull=True).count()
+        pending = ReportSearchIndex.objects.filter(embedding__isnull=True).count()
         queue_counts = dict(
             ProcrastinateJob.objects.filter(queue_name=EMBEDDINGS_QUEUE)
             .values_list("status")
@@ -47,7 +47,7 @@ class ReportSearchVectorAdmin(admin.ModelAdmin):
 
     @admin.action(description="Enqueue embedding for selected rows (NULL only)")
     def enqueue_pending_embeddings(
-        self, request: HttpRequest, queryset: QuerySet[ReportSearchVector]
+        self, request: HttpRequest, queryset: QuerySet[ReportSearchIndex]
     ) -> None:
         report_ids = list(
             queryset.filter(embedding__isnull=True)

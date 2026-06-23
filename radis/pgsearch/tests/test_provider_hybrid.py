@@ -3,7 +3,7 @@ from unittest.mock import patch
 import pytest
 from django.contrib.auth.models import Group
 
-from radis.pgsearch.models import ReportSearchVector
+from radis.pgsearch.models import ReportSearchIndex
 from radis.pgsearch.providers import retrieve, search
 from radis.pgsearch.utils.embedding_client import EmbeddingClientError
 from radis.reports.factories import ReportFactory
@@ -50,9 +50,9 @@ def reports_with_embeddings(group, settings):
         body="No pneumothorax detected. Previous pneumothorax resolved. Lungs clear."
     )
     r2.groups.add(group)
-    ReportSearchVector.objects.filter(report=r0).update(embedding=_unit_vec(99, dim))
-    ReportSearchVector.objects.filter(report=r1).update(embedding=_unit_vec(1, dim))
-    ReportSearchVector.objects.filter(report=r2).update(embedding=_unit_vec(0, dim))
+    ReportSearchIndex.objects.filter(report=r0).update(embedding=_unit_vec(99, dim))
+    ReportSearchIndex.objects.filter(report=r1).update(embedding=_unit_vec(1, dim))
+    ReportSearchIndex.objects.filter(report=r2).update(embedding=_unit_vec(0, dim))
     return r0, r1, r2
 
 
@@ -136,7 +136,7 @@ def test_empty_summary_falls_back_to_body_head(group, settings):
         body="lung parenchyma demonstrates clear bilaterally with no abnormality",
     )
     r.groups.add(group)
-    ReportSearchVector.objects.filter(report=r).update(embedding=_unit_vec(0, dim))
+    ReportSearchIndex.objects.filter(report=r).update(embedding=_unit_vec(0, dim))
 
     with patch("radis.pgsearch.providers.EmbeddingClient") as MockClient:
         MockClient.return_value.__enter__.return_value = MockClient.return_value
@@ -205,7 +205,7 @@ def test_m2m_filter_does_not_duplicate_results(group, settings):
     dim = settings.EMBEDDING_DIM
     r = ReportFactory.create(body="pneumothorax findings", modalities=["CT", "MR", "DX"])
     r.groups.add(group)
-    ReportSearchVector.objects.filter(report=r).update(embedding=_unit_vec(0, dim))
+    ReportSearchIndex.objects.filter(report=r).update(embedding=_unit_vec(0, dim))
 
     node, _ = QueryParser().parse("pneumothorax")
     assert node is not None

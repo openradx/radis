@@ -1,10 +1,10 @@
-"""Tests for the ReportSearchVector admin pipeline-stats badge."""
+"""Tests for the ReportSearchIndex admin pipeline-stats badge."""
 from django.db import connection
 
 import pytest
 
-from radis.pgsearch.admin import ReportSearchVectorAdmin
-from radis.pgsearch.models import ReportSearchVector
+from radis.pgsearch.admin import ReportSearchIndexAdmin
+from radis.pgsearch.models import ReportSearchIndex
 from radis.reports.factories import ReportFactory
 
 pytestmark = pytest.mark.django_db(transaction=True)
@@ -45,11 +45,11 @@ def _insert_procrastinate_job(status: str, queue: str = "embeddings") -> None:
 def test_pipeline_stats_counts_pending_rsvs():
     [ReportFactory.create() for _ in range(3)]
     embedded = ReportFactory.create()
-    rsv = ReportSearchVector.objects.get(report_id=embedded.pk)
+    rsv = ReportSearchIndex.objects.get(report_id=embedded.pk)
     rsv.embedding = [0.0] * 1024
     rsv.save()
 
-    stats = ReportSearchVectorAdmin._embedding_pipeline_stats()
+    stats = ReportSearchIndexAdmin._embedding_pipeline_stats()
     assert stats["pending_reports"] == 3
 
 
@@ -61,14 +61,14 @@ def test_pipeline_stats_counts_procrastinate_jobs_by_status():
     # Job on a different queue must not be counted.
     _insert_procrastinate_job("todo", queue="default")
 
-    stats = ReportSearchVectorAdmin._embedding_pipeline_stats()
+    stats = ReportSearchIndexAdmin._embedding_pipeline_stats()
     assert stats["todo"] == 2
     assert stats["doing"] == 1
     assert stats["failed"] == 1
 
 
 def test_pipeline_stats_zero_when_no_queue_activity():
-    stats = ReportSearchVectorAdmin._embedding_pipeline_stats()
+    stats = ReportSearchIndexAdmin._embedding_pipeline_stats()
     assert stats == {
         "pending_reports": 0,
         "todo": 0,

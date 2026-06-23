@@ -1,11 +1,11 @@
-"""Enqueue `embed_reports_task` for every `ReportSearchVector` whose embedding
+"""Enqueue `embed_reports_task` for every `ReportSearchIndex` whose embedding
 is still NULL.
 
 Operators run this for three scenarios:
 
 1. **Backfill.** Reports loaded before the deferred-embedding wiring shipped.
 2. **Dim or model change.** After §4.5: drop the column, re-migrate (or
-   `ReportSearchVector.objects.update(embedding=None)` for a same-dim model
+   `ReportSearchIndex.objects.update(embedding=None)` for a same-dim model
    swap), then run this command to re-embed against the new model.
 3. **Outage recovery.** Tasks that exhausted Procrastinate retries during an
    extended embedding-service outage — re-run after the service recovers.
@@ -30,13 +30,13 @@ Properties:
 from django.conf import settings
 from django.core.management.base import BaseCommand
 
-from radis.pgsearch.models import ReportSearchVector
+from radis.pgsearch.models import ReportSearchIndex
 from radis.pgsearch.tasks import enqueue_embed_reports
 
 
 class Command(BaseCommand):
     help = (
-        "Enqueue embed_reports_task subjobs for every ReportSearchVector "
+        "Enqueue embed_reports_task subjobs for every ReportSearchIndex "
         "with embedding=NULL. The embeddings worker drains the queue at "
         "its configured concurrency."
     )
@@ -62,7 +62,7 @@ class Command(BaseCommand):
 
     def handle(self, *args, **opts) -> None:
         ids = list(
-            ReportSearchVector.objects.filter(embedding__isnull=True)
+            ReportSearchIndex.objects.filter(embedding__isnull=True)
             .order_by("report_id")
             .values_list("report_id", flat=True)
         )

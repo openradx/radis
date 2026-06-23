@@ -5,13 +5,13 @@ from django.conf import settings
 from procrastinate.contrib.django import app
 from procrastinate.types import JSONValue
 
-from .models import ReportSearchVector
+from .models import ReportSearchIndex
 from .utils.embedding_client import (
     EmbeddingClient,
     EmbeddingClientError,
     EmbeddingPayloadTooLargeError,
 )
-from .utils.indexing import bulk_upsert_report_search_vectors
+from .utils.indexing import bulk_upsert_report_search_indexes
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +59,7 @@ def bulk_index_reports(report_ids: list[int]) -> None:
     if not report_ids:
         return
     logger.info("Indexing %s reports in bulk.", len(report_ids))
-    bulk_upsert_report_search_vectors(report_ids)
+    bulk_upsert_report_search_indexes(report_ids)
     enqueue_embed_reports(report_ids)
 
 
@@ -108,9 +108,9 @@ def enqueue_embed_reports(
 
 def _embed_with_bisect(
     client: EmbeddingClient,
-    rsvs: list[ReportSearchVector],
-    embedded: list[ReportSearchVector],
-    skipped: list[ReportSearchVector],
+    rsvs: list[ReportSearchIndex],
+    embedded: list[ReportSearchIndex],
+    skipped: list[ReportSearchIndex],
 ) -> None:
     """Embed `rsvs` and append `(rsv, vec)` pairs to `embedded`. When the
     backend rejects the request as too large, bisect and recurse. Once the
@@ -166,7 +166,7 @@ def embed_reports_task(report_ids: list[int]) -> None:
     stamina's budget — propagates so Procrastinate's task-level retry
     policy applies.
 
-    Callers must ensure ReportSearchVector rows exist before deferring this
+    Callers must ensure ReportSearchIndex rows exist before deferring this
     task. `bulk_index_reports` chains the defer at the end of its run, and
     `embed_pending` / the admin action filter on existing RSV rows by
     construction.
@@ -175,27 +175,27 @@ def embed_reports_task(report_ids: list[int]) -> None:
         return
 
     rsvs = list(
-        ReportSearchVector.objects.filter(report_id__in=report_ids)
+        ReportSearchIndex.objects.filter(report_id__in=report_ids)
         .select_related("report")
         .only("id", "report_id", "report__body")
     )
     if not rsvs:
         logger.warning(
-            "embed_reports_task: no ReportSearchVector rows for report ids %s",
+            "embed_reports_task: no ReportSearchIndex rows for report ids %s",
             report_ids,
         )
         return
 
     batch_size = settings.EMBEDDING_BATCH_SIZE
-    embedded: list[ReportSearchVector] = []
-    skipped: list[ReportSearchVector] = []
+    embedded: list[ReportSearchIndex] = []
+    skipped: list[ReportSearchIndex] = []
     with EmbeddingClient() as client:
         for start in range(0, len(rsvs), batch_size):
             chunk = rsvs[start : start + batch_size]
             _embed_with_bisect(client, chunk, embedded, skipped)
 
     if embedded:
-        ReportSearchVector.objects.bulk_update(embedded, fields=["embedding"])
+        ReportSearchIndex.objects.bulk_update(embedded, fields=["embedding"])
     if skipped:
         logger.error(
             "embed_reports_task: %d report(s) skipped as too large for the embedding "

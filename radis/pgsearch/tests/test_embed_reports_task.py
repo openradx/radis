@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 import stamina
 
-from radis.pgsearch.models import ReportSearchVector
+from radis.pgsearch.models import ReportSearchIndex
 from radis.pgsearch.tasks import (
     bulk_index_reports,
     embed_reports_task,
@@ -74,7 +74,7 @@ def test_embeds_in_internal_batches(settings):
     assert fake.embed_documents.call_count == 3
     sizes = [len(call.args[0]) for call in fake.embed_documents.call_args_list]
     assert sorted(sizes) == [1, 2, 2]
-    assert ReportSearchVector.objects.filter(embedding__isnull=True).count() == 0
+    assert ReportSearchIndex.objects.filter(embedding__isnull=True).count() == 0
 
 
 def test_embedding_error_propagates():
@@ -90,7 +90,7 @@ def test_embedding_error_propagates():
         with pytest.raises(EmbeddingClientError):
             embed_reports_task(report_ids=pks)
 
-    assert ReportSearchVector.objects.filter(embedding__isnull=True).count() == 2
+    assert ReportSearchIndex.objects.filter(embedding__isnull=True).count() == 2
 
 
 def test_bulk_index_reports_chains_into_embed_reports_task(settings):
@@ -101,14 +101,14 @@ def test_bulk_index_reports_chains_into_embed_reports_task(settings):
     settings.EMBEDDING_SUBJOB_SIZE = 100
     reports = [ReportFactory.create() for _ in range(3)]
     pks = [r.pk for r in reports]
-    ReportSearchVector.objects.filter(report_id__in=pks).delete()
+    ReportSearchIndex.objects.filter(report_id__in=pks).delete()
 
     with patch("radis.pgsearch.tasks.embed_reports_task.defer") as defer:
         bulk_index_reports(report_ids=pks)
 
     # RSVs were upserted, then one embed subjob covering all 3 ids was
     # deferred (3 < SUBJOB_SIZE so the whole batch fits in one subjob).
-    assert ReportSearchVector.objects.filter(report_id__in=pks).count() == 3
+    assert ReportSearchIndex.objects.filter(report_id__in=pks).count() == 3
     defer.assert_called_once_with(report_ids=pks)
 
 
@@ -184,7 +184,7 @@ def test_bisects_on_too_large_and_isolates_offender(settings, caplog, monkeypatc
     def fake_embed(texts):
         # Simulate the backend rejecting any payload that contains the
         # offending report's body. The body is fetched by report_id.
-        offender_body = ReportSearchVector.objects.select_related("report").get(
+        offender_body = ReportSearchIndex.objects.select_related("report").get(
             report_id=offender_pk
         ).report.body
         if offender_body in texts:
@@ -212,7 +212,7 @@ def test_bisects_on_too_large_and_isolates_offender(settings, caplog, monkeypatc
     # The three good reports got embeddings; the offender stayed NULL.
     rsvs_by_pk = {
         rsv.report_id: rsv
-        for rsv in ReportSearchVector.objects.filter(report_id__in=pks)
+        for rsv in ReportSearchIndex.objects.filter(report_id__in=pks)
     }
     assert rsvs_by_pk[offender_pk].embedding is None
     for pk in pks:
@@ -250,7 +250,7 @@ def test_non_too_large_error_propagates_without_bisecting():
 
     # Only one call should have been made — no bisect on non-too-large errors.
     assert fake.embed_documents.call_count == 1
-    assert ReportSearchVector.objects.filter(embedding__isnull=True).count() == 4
+    assert ReportSearchIndex.objects.filter(embedding__isnull=True).count() == 4
 
 
 def test_stamina_retries_transient_then_succeeds(settings, stamina_active):
@@ -280,7 +280,7 @@ def test_stamina_retries_transient_then_succeeds(settings, stamina_active):
     # The mock was called 3 times: two retries + one success.
     assert fake.embed_documents.call_count == 3
     # All three reports got embeddings; none stayed NULL.
-    assert ReportSearchVector.objects.filter(embedding__isnull=True).count() == 0
+    assert ReportSearchIndex.objects.filter(embedding__isnull=True).count() == 0
 
 
 def test_stamina_does_not_retry_payload_too_large(settings, stamina_active):
@@ -304,4 +304,4 @@ def test_stamina_does_not_retry_payload_too_large(settings, stamina_active):
 
     # Single call — no stamina retry for payload-too-large.
     assert fake.embed_documents.call_count == 1
-    assert ReportSearchVector.objects.filter(embedding__isnull=True).count() == 1
+    assert ReportSearchIndex.objects.filter(embedding__isnull=True).count() == 1

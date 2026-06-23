@@ -13,7 +13,7 @@ class PgSearchConfig(AppConfig):
 
 
 def _migration_embedding_dim() -> int | None:
-    """Return the `dimensions` value of `ReportSearchVector.embedding` as
+    """Return the `dimensions` value of `ReportSearchIndex.embedding` as
     captured by the on-disk pgsearch migrations. Returns None if the field
     cannot be located (migrations missing or model renamed)."""
     from django.db.migrations.loader import MigrationLoader
@@ -21,7 +21,7 @@ def _migration_embedding_dim() -> int | None:
     loader = MigrationLoader(connection=None, ignore_no_migrations=True)
     state = loader.project_state()
     try:
-        model = state.apps.get_model("pgsearch", "ReportSearchVector")
+        model = state.apps.get_model("pgsearch", "ReportSearchIndex")
         return model._meta.get_field("embedding").dimensions
     except (LookupError, AttributeError):
         return None
@@ -44,7 +44,7 @@ def check_embedding_dim_matches_migration(app_configs, **kwargs):
                 hint=(
                     "Verify that `radis/pgsearch/migrations/` contains a "
                     "migration that adds the `embedding` field to "
-                    "`ReportSearchVector`, and that `makemigrations pgsearch` "
+                    "`ReportSearchIndex`, and that `makemigrations pgsearch` "
                     "succeeds without changes."
                 ),
             )
@@ -90,11 +90,11 @@ def _handle_reports_changed(reports):
         return
 
     from radis.pgsearch.tasks import enqueue_bulk_index_reports, enqueue_embed_reports
-    from radis.pgsearch.utils.indexing import bulk_upsert_report_search_vectors
+    from radis.pgsearch.utils.indexing import bulk_upsert_report_search_indexes
 
     report_ids = [report.pk for report in reports]
     if settings.PGSEARCH_SYNC_INDEXING:
-        bulk_upsert_report_search_vectors(report_ids)
+        bulk_upsert_report_search_indexes(report_ids)
         enqueue_embed_reports(report_ids)
     else:
         enqueue_bulk_index_reports(report_ids)

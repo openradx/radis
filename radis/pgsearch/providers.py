@@ -18,8 +18,8 @@ from radis.search.utils.query_parser import (
     is_search_token_char,
 )
 
-from .models import ReportSearchVector
-from .utils.document_utils import AnnotatedReportSearchVector, document_from_pgsearch_response
+from .models import ReportSearchIndex
+from .utils.document_utils import AnnotatedReportSearchIndex, document_from_pgsearch_response
 from .utils.embedding_client import EmbeddingClient, EmbeddingClientError
 from .utils.fusion import rrf_fuse, summary_with_fallback
 from .utils.language_utils import code_to_language
@@ -115,7 +115,7 @@ def search(search: Search) -> SearchResult:
     vec_distance: dict[int, float] = {}
     if query_vec is not None:
         vec_rows = list(
-            ReportSearchVector.objects.filter(filter_query)
+            ReportSearchIndex.objects.filter(filter_query)
             .distinct()
             .exclude(embedding__isnull=True)
             .annotate(distance=CosineDistance("embedding", query_vec))
@@ -128,7 +128,7 @@ def search(search: Search) -> SearchResult:
 
     # FTS side: bounded set, ts_rank only (no headline at this stage).
     fts_rows = list(
-        ReportSearchVector.objects.filter(filter_query)
+        ReportSearchIndex.objects.filter(filter_query)
         .distinct()
         .filter(search_vector=tsquery)
         .annotate(rank=SearchRank(F("search_vector"), tsquery))
@@ -158,7 +158,7 @@ def search(search: Search) -> SearchResult:
 
     # Headline + hydration for the page slice only.
     page_rows = (
-        ReportSearchVector.objects.filter(report_id__in=page_ids)
+        ReportSearchIndex.objects.filter(report_id__in=page_ids)
         .annotate(
             summary=SearchHeadline(
                 "report__body",
@@ -186,7 +186,7 @@ def search(search: Search) -> SearchResult:
         )
         documents.append(
             document_from_pgsearch_response(
-                cast(AnnotatedReportSearchVector, rsv),
+                cast(AnnotatedReportSearchIndex, rsv),
                 cosine_distance=vec_distance.get(rid),
                 rrf_score=rrf_score_by_id.get(rid, 0.0),
             )
@@ -202,7 +202,7 @@ def count(search: Search) -> int:
     language = _resolve_language(search.filters)
     query = SearchQuery(query_str, search_type="raw", config=language)
     filter_query = _build_filter_query(search.filters)
-    results = ReportSearchVector.objects.filter(filter_query).filter(search_vector=query)
+    results = ReportSearchIndex.objects.filter(filter_query).filter(search_vector=query)
     return results.count()
 
 
@@ -227,7 +227,7 @@ def retrieve(search: Search) -> Iterator[str]:
     vec_rank: dict[int, int] = {}
     if query_vec is not None:
         vec_ids = list(
-            ReportSearchVector.objects.filter(filter_query)
+            ReportSearchIndex.objects.filter(filter_query)
             .distinct()
             .exclude(embedding__isnull=True)
             .annotate(distance=CosineDistance("embedding", query_vec))
@@ -237,7 +237,7 @@ def retrieve(search: Search) -> Iterator[str]:
         vec_rank = {rid: i + 1 for i, rid in enumerate(vec_ids)}
 
     fts_rows = list(
-        ReportSearchVector.objects.filter(filter_query)
+        ReportSearchIndex.objects.filter(filter_query)
         .distinct()
         .filter(search_vector=tsquery)
         .annotate(rank=SearchRank(F("search_vector"), tsquery))
@@ -258,7 +258,7 @@ def retrieve(search: Search) -> Iterator[str]:
 
 def filter(filter: SearchFilters) -> Iterator[str]:
     filter_query = _build_filter_query(filter)
-    results = ReportSearchVector.objects.filter(filter_query).values_list(
+    results = ReportSearchIndex.objects.filter(filter_query).values_list(
         "report__document_id", flat=True
     )
     return results.iterator()

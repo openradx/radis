@@ -10,9 +10,9 @@
 
 ## 1. Overview
 
-RADIS today provides PostgreSQL full-text search (FTS) over radiology reports via the `radis.pgsearch` provider: each `Report` gets a 1:1 `ReportSearchVector` row holding a `tsvector`, kept in sync via `post_save` signal and a bulk re-index task. Queries are ranked by `ts_rank` and snippeted via `ts_headline`.
+RADIS today provides PostgreSQL full-text search (FTS) over radiology reports via the `radis.pgsearch` provider: each `Report` gets a 1:1 `ReportSearchIndex` row holding a `tsvector`, kept in sync via `post_save` signal and a bulk re-index task. Queries are ranked by `ts_rank` and snippeted via `ts_headline`.
 
-This spec extends that infrastructure with a dense-vector retrieval side, fused with FTS via Reciprocal Rank Fusion (RRF), to deliver **hybrid search**. Embeddings are produced by a Qwen3-Embedding-4B inference endpoint and stored in the same `ReportSearchVector` table.
+This spec extends that infrastructure with a dense-vector retrieval side, fused with FTS via Reciprocal Rank Fusion (RRF), to deliver **hybrid search**. Embeddings are produced by a Qwen3-Embedding-4B inference endpoint and stored in the same `ReportSearchIndex` table.
 
 The public `SearchProvider` API (`radis.search.site`) is unchanged. Callers — `SearchView`, `ExtractionJob`, `SubscriptionJob`, the REST API — see no signature differences. Only the body of `radis.pgsearch.providers.search()` and `retrieve()` changes.
 
@@ -50,15 +50,15 @@ The public `SearchProvider` API (`radis.search.site`) is unchanged. Callers — 
 │  1. embed_query() ──► EmbeddingClient ──► Qwen3 endpoint             │
 │     on failure: query_vec = None                                     │
 │                                                                      │
-│  2. Vector top-K   ────► ReportSearchVector  (HNSW on .embedding)    │
+│  2. Vector top-K   ────► ReportSearchIndex  (HNSW on .embedding)    │
 │                          filtered by structured filters              │
 │                                                                      │
-│  3. FTS hits       ────► ReportSearchVector  (GIN on .search_vector) │
+│  3. FTS hits       ────► ReportSearchIndex  (GIN on .search_vector) │
 │                          filtered by structured filters              │
 │                                                                      │
 │  4. Python-side RRF fusion of (vec_top_K ∪ fts_hits)                 │
 │  5. Pagination on the fused order                                    │
-│  6. ts_headline() ────► ReportSearchVector  (page-slice only)        │
+│  6. ts_headline() ────► ReportSearchIndex  (page-slice only)        │
 └──────────────────────────────────────────────────────────────────────┘
 
 ┌──────────────────────────────────────────────────────────────────────┐
@@ -77,7 +77,7 @@ The public `SearchProvider` API (`radis.search.site`) is unchanged. Callers — 
 │        ▼  (one of the registered subscribers is pgsearch:)           │
 │  pgsearch._handle_reports_changed(reports)                           │
 │    ├─ PGSEARCH_SYNC_INDEXING=True:                                   │
-│    │     bulk_upsert_report_search_vectors(report_ids) inline,       │
+│    │     bulk_upsert_report_search_indexes(report_ids) inline,       │
 │    │     then embed_reports_task.defer(report_ids=...)               │
 │    └─ PGSEARCH_SYNC_INDEXING=False:                                  │
 │          enqueue_bulk_index_reports(report_ids); the embed task is   │
@@ -88,7 +88,7 @@ The public `SearchProvider` API (`radis.search.site`) is unchanged. Callers — 
 │  ──── elsewhere, on the default_worker process ────                  │
 │                                                                      │
 │  bulk_index_reports(report_ids)   (default queue)                    │
-│    ├─ bulk_upsert_report_search_vectors(report_ids)                  │
+│    ├─ bulk_upsert_report_search_indexes(report_ids)                  │
 │    └─ embed_reports_task.defer(report_ids=...)                       │
 │                                                                      │
 │  ──── elsewhere, on the embeddings_worker process ────               │
@@ -96,7 +96,7 @@ The public `SearchProvider` API (`radis.search.site`) is unchanged. Callers — 
 │  embed_reports_task(report_ids)   (embeddings queue)                 │
 │    ├─ load RSVs (select_related("report"))                           │
 │    ├─ EmbeddingClient.embed_documents([body, ...])  (batched)        │
-│    ├─ L2-normalize; ReportSearchVector.objects.bulk_update           │
+│    ├─ L2-normalize; ReportSearchIndex.objects.bulk_update           │
 │    └─ on EmbeddingClientError: raise                                 │
 │         → Procrastinate retry policy (exp backoff, N attempts)       │
 └──────────────────────────────────────────────────────────────────────┘
@@ -119,11 +119,11 @@ Both ingest paths — single-create (`POST /api/reports/`, `PUT /api/reports/{id
 | `utils/embedding_client.py` | `EmbeddingClient` used by both the query path and `embed_reports_task` on the worker; pluggable backends (`openai`, `ollama`) |
 | `apps.py` (modified) | `register_app()` now also registers `_handle_reports_changed` on both `reports_created_handlers` and `reports_updated_handlers`. In sync FTS mode the handler upserts inline then defers `embed_reports_task`; in deferred FTS mode it enqueues `bulk_index_reports`, which chains the embed task at the end of its own run. This is the only place pgsearch wires itself into the reports app. |
 | `tasks.py` (embedding entries) | `embed_reports_task(report_ids)` Procrastinate task on the `embeddings` queue. Loads RSVs by `report_id`, calls `EmbeddingClient.embed_documents`, then `bulk_update`. Raises on `EmbeddingClientError` so the Procrastinate retry policy applies. |
-| `admin.py` | Registers `ReportSearchVector` with a `has_embedding` list display, an `embedding` `IsNull` filter, and an admin action `enqueue_pending_embeddings` that defers `embed_reports_task` for the selected rows whose embedding is NULL. Mirrors the `embed_pending` management command for operators who prefer the UI. |
+| `admin.py` | Registers `ReportSearchIndex` with a `has_embedding` list display, an `embedding` `IsNull` filter, and an admin action `enqueue_pending_embeddings` that defers `embed_reports_task` for the selected rows whose embedding is NULL. Mirrors the `embed_pending` management command for operators who prefer the UI. |
 | `migrations/0002_hybrid_search.py` | Single schema migration: `CREATE EXTENSION vector`; adds `embedding vector(N)` column + HNSW index |
-| `models.py` (modified) | Adds `embedding` field + `HnswIndex` to `ReportSearchVector`. No Job/Task models. |
+| `models.py` (modified) | Adds `embedding` field + `HnswIndex` to `ReportSearchIndex`. No Job/Task models. |
 | `signals.py` (unchanged from FTS-only) | The FTS `create_or_update_report_search_vector` receiver stays; **no embedding signal** |
-| `tasks.py` (FTS bits) | FTS bulk-indexing helper `bulk_upsert_report_search_vectors` and the `bulk_index_reports` Procrastinate task. `bulk_index_reports` upserts the RSV rows and then chains `embed_reports_task.defer(...)` at the end of its run, so the embeddings worker only ever sees report ids whose RSV rows are already committed (see §6.6). |
+| `tasks.py` (FTS bits) | FTS bulk-indexing helper `bulk_upsert_report_search_indexes` and the `bulk_index_reports` Procrastinate task. `bulk_index_reports` upserts the RSV rows and then chains `embed_reports_task.defer(...)` at the end of its run, so the embeddings worker only ever sees report ids whose RSV rows are already committed (see §6.6). |
 | `providers.py` (modified) | Replaces `search()` and `retrieve()` bodies with hybrid logic |
 | `tests/...` | Coverage per §10 |
 
@@ -157,7 +157,7 @@ Three operations:
    Reverse is a no-op because the extension may be shared with other Postgres
    usage and dropping it would damage unrelated state. Dev rollback is handled
    by recreating the database.
-2. `AddField` `embedding` on `ReportSearchVector`:
+2. `AddField` `embedding` on `ReportSearchIndex`:
    `pgvector.django.vector.VectorField(dimensions=settings.EMBEDDING_DIM, null=True)`.
 3. `AddIndex` HNSW on `embedding`: `m=16`, `ef_construction=64`,
    `opclasses=["vector_cosine_ops"]`, `name="pgsearch_embedding_hnsw"`.
@@ -174,8 +174,8 @@ and column.
 from django.conf import settings
 from pgvector.django import HnswIndex, VectorField
 
-class ReportSearchVector(models.Model):
-    report = models.OneToOneField(Report, on_delete=models.CASCADE, related_name="search_vector")
+class ReportSearchIndex(models.Model):
+    report = models.OneToOneField(Report, on_delete=models.CASCADE, related_name="search_index")
     search_vector = SearchVectorField(null=True)
     embedding = VectorField(dimensions=settings.EMBEDDING_DIM, null=True)
 
@@ -194,7 +194,7 @@ class ReportSearchVector(models.Model):
 
 `embedding` is nullable: the row exists from the moment a `Report` is created (FTS path), but its embedding is filled by the `embed_reports_task` Procrastinate worker, enqueued from `transaction.on_commit` (§6). A NULL embedding is treated as "not embedded yet" at query time, and the row participates via the FTS half only.
 
-`save()` on `ReportSearchVector` retains its current behavior of recomputing `search_vector` from `report.body`. The embedding column is written **only** by `embed_reports_task` via `bulk_update()`, never by `save()`, to avoid triggering the FTS signal recursively and to keep the two indexing paths independent.
+`save()` on `ReportSearchIndex` retains its current behavior of recomputing `search_vector` from `report.body`. The embedding column is written **only** by `embed_reports_task` via `bulk_update()`, never by `save()`, to avoid triggering the FTS signal recursively and to keep the two indexing paths independent.
 
 ### 4.5 Operational note on `EMBEDDING_DIM`
 
@@ -230,7 +230,7 @@ there is exactly one source of truth (the `dimensions=...` literal that
 # radis/pgsearch/apps.py
 
 def _migration_embedding_dim() -> int | None:
-    """Return the `dimensions` value of `ReportSearchVector.embedding` as
+    """Return the `dimensions` value of `ReportSearchIndex.embedding` as
     captured by the on-disk pgsearch migrations. Returns None if the field
     cannot be located (e.g., migrations are missing or out of sync)."""
     from django.db.migrations.loader import MigrationLoader
@@ -238,7 +238,7 @@ def _migration_embedding_dim() -> int | None:
     loader = MigrationLoader(connection=None, ignore_no_migrations=True)
     state = loader.project_state()
     try:
-        model = state.apps.get_model("pgsearch", "ReportSearchVector")
+        model = state.apps.get_model("pgsearch", "ReportSearchIndex")
         return model._meta.get_field("embedding").dimensions
     except (LookupError, AttributeError):
         return None
@@ -253,7 +253,7 @@ def check_embedding_dim_matches_migration(app_configs, **kwargs):
             "pgsearch migrations.",
             id="pgsearch.E002",
             hint="Verify that radis/pgsearch/migrations/ contains a migration "
-                 "that adds `embedding` to `ReportSearchVector`.",
+                 "that adds `embedding` to `ReportSearchIndex`.",
         )]
     if settings.EMBEDDING_DIM != migration_dim:
         return [Error(
@@ -348,7 +348,7 @@ class EmbeddingClient:
   EMBEDDING_MODEL_NAME=dengcao/Qwen3-Embedding-4B:Q5_K_M
   EMBEDDING_DIM=2560
   ```
-  GGUF-quantized embedding models produce slightly different vectors than the bf16 reference, so dev embeddings are not interchangeable with prod embeddings. After swapping the model between dev/prod, clear the column (`ReportSearchVector.objects.update(embedding=None)`) and run `./manage.py embed_pending`.
+  GGUF-quantized embedding models produce slightly different vectors than the bf16 reference, so dev embeddings are not interchangeable with prod embeddings. After swapping the model between dev/prod, clear the column (`ReportSearchIndex.objects.update(embedding=None)`) and run `./manage.py embed_pending`.
 
 ## 6. Async indexing (deferred via Procrastinate)
 
@@ -366,7 +366,7 @@ def _handle_reports_changed(reports):
         return
     report_ids = [r.pk for r in reports]
     if settings.PGSEARCH_SYNC_INDEXING:
-        bulk_upsert_report_search_vectors(report_ids)
+        bulk_upsert_report_search_indexes(report_ids)
         embed_reports_task.defer(report_ids=report_ids)
     else:
         # bulk_index_reports chains embed_reports_task at the end of its run,
@@ -403,7 +403,7 @@ def embed_reports_task(report_ids: list[int]) -> None:
         return
 
     rsvs = list(
-        ReportSearchVector.objects.filter(report_id__in=report_ids)
+        ReportSearchIndex.objects.filter(report_id__in=report_ids)
         .select_related("report")
         .only("id", "report_id", "report__body")
     )
@@ -412,15 +412,15 @@ def embed_reports_task(report_ids: list[int]) -> None:
         return
 
     batch_size = settings.EMBEDDING_BATCH_SIZE
-    embedded: list[ReportSearchVector] = []
-    skipped: list[ReportSearchVector] = []
+    embedded: list[ReportSearchIndex] = []
+    skipped: list[ReportSearchIndex] = []
     with EmbeddingClient() as client:
         for start in range(0, len(rsvs), batch_size):
             chunk = rsvs[start : start + batch_size]
             _embed_with_bisect(client, chunk, embedded, skipped)
 
     if embedded:
-        ReportSearchVector.objects.bulk_update(embedded, fields=["embedding"])
+        ReportSearchIndex.objects.bulk_update(embedded, fields=["embedding"])
     if skipped:
         logger.error("…skipped as too large; report_ids=%s", [r.report_id for r in skipped])
 
@@ -544,7 +544,7 @@ async def _drain(self, ids, batch_size):
 The three scenarios still apply:
 
 1. **Backfill** of historical NULLs (rows loaded before the deferred-embedding architecture shipped).
-2. **Dim or model change** following §4.5 (or `ReportSearchVector.objects.update(embedding=None)` for a same-dim model swap).
+2. **Dim or model change** following §4.5 (or `ReportSearchIndex.objects.update(embedding=None)` for a same-dim model swap).
 3. **Outage recovery** for tasks that exhausted Procrastinate retries during an extended embedding-service outage.
 
 Properties:
@@ -560,18 +560,18 @@ The pre-existing `PGSEARCH_SYNC_INDEXING` switch is **retained** with the same s
 
 | Mode | `PGSEARCH_SYNC_INDEXING` | FTS step | Embedding step |
 |---|---|---|---|
-| Sync | `True` | `bulk_upsert_report_search_vectors(ids)` inline inside the handler | `embed_reports_task.defer(...)` immediately after, in the same handler call. RSV rows are already committed. |
+| Sync | `True` | `bulk_upsert_report_search_indexes(ids)` inline inside the handler | `embed_reports_task.defer(...)` immediately after, in the same handler call. RSV rows are already committed. |
 | Deferred (default) | `False` | `enqueue_bulk_index_reports(ids)` defers `bulk_index_reports` to the `default` queue | `bulk_index_reports` itself defers `embed_reports_task` at the end of its run. Handler does *not* defer embed directly. |
 
-`bulk_index_reports` now ends with `embed_reports_task.defer(report_ids=...)`. The defer happens inside the same task body, after `bulk_upsert_report_search_vectors` has committed the RSV rows, so the embeddings worker can only observe a `report_ids` payload whose RSV rows already exist. This replaces the earlier "defensive idempotent re-upsert at the top of the embed task" design — the chain is the ordering guarantee.
+`bulk_index_reports` now ends with `embed_reports_task.defer(report_ids=...)`. The defer happens inside the same task body, after `bulk_upsert_report_search_indexes` has committed the RSV rows, so the embeddings worker can only observe a `report_ids` payload whose RSV rows already exist. This replaces the earlier "defensive idempotent re-upsert at the top of the embed task" design — the chain is the ordering guarantee.
 
 Properties:
 
 - **No race.** The embeddings worker never picks up a report id before its RSV row is committed. The embed task can read `report.body` and write `embedding` without checking for RSV existence.
-- **Simple embed task.** No `bulk_upsert_report_search_vectors` shim at the top, no idempotent re-upsert cost on the embeddings worker, no extra commit hop.
+- **Simple embed task.** No `bulk_upsert_report_search_indexes` shim at the top, no idempotent re-upsert cost on the embeddings worker, no extra commit hop.
 - **Operator choice preserved.** Deployments that prefer sync FTS keep that option; deployments that prefer the deferred FTS task for large bulks keep that option. Hybrid search is orthogonal to the FTS-mode decision.
 - **Two queues, two concerns.** FTS deferral runs on the `default` queue (where `bulk_index_reports` already lived); embedding runs on the dedicated `embeddings` queue. FTS-only worker capacity does not compete with embedding capacity.
-- **Operator-triggered re-embed.** The `embed_pending` management command and the `enqueue_pending_embeddings` admin action defer `embed_reports_task` directly. Both bypass `bulk_index_reports` but the invariant still holds: their queries are over existing `ReportSearchVector` rows with `embedding IS NULL`, so the RSV rows exist by construction.
+- **Operator-triggered re-embed.** The `embed_pending` management command and the `enqueue_pending_embeddings` admin action defer `embed_reports_task` directly. Both bypass `bulk_index_reports` but the invariant still holds: their queries are over existing `ReportSearchIndex` rows with `embedding IS NULL`, so the RSV rows exist by construction.
 
 The single-create / PUT path is unaffected by `PGSEARCH_SYNC_INDEXING`. Its FTS step is the `post_save` signal on `Report`, which is always sync inline by construction. The same handler still fires for it; the handler then takes the sync-mode branch's behaviour (immediate embed defer), which is correct since the RSV row was just written sync by the signal.
 
@@ -628,7 +628,7 @@ def search(s: Search) -> SearchResult:
     vec_rank: dict[int, int] = {}
     if query_vec is not None:
         ids = list(
-            ReportSearchVector.objects
+            ReportSearchIndex.objects
                 .filter(filter_q)
                 .exclude(embedding__isnull=True)
                 .annotate(distance=CosineDistance("embedding", query_vec))
@@ -639,7 +639,7 @@ def search(s: Search) -> SearchResult:
 
     # FTS side
     fts_rows = list(
-        ReportSearchVector.objects
+        ReportSearchIndex.objects
             .filter(filter_q)
             .filter(search_vector=tsquery)
             .annotate(rank=SearchRank(F("search_vector"), tsquery))
@@ -662,7 +662,7 @@ def search(s: Search) -> SearchResult:
 
     # Headline + hydration for the page slice only
     page_rows = (
-        ReportSearchVector.objects
+        ReportSearchIndex.objects
             .filter(report_id__in=page_ids)
             .annotate(
                 summary=SearchHeadline("report__body", tsquery, config=language,
@@ -887,7 +887,7 @@ Both files add an `embeddings_worker.command` block. Dev uses `-l debug --autore
 | `tests/integration/test_migrations.py` (new, `django-test-migrations`) | Extension migration runs; column + HNSW index created with configured dim; reverse works |
 | `tests/integration/test_provider_hybrid.py` (new) | FTS-only hit, vector-only hit ("no pneumothorax" fixture), both-sides hit, filter honoring, stable pagination, embedding-service-down fallback, NULL-embedding rows still returned, `ts_headline` query-count bounded to page, empty-summary fallback |
 
-Factories: existing `ReportSearchVectorFactory` gains optional `embedding` kwarg (default `None`). New `ReportSearchVectorWithEmbeddingFactory` generates deterministic normalized vectors of the configured dim from a seed. Real Qwen3 embeddings are not used in tests.
+Factories: existing `ReportSearchIndexFactory` gains optional `embedding` kwarg (default `None`). New `ReportSearchIndexWithEmbeddingFactory` generates deterministic normalized vectors of the configured dim from a seed. Real Qwen3 embeddings are not used in tests.
 
 ### 10.3 View-level smoke
 
@@ -933,7 +933,7 @@ Documented in §5.4. Mitigated by following §4.5 after a model swap and then ru
 
 V1 re-embeds anything where `embedding IS NULL`. A future optimization could
 track whether the body actually changed (e.g., a `body_hash` column on
-`ReportSearchVector` updated only on body changes) so metadata-only updates
+`ReportSearchIndex` updated only on body changes) so metadata-only updates
 don't have to null the embedding. Not in v1; profiling will tell us whether it
 matters.
 
