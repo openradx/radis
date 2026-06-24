@@ -1,4 +1,5 @@
 import logging
+import unicodedata
 from collections.abc import Iterator
 from typing import cast
 
@@ -26,6 +27,28 @@ def sanitize_term(term: str) -> str:
     return "".join(char for char in term if is_search_token_char(char))
 
 
+def _has_lexeme_char(term: str) -> bool:
+    """Whether ``term`` contains at least one letter, digit or mark.
+
+    Tokens made up solely of "safe" punctuation (e.g. a lone apostrophe ``'``)
+    carry no lexeme and must not be emitted into a ``to_tsquery(..., 'raw')``
+    string, where they trigger a Postgres ``ProgrammingError`` (syntax error in
+    tsquery). Real words with embedded apostrophes (``don't``, ``it's``) still
+    contain letters and are kept.
+    """
+    return any(unicodedata.category(char)[0] in ("L", "N", "M") for char in term)
+
+
+def _quote_term(term: str) -> str:
+    """Render ``term`` as a single-quoted raw-tsquery lexeme.
+
+    Embedded apostrophes are doubled so that a term like ``don't`` becomes the
+    valid lexeme ``'don''t'`` instead of prematurely closing the quote and
+    producing a tsquery syntax error.
+    """
+    return "'" + term.replace("'", "''") + "'"
+
+
 def _resolve_language(filters: SearchFilters) -> str:
     return code_to_language(filters.language)
 
@@ -33,27 +56,44 @@ def _resolve_language(filters: SearchFilters) -> str:
 def _build_query_string(node: QueryNode) -> str:
     if isinstance(node, TermNode):
         if node.term_type == "WORD":
-            return node.value
+            term = sanitize_term(node.value)
+            # A token carrying no lexeme (e.g. a lone apostrophe) must not reach
+            # the raw tsquery, where it is a syntax error; drop it to an empty
+            # query fragment that matches nothing instead of crashing.
+            if not _has_lexeme_char(term):
+                return ""
+            return _quote_term(term)
         elif node.term_type == "PHRASE":
             terms = node.value.split()
             terms = [sanitize_term(term) for term in terms]
-            terms = [term for term in terms if term]
-            terms = [f"'{term}'" for term in terms]
+            terms = [term for term in terms if _has_lexeme_char(term)]
+            terms = [_quote_term(term) for term in terms]
             return " <-> ".join(terms)
         else:
             raise ValueError(f"Unknown term type: {node.term_type}")
     elif isinstance(node, ParensNode):
-        return f"({_build_query_string(node.expression)})"
+        inner = _build_query_string(node.expression)
+        # Drop empty groups so we never emit a bare "()" into the raw tsquery.
+        return f"({inner})" if inner else ""
     elif isinstance(node, UnaryNode):
         assert node.operator == "NOT"
-        return f"!{_build_query_string(node.operand)}"
+        operand = _build_query_string(node.operand)
+        # A negation of nothing is nothing; emitting "!" alone is a syntax error.
+        return f"!{operand}" if operand else ""
     elif isinstance(node, BinaryNode):
-        if node.operator == "AND":
-            return f"{_build_query_string(node.left)} & {_build_query_string(node.right)}"
-        elif node.operator == "OR":
-            return f"{_build_query_string(node.left)} | {_build_query_string(node.right)}"
-        else:
+        if node.operator not in ("AND", "OR"):
             raise ValueError(f"Unknown operator: {node.operator}")
+        left = _build_query_string(node.left)
+        right = _build_query_string(node.right)
+        # If a side collapsed to nothing (e.g. a lone-apostrophe token was
+        # dropped), don't leave a dangling "&"/"|" operator behind -- fall back
+        # to whichever side survived (or nothing if neither did).
+        if not left:
+            return right
+        if not right:
+            return left
+        operator = "&" if node.operator == "AND" else "|"
+        return f"{left} {operator} {right}"
     else:
         raise ValueError(f"Unknown node type: {type(node)}")
 
