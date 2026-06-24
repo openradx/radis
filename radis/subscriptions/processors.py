@@ -64,7 +64,7 @@ class SubscriptionTaskProcessor(AnalysisTaskProcessor):
                 subscription=task.job.subscription,
                 job=task.job,
                 report=report,
-                filter_fields_results=result.model_dump(),
+                answers=result.model_dump(),
             )
             logger.debug(f"Report {report.pk} was accepted by subscription {subscription.pk}")
         else:
