@@ -18,6 +18,7 @@ configs.
 """
 
 import pytest
+from adit_radis_shared.accounts.factories import GroupFactory
 
 from radis.pgsearch import providers
 from radis.pgsearch.models import ReportSearchVector
@@ -29,10 +30,24 @@ from radis.search.utils.query_parser import QueryNode, QueryParser, TermNode
 pytestmark = pytest.mark.django_db
 
 
+def _search_group():
+    """The group the provider searches under (see ``_search``).
+
+    Search is group-scoped: ``providers._build_filter_query`` filters on
+    ``report__groups=filters.group``, mirroring ``Report.objects.filter(
+    groups=active_group)`` used by the report views. ``make_report`` attaches
+    this group so seeded reports are visible to the search; ``_search`` passes
+    its pk as ``SearchFilters.group``.
+    """
+    return GroupFactory.create(name="pgsearch-test-group")
+
+
 def make_report(body: str, *, language_code: str = "en", **overrides) -> Report:
-    """Create a ``Report`` with a deterministic language and the given body."""
+    """Create a ``Report`` (visible to the search group) with the given body."""
     language = LanguageFactory.create(code=language_code)
-    return ReportFactory.create(language=language, body=body, **overrides)
+    report = ReportFactory.create(language=language, body=body, **overrides)
+    report.groups.add(_search_group())
+    return report
 
 
 def run_search(
@@ -63,7 +78,7 @@ def _search(
 ) -> Search:
     return Search(
         query=node,
-        filters=SearchFilters(group=1, language=language),
+        filters=SearchFilters(group=_search_group().pk, language=language),
         offset=offset,
         limit=limit,
     )

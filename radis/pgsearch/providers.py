@@ -99,7 +99,14 @@ def _build_query_string(node: QueryNode) -> str:
 
 
 def _build_filter_query(filters: SearchFilters) -> Q:
-    fq = Q()
+    # Group-scoped access control: a report is only visible to a group when its
+    # ``groups`` M2M includes that group. This mirrors the report access model
+    # used everywhere else (e.g. ``Report.objects.filter(groups=active_group)``
+    # in radis.reports.views.ReportListView/ReportDetailView and the
+    # ``groups=active_group`` lookup in radis.chats.views). ``SearchView`` always
+    # supplies ``group=active_group.pk``, so this filter is unconditional; without
+    # it the search would leak reports belonging only to other groups.
+    fq = Q(report__groups=filters.group)
 
     # Apply hard filter criteria
     if filters.patient_sex:
