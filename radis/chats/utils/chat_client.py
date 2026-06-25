@@ -50,13 +50,16 @@ class ChatClient:
         api_key = settings.EXTERNAL_LLM_PROVIDER_API_KEY
 
         # Only pass overrides when given, so chat keeps the SDK defaults.
-        client_kwargs: dict = {"base_url": base_url, "api_key": api_key}
+        client_kwargs: dict[str, str | int | float | None] = {
+            "base_url": base_url,
+            "api_key": api_key,
+        }
         if max_retries is not None:
             client_kwargs["max_retries"] = max_retries
         if timeout is not None:
             client_kwargs["timeout"] = timeout
 
-        self._client = openai.OpenAI(**client_kwargs)
+        self._client = openai.OpenAI(**client_kwargs)  # type: ignore[arg-type]
         self._llm_model_name = settings.LLM_MODEL_NAME
 
     def extract_data(self, prompt: str, schema: type[BaseModel]) -> BaseModel:

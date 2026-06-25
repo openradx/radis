@@ -77,7 +77,7 @@ class RateLimitGate:
                 return True
             if open_at > deadline:
                 return False
-            self._sleep(open_at - self._now())
+            self._sleep(max(0.0, open_at - self._now()))
 
 
 def _parse_retry_after(exc: openai.RateLimitError) -> float | None:
@@ -137,7 +137,7 @@ def run_through_gate[T](
             retry_after = _parse_retry_after(exc)
             pause = gate.note_rate_limited(retry_after)  # arm first so other threads back off too
             effective = retry_after if retry_after is not None else pause
-            logger.warning("Labeling rate-limited; backing off %.1fs", effective)
+            logger.warning("Rate-limited; backing off %.1fs", effective)
             if now() + effective > deadline:
                 raise RateLimited() from exc  # can't wait it out; defer this report
             # else loop: wait_until_open() waits out the (<=budget) window, then retries
