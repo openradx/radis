@@ -141,3 +141,24 @@ def run_through_gate[T](
             if now() + effective > deadline:
                 raise RateLimited() from exc  # can't wait it out; defer this report
             # else loop: wait_until_open() waits out the (<=budget) window, then retries
+
+
+def with_transient_retries[T](
+    fn: Callable[[], T],
+    attempts: int,
+    base: float,
+    sleep: Callable[[float], None] = time.sleep,
+) -> T:
+    """Retry `fn` a few times on transient non-429 errors (connection/timeout/5xx).
+
+    Not gate-coordinated: these are usually per-request, not a provider-wide stop.
+    A 429 is not caught here, so it passes straight to the gate without retrying.
+    """
+    for attempt in range(attempts + 1):
+        try:
+            return fn()
+        except TRANSIENT_ERRORS:
+            if attempt == attempts:
+                raise  # exhausted -> let the failure path defer the report
+            sleep(base * 2**attempt)  # 1s, 2s, ...
+    raise AssertionError("unreachable")  # range always runs at least once

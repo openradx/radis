@@ -7,8 +7,9 @@ from radis.chats.utils.rate_limit import (
     RateLimitGate,
     _parse_retry_after,
     run_through_gate,
+    with_transient_retries,
 )
-from radis.chats.utils.testing_helpers import make_rate_limit_error
+from radis.chats.utils.testing_helpers import make_connection_error, make_rate_limit_error
 
 
 class FakeClock:
@@ -183,3 +184,49 @@ def test_run_through_gate_non_429_propagates_untouched():
 
     with pytest.raises(ValueError):
         run_through_gate(gate, 300.0, fn, now=clock.now)
+
+
+def test_transient_retry_recovers_after_one_connection_error():
+    sleeps: list[float] = []
+    calls = {"n": 0}
+
+    def fn():
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise make_connection_error()
+        return "ok"
+
+    result = with_transient_retries(fn, attempts=2, base=1.0, sleep=sleeps.append)
+    assert result == "ok"
+    assert sleeps == [1.0]  # one short backoff
+
+
+def test_transient_retry_propagates_after_exhaustion():
+    sleeps: list[float] = []
+
+    def fn():
+        raise make_connection_error()
+
+    with pytest.raises(make_connection_error().__class__):
+        with_transient_retries(fn, attempts=2, base=1.0, sleep=sleeps.append)
+    assert sleeps == [1.0, 2.0]  # attempts retries before giving up
+
+
+def test_transient_retry_does_not_catch_rate_limit_error():
+    calls = {"n": 0}
+
+    def fn():
+        calls["n"] += 1
+        raise make_rate_limit_error({"retry-after": "30"})
+
+    with pytest.raises(make_rate_limit_error().__class__):
+        with_transient_retries(fn, attempts=2, base=1.0, sleep=lambda s: None)
+    assert calls["n"] == 1  # 429 passes straight through to the gate; no retry/hammer
+
+
+def test_transient_retry_does_not_catch_generic_error():
+    def fn():
+        raise ValueError("nope")
+
+    with pytest.raises(ValueError):
+        with_transient_retries(fn, attempts=2, base=1.0, sleep=lambda s: None)

@@ -38,3 +38,9 @@ def make_rate_limit_error(headers: dict[str, str] | None = None) -> openai.RateL
     request = httpx.Request("POST", "http://testserver/v1/chat/completions")
     response = httpx.Response(429, headers=headers or {}, request=request)
     return openai.RateLimitError("rate limited", response=response, body=None)
+
+
+def make_connection_error() -> openai.APIConnectionError:
+    """Build a real openai.APIConnectionError (a transient, non-429 error)."""
+    request = httpx.Request("POST", "http://testserver/v1/chat/completions")
+    return openai.APIConnectionError(message="connection failed", request=request)
