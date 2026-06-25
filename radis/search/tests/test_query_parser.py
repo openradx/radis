@@ -136,6 +136,23 @@ def test_fixed_queries():
     assert is_fixed_query("foo \\) bar", "foo bar", 2)
 
 
+def test_strips_field_filter_syntax():
+    # Field-filter syntax (`field:value`) has no place in the query grammar —
+    # structured field filtering lives in `SearchFilters`. Stripping the
+    # whole token keeps the colon from being silently dropped into a
+    # corrupted single word (`bodypneumonia`).
+    assert is_fixed_query("pneumonia body:pneumonia", "pneumonia", 1)
+    # Two stripped filters still count as one "step ran", matching how
+    # `_replace_invalid_characters` reports its own pass.
+    assert is_empty_query("body:pneumonia patient_sex:F", 1)
+    assert is_empty_query("body:pneumonia", 1)
+    # Colons inside phrases are preserved verbatim (operator syntax doesn't
+    # apply inside quoted strings).
+    assert is_valid_query('"body:pneumonia"')
+    # Time-like tokens with embedded colons are also stripped.
+    assert is_fixed_query("time:14:30 finding", "finding", 1)
+
+
 def test_empty_queries():
     assert is_empty_query("", 0)
     assert is_empty_query("   ", 0)

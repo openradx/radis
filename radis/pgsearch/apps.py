@@ -71,7 +71,7 @@ def check_embedding_dim_matches_migration(app_configs, **kwargs):
     return []
 
 
-def _handle_reports_changed(reports):
+def _index_reports(reports):
     """pgsearch's subscriber on reports_created_handlers / reports_updated_handlers.
 
     Owns both FTS indexing and embedding for the touched reports. The mode
@@ -79,12 +79,12 @@ def _handle_reports_changed(reports):
     request thread or is deferred to a Procrastinate task on the `default`
     queue. Embedding is always deferred to the `embeddings` queue.
 
-    Ordering between FTS and embedding is the same in both modes: RSV rows
+    Ordering between FTS and embedding is the same in both modes: RSI rows
     exist (and `report.body` is reachable) before `embed_reports_task` runs.
     In sync mode the handler upserts inline, then defers embed. In async
     mode the handler only enqueues `bulk_index_reports`; that task chains
     `embed_reports_task` at the end of its own run, so the embeddings worker
-    never picks up a report before its RSV row is committed.
+    never picks up a report before its RSI row is committed.
     """
     if not reports:
         return
@@ -124,10 +124,10 @@ def register_app():
     from .providers import count, filter, retrieve, search
 
     register_reports_created_handler(
-        ReportsCreatedHandler(name="PG Search", handle=_handle_reports_changed)
+        ReportsCreatedHandler(name="PG Search", handle=_index_reports)
     )
     register_reports_updated_handler(
-        ReportsUpdatedHandler(name="PG Search", handle=_handle_reports_changed)
+        ReportsUpdatedHandler(name="PG Search", handle=_index_reports)
     )
 
     register_search_provider(
