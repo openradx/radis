@@ -9,6 +9,8 @@ from radis.chats.utils.rate_limit import (
 )
 
 # Process-global so every labeling thread in this worker shares one backoff window.
+# Constructor args (base/fallback-max/header-ceiling) are read once at import; per-call
+# args (max-wait budget, retry attempts/base) are read per call in extract_data.
 _LABELING_GATE = RateLimitGate(
     base_seconds=settings.LABELING_RATE_LIMIT_BACKOFF_BASE_SECONDS,
     fallback_max_seconds=settings.LABELING_RATE_LIMIT_FALLBACK_MAX_SECONDS,

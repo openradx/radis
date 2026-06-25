@@ -1,10 +1,11 @@
 """label_report runs the real ChatClient + gate with only openai.OpenAI mocked, so a 429 or a
 transient error is handled end-to-end (retry/defer) and results still persist."""
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
+from radis.chats.utils.rate_limit import RateLimited
 from radis.chats.utils.testing_helpers import make_connection_error, make_rate_limit_error
 from radis.labels.factories import LabelFactory, LabelGroupFactory
 from radis.labels.labeling import label_report
@@ -21,7 +22,7 @@ def reset_labeling_gate():
     _LABELING_GATE.reset()
 
 
-def _inject_failures(client_mock, error, times):
+def _inject_failures(client_mock: MagicMock, error: Exception, times: int) -> MagicMock:
     """Make the first `times` parse calls raise `error`, then behave normally."""
     normal = client_mock.beta.chat.completions.parse.side_effect
     state = {"left": times}
@@ -73,8 +74,6 @@ def test_label_report_recovers_after_one_transient_error(settings):
 
 @pytest.mark.django_db
 def test_label_report_defers_when_rate_limit_exceeds_budget():
-    from radis.chats.utils.rate_limit import RateLimited
-
     report = ReportFactory.create(body="CT abdomen: normal.")
     group = LabelGroupFactory.create(name="Abdomen")
     LabelFactory.create(group=group, name="appendicitis")
