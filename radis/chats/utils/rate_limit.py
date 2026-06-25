@@ -1,7 +1,9 @@
+import email.utils
 import logging
 import threading
 import time
 from collections.abc import Callable
+from datetime import UTC, datetime
 
 import openai
 
@@ -76,3 +78,37 @@ class RateLimitGate:
             if open_at > deadline:
                 return False
             self._sleep(open_at - self._now())
+
+
+def _parse_retry_after(exc: openai.RateLimitError) -> float | None:
+    """Read Retry-After from a 429 response as seconds, or None.
+
+    Handles `retry-after-ms`, `retry-after` in seconds, and an HTTP-date.
+    """
+    response = getattr(exc, "response", None)
+    if response is None:
+        return None
+    headers = response.headers
+
+    ms = headers.get("retry-after-ms")
+    if ms is not None:
+        try:
+            return float(ms) / 1000.0
+        except ValueError:
+            pass
+
+    value = headers.get("retry-after")
+    if value is None:
+        return None
+    try:
+        return float(value)  # plain seconds
+    except ValueError:
+        pass
+
+    try:
+        retry_date = email.utils.parsedate_to_datetime(value)
+    except (TypeError, ValueError):
+        return None
+    if retry_date is None:
+        return None
+    return max(0.0, (retry_date - datetime.now(UTC)).total_seconds())

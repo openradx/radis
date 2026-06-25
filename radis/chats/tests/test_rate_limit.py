@@ -1,4 +1,7 @@
-from radis.chats.utils.rate_limit import RateLimitGate
+from datetime import UTC
+
+from radis.chats.utils.rate_limit import RateLimitGate, _parse_retry_after
+from radis.chats.utils.testing_helpers import make_rate_limit_error
 
 
 class FakeClock:
@@ -85,3 +88,29 @@ def test_wait_until_open_defers_without_sleeping_when_window_exceeds_deadline():
     gate.note_rate_limited(600.0)  # window 600s
     assert gate.wait_until_open(clock.now() + 300.0) is False
     assert clock.slept == []
+
+
+def test_parse_retry_after_seconds():
+    exc = make_rate_limit_error({"retry-after": "30"})
+    assert _parse_retry_after(exc) == 30.0
+
+
+def test_parse_retry_after_milliseconds():
+    exc = make_rate_limit_error({"retry-after-ms": "1500"})
+    assert _parse_retry_after(exc) == 1.5
+
+
+def test_parse_retry_after_http_date():
+    from datetime import datetime, timedelta
+    from email.utils import format_datetime
+
+    when = datetime.now(UTC) + timedelta(seconds=60)
+    exc = make_rate_limit_error({"retry-after": format_datetime(when)})
+    seconds = _parse_retry_after(exc)
+    assert seconds is not None
+    assert 55.0 <= seconds <= 60.0
+
+
+def test_parse_retry_after_missing_returns_none():
+    exc = make_rate_limit_error({})
+    assert _parse_retry_after(exc) is None
