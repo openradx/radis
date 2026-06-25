@@ -1,7 +1,9 @@
 from datetime import UTC
+from unittest.mock import patch
 
 import pytest
 
+from radis.chats.utils.chat_client import ChatClient
 from radis.chats.utils.rate_limit import (
     RateLimited,
     RateLimitGate,
@@ -230,3 +232,19 @@ def test_transient_retry_does_not_catch_generic_error():
 
     with pytest.raises(ValueError):
         with_transient_retries(fn, attempts=2, base=1.0, sleep=lambda s: None)
+
+
+def test_chat_client_passes_max_retries_and_timeout_to_sdk():
+    with patch("openai.OpenAI") as openai_cls:
+        ChatClient(max_retries=0, timeout=60.0)
+    kwargs = openai_cls.call_args.kwargs
+    assert kwargs["max_retries"] == 0
+    assert kwargs["timeout"] == 60.0
+
+
+def test_chat_client_omits_overrides_by_default():
+    with patch("openai.OpenAI") as openai_cls:
+        ChatClient()
+    kwargs = openai_cls.call_args.kwargs
+    assert "max_retries" not in kwargs
+    assert "timeout" not in kwargs
