@@ -112,3 +112,32 @@ def _parse_retry_after(exc: openai.RateLimitError) -> float | None:
     if retry_date is None:
         return None
     return max(0.0, (retry_date - datetime.now(UTC)).total_seconds())
+
+
+def run_through_gate[T](
+    gate: RateLimitGate,
+    budget: float,
+    fn: Callable[[], T],
+    now: Callable[[], float] = time.monotonic,
+) -> T:
+    """Run `fn` through the gate, backing off on 429 up to `budget` seconds.
+
+    Short rate-limits are waited out so the call succeeds. When the wait would
+    exceed the budget the report is deferred (RateLimited). Non-429 errors propagate.
+    """
+    deadline = now() + budget
+    while True:
+        if not gate.wait_until_open(deadline):
+            raise RateLimited()  # an earlier 429 armed a window past our budget
+        try:
+            result = fn()
+            gate.note_success()
+            return result
+        except openai.RateLimitError as exc:
+            retry_after = _parse_retry_after(exc)
+            pause = gate.note_rate_limited(retry_after)  # arm first so other threads back off too
+            effective = retry_after if retry_after is not None else pause
+            logger.warning("Labeling rate-limited; backing off %.1fs", effective)
+            if now() + effective > deadline:
+                raise RateLimited() from exc  # can't wait it out; defer this report
+            # else loop: wait_until_open() waits out the (<=budget) window, then retries

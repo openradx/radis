@@ -1,6 +1,13 @@
 from datetime import UTC
 
-from radis.chats.utils.rate_limit import RateLimitGate, _parse_retry_after
+import pytest
+
+from radis.chats.utils.rate_limit import (
+    RateLimited,
+    RateLimitGate,
+    _parse_retry_after,
+    run_through_gate,
+)
 from radis.chats.utils.testing_helpers import make_rate_limit_error
 
 
@@ -114,3 +121,65 @@ def test_parse_retry_after_http_date():
 def test_parse_retry_after_missing_returns_none():
     exc = make_rate_limit_error({})
     assert _parse_retry_after(exc) is None
+
+
+def test_run_through_gate_success_no_wait():
+    clock = FakeClock()
+    gate = make_gate(clock)
+    result = run_through_gate(gate, 300.0, lambda: "ok", now=clock.now)
+    assert result == "ok"
+    assert clock.slept == []
+
+
+def test_run_through_gate_429_then_success_waits_once():
+    clock = FakeClock()
+    gate = make_gate(clock)
+    calls = {"n": 0}
+
+    def fn():
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise make_rate_limit_error({"retry-after": "30"})
+        return "ok"
+
+    result = run_through_gate(gate, 300.0, fn, now=clock.now)
+    assert result == "ok"
+    assert clock.slept == [30.0]
+
+
+def test_run_through_gate_retry_after_over_budget_defers_and_arms():
+    clock = FakeClock()
+    gate = make_gate(clock)
+    calls = {"n": 0}
+
+    def fn():
+        calls["n"] += 1
+        raise make_rate_limit_error({"retry-after": "600"})
+
+    with pytest.raises(RateLimited):
+        run_through_gate(gate, 300.0, fn, now=clock.now)
+    assert calls["n"] == 1  # gave up using the raw header; no wasted second probe
+    # Gate is armed so other reports also defer.
+    assert gate.wait_until_open(clock.now() + 300.0) is False
+
+
+def test_run_through_gate_persistent_headerless_429_defers_at_budget():
+    clock = FakeClock()
+    gate = make_gate(clock)
+
+    def fn():
+        raise make_rate_limit_error({})  # no header -> exponential ladder
+
+    with pytest.raises(RateLimited):
+        run_through_gate(gate, 300.0, fn, now=clock.now)
+
+
+def test_run_through_gate_non_429_propagates_untouched():
+    clock = FakeClock()
+    gate = make_gate(clock)
+
+    def fn():
+        raise ValueError("boom")
+
+    with pytest.raises(ValueError):
+        run_through_gate(gate, 300.0, fn, now=clock.now)
