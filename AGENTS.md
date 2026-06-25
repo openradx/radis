@@ -113,9 +113,16 @@ Auto-labeling (`radis.labels`):
 - `LABELING_GATE_SYSTEM_PROMPT`: Generic group gate (Yes/No) prompt. Has a built-in default.
 - `LABELING_JOB_PRIORITY`: Procrastinate priority for labeling jobs (default `1`).
 - `LABELING_TASK_BATCH_SIZE`: Reports per labeling task (default `100`).
-- `LABELING_LLM_CONCURRENCY_LIMIT`: Max concurrent LLM calls per task (default `6`).
+- `LABELING_LLM_CONCURRENCY_LIMIT`: Max concurrent LLM calls per task (default `2`).
 - `LABELING_GATE_BATCH_SIZE`: Groups screened per gate batch (default `10`).
 - `LABELING_SCAN_CRON`: Cron for the periodic incremental scan (default `0 2 * * *`).
+- `LLM_REQUEST_TIMEOUT_SECONDS`: Per-request timeout for the labeling client (default `60`).
+- `LABELING_RATE_LIMIT_BACKOFF_BASE_SECONDS`: First exponential pause when no `Retry-After` (default `5`).
+- `LABELING_RATE_LIMIT_FALLBACK_MAX_SECONDS`: Caps the header-less exponential guess (default `120`).
+- `LABELING_RATE_LIMIT_HEADER_CEILING_SECONDS`: Safety rail on how long one `Retry-After` may hold the gate (default `3600`).
+- `LABELING_RATE_LIMIT_MAX_WAIT_SECONDS`: Per-report give-up budget before deferring (default `300`).
+- `LABELING_TRANSIENT_RETRY_ATTEMPTS`: Local retries for non-429 transient errors (default `2`).
+- `LABELING_TRANSIENT_RETRY_BASE_SECONDS`: Base backoff for transient retries (default `1`).
 
 ## Code Standards
 

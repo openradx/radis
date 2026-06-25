@@ -2,6 +2,7 @@ from datetime import UTC
 from unittest.mock import patch
 
 import pytest
+from django.conf import settings as dj_settings
 
 from radis.chats.utils.chat_client import ChatClient
 from radis.chats.utils.rate_limit import (
@@ -248,3 +249,14 @@ def test_chat_client_omits_overrides_by_default():
     kwargs = openai_cls.call_args.kwargs
     assert "max_retries" not in kwargs
     assert "timeout" not in kwargs
+
+
+def test_rate_limit_settings_have_expected_defaults():
+    assert dj_settings.LLM_REQUEST_TIMEOUT_SECONDS == 60.0
+    assert dj_settings.LABELING_RATE_LIMIT_BACKOFF_BASE_SECONDS == 5.0
+    assert dj_settings.LABELING_RATE_LIMIT_FALLBACK_MAX_SECONDS == 120.0
+    assert dj_settings.LABELING_RATE_LIMIT_HEADER_CEILING_SECONDS == 3600.0
+    assert dj_settings.LABELING_RATE_LIMIT_MAX_WAIT_SECONDS == 300.0
+    assert dj_settings.LABELING_TRANSIENT_RETRY_ATTEMPTS == 2
+    assert dj_settings.LABELING_TRANSIENT_RETRY_BASE_SECONDS == 1.0
+    assert dj_settings.LABELING_LLM_CONCURRENCY_LIMIT == 2
