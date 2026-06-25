@@ -6,6 +6,7 @@ from django.db import transaction
 from django.db.models import F
 
 from radis.chats.utils.chat_client import ChatClient
+from radis.labels.throttled_client import ThrottledChatClient
 from radis.reports.models import Report
 
 from .models import GateAnswer, Label, LabelGroup, LabelResult
@@ -37,7 +38,9 @@ def label_report(report_id: int) -> None:
         logger.warning("No active label groups, skipping labeling of report %s.", report_id)
         return
 
-    client = ChatClient()
+    client = ThrottledChatClient(
+        ChatClient(max_retries=0, timeout=settings.LLM_REQUEST_TIMEOUT_SECONDS)
+    )
 
     existing_gates = {
         ga.label_group_id: ga
@@ -92,7 +95,7 @@ def label_report(report_id: int) -> None:
             # else: gate = NO, fresh — skip group entirely.
 
 
-def _run_label_set(client: ChatClient, report: Report, labels: list[Label]) -> None:
+def _run_label_set(client: ThrottledChatClient, report: Report, labels: list[Label]) -> None:
     schema = build_label_classification_schema(labels)
     parsed = client.extract_data(render_label_prompt(report.body), schema)
     result_map = parsed.model_dump()
