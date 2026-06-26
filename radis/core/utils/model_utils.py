@@ -30,7 +30,10 @@ def cancel_job(job: "AnalysisJob") -> None:
     pending = job.tasks.filter(status=task_status.PENDING)
     for task in pending.only("queued_job_id"):
         if task.queued_job_id is not None:
-            app.job_manager.cancel_job_by_id(task.queued_job_id, delete_job=True)
+            queued_job_id = task.queued_job_id
+            task.queued_job_id = None
+            task.save(update_fields=["queued_job_id"])
+            app.job_manager.cancel_job_by_id(queued_job_id, delete_job=True)
     pending.update(status=task_status.CANCELED)
 
     if job.tasks.filter(status=task_status.IN_PROGRESS).exists():
