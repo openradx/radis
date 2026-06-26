@@ -100,7 +100,9 @@ def test_job_admin_blocks_deleting_active_jobs():
     from radis.labels.factories import LabelingJobFactory
     from radis.labels.models import LabelingJob
 
+    admin_user = UserFactory.create(is_staff=True, is_superuser=True, is_active=True)
     request = RequestFactory().get("/")
+    request.user = admin_user
     model_admin = site._registry[LabelingJob]
 
     active = LabelingJobFactory.create(status=LabelingJob.Status.IN_PROGRESS)

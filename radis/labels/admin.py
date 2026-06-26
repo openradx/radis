@@ -123,10 +123,10 @@ class LabelingJobAdmin(admin.ModelAdmin):
 
     def has_delete_permission(self, request: HttpRequest, obj: object = None) -> bool:
         # Active jobs must be canceled (which revokes their queued work) before deletion;
-        # deleting a running job would orphan in-flight LLM calls. Finished jobs delete freely.
-        # When obj is a specific job, decide entirely from status so no user lookup is needed.
-        if isinstance(obj, LabelingJob):
-            return obj.status not in LabelingJob.ACTIVE_STATUSES
+        # deleting a running job would orphan in-flight LLM calls. Finished jobs follow the
+        # normal Django delete-permission check.
+        if isinstance(obj, LabelingJob) and obj.status in LabelingJob.ACTIVE_STATUSES:
+            return False
         return super().has_delete_permission(request, obj)
 
     def get_actions(self, request: HttpRequest):
