@@ -1,6 +1,7 @@
 from django.contrib import admin, messages
 from django.db import IntegrityError, transaction
 from django.http import HttpRequest, HttpResponseRedirect
+from django.shortcuts import get_object_or_404
 from django.urls import path, reverse
 
 from radis.core.utils.model_utils import cancel_job
@@ -156,7 +157,7 @@ class LabelingJobAdmin(admin.ModelAdmin):
         change_url = reverse("admin:labels_labelingjob_change", args=[job_id])
         if request.method != "POST":
             return HttpResponseRedirect(change_url)
-        job = LabelingJob.objects.get(pk=job_id)
+        job = get_object_or_404(LabelingJob, pk=job_id)
         if not job.is_cancelable:
             self.message_user(
                 request,
@@ -196,6 +197,17 @@ class LabelingTaskAdmin(_ReadOnlyAdmin):
     raw_id_fields = ("job",)
 
     def has_delete_permission(self, request: HttpRequest, obj: object = None) -> bool:
-        # Allow deletion so deleting a LabelingJob can cascade to its tasks. Add/change
-        # remain blocked via _ReadOnlyAdmin, so tasks are still effectively view-only.
+        # Allow deletion so deleting a finished LabelingJob can cascade to its tasks, but never
+        # for a task whose job is still active — deleting a live task neither revokes its queued
+        # Procrastinate job nor updates job state, corrupting the run. Cascade still works
+        # because only non-active jobs are deletable, so their tasks pass this guard.
+        if isinstance(obj, LabelingTask) and obj.job.status in LabelingJob.ACTIVE_STATUSES:
+            return False
         return True
+
+    def get_actions(self, request: HttpRequest):
+        # No bulk task deletion — the bulk action checks delete permission once with no object,
+        # bypassing the active-job guard above.
+        actions = super().get_actions(request)
+        actions.pop("delete_selected", None)
+        return actions

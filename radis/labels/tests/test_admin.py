@@ -198,6 +198,59 @@ def test_cancel_button_shown_only_when_cancelable(client):
 
 @_no_toolbar
 @pytest.mark.django_db
+def test_cancel_form_posts_to_cancel_url(client):
+    from radis.labels.factories import LabelingJobFactory
+
+    admin_user = UserFactory.create(is_staff=True, is_superuser=True, is_active=True)
+    client.force_login(admin_user)
+
+    active = LabelingJobFactory.create(status=LabelingJob.Status.IN_PROGRESS)
+    change_url = reverse("admin:labels_labelingjob_change", args=[active.pk])
+    cancel_url = reverse("admin:labels_labelingjob_cancel", args=[active.pk])
+
+    content = client.get(change_url).content.decode()
+    assert f'action="{cancel_url}"' in content
+
+
+@pytest.mark.django_db
+def test_task_admin_blocks_deleting_tasks_of_active_jobs():
+    from django.contrib.admin.sites import site
+    from django.test import RequestFactory
+
+    from radis.core.models import AnalysisTask
+    from radis.labels.factories import LabelingJobFactory, LabelingTaskFactory
+    from radis.labels.models import LabelingJob, LabelingTask
+
+    request = RequestFactory().get("/")
+    model_admin = site._registry[LabelingTask]
+
+    active_job = LabelingJobFactory.create(status=LabelingJob.Status.IN_PROGRESS)
+    active_task = LabelingTaskFactory.create(job=active_job, status=AnalysisTask.Status.PENDING)
+    done_job = LabelingJobFactory.create(status=LabelingJob.Status.SUCCESS)
+    done_task = LabelingTaskFactory.create(job=done_job, status=AnalysisTask.Status.SUCCESS)
+
+    assert model_admin.has_delete_permission(request, active_task) is False
+    assert model_admin.has_delete_permission(request, done_task) is True
+    assert model_admin.has_delete_permission(request) is True  # obj=None: cascade context
+
+
+@pytest.mark.django_db
+def test_task_admin_has_no_bulk_delete_action():
+    from django.contrib.admin.sites import site
+    from django.test import RequestFactory
+
+    from radis.labels.models import LabelingTask
+
+    admin_user = UserFactory.create(is_staff=True, is_superuser=True, is_active=True)
+    request = RequestFactory().get("/")
+    request.user = admin_user
+
+    model_admin = site._registry[LabelingTask]
+    assert "delete_selected" not in model_admin.get_actions(request)
+
+
+@_no_toolbar
+@pytest.mark.django_db
 def test_labeling_task_detail_shows_message_and_log(client):
     from radis.core.models import AnalysisTask
     from radis.labels.factories import LabelingJobFactory, LabelingTaskFactory
