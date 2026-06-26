@@ -69,7 +69,7 @@ class ChatClient:
 
         completion = self._client.beta.chat.completions.parse(
             model=self._llm_model_name,
-            messages=[{"role": "system", "content": prompt}],
+            messages=[{"role": "user", "content": prompt}],
             response_format=schema,
         )
         event = completion.choices[0].message.parsed

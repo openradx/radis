@@ -59,12 +59,10 @@ def test_real_chat_client_sends_rendered_prompt_and_built_schema():
         c.kwargs for c in calls if c.kwargs["response_format"].__name__ == "LabelClassification"
     )
 
-    # The system message sent is exactly the labels code's rendered prompt for this report body.
-    assert gate_kwargs["messages"] == [
-        {"role": "system", "content": render_gate_prompt(report.body)}
-    ]
+    # The user message sent is exactly the labels code's rendered prompt for this report body.
+    assert gate_kwargs["messages"] == [{"role": "user", "content": render_gate_prompt(report.body)}]
     assert label_kwargs["messages"] == [
-        {"role": "system", "content": render_label_prompt(report.body)}
+        {"role": "user", "content": render_label_prompt(report.body)}
     ]
 
     # response_format is the dynamically-built schema: name-keyed, carrying the gate question /
