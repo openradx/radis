@@ -1,0 +1,15 @@
+{# props: report #}
+<div class="report-labels">
+    {% regroup report.surfacing_label_results by label.group.name as grouped %}
+    {% for group in grouped %}
+        <div class="mb-1">
+            <span class="text-muted small me-1">{{ group.grouper }}:</span>
+            {% for result in group.list %}
+                <span class="badge {% if result.is_stale %}bg-secondary opacity-50{% else %}bg-primary{% endif %}"
+                      title="{{ result.get_value_display }}{% if result.is_stale %} (stale){% endif %}">
+                    {{ result.label.name }}
+                </span>
+            {% endfor %}
+        </div>
+    {% endfor %}
+</div>

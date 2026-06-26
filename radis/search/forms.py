@@ -6,6 +6,7 @@ from django import forms
 
 from radis.core.constants import LANGUAGE_LABELS
 from radis.core.layouts import RangeSlider
+from radis.labels.models import Label
 from radis.reports.models import Language, Modality
 
 from .layouts import QueryInput
@@ -21,6 +22,7 @@ class SearchForm(forms.Form):
     # Filter fields
     language = forms.ChoiceField(required=False, choices=[])
     modalities = forms.MultipleChoiceField(required=False, choices=[])
+    labels = forms.MultipleChoiceField(required=False, choices=[])
     study_date_from = forms.DateField(
         required=False, widget=forms.DateInput(attrs={"type": "date"})
     )
@@ -69,6 +71,12 @@ class SearchForm(forms.Form):
         ]
         self.fields["modalities"].widget.attrs["size"] = 6
 
+        active_labels = Label.objects.filter(active=True).order_by("name")
+        self.fields["labels"].choices = [  # type: ignore
+            (label.name, label.name) for label in active_labels
+        ]
+        self.fields["labels"].widget.attrs["size"] = 6
+
         self.query_helper = FormHelper()
         self.query_helper.template = "search/form_elements/form_part.html"  # type: ignore
         self.query_helper.form_show_errors
@@ -95,9 +103,15 @@ class SearchForm(forms.Form):
         )
 
     def create_filters_layout(self) -> Layout:
+        label_field = (
+            [Field("labels", css_class="form-select-sm")]
+            if self.fields["labels"].choices  # type: ignore
+            else []
+        )
         return Layout(
             Field("language", css_class="form-select-sm"),
             Field("modalities", css_class="form-select-sm"),
+            *label_field,
             Field("study_date_from", css_class="form-control-sm"),
             Field("study_date_till", css_class="form-control-sm"),
             Field("study_description", css_class="form-control-sm"),

@@ -6,6 +6,8 @@ from django.db.models.query import QuerySet
 from django.http.request import HttpRequest
 from django.http.response import HttpResponse
 
+from radis.labels.models import LabelResult
+
 from .models import Language, Metadata, Modality, Report, ReportsAppSettings
 from .site import reports_created_handlers, reports_deleted_handlers, reports_updated_handlers
 
@@ -58,8 +60,21 @@ class MetadataInline(admin.TabularInline):
     ordering = ("key",)
 
 
+class LabelResultInline(admin.TabularInline):
+    model = LabelResult
+    extra = 0
+    can_delete = False
+    readonly_fields = ("label", "value", "generated_at")
+    # `label` is read-only here and the inline disables adds, so this never renders today;
+    # kept so that if `label` is ever made editable it degrades to an ID input.
+    raw_id_fields = ("label",)
+
+    def has_add_permission(self, request: HttpRequest, obj: object = None) -> bool:
+        return False
+
+
 class ReportAdmin(admin.ModelAdmin):
-    inlines = [MetadataInline]
+    inlines = [MetadataInline, LabelResultInline]
 
     def delete_model(self, request: HttpRequest, obj: Report) -> None:
         # Called when deleting a single report (from the admin form view)

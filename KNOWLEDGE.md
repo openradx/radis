@@ -27,3 +27,27 @@
 - <https://huggingface.co/LoneStriker/OpenBioLLM-Llama3-8B-GGUF>
 - <https://huggingface.co/LoneStriker/OpenBioLLM-Llama3-70B-GGUF>
 - <https://huggingface.co/lightblue/suzume-llama-3-8B-multilingual-gguf/resolve/main/ggml-model-Q8_0.gguf>
+
+## Auto-Labeling (`radis.labels`)
+
+### Prompt design
+
+- One **generic** system prompt classifies every label; the label-specific knowledge lives in each label's `description`, not in the prompt. Only `$report` (the report body) is substituted into `LABELING_SYSTEM_PROMPT`.
+- The gate uses a separate generic `LABELING_GATE_SYSTEM_PROMPT` that asks a Yes/No/Maybe applicability question per group.
+- Keeping prompts generic means new labels/groups need no prompt engineering — authoring a good `description`/`gate_question` is the whole job.
+
+### Authoring labels
+
+- A label `description` must be **self-contained**: it is the only definition the LLM sees. Define the finding precisely, including what counts and what does not.
+- Don't rely on the label `name` to carry meaning; the name is only the badge/search token.
+- Deactivate (`active=False`) rather than delete labels you want to retire; editing a label's definition bumps `updated_at`, which marks existing results **stale**.
+
+### Authoring gate questions
+
+- A `gate_question` is a **topic-level applicability screen** for the whole group ("Does this report concern the chest?"), answered Yes/No/Maybe — not a question about a specific finding.
+- A `NO` gate answer skips per-label classification for that group, saving LLM calls. `MAYBE` still proceeds (treat the gate as a cheap filter, not a precise classifier).
+
+### The five buckets
+
+- `PRESENT`, `LIKELY`, `POSSIBLE` — the **surfacing** buckets: they drive report-detail badges and match the `label:` search filter.
+- `ABSENT`, `UNMENTIONED` — recorded for observability/auditing but never surface to end users.

@@ -85,6 +85,7 @@ INSTALLED_APPS = [
     "radis.reports.apps.ReportsConfig",
     "radis.search.apps.SearchConfig",
     "radis.extractions.apps.ExtractionsConfig",
+    "radis.labels.apps.LabelsConfig",
     "radis.subscriptions.apps.SubscriptionsConfig",
     "radis.collections.apps.CollectionsConfig",
     "radis.notes.apps.NotesConfig",
@@ -335,6 +336,11 @@ EXTERNAL_LLM_PROVIDER_URL = env.str("EXTERNAL_LLM_PROVIDER_URL", default="")
 EXTERNAL_LLM_PROVIDER_API_KEY = env.str("EXTERNAL_LLM_PROVIDER_API_KEY", default="")
 LLM_SERVICE_DEV_PORT = env.int("LLM_SERVICE_DEV_PORT", default=8080)
 LLM_SERVICE_URL = env.str("LLM_SERVICE_URL", default=f"http://localhost:{LLM_SERVICE_DEV_PORT}/v1")
+# Extra body sent with each structured-output call. Turns off Qwen's "thinking" mode so the
+# model returns plain JSON instead of markdown-fenced JSON that the parser cannot read.
+LLM_EXTRA_BODY = env.json(
+    "LLM_EXTRA_BODY", default={"chat_template_kwargs": {"enable_thinking": False}}
+)
 
 # Chat
 CHAT_GENERATE_TITLE_SYSTEM_PROMPT = """
@@ -437,6 +443,75 @@ SUBSCRIPTION_DEFAULT_PRIORITY = 3
 SUBSCRIPTION_URGENT_PRIORITY = 4
 SUBSCRIPTION_CRON = "* * * * *"
 SUBSCRIPTION_REFRESH_TASK_BATCH_SIZE = 100
+
+# Labeling (radis.labels)
+# Generic labeling system prompt. Carries NO label-specific text — each label is a field
+# in the dynamically generated schema and its name/description rides in that field's
+# description=. Only $report is substituted.
+_DEFAULT_LABELING_SYSTEM_PROMPT = """
+You are an AI medical assistant. The provided schema lists one field per label, each
+field's description defining the label. For every field, decide how strongly the report
+below supports that label, choosing exactly one of:
+  - "PRESENT"     — the report clearly states this is present
+  - "LIKELY"      — the report strongly suggests it, without stating it outright
+  - "POSSIBLE"    — the report leaves it as a possibility / cannot be excluded
+  - "ABSENT"      — the report explicitly states this is not present
+  - "UNMENTIONED" — the report does not address this at all
+
+Return answers in JSON format matching the provided schema.
+
+Radiology Report:
+$report
+"""
+
+# Generic gate (Yes/No applicability) system prompt. Only $report is substituted.
+_DEFAULT_GATE_SYSTEM_PROMPT = """
+You are an AI medical assistant. The provided schema lists one field per topic, each
+field's description stating the topic's screening question. For every field, answer
+whether the radiology report below contains content relevant to that topic, responding
+with exactly one of:
+  - "YES" — the report clearly contains relevant content
+  - "NO"  — the report clearly does not
+
+Return answers in JSON format matching the provided schema.
+
+Radiology Report:
+$report
+"""
+
+LABELING_SYSTEM_PROMPT = env.str("LABELING_SYSTEM_PROMPT", default=_DEFAULT_LABELING_SYSTEM_PROMPT)
+LABELING_GATE_SYSTEM_PROMPT = env.str(
+    "LABELING_GATE_SYSTEM_PROMPT", default=_DEFAULT_GATE_SYSTEM_PROMPT
+)
+
+# Scan and manual backfill share one priority (only one LabelingJob runs at a time).
+LABELING_JOB_PRIORITY = env.int("LABELING_JOB_PRIORITY", default=1)
+
+LABELING_TASK_BATCH_SIZE = env.int("LABELING_TASK_BATCH_SIZE", default=100)
+LABELING_LLM_CONCURRENCY_LIMIT = env.int("LABELING_LLM_CONCURRENCY_LIMIT", default=2)
+LABELING_GATE_BATCH_SIZE = env.int("LABELING_GATE_BATCH_SIZE", default=10)
+
+# Cron schedule for the periodic incremental scan (default: daily at 2 AM).
+LABELING_SCAN_CRON = env.str("LABELING_SCAN_CRON", default="0 2 * * *")
+
+# Labeling LLM rate-limit & error handling (see the rate-limit design doc).
+LLM_REQUEST_TIMEOUT_SECONDS = env.float("LLM_REQUEST_TIMEOUT_SECONDS", default=60.0)
+LABELING_RATE_LIMIT_BACKOFF_BASE_SECONDS = env.float(
+    "LABELING_RATE_LIMIT_BACKOFF_BASE_SECONDS", default=5.0
+)
+LABELING_RATE_LIMIT_FALLBACK_MAX_SECONDS = env.float(
+    "LABELING_RATE_LIMIT_FALLBACK_MAX_SECONDS", default=120.0
+)
+LABELING_RATE_LIMIT_HEADER_CEILING_SECONDS = env.float(
+    "LABELING_RATE_LIMIT_HEADER_CEILING_SECONDS", default=3600.0
+)
+LABELING_RATE_LIMIT_MAX_WAIT_SECONDS = env.float(
+    "LABELING_RATE_LIMIT_MAX_WAIT_SECONDS", default=300.0
+)
+LABELING_TRANSIENT_RETRY_ATTEMPTS = env.int("LABELING_TRANSIENT_RETRY_ATTEMPTS", default=2)
+LABELING_TRANSIENT_RETRY_BASE_SECONDS = env.float(
+    "LABELING_TRANSIENT_RETRY_BASE_SECONDS", default=1.0
+)
 
 # The priority for stalled jobs that are retried.
 STALLED_JOBS_RETRY_PRIORITY = 10

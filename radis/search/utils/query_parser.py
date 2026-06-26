@@ -198,7 +198,7 @@ class QueryParser:
         word = ~(not_ | and_ | or_) + pp.Regex(r"[^\s()]+").set_parse_action(
             lambda t: TermNode("WORD", t[0])  # type: ignore
         )
-        phrase = pp.QuotedString(quoteChar='"', esc_char="\\").set_parse_action(
+        phrase = pp.QuotedString(quote_char='"', esc_char="\\").set_parse_action(
             lambda t: TermNode("PHRASE", t[0])  # type: ignore
         )
         term = phrase | word
