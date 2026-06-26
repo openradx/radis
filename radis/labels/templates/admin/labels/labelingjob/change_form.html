@@ -1,0 +1,13 @@
+{% extends "admin/change_form.html" %}
+{% load i18n %}
+{% block submit_buttons_bottom %}
+    {{ block.super }}
+    {% if original.is_cancelable %}
+        <form method="post"
+              action="{% url 'admin:labels_labelingjob_cancel' original.pk %}"
+              style="display:inline">
+            {% csrf_token %}
+            <button type="submit" class="button">{% trans "Cancel job" %}</button>
+        </form>
+    {% endif %}
+{% endblock submit_buttons_bottom %}

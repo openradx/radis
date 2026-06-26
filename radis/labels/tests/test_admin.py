@@ -92,6 +92,62 @@ def test_label_group_duplicate_name_raises_integrity_error():
 
 @_no_toolbar
 @pytest.mark.django_db
+def test_cancel_job_view_cancels_cancelable_job(client):
+    from radis.core.models import AnalysisTask
+    from radis.labels.factories import LabelingJobFactory, LabelingTaskFactory
+
+    job = LabelingJobFactory.create(status=LabelingJob.Status.PENDING)
+    task = LabelingTaskFactory.create(job=job, status=AnalysisTask.Status.PENDING)
+    admin_user = UserFactory.create(is_staff=True, is_superuser=True, is_active=True)
+    client.force_login(admin_user)
+
+    url = reverse("admin:labels_labelingjob_cancel", args=[job.pk])
+    response = client.post(url)
+
+    assert response.status_code == 302
+    job.refresh_from_db()
+    task.refresh_from_db()
+    assert job.status == LabelingJob.Status.CANCELED
+    assert task.status == AnalysisTask.Status.CANCELED
+
+
+@_no_toolbar
+@pytest.mark.django_db
+def test_cancel_job_view_rejects_finished_job(client):
+    from radis.labels.factories import LabelingJobFactory
+
+    job = LabelingJobFactory.create(status=LabelingJob.Status.SUCCESS)
+    admin_user = UserFactory.create(is_staff=True, is_superuser=True, is_active=True)
+    client.force_login(admin_user)
+
+    url = reverse("admin:labels_labelingjob_cancel", args=[job.pk])
+    response = client.post(url)
+
+    assert response.status_code == 302
+    job.refresh_from_db()
+    assert job.status == LabelingJob.Status.SUCCESS
+
+
+@_no_toolbar
+@pytest.mark.django_db
+def test_cancel_button_shown_only_when_cancelable(client):
+    from radis.labels.factories import LabelingJobFactory
+
+    admin_user = UserFactory.create(is_staff=True, is_superuser=True, is_active=True)
+    client.force_login(admin_user)
+
+    active = LabelingJobFactory.create(status=LabelingJob.Status.IN_PROGRESS)
+    done = LabelingJobFactory.create(status=LabelingJob.Status.SUCCESS)
+
+    active_url = reverse("admin:labels_labelingjob_change", args=[active.pk])
+    done_url = reverse("admin:labels_labelingjob_change", args=[done.pk])
+
+    assert b"Cancel job" in client.get(active_url).content
+    assert b"Cancel job" not in client.get(done_url).content
+
+
+@_no_toolbar
+@pytest.mark.django_db
 def test_labeling_task_detail_shows_message_and_log(client):
     from radis.core.models import AnalysisTask
     from radis.labels.factories import LabelingJobFactory, LabelingTaskFactory

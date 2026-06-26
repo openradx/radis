@@ -3,6 +3,8 @@ from django.db import IntegrityError, transaction
 from django.http import HttpRequest, HttpResponseRedirect
 from django.urls import path, reverse
 
+from radis.core.utils.model_utils import cancel_job
+
 from .models import (
     GateAnswer,
     Label,
@@ -93,6 +95,8 @@ class LabelingJobAdmin(admin.ModelAdmin):
     # the action does not require selecting a row (Django's built-in action mechanism
     # enforces at least one selected object).
     change_list_template = "admin/labels/labelingjob/change_list.html"
+    # Adds a "Cancel job" button to the read-only detail page when the job is cancelable.
+    change_form_template = "admin/labels/labelingjob/change_form.html"
 
     list_display = ("id", "trigger", "status", "owner", "created_at", "ended_at")
     list_filter = ("trigger", "status")
@@ -125,8 +129,29 @@ class LabelingJobAdmin(admin.ModelAdmin):
                 self.admin_site.admin_view(self.run_backfill_view),
                 name="labels_labelingjob_run_backfill",
             ),
+            path(
+                "<int:job_id>/cancel/",
+                self.admin_site.admin_view(self.cancel_job_view),
+                name="labels_labelingjob_cancel",
+            ),
         ]
         return custom + urls
+
+    def cancel_job_view(self, request: HttpRequest, job_id: int) -> HttpResponseRedirect:
+        change_url = reverse("admin:labels_labelingjob_change", args=[job_id])
+        if request.method != "POST":
+            return HttpResponseRedirect(change_url)
+        job = LabelingJob.objects.get(pk=job_id)
+        if not job.is_cancelable:
+            self.message_user(
+                request,
+                f"Job {job.pk} with status {job.get_status_display()} is not cancelable.",
+                level=messages.ERROR,
+            )
+            return HttpResponseRedirect(change_url)
+        cancel_job(job)
+        self.message_user(request, f"Canceling job {job.pk}.", level=messages.SUCCESS)
+        return HttpResponseRedirect(change_url)
 
     def run_backfill_view(self, request: HttpRequest) -> HttpResponseRedirect:
         changelist_url = reverse("admin:labels_labelingjob_changelist")
