@@ -336,6 +336,11 @@ EXTERNAL_LLM_PROVIDER_URL = env.str("EXTERNAL_LLM_PROVIDER_URL", default="")
 EXTERNAL_LLM_PROVIDER_API_KEY = env.str("EXTERNAL_LLM_PROVIDER_API_KEY", default="")
 LLM_SERVICE_DEV_PORT = env.int("LLM_SERVICE_DEV_PORT", default=8080)
 LLM_SERVICE_URL = env.str("LLM_SERVICE_URL", default=f"http://localhost:{LLM_SERVICE_DEV_PORT}/v1")
+# Extra body sent with each structured-output call. Turns off Qwen's "thinking" mode so the
+# model returns plain JSON instead of markdown-fenced JSON that the parser cannot read.
+LLM_EXTRA_BODY = env.json(
+    "LLM_EXTRA_BODY", default={"chat_template_kwargs": {"enable_thinking": False}}
+)
 
 # Chat
 CHAT_GENERATE_TITLE_SYSTEM_PROMPT = """

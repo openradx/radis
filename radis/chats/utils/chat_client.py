@@ -61,6 +61,8 @@ class ChatClient:
 
         self._client = openai.OpenAI(**client_kwargs)  # type: ignore[arg-type]
         self._llm_model_name = settings.LLM_MODEL_NAME
+        # Provider quirks (e.g. Qwen's enable_thinking flag) sent with each call.
+        self._extra_body: dict = getattr(settings, "LLM_EXTRA_BODY", {}) or {}
 
     def extract_data(self, prompt: str, schema: type[BaseModel]) -> BaseModel:
         logger.debug("Sending prompt and schema to LLM to extract data.")
@@ -71,6 +73,7 @@ class ChatClient:
             model=self._llm_model_name,
             messages=[{"role": "user", "content": prompt}],
             response_format=schema,
+            extra_body=self._extra_body,
         )
         event = completion.choices[0].message.parsed
         assert event
