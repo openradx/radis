@@ -62,19 +62,67 @@ def test_label_group_search_works(client):
 
 
 @pytest.mark.django_db
-def test_read_only_admins_block_deletion():
-    """LabelResult/GateAnswer/LabelingTask admins are fully read-only (no delete)."""
+def test_result_and_gate_admins_block_deletion():
+    """LabelResult/GateAnswer admins stay fully read-only (no add/change/delete)."""
     from django.contrib.admin.sites import site
     from django.test import RequestFactory
 
-    from radis.labels.models import GateAnswer, LabelingTask, LabelResult
+    from radis.labels.models import GateAnswer, LabelResult
 
     request = RequestFactory().get("/")
-    for model in (LabelResult, GateAnswer, LabelingTask):
+    for model in (LabelResult, GateAnswer):
         model_admin = site._registry[model]
         assert model_admin.has_add_permission(request) is False
         assert model_admin.has_change_permission(request) is False
         assert model_admin.has_delete_permission(request) is False
+
+
+@pytest.mark.django_db
+def test_task_admin_allows_delete_but_not_add_or_change():
+    """LabelingTask must allow deletion so a job delete can cascade to its tasks."""
+    from django.contrib.admin.sites import site
+    from django.test import RequestFactory
+
+    from radis.labels.models import LabelingTask
+
+    request = RequestFactory().get("/")
+    model_admin = site._registry[LabelingTask]
+    assert model_admin.has_add_permission(request) is False
+    assert model_admin.has_change_permission(request) is False
+    assert model_admin.has_delete_permission(request) is True
+
+
+@pytest.mark.django_db
+def test_job_admin_blocks_deleting_active_jobs():
+    from django.contrib.admin.sites import site
+    from django.test import RequestFactory
+
+    from radis.labels.factories import LabelingJobFactory
+    from radis.labels.models import LabelingJob
+
+    request = RequestFactory().get("/")
+    model_admin = site._registry[LabelingJob]
+
+    active = LabelingJobFactory.create(status=LabelingJob.Status.IN_PROGRESS)
+    done = LabelingJobFactory.create(status=LabelingJob.Status.SUCCESS)
+
+    assert model_admin.has_delete_permission(request, active) is False
+    assert model_admin.has_delete_permission(request, done) is True
+
+
+@pytest.mark.django_db
+def test_job_admin_has_no_bulk_delete_action():
+    from django.contrib.admin.sites import site
+    from django.test import RequestFactory
+
+    from radis.labels.models import LabelingJob
+
+    admin_user = UserFactory.create(is_staff=True, is_superuser=True, is_active=True)
+    request = RequestFactory().get("/")
+    request.user = admin_user
+
+    model_admin = site._registry[LabelingJob]
+    assert "delete_selected" not in model_admin.get_actions(request)
 
 
 @pytest.mark.django_db

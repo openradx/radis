@@ -121,6 +121,21 @@ class LabelingJobAdmin(admin.ModelAdmin):
         # never hand-added through the admin add form.
         return False
 
+    def has_delete_permission(self, request: HttpRequest, obj: object = None) -> bool:
+        # Active jobs must be canceled (which revokes their queued work) before deletion;
+        # deleting a running job would orphan in-flight LLM calls. Finished jobs delete freely.
+        # When obj is a specific job, decide entirely from status so no user lookup is needed.
+        if isinstance(obj, LabelingJob):
+            return obj.status not in LabelingJob.ACTIVE_STATUSES
+        return super().has_delete_permission(request, obj)
+
+    def get_actions(self, request: HttpRequest):
+        # Bulk "delete selected" checks delete permission once with no object, bypassing the
+        # per-job active-status guard above. Remove it so deletion only happens per-object.
+        actions = super().get_actions(request)
+        actions.pop("delete_selected", None)
+        return actions
+
     def get_urls(self):
         urls = super().get_urls()
         custom = [
@@ -179,3 +194,8 @@ class LabelingTaskAdmin(_ReadOnlyAdmin):
     # Inert under read-only; kept for consistency with the other label admins so a future
     # editable admin degrades to an ID input rather than a full LabelingJob dropdown.
     raw_id_fields = ("job",)
+
+    def has_delete_permission(self, request: HttpRequest, obj: object = None) -> bool:
+        # Allow deletion so deleting a LabelingJob can cascade to its tasks. Add/change
+        # remain blocked via _ReadOnlyAdmin, so tasks are still effectively view-only.
+        return True
