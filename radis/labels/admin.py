@@ -149,7 +149,7 @@ class LabelingJobAdmin(admin.ModelAdmin):
 
 @admin.register(LabelingTask)
 class LabelingTaskAdmin(_ReadOnlyAdmin):
-    list_display = ("id", "job", "status", "started_at", "ended_at")
+    list_display = ("id", "job", "status", "message", "started_at", "ended_at")
     list_filter = ("status",)
     # Inert under read-only; kept for consistency with the other label admins so a future
     # editable admin degrades to an ID input rather than a full LabelingJob dropdown.

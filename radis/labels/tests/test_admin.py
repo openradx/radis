@@ -88,3 +88,27 @@ def test_label_group_duplicate_name_raises_integrity_error():
     with pytest.raises(IntegrityError):
         with transaction.atomic():
             LabelGroupFactory.create(name="Cardiology")
+
+
+@_no_toolbar
+@pytest.mark.django_db
+def test_labeling_task_detail_shows_message_and_log(client):
+    from radis.core.models import AnalysisTask
+    from radis.labels.factories import LabelingJobFactory, LabelingTaskFactory
+
+    job = LabelingJobFactory.create(status=LabelingJob.Status.WARNING)
+    task = LabelingTaskFactory.create(
+        job=job,
+        status=AnalysisTask.Status.WARNING,
+        message="1 of 2 reports failed to label.",
+        log="Report 42: RuntimeError: LLM exploded",
+    )
+    admin_user = UserFactory.create(is_staff=True, is_superuser=True, is_active=True)
+    client.force_login(admin_user)
+
+    url = reverse("admin:labels_labelingtask_change", args=[task.pk])
+    response = client.get(url)
+
+    assert response.status_code == 200
+    assert b"1 of 2 reports failed to label." in response.content
+    assert b"Report 42: RuntimeError: LLM exploded" in response.content
