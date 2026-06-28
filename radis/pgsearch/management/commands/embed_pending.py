@@ -76,7 +76,11 @@ class Command(BaseCommand):
         self.stdout.write(
             f"Enqueuing {len(ids)} report(s) in subjobs of {subjob_size}..."
         )
-        subjob_count = enqueue_embed_reports(ids, subjob_size=subjob_size)
+        subjob_count = enqueue_embed_reports(
+            ids,
+            subjob_size=subjob_size,
+            priority=settings.EMBEDDING_BACKFILL_PRIORITY,
+        )
         self.stdout.write(
             self.style.SUCCESS(f"Done. Deferred {subjob_count} subjob(s).")
         )

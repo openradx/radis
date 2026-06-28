@@ -93,23 +93,29 @@ def test_embedding_error_propagates():
     assert ReportSearchIndex.objects.filter(embedding__isnull=True).count() == 2
 
 
+def _defer_calls(cfg_mock):
+    """Helper: return the (kwargs of) defer() calls made through the
+    `app.configure_task` mock."""
+    return [c.kwargs for c in cfg_mock.return_value.defer.call_args_list]
+
+
 def test_bulk_index_reports_chains_into_embed_reports_task(settings):
-    """`bulk_index_reports` upserts RSVs and then chunks the embed work via
+    """`bulk_index_reports` upserts RSIs and then chunks the embed work via
     `enqueue_embed_reports`. The chain is the ordering guarantee: the
-    embeddings worker only ever sees report ids whose RSV rows are already
+    embeddings worker only ever sees report ids whose RSI rows are already
     committed."""
     settings.EMBEDDING_SUBJOB_SIZE = 100
     reports = [ReportFactory.create() for _ in range(3)]
     pks = [r.pk for r in reports]
     ReportSearchIndex.objects.filter(report_id__in=pks).delete()
 
-    with patch("radis.pgsearch.tasks.embed_reports_task.defer") as defer:
+    with patch("radis.pgsearch.tasks.app.configure_task") as cfg:
         bulk_index_reports(report_ids=pks)
 
-    # RSVs were upserted, then one embed subjob covering all 3 ids was
+    # RSIs were upserted, then one embed subjob covering all 3 ids was
     # deferred (3 < SUBJOB_SIZE so the whole batch fits in one subjob).
     assert ReportSearchIndex.objects.filter(report_id__in=pks).count() == 3
-    defer.assert_called_once_with(report_ids=pks)
+    assert _defer_calls(cfg) == [{"report_ids": pks}]
 
 
 def test_bulk_index_reports_splits_into_subjobs_when_exceeding_subjob_size(settings):
@@ -120,12 +126,11 @@ def test_bulk_index_reports_splits_into_subjobs_when_exceeding_subjob_size(setti
     reports = [ReportFactory.create() for _ in range(10)]
     pks = [r.pk for r in reports]
 
-    with patch("radis.pgsearch.tasks.embed_reports_task.defer") as defer:
+    with patch("radis.pgsearch.tasks.app.configure_task") as cfg:
         bulk_index_reports(report_ids=pks)
 
     # 10 reports / subjob 4 → 3 defer calls of sizes 4, 4, 2.
-    assert defer.call_count == 3
-    enqueued_chunks = [call.kwargs["report_ids"] for call in defer.call_args_list]
+    enqueued_chunks = [c["report_ids"] for c in _defer_calls(cfg)]
     assert [len(c) for c in enqueued_chunks] == [4, 4, 2]
     # The union of all chunks covers exactly the input ids in order.
     assert [pk for c in enqueued_chunks for pk in c] == pks
@@ -137,23 +142,22 @@ def test_enqueue_embed_reports_helper_chunks_by_subjob_size(settings):
     a single create with one id becomes one subjob (no overhead)."""
     settings.EMBEDDING_SUBJOB_SIZE = 3
 
-    with patch("radis.pgsearch.tasks.embed_reports_task.defer") as defer:
+    with patch("radis.pgsearch.tasks.app.configure_task") as cfg:
         count = enqueue_embed_reports([1, 2, 3, 4, 5, 6, 7])
 
     assert count == 3
-    assert defer.call_count == 3
-    assert [c.kwargs["report_ids"] for c in defer.call_args_list] == [
-        [1, 2, 3],
-        [4, 5, 6],
-        [7],
+    assert _defer_calls(cfg) == [
+        {"report_ids": [1, 2, 3]},
+        {"report_ids": [4, 5, 6]},
+        {"report_ids": [7]},
     ]
 
 
 def test_enqueue_embed_reports_helper_empty_input_is_noop():
-    with patch("radis.pgsearch.tasks.embed_reports_task.defer") as defer:
+    with patch("radis.pgsearch.tasks.app.configure_task") as cfg:
         count = enqueue_embed_reports([])
     assert count == 0
-    defer.assert_not_called()
+    cfg.assert_not_called()
 
 
 def test_enqueue_embed_reports_helper_explicit_subjob_size_overrides_setting(settings):
@@ -161,13 +165,47 @@ def test_enqueue_embed_reports_helper_explicit_subjob_size_overrides_setting(set
     one-off override without mutating the global setting."""
     settings.EMBEDDING_SUBJOB_SIZE = 100
 
-    with patch("radis.pgsearch.tasks.embed_reports_task.defer") as defer:
+    with patch("radis.pgsearch.tasks.app.configure_task") as cfg:
         count = enqueue_embed_reports([1, 2, 3, 4, 5], subjob_size=2)
 
     assert count == 3
-    assert [c.kwargs["report_ids"] for c in defer.call_args_list] == [
-        [1, 2], [3, 4], [5]
+    assert _defer_calls(cfg) == [
+        {"report_ids": [1, 2]},
+        {"report_ids": [3, 4]},
+        {"report_ids": [5]},
     ]
+
+
+def test_enqueue_embed_reports_defaults_to_live_priority(settings):
+    """Write-path enqueues (no explicit priority) use LIVE so they preempt
+    any backfill subjobs already sitting in the embeddings queue."""
+    settings.EMBEDDING_LIVE_PRIORITY = 7
+    settings.EMBEDDING_BACKFILL_PRIORITY = 0
+
+    with patch("radis.pgsearch.tasks.app.configure_task") as cfg:
+        enqueue_embed_reports([1])
+
+    cfg.assert_called_once_with(
+        "radis.pgsearch.tasks.embed_reports_task",
+        allow_unknown=False,
+        priority=7,
+    )
+
+
+def test_enqueue_embed_reports_explicit_backfill_priority(settings):
+    """`embed_pending` and the admin backfill action pass
+    BACKFILL_PRIORITY so they don't starve subsequent live writes."""
+    settings.EMBEDDING_LIVE_PRIORITY = 7
+    settings.EMBEDDING_BACKFILL_PRIORITY = 0
+
+    with patch("radis.pgsearch.tasks.app.configure_task") as cfg:
+        enqueue_embed_reports([1], priority=settings.EMBEDDING_BACKFILL_PRIORITY)
+
+    cfg.assert_called_once_with(
+        "radis.pgsearch.tasks.embed_reports_task",
+        allow_unknown=False,
+        priority=0,
+    )
 
 
 def test_bisects_on_too_large_and_isolates_offender(settings, caplog, monkeypatch):

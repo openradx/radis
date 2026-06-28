@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.contrib import admin, messages
 from django.db.models import Count
 from django.db.models.query import QuerySet
@@ -66,7 +67,9 @@ class ReportSearchIndexAdmin(admin.ModelAdmin):
             )
             return
 
-        subjob_count = enqueue_embed_reports(report_ids)
+        subjob_count = enqueue_embed_reports(
+            report_ids, priority=settings.EMBEDDING_BACKFILL_PRIORITY
+        )
 
         self.message_user(
             request,

@@ -78,7 +78,10 @@ def enqueue_bulk_index_reports(report_ids: list[int]) -> int | None:
 
 
 def enqueue_embed_reports(
-    report_ids: list[int], *, subjob_size: int | None = None
+    report_ids: list[int],
+    *,
+    subjob_size: int | None = None,
+    priority: int | None = None,
 ) -> int:
     """Chunk `report_ids` into subjobs and defer one `embed_reports_task`
     per chunk. Returns the number of subjobs deferred.
@@ -91,6 +94,11 @@ def enqueue_embed_reports(
     have bounded blast radius, and a stuck task can't tie up the worker
     on the whole queue's worth of work.
 
+    Priority defaults to `settings.EMBEDDING_LIVE_PRIORITY` (write-path).
+    `embed_pending` and the admin backfill action override to
+    `settings.EMBEDDING_BACKFILL_PRIORITY`, so a million-row backfill
+    can't park itself ahead of every subsequent live ingest write.
+
     Single call site for every place that enqueues embedding work: the
     write-path handler, the FTS chain tail, `embed_pending`, and the
     admin action. Operators read one knob, not several.
@@ -98,10 +106,17 @@ def enqueue_embed_reports(
     if not report_ids:
         return 0
     size = subjob_size if subjob_size is not None else settings.EMBEDDING_SUBJOB_SIZE
+    if priority is None:
+        priority = settings.EMBEDDING_LIVE_PRIORITY
+    deferrer = app.configure_task(
+        "radis.pgsearch.tasks.embed_reports_task",
+        allow_unknown=False,
+        priority=priority,
+    )
     count = 0
     for start in range(0, len(report_ids), size):
         chunk = report_ids[start : start + size]
-        embed_reports_task.defer(report_ids=list(chunk))
+        deferrer.defer(report_ids=list(chunk))
         count += 1
     return count
 

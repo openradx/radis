@@ -351,6 +351,12 @@ EMBEDDING_QUERY_INSTRUCTION = (
 )
 EMBEDDING_BATCH_SIZE = 32
 EMBEDDING_SUBJOB_SIZE = 1000
+# Procrastinate task priorities for the `embeddings` queue. Live writes
+# (write-path handler + FTS chain) get LIVE; operator-initiated backfill
+# (`embed_pending`, admin action) gets BACKFILL. A million-row backfill
+# parks itself ahead of every later live write without this split.
+EMBEDDING_LIVE_PRIORITY = 1
+EMBEDDING_BACKFILL_PRIORITY = 0
 
 # Hybrid search tuning
 HYBRID_VECTOR_TOP_K = 100

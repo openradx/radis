@@ -3,6 +3,7 @@ from io import StringIO
 from unittest.mock import patch
 
 import pytest
+from django.conf import settings
 from django.core.management import call_command
 
 from radis.reports.factories import ReportFactory
@@ -32,11 +33,15 @@ def test_enqueues_via_helper_with_explicit_subjob_size():
     ) as enqueue:
         call_command("embed_pending", "--subjob-size", "2", stdout=out)
 
-    # The command delegates chunking to the shared helper.
+    # The command delegates chunking to the shared helper and tags the
+    # subjobs with BACKFILL priority so they can't starve subsequent live
+    # ingest writes that land on the embeddings queue while a long
+    # backfill is draining.
     enqueue.assert_called_once()
     args, kwargs = enqueue.call_args
     assert sorted(args[0]) == expected_ids
     assert kwargs["subjob_size"] == 2
+    assert kwargs["priority"] == settings.EMBEDDING_BACKFILL_PRIORITY
 
     output = out.getvalue()
     assert "5 report(s) in subjobs of 2" in output
@@ -58,3 +63,4 @@ def test_limit_caps_work():
     args, kwargs = enqueue.call_args
     assert len(args[0]) == 3
     assert kwargs["subjob_size"] == 10
+    assert kwargs["priority"] == settings.EMBEDDING_BACKFILL_PRIORITY
