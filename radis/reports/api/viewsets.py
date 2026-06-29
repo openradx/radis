@@ -254,8 +254,15 @@ def _bulk_upsert_reports(
                     handler.handle(created_reports)
             if updated_ids:
                 updated_reports = list(Report.objects.filter(document_id__in=updated_ids))
+                # Bulk upsert is a wholesale replace per record — every field
+                # is potentially "changed". We pass ``changed_fields=None``
+                # so consumers treat each report as if any field could have
+                # been touched (their conservative default). This preserves
+                # existing bulk-API behavior; the precision benefit of HIGH
+                # #5 is realized on the single-record perform_update path
+                # below where ``changed_fields`` is naturally available.
                 for handler in reports_updated_handlers:
-                    handler.handle(updated_reports)
+                    handler.handle(updated_reports, None)
             if touched_report_ids:
                 if settings.PGSEARCH_SYNC_INDEXING:
                     bulk_upsert_report_search_vectors(touched_report_ids)
@@ -414,6 +421,15 @@ class ReportViewSet(
                 raise
 
     def perform_update(self, serializer: BaseSerializer) -> None:
+        # Capture which fields the caller actually asked to update *before*
+        # super().perform_update() commits. ``validated_data`` is the cleaned
+        # representation of the incoming payload, so its keys are exactly
+        # the fields the client wanted to touch. Forwarded to consumers as
+        # ``changed_fields`` so the labels pipeline (and any other consumer
+        # that cares) can skip work when the body field wasn't included —
+        # see HIGH #5 of the 2026-05-19 labels review for the rationale.
+        changed_fields: set[str] = set(getattr(serializer, "validated_data", {}).keys())
+
         super().perform_update(serializer)
         assert serializer.instance
         reports: list[Report] | Report = serializer.instance
@@ -424,7 +440,7 @@ class ReportViewSet(
             for handler in reports_updated_handlers:
                 document_ids = [report.document_id for report in reports]
                 logger.debug(f"{handler.name} - handle updated reports: {document_ids}")
-                handler.handle(reports)
+                handler.handle(reports, changed_fields)
 
         transaction.on_commit(on_commit)
 

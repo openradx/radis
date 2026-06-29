@@ -68,6 +68,48 @@
             </tbody>
         </table>
     {% endif %}
+    {% if report.answers.exists %}
+        <div class="card mb-3">
+            <div class="card-body">
+                <h5 class="card-title">Labels</h5>
+                <table class="table table-sm table-borderless w-auto mb-0 definition-table">
+                    <tbody>
+                        {% for answer in report.answers.all %}
+                            <tr>
+                                <th class="pe-3">
+                                    {{ answer.question.question_set.name }} - {{ answer.question.label }}
+                                </th>
+                                <td class="pe-3">{{ answer.option.label }}</td>
+                                <td class="text-muted">
+                                    {% if answer.confidence is not None %}
+                                        {{ answer.confidence|floatformat:2 }}
+                                    {% else %}
+                                        n/a
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% if answer.rationale %}
+                                <tr>
+                                    <td></td>
+                                    <td colspan="2" class="text-muted small">
+                                        {{ answer.rationale }}
+                                    </td>
+                                </tr>
+                            {% endif %}
+                            {% if answer.question.question %}
+                                <tr>
+                                    <td></td>
+                                    <td colspan="2" class="text-muted small">
+                                        Prompt: {{ answer.question.question }}
+                                    </td>
+                                </tr>
+                            {% endif %}
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    {% endif %}
     <div class="mb-3 mx-1">{% include "reports/_report_buttons_panel.html" with hide_view_button=True %}</div>
     <div class="card">
         <div class="card-body">

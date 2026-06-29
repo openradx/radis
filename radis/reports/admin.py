@@ -92,10 +92,19 @@ class ReportAdmin(admin.ModelAdmin):
 
     def response_change(self, request: HttpRequest, obj: Report) -> HttpResponse:
         # Called after an existing report in the admin is saved (the model itself and also
-        # its relations)
+        # its relations).
+        #
+        # We pass ``changed_fields=None`` because by the time response_change
+        # fires the form is gone and we don't have access to ``form.changed_data``
+        # here. Capturing it through ``save_model`` and stashing it on the
+        # request would be more precise, but admin edits are not the hot path
+        # for HIGH #5 (the LLM-cost win is in the API perform_update path
+        # where ``changed_fields`` is naturally available from the serializer).
+        # The conservative ``None`` keeps existing admin behavior unchanged:
+        # consumers re-process the report as if any field could have changed.
         logger.debug("Reindex report changed in admin: %s", obj)
         transaction.on_commit(
-            lambda: [handler.handle([obj]) for handler in reports_updated_handlers]
+            lambda: [handler.handle([obj], None) for handler in reports_updated_handlers]
         )
         return super().response_change(request, obj)
 

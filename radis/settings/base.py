@@ -86,6 +86,7 @@ INSTALLED_APPS = [
     "radis.search.apps.SearchConfig",
     "radis.extractions.apps.ExtractionsConfig",
     "radis.subscriptions.apps.SubscriptionsConfig",
+    "radis.labels.apps.LabelsConfig",
     "radis.collections.apps.CollectionsConfig",
     "radis.notes.apps.NotesConfig",
     "radis.chats.apps.ChatsConfig",
@@ -396,6 +397,72 @@ Questions:
 $questions
 """
 
+# Labels
+# DIRECT mode: one structured-output call per report. The LLM is asked to
+# return choices straight away, constrained by the dynamically-built Literal
+# enum in the response schema.
+LABELS_SYSTEM_PROMPT = """
+You are an AI medical assistant with extensive knowledge in radiology and general medicine.
+You have been trained on a wide range of medical literature, including the latest research
+and guidelines in radiological practices.
+Assign a single choice to each question based only on the report text. The report and questions
+can be given in any language. Don't hallucinate.
+For each question return: choice (one of the provided choice values), confidence (0.0 to 1.0),
+and rationale (short justification grounded in the report).
+If there is not enough evidence, select the choice value that represents \"Unknown\".
+
+Radiology Report:
+$report
+
+Questions:
+$questions
+"""
+
+# REASONED mode: two-call sequence. First, the model is asked to produce
+# free-form reasoning grounded in the report (no schema constraints — schema
+# constraints during reasoning have been shown to flatten useful chain-of-
+# thought). Then a second structured call assigns the choices using the
+# reasoning as context. The first prompt is the one below; the second prompt
+# is LABELS_REASONED_STRUCTURED_PROMPT.
+LABELS_REASONING_PROMPT = """
+You are an AI medical assistant with extensive knowledge in radiology and general medicine.
+You will be asked to assign labels to the radiology report below based on a list of questions.
+Before any labels are assigned, think step by step about what the report says regarding each
+question. Quote or reference specific phrases from the report. Do not output final choices —
+only reasoning that will help another step assign them.
+
+Radiology Report:
+$report
+
+Questions to consider:
+$questions
+"""
+
+LABELS_REASONED_STRUCTURED_PROMPT = """
+You are an AI medical assistant with extensive knowledge in radiology and general medicine.
+Given the radiology report, the questions, and the reasoning produced in a prior step, assign
+a single choice to each question based only on the report. You may refine the reasoning but
+should remain consistent with it.
+For each question return: choice (one of the provided choice values), confidence (0.0 to 1.0),
+and rationale (short justification grounded in the report).
+If there is not enough evidence, select the choice value that represents \"Unknown\".
+
+Radiology Report:
+$report
+
+Questions:
+$questions
+
+Reasoning from prior step:
+$reasoning
+"""
+
+# Modes the labelling pipeline produces per report. Defaults to both so every
+# report ends up with one DIRECT run and one REASONED run, which is what
+# evaluation needs. Override in production to drop a mode for cost control —
+# the data model handles missing modes fine.
+LABELS_RUN_MODES = env.list("LABELS_RUN_MODES", default=["DI", "RE"])
+
 # Extraction
 OUTPUT_FIELDS_SYSTEM_PROMPT = """
 You are an AI medical assistant with extensive knowledge in radiology and general medicine.
@@ -429,6 +496,76 @@ EXTRACTION_TASK_BATCH_SIZE = 100
 # number of parallel computing slots of the llama.cpp should be set to match this number or the
 # continuous batching capability of the LLM or a combination of both should be used.
 EXTRACTION_LLM_CONCURRENCY_LIMIT = 6
+
+# Labels
+# Backfills are scheduled nightly so they don't compete with live ingest or
+# staff edit sessions. Editing a question set during business hours is
+# debounced to the next cron tick instead of firing per-save; the cron tick
+# scans for dirty sets and dispatches one backfill per set.
+LABELS_BACKFILL_CRON = env("LABELS_BACKFILL_CRON", default="0 21 * * *")
+LABELING_TASK_BATCH_SIZE = 100
+LABELING_LLM_CONCURRENCY_LIMIT = env.int("LABELING_LLM_CONCURRENCY_LIMIT", default=2)
+
+# Per-request timeout (seconds) handed to the OpenAI client constructor.
+# Caps how long a single LLM call can pin a worker thread before raising.
+#
+# Why this is a setting: the OpenAI client's default is 10 minutes, which
+# is the worst possible value for our use case. A hung vLLM proxy or a
+# rare Qwen reasoning blowup would otherwise occupy a worker thread for
+# 10 minutes before procrastinate could reassign the batch. With a cap
+# of 60s the worker fails fast, the LabelingRun is marked FAILURE with a
+# useful error_message, and the next batch can run.
+#
+# Tune down for tight provider SLOs; tune up only if you expect very
+# long structured-output completions (large schemas, very large reports).
+# The value applies to both ChatClient and AsyncChatClient.
+LLM_REQUEST_TIMEOUT_SECONDS = env.float("LLM_REQUEST_TIMEOUT_SECONDS", default=60.0)
+
+# Provider-specific extra body forwarded by ChatClient on every chat call.
+# Qwen3.6 emits chain-of-thought to a separate `reasoning` field by default
+# and leaves message.content empty; passing chat_template_kwargs.enable_thinking
+# = False keeps the actual response in message.content where every downstream
+# parser expects it.
+#
+# The nice property: we get uniform behavior across vendors. Qwen now puts
+# its output in message.content like every other model; providers that don't
+# recognize this extra key (OpenAI, Anthropic via proxy, llama.cpp, vLLM with
+# non-Qwen models, etc.) silently ignore it. The labelling pipeline never
+# has to branch on which backend is configured — REASONED mode achieves
+# chain-of-thought via prompting rather than vendor-specific routing flags,
+# so the same code path works everywhere.
+LLM_EXTRA_BODY = {"chat_template_kwargs": {"enable_thinking": False}}
+
+# Procrastinate priorities. Higher = more urgent. Live labelling (a single
+# newly-ingested report) jumps ahead of backfill batches so dashboards
+# reflect fresh reports without waiting for a 500k-row backfill to drain.
+LABELS_LIVE_PRIORITY = 10
+LABELS_BACKFILL_PRIORITY = 0
+
+# Master switch for the developer evaluation harness (the DIRECT vs
+# REASONED comparison views, the labels_eval_seed / labels_eval_report
+# management commands, and the "Eval" button on the question-set detail
+# page). The harness exists to validate prompts and model choices; it is
+# not part of the user-facing labelling pipeline and exposes raw
+# document_id / LLM rationale data that ordinary radiology users should
+# not see.
+#
+# Defaults to False (production-safe). Set LABELS_EVAL_ENABLED=True in
+# the .env of any environment where developers need the harness —
+# typically only development. The flag gates three layers of defense:
+#
+# 1. URL conf: the eval routes are only added to urlpatterns when True.
+#    A direct GET in production returns 404 from the URL resolver, not
+#    from the view — the route literally does not exist.
+# 2. View dispatch: each eval view re-checks the flag and raises Http404
+#    if False. Defense in depth in case URLs ever get registered by
+#    mistake.
+# 3. Management commands: both commands refuse to run when False with a
+#    CommandError, preventing accidental invocation in a prod shell.
+#
+# The dev settings override this to True (see radis/settings/development.py)
+# so the test suite picks it up automatically.
+LABELS_EVAL_ENABLED = env.bool("LABELS_EVAL_ENABLED", default=False)
 
 START_EXTRACTION_JOB_UNVERIFIED = False
 
