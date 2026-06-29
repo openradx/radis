@@ -356,11 +356,7 @@ class ReportViewSet(
             try:
                 serializer.is_valid(raise_exception=True)
             except ValidationError as exc:
-                document_id = (
-                    payload.get("document_id")
-                    if isinstance(payload, dict)
-                    else None
-                )
+                document_id = payload.get("document_id") if isinstance(payload, dict) else None
                 logger.error(
                     "Bulk upsert validation failed (index=%s document_id=%s): %s",
                     index,

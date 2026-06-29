@@ -1,4 +1,5 @@
-from typing import Any, Callable, NamedTuple
+from collections.abc import Callable
+from typing import Any, NamedTuple
 
 from django.http import HttpRequest
 

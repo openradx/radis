@@ -1,5 +1,5 @@
 from logging import getLogger
-from typing import Any, Type, cast
+from typing import Any, cast
 
 from adit_radis_shared.common.mixins import (
     PageSizeSelectMixin,
@@ -154,7 +154,7 @@ class SubscriptionInboxView(
 
     def get_queryset(self) -> QuerySet[Subscription]:
         assert self.model
-        model = cast(Type[Subscription], self.model)
+        model = cast(type[Subscription], self.model)
         if self.request.user.is_staff:
             return model.objects.all()
         return model.objects.filter(owner=self.request.user)

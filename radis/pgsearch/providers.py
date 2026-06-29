@@ -1,5 +1,6 @@
 import logging
-from typing import Iterator, Literal, cast
+from collections.abc import Iterator
+from typing import cast
 
 from django.conf import settings
 from django.contrib.postgres.search import SearchHeadline, SearchQuery, SearchRank
