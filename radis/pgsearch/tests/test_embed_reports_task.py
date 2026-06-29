@@ -1,4 +1,5 @@
 """Tests for `embed_reports_task` and its chaining from `bulk_index_reports`."""
+
 import logging
 from unittest.mock import MagicMock, patch
 
@@ -27,6 +28,7 @@ def stamina_active():
     stamina.set_active(True)
     yield
     stamina.set_active(False)
+
 
 pytestmark = pytest.mark.django_db(transaction=True)
 
@@ -222,9 +224,11 @@ def test_bisects_on_too_large_and_isolates_offender(settings, caplog, monkeypatc
     def fake_embed(texts):
         # Simulate the backend rejecting any payload that contains the
         # offending report's body. The body is fetched by report_id.
-        offender_body = ReportSearchIndex.objects.select_related("report").get(
-            report_id=offender_pk
-        ).report.body
+        offender_body = (
+            ReportSearchIndex.objects.select_related("report")
+            .get(report_id=offender_pk)
+            .report.body
+        )
         if offender_body in texts:
             raise EmbeddingPayloadTooLargeError("over context window")
         return [vec] * len(texts)
@@ -249,8 +253,8 @@ def test_bisects_on_too_large_and_isolates_offender(settings, caplog, monkeypatc
 
     # The three good reports got embeddings; the offender stayed NULL.
     rsvs_by_pk = {
-        rsv.report_id: rsv
-        for rsv in ReportSearchIndex.objects.filter(report_id__in=pks)
+        rsv.report.pk: rsv
+        for rsv in ReportSearchIndex.objects.filter(report_id__in=pks).select_related("report")
     }
     assert rsvs_by_pk[offender_pk].embedding is None
     for pk in pks:
@@ -261,14 +265,8 @@ def test_bisects_on_too_large_and_isolates_offender(settings, caplog, monkeypatc
     # The bisect logged the specific offender's id + body length, and the
     # task-level summary listed it among skipped ids.
     error_msgs = [r.getMessage() for r in caplog.records if r.levelname == "ERROR"]
-    assert any(
-        f"report_id={offender_pk}" in msg and "body_chars=" in msg
-        for msg in error_msgs
-    )
-    assert any(
-        "skipped as too large" in msg and str(offender_pk) in msg
-        for msg in error_msgs
-    )
+    assert any(f"report_id={offender_pk}" in msg and "body_chars=" in msg for msg in error_msgs)
+    assert any("skipped as too large" in msg and str(offender_pk) in msg for msg in error_msgs)
 
 
 def test_non_too_large_error_propagates_without_bisecting():
@@ -333,9 +331,7 @@ def test_stamina_does_not_retry_payload_too_large(settings, stamina_active):
     fake = MagicMock()
     fake.__enter__ = MagicMock(return_value=fake)
     fake.__exit__ = MagicMock(return_value=None)
-    fake.embed_documents = MagicMock(
-        side_effect=EmbeddingPayloadTooLargeError("over context")
-    )
+    fake.embed_documents = MagicMock(side_effect=EmbeddingPayloadTooLargeError("over context"))
 
     with patch("radis.pgsearch.tasks.EmbeddingClient", return_value=fake):
         embed_reports_task(report_ids=pks)

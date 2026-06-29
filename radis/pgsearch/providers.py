@@ -1,6 +1,6 @@
 import logging
 from collections.abc import Iterator
-from typing import cast
+from typing import Literal, cast
 
 from django.conf import settings
 from django.contrib.postgres.search import SearchHeadline, SearchQuery, SearchRank
@@ -183,7 +183,9 @@ def search(search: Search) -> SearchResult:
         if rsv is None:
             continue
         rsv.summary = summary_with_fallback(  # type: ignore[attr-defined]
-            rsv.report.body, rsv.summary or "", max_words=30  # type: ignore[attr-defined]
+            rsv.report.body,
+            rsv.summary or "",  # type: ignore[attr-defined]
+            max_words=30,
         )
         documents.append(
             document_from_pgsearch_response(
@@ -193,9 +195,7 @@ def search(search: Search) -> SearchResult:
             )
         )
 
-    return SearchResult(
-        total_count=total_count, total_relation=total_relation, documents=documents
-    )
+    return SearchResult(total_count=total_count, total_relation=total_relation, documents=documents)
 
 
 def count(search: Search) -> int:
@@ -251,9 +251,7 @@ def retrieve(search: Search) -> Iterator[str]:
     if not ordered_ids:
         return iter([])
 
-    id_to_doc = dict(
-        Report.objects.filter(pk__in=ordered_ids).values_list("pk", "document_id")
-    )
+    id_to_doc = dict(Report.objects.filter(pk__in=ordered_ids).values_list("pk", "document_id"))
     return (id_to_doc[rid] for rid in ordered_ids if rid in id_to_doc)
 
 

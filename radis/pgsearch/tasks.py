@@ -35,9 +35,7 @@ def _is_retryable_embedding_error(exc: Exception) -> bool:
     wait_initial=0.5,
     wait_max=8.0,
 )
-def _embed_chunk_with_retry(
-    client: EmbeddingClient, texts: list[str]
-) -> list[list[float]]:
+def _embed_chunk_with_retry(client: EmbeddingClient, texts: list[str]) -> list[list[float]]:
     """Single embed call wrapped in stamina-controlled transient retries.
 
     Layered with Procrastinate's task-level retry: stamina handles brief
@@ -147,7 +145,7 @@ def _embed_with_bisect(
             logger.error(
                 "embed_reports_task: report_id=%s body_chars=%d rejected by embedding "
                 "service as too large; skipping. Backend error: %s",
-                offender.report_id,
+                offender.report.pk,
                 len(offender.report.body),
                 exc,
             )
@@ -217,5 +215,5 @@ def embed_reports_task(report_ids: list[int]) -> None:
             "model; report_ids=%s. Fix the upstream report or raise the model context "
             "limit; their RSV rows stay NULL until embedded.",
             len(skipped),
-            [rsv.report_id for rsv in skipped],
+            [rsv.report.pk for rsv in skipped],
         )

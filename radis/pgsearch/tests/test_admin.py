@@ -1,10 +1,10 @@
 """Tests for the ReportSearchIndex admin pipeline-stats badge."""
+
 from unittest.mock import MagicMock
 
+import pytest
 from django.contrib.admin.sites import AdminSite
 from django.db import connection
-
-import pytest
 
 from radis.pgsearch.admin import ReportSearchIndexAdmin
 from radis.pgsearch.models import ReportSearchIndex
@@ -99,17 +99,18 @@ def test_clear_embeddings_for_remodel_nulls_only_selected_rows_with_embeddings()
     # One target already NULL — should be skipped by the filter.
     ReportSearchIndex.objects.filter(report_id=targets[0].pk).update(embedding=None)
 
-    selected = ReportSearchIndex.objects.filter(
-        report_id__in=[r.pk for r in targets]
-    )
+    selected = ReportSearchIndex.objects.filter(report_id__in=[r.pk for r in targets])
     admin_instance = ReportSearchIndexAdmin(ReportSearchIndex, AdminSite())
     admin_instance.message_user = MagicMock()
     admin_instance.clear_embeddings_for_remodel(MagicMock(), selected)
 
     # Two of three targets had embeddings and got cleared.
-    assert ReportSearchIndex.objects.filter(
-        report_id__in=[r.pk for r in targets], embedding__isnull=True
-    ).count() == 3
+    assert (
+        ReportSearchIndex.objects.filter(
+            report_id__in=[r.pk for r in targets], embedding__isnull=True
+        ).count()
+        == 3
+    )
     # The non-selected row is untouched.
     assert ReportSearchIndex.objects.get(report_id=untouched.pk).embedding is not None
     # message_user reports the number cleared, not the number selected.

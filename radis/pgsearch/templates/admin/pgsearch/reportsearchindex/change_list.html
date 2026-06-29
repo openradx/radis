@@ -1,21 +1,23 @@
 {% extends "admin/change_list.html" %}
-
 {% block content %}
-{% if embedding_pipeline_stats %}
-<div class="module" style="margin-bottom: 15px; padding: 10px 14px; border-left: 4px solid #79aec8;">
-  <strong>Embedding pipeline</strong>
-  &nbsp;·&nbsp; <strong>{{ embedding_pipeline_stats.pending_reports }}</strong> report{{ embedding_pipeline_stats.pending_reports|pluralize }} awaiting embedding
-  &nbsp;·&nbsp; <strong>{{ embedding_pipeline_stats.todo }}</strong> queued
-  &nbsp;·&nbsp; <strong>{{ embedding_pipeline_stats.doing }}</strong> in-flight
-  &nbsp;·&nbsp;
-  {% if embedding_pipeline_stats.failed %}
-    <strong style="color: #ba2121;">{{ embedding_pipeline_stats.failed }}</strong>
-  {% else %}
-    <strong>0</strong>
-  {% endif %}
-  failed
-  <span style="color: #666; margin-left: 10px;">(<code>embeddings</code> queue)</span>
-</div>
-{% endif %}
-{{ block.super }}
-{% endblock %}
+    {% if embedding_pipeline_stats %}
+        <div class="module"
+             style="margin-bottom: 15px;
+                    padding: 10px 14px;
+                    border-left: 4px solid #79aec8">
+            <strong>Embedding pipeline</strong>
+            &nbsp;·&nbsp; <strong>{{ embedding_pipeline_stats.pending_reports }}</strong> report{{ embedding_pipeline_stats.pending_reports|pluralize }} awaiting embedding
+            &nbsp;·&nbsp; <strong>{{ embedding_pipeline_stats.todo }}</strong> queued
+            &nbsp;·&nbsp; <strong>{{ embedding_pipeline_stats.doing }}</strong> in-flight
+            &nbsp;·&nbsp;
+            {% if embedding_pipeline_stats.failed %}
+                <strong style="color: #ba2121;">{{ embedding_pipeline_stats.failed }}</strong>
+            {% else %}
+                <strong>0</strong>
+            {% endif %}
+            failed
+            <span style="color: #666; margin-left: 10px;">(<code>embeddings</code> queue)</span>
+        </div>
+    {% endif %}
+    {{ block.super }}
+{% endblock content %}

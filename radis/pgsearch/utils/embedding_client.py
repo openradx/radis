@@ -52,9 +52,7 @@ class OllamaBackend:
         try:
             return list(body["embeddings"])
         except (KeyError, TypeError) as e:
-            raise EmbeddingClientError(
-                f"Ollama-style response missing 'embeddings': {e}"
-            ) from e
+            raise EmbeddingClientError(f"Ollama-style response missing 'embeddings': {e}") from e
 
 
 BACKENDS: dict[str, EmbeddingBackend] = {
@@ -122,14 +120,11 @@ def _resolve_config() -> _ResolvedConfig:
         backend = BACKENDS[settings.EMBEDDING_BACKEND]
     except KeyError as e:
         raise EmbeddingClientError(
-            f"Unknown EMBEDDING_BACKEND={settings.EMBEDDING_BACKEND!r}; "
-            f"known: {sorted(BACKENDS)}"
+            f"Unknown EMBEDDING_BACKEND={settings.EMBEDDING_BACKEND!r}; known: {sorted(BACKENDS)}"
         ) from e
     path = settings.EMBEDDING_PROVIDER_PATH or backend.path
     if not path.startswith("/"):
-        raise EmbeddingClientError(
-            f"EMBEDDING_PROVIDER_PATH must start with '/'; got {path!r}"
-        )
+        raise EmbeddingClientError(f"EMBEDDING_PROVIDER_PATH must start with '/'; got {path!r}")
     base = settings.EMBEDDING_PROVIDER_URL.rstrip("/")
     if not base:
         raise EmbeddingClientError("EMBEDDING_PROVIDER_URL is not configured")
@@ -151,8 +146,7 @@ def _normalize_response(
 ) -> list[list[float]]:
     if len(raw) != expected_count:
         raise EmbeddingClientError(
-            f"Embedding count mismatch: requested {expected_count}, "
-            f"backend returned {len(raw)}"
+            f"Embedding count mismatch: requested {expected_count}, backend returned {len(raw)}"
         )
     normalized: list[list[float]] = []
     for vec in raw:
@@ -210,7 +204,7 @@ class EmbeddingClient:
     def close(self) -> None:
         self._http.close()
 
-    def __enter__(self) -> "EmbeddingClient":
+    def __enter__(self) -> EmbeddingClient:
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb) -> None:
