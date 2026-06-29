@@ -45,12 +45,24 @@ class AsyncChatClient:
 
 
 class ChatClient:
-    def __init__(self) -> None:
+    def __init__(self, max_retries: int | None = None, timeout: float | None = None) -> None:
         base_url = _get_base_url()
         api_key = settings.EXTERNAL_LLM_PROVIDER_API_KEY
 
-        self._client = openai.OpenAI(base_url=base_url, api_key=api_key)
+        # Only pass overrides when given, so chat keeps the SDK defaults.
+        client_kwargs: dict[str, str | int | float | None] = {
+            "base_url": base_url,
+            "api_key": api_key,
+        }
+        if max_retries is not None:
+            client_kwargs["max_retries"] = max_retries
+        if timeout is not None:
+            client_kwargs["timeout"] = timeout
+
+        self._client = openai.OpenAI(**client_kwargs)  # type: ignore[arg-type]
         self._llm_model_name = settings.LLM_MODEL_NAME
+        # Provider quirks (e.g. Qwen's enable_thinking flag) sent with each call.
+        self._extra_body: dict = getattr(settings, "LLM_EXTRA_BODY", {}) or {}
 
     def extract_data(self, prompt: str, schema: type[BaseModel]) -> BaseModel:
         logger.debug("Sending prompt and schema to LLM to extract data.")
@@ -59,8 +71,9 @@ class ChatClient:
 
         completion = self._client.beta.chat.completions.parse(
             model=self._llm_model_name,
-            messages=[{"role": "system", "content": prompt}],
+            messages=[{"role": "user", "content": prompt}],
             response_format=schema,
+            extra_body=self._extra_body,
         )
         event = completion.choices[0].message.parsed
         assert event
