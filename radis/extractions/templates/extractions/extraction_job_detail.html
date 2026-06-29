@@ -114,6 +114,20 @@
                     <dd class="col-sm-9">
                         {{ field.output_type|human_readable_output_type }}
                     </dd>
+                    {% if field.is_array %}
+                        <dt class="col-sm-3">Array Output</dt>
+                        <dd class="col-sm-9">
+                            Yes — return multiple {{ field.output_type|human_readable_output_type|lower }} values
+                        </dd>
+                    {% endif %}
+                    {% if field.selection_options %}
+                        <dt class="col-sm-3">Selections</dt>
+                        <dd class="col-sm-9">
+                            <ul class="mb-0 ps-3">
+                                {% for option in field.selection_options %}<li>{{ option }}</li>{% endfor %}
+                            </ul>
+                        </dd>
+                    {% endif %}
                 </dl>
             </li>
         {% endfor %}
@@ -121,11 +135,18 @@
     {% if not job.is_preparing %}
         <c-table-heading title="Extraction Tasks">
         <c-slot name="left">
-        <a href="{% url 'extraction_result_list' job.id %}"
-           class="btn btn-sm btn-primary">
-            {% bootstrap_icon "eye" %}
-            View Results
-        </a>
+        <div class="d-flex gap-2">
+            <a href="{% url 'extraction_result_list' job.id %}"
+               class="btn btn-sm btn-primary">
+                {% bootstrap_icon "eye" %}
+                View Results
+            </a>
+            <a href="{% url 'extraction_result_download' job.id %}"
+               class="btn btn-sm btn-success">
+                {% bootstrap_icon "download" %}
+                Download CSV
+            </a>
+        </div>
         </c-slot>
         <c-slot name="right">
         {% crispy filter.form %}
