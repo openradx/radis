@@ -1,4 +1,5 @@
 import logging
+import os
 
 from django.apps import AppConfig
 from django.conf import settings
@@ -78,6 +79,34 @@ def check_embedding_dim_matches_migration(app_configs, **kwargs):
             )
         ]
     return []
+
+
+@register()
+def check_legacy_embedding_vars(app_configs, **kwargs):
+    """Fail startup if the deployment still carries env vars removed in the
+    OpenAI-SDK migration (see docs/superpowers/specs/2026-06-30-embedding-
+    client-openai-sdk-design.md). A silent ignore would let a misconfigured
+    `.env` produce subtly wrong embedding-service URLs."""
+    errors = []
+    if os.environ.get("EMBEDDING_BACKEND"):
+        errors.append(
+            Error(
+                "EMBEDDING_BACKEND is no longer supported; remove it from .env. "
+                "All embedding providers now use the OpenAI-compatible "
+                "/v1/embeddings endpoint via the openai SDK.",
+                id="pgsearch.E002",
+            )
+        )
+    if os.environ.get("EMBEDDING_PROVIDER_PATH"):
+        errors.append(
+            Error(
+                "EMBEDDING_PROVIDER_PATH is no longer supported; append the path "
+                "to EMBEDDING_PROVIDER_URL instead "
+                "(e.g. http://host:11434/v1).",
+                id="pgsearch.E003",
+            )
+        )
+    return errors
 
 
 def _index_reports(reports):

@@ -1,6 +1,7 @@
 """Tests for the Django system check that guards EMBEDDING_DIM/migration parity."""
 
 import logging
+import os
 from unittest.mock import MagicMock, patch
 
 from django.test import override_settings
@@ -8,6 +9,7 @@ from django.test import override_settings
 from radis.pgsearch.apps import (
     _migration_embedding_dim,
     check_embedding_dim_matches_migration,
+    check_legacy_embedding_vars,
 )
 
 
@@ -70,3 +72,21 @@ def test_index_reports_logs_info_with_mode_and_count(settings, caplog):
     assert any(
         "pgsearch.index_reports: handler invoked; reports=3 mode=async" in m for m in info_msgs
     )
+
+
+def test_legacy_embedding_backend_var_raises_e002():
+    with patch.dict(os.environ, {"EMBEDDING_BACKEND": "openai"}, clear=False):
+        errors = check_legacy_embedding_vars(app_configs=None)
+    assert any(e.id == "pgsearch.E002" for e in errors)
+
+
+def test_legacy_embedding_provider_path_var_raises_e003():
+    with patch.dict(os.environ, {"EMBEDDING_PROVIDER_PATH": "/api/embeddings"}, clear=False):
+        errors = check_legacy_embedding_vars(app_configs=None)
+    assert any(e.id == "pgsearch.E003" for e in errors)
+
+
+def test_no_errors_when_legacy_vars_absent(monkeypatch):
+    monkeypatch.delenv("EMBEDDING_BACKEND", raising=False)
+    monkeypatch.delenv("EMBEDDING_PROVIDER_PATH", raising=False)
+    assert check_legacy_embedding_vars(app_configs=None) == []
