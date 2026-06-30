@@ -2,15 +2,20 @@ from __future__ import annotations
 
 import logging
 import math
-from dataclasses import dataclass
-from typing import Protocol
 
 import httpx
+import openai
 from django.conf import settings
+
+logger = logging.getLogger(__name__)
 
 
 class EmbeddingClientError(Exception):
-    """Raised when the embedding service returns an error or a malformed response."""
+    """Raised when the embedding service returns an error or a malformed response,
+    or when configuration is invalid. Typed `openai.OpenAIError` subclasses
+    (RateLimitError, BadRequestError, InternalServerError, ...) are NOT wrapped
+    in this class — callers that want to discriminate (stamina retry predicate,
+    future rate-limit gate) match on the SDK types directly."""
 
 
 class EmbeddingPayloadTooLargeError(EmbeddingClientError):
@@ -19,52 +24,17 @@ class EmbeddingPayloadTooLargeError(EmbeddingClientError):
     retry — `embed_reports_task` does exactly that."""
 
 
-class EmbeddingBackend(Protocol):
-    path: str
-
-    def build_payload(self, model: str, texts: list[str]) -> dict: ...
-
-    def parse_response(self, body: dict) -> list[list[float]]: ...
-
-
-class OpenAIBackend:
-    path: str = "/v1/embeddings"
-
-    def build_payload(self, model: str, texts: list[str]) -> dict:
-        return {"model": model, "input": texts}
-
-    def parse_response(self, body: dict) -> list[list[float]]:
-        try:
-            return [item["embedding"] for item in body["data"]]
-        except (KeyError, TypeError) as e:
-            raise EmbeddingClientError(
-                f"OpenAI-style response missing 'data[*].embedding': {e}"
-            ) from e
-
-
-class OllamaBackend:
-    path: str = "/api/embed"
-
-    def build_payload(self, model: str, texts: list[str]) -> dict:
-        return {"model": model, "input": texts}
-
-    def parse_response(self, body: dict) -> list[list[float]]:
-        try:
-            return list(body["embeddings"])
-        except (KeyError, TypeError) as e:
-            raise EmbeddingClientError(f"Ollama-style response missing 'embeddings': {e}") from e
-
-
-BACKENDS: dict[str, EmbeddingBackend] = {
-    "openai": OpenAIBackend(),
-    "ollama": OllamaBackend(),
-}
-
-logger = logging.getLogger(__name__)
+# Stable, structured error codes the OpenAI-compat ecosystem returns when an
+# input exceeds the model context. The OpenAI SDK exposes these on
+# `BadRequestError.body["error"]["code"]`. Substring-matching the human-readable
+# message (the previous approach) drifted on provider version bumps and
+# false-positived on unrelated 4xx; the structured code does not.
+_TOO_LARGE_ERROR_CODES = frozenset({"context_length_exceeded", "string_above_max_length"})
 
 
 def _build_http_client() -> httpx.Client:
-    """Indirection so tests can swap in a MockTransport."""
+    """Indirection so tests can swap in an httpx.MockTransport. The returned
+    client is passed to openai.OpenAI(http_client=...)."""
     return httpx.Client(timeout=settings.EMBEDDING_REQUEST_TIMEOUT)
 
 
@@ -73,72 +43,6 @@ def _l2_normalize(vec: list[float]) -> list[float]:
     if norm == 0.0:
         return vec
     return [x / norm for x in vec]
-
-
-# Substrings (case-insensitive) seen in embedding-service responses when one
-# or more inputs exceed the model's context window. Kept loose because the
-# exact phrasing varies across OpenAI / vLLM / Ollama and minor version bumps.
-_TOO_LARGE_MARKERS = (
-    "context length",
-    "context_length",
-    "maximum context",
-    "max_tokens",
-    "max tokens",
-    "max_position",
-    "too long",
-    "too large",
-    "too many tokens",
-    "exceeds",
-    "exceeded",
-)
-
-
-def _is_payload_too_large(response: httpx.Response) -> bool:
-    """Best-effort detection: is this 4xx caused by an input exceeding the
-    model's context window (i.e., bisecting the batch could resolve it)?"""
-    if response.status_code == 413:
-        return True
-    if response.status_code not in (400, 422):
-        return False
-    body_lower = response.text.lower()
-    return any(marker in body_lower for marker in _TOO_LARGE_MARKERS)
-
-
-@dataclass(frozen=True)
-class _ResolvedConfig:
-    backend: EmbeddingBackend
-    url: str
-    model: str
-    dim: int
-    instruction: str
-    headers: dict[str, str]
-
-
-def _resolve_config() -> _ResolvedConfig:
-    """Read+validate Django settings once; raise EmbeddingClientError on misconfig."""
-    try:
-        backend = BACKENDS[settings.EMBEDDING_BACKEND]
-    except KeyError as e:
-        raise EmbeddingClientError(
-            f"Unknown EMBEDDING_BACKEND={settings.EMBEDDING_BACKEND!r}; known: {sorted(BACKENDS)}"
-        ) from e
-    path = settings.EMBEDDING_PROVIDER_PATH or backend.path
-    if not path.startswith("/"):
-        raise EmbeddingClientError(f"EMBEDDING_PROVIDER_PATH must start with '/'; got {path!r}")
-    base = settings.EMBEDDING_PROVIDER_URL.rstrip("/")
-    if not base:
-        raise EmbeddingClientError("EMBEDDING_PROVIDER_URL is not configured")
-    headers: dict[str, str] = {}
-    if settings.EMBEDDING_PROVIDER_API_KEY:
-        headers["Authorization"] = f"Bearer {settings.EMBEDDING_PROVIDER_API_KEY}"
-    return _ResolvedConfig(
-        backend=backend,
-        url=f"{base}{path}",
-        model=settings.EMBEDDING_MODEL_NAME,
-        dim=settings.EMBEDDING_DIM,
-        instruction=settings.EMBEDDING_QUERY_INSTRUCTION,
-        headers=headers,
-    )
 
 
 def _normalize_response(
@@ -155,7 +59,7 @@ def _normalize_response(
                 f"Embedding dim too small: got {len(vec)}, expected at least {target_dim}"
             )
         if len(vec) > target_dim:
-            # Matryoshka truncation: keep first EMBEDDING_DIM components, then re-normalize.
+            # Matryoshka truncation: keep first EMBEDDING_DIM components, then renormalize.
             # Qwen3-Embedding is trained to retain quality at truncated dimensions.
             normalized.append(_l2_normalize(list(vec[:target_dim])))
         else:
@@ -165,37 +69,70 @@ def _normalize_response(
     return normalized
 
 
+def _classify_too_large(exc: openai.BadRequestError) -> EmbeddingClientError:
+    """Map a BadRequestError to either the too-large subclass or the base
+    error, based on the structured error.code. Non-OpenAI-shaped bodies
+    (no `error.code`) are deliberately treated as NOT too-large — bisecting
+    on the wrong error is worse than not bisecting on a real one.
+
+    The SDK unwraps `response.body["error"]` into `exc.body` and extracts
+    `exc.body.get("code")` into `exc.code`, so we read `exc.code` directly
+    rather than navigating the raw JSON envelope."""
+    code: str | None = exc.code
+    snippet = str(exc)[:200]
+    if code in _TOO_LARGE_ERROR_CODES:
+        return EmbeddingPayloadTooLargeError(
+            f"Embedding service rejected payload as too large (code={code}): {snippet}"
+        )
+    return EmbeddingClientError(f"Embedding service returned 400: {snippet}")
+
+
 class EmbeddingClient:
+    """Sync embedding client over the openai SDK. Single OpenAI-compatible
+    endpoint (set EMBEDDING_PROVIDER_URL to end in /v1). Same shape for OpenAI,
+    Azure, vLLM, an LLM gateway, or Ollama's /v1 compatibility layer."""
+
     def __init__(self) -> None:
-        cfg = _resolve_config()
-        self._cfg = cfg
+        base_url = settings.EMBEDDING_PROVIDER_URL
+        if not base_url:
+            raise EmbeddingClientError("EMBEDDING_PROVIDER_URL is not configured")
+        # SDK rejects empty api_key at construction; "unused" is the documented
+        # placeholder for self-hosted endpoints that ignore auth (Ollama, vLLM).
+        api_key = settings.EMBEDDING_PROVIDER_API_KEY or "unused"
         self._http = _build_http_client()
+        self._client = openai.OpenAI(
+            base_url=base_url,
+            api_key=api_key,
+            http_client=self._http,
+            max_retries=0,  # surface 429 immediately so a future gate can arm
+            timeout=settings.EMBEDDING_REQUEST_TIMEOUT,
+        )
+        self._model = settings.EMBEDDING_MODEL_NAME
+        self._dim = settings.EMBEDDING_DIM
+        self._instruction = settings.EMBEDDING_QUERY_INSTRUCTION
 
     def embed_documents(self, texts: list[str]) -> list[list[float]]:
-        payload = self._cfg.backend.build_payload(self._cfg.model, texts)
         try:
-            response = self._http.post(self._cfg.url, json=payload, headers=self._cfg.headers)
-        except httpx.HTTPError as e:
-            raise EmbeddingClientError(f"HTTP error contacting {self._cfg.url}: {e}") from e
-        if response.status_code >= 400:
-            snippet = response.text[:200]
-            if _is_payload_too_large(response):
-                raise EmbeddingPayloadTooLargeError(
-                    f"Embedding service rejected payload as too large "
-                    f"({response.status_code}): {snippet}"
-                )
-            raise EmbeddingClientError(
-                f"Embedding service returned {response.status_code}: {snippet}"
+            # encoding_format="float" keeps the wire format as plain JSON floats and
+            # prevents the SDK from defaulting to base64 (which adds an unwanted
+            # `encoding_format` key to the request body seen by the server).
+            response = self._client.embeddings.create(
+                model=self._model, input=texts, encoding_format="float"
             )
-        try:
-            body = response.json()
-        except ValueError as e:
-            raise EmbeddingClientError(f"Embedding response is not JSON: {e}") from e
-        raw = self._cfg.backend.parse_response(body)
-        return _normalize_response(raw, len(texts), self._cfg.dim)
+        except openai.BadRequestError as exc:
+            raise _classify_too_large(exc) from exc
+        except openai.APIStatusError as exc:
+            if exc.status_code == 413:
+                raise EmbeddingPayloadTooLargeError(
+                    f"Embedding service rejected payload as too large (413): {exc}"
+                ) from exc
+            raise  # 429, 5xx etc. — propagate as the typed SDK exception
+
+        raw = [list(item.embedding) for item in response.data]
+        return _normalize_response(raw, len(texts), self._dim)
 
     def embed_query(self, text: str) -> list[float]:
-        prefixed = f"{self._cfg.instruction}{text}" if self._cfg.instruction else text
+        prefixed = f"{self._instruction}{text}" if self._instruction else text
         vectors = self.embed_documents([prefixed])
         if not vectors:
             raise EmbeddingClientError("Embedding service returned no vectors for query")
