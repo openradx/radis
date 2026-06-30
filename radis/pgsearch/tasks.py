@@ -156,6 +156,11 @@ def _embed_with_bisect(
             )
             skipped.append(offender)
             return
+        logger.warning(
+            "embed_reports_task: chunk of %d report(s) rejected as too large; "
+            "bisecting to isolate offender(s).",
+            len(rsvs),
+        )
         mid = len(rsvs) // 2
         _embed_with_bisect(client, rsvs[:mid], embedded, skipped)
         _embed_with_bisect(client, rsvs[mid:], embedded, skipped)

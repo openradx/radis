@@ -398,6 +398,35 @@ def test_truncate_ids_returns_first_n():
     assert _truncate_ids([], limit=10) == []
 
 
+def test_logs_warning_on_multi_item_bisect(settings, caplog_tasks):
+    settings.EMBEDDING_BATCH_SIZE = 4
+    reports = [ReportFactory.create() for _ in range(4)]
+    pks = [r.pk for r in reports]
+    offender_pk = pks[2]
+    vec = _unit_vec(settings.EMBEDDING_DIM)
+
+    def fake_embed(texts):
+        offender_body = (
+            ReportSearchIndex.objects.select_related("report")
+            .get(report_id=offender_pk)
+            .report.body
+        )
+        if offender_body in texts:
+            raise EmbeddingPayloadTooLargeError("over context window")
+        return [vec] * len(texts)
+
+    fake = MagicMock()
+    fake.__enter__ = MagicMock(return_value=fake)
+    fake.__exit__ = MagicMock(return_value=None)
+    fake.embed_documents = MagicMock(side_effect=fake_embed)
+
+    with patch("radis.pgsearch.tasks.EmbeddingClient", return_value=fake):
+        embed_reports_task(report_ids=pks)
+
+    warning_msgs = [r.getMessage() for r in caplog_tasks.records if r.levelname == "WARNING"]
+    assert any("rejected as too large; bisecting" in m for m in warning_msgs)
+
+
 def test_logs_info_finish_with_counts_and_duration(settings, caplog_tasks):
     reports = [ReportFactory.create() for _ in range(2)]
     pks = [r.pk for r in reports]
