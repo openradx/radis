@@ -121,6 +121,12 @@ def enqueue_embed_reports(
         chunk = report_ids[start : start + size]
         deferrer.defer(report_ids=list(chunk))
         count += 1
+    logger.info(
+        "enqueue_embed_reports: deferred %d subjob(s) for %d report(s) at priority=%d",
+        count,
+        len(report_ids),
+        priority,
+    )
     return count
 
 

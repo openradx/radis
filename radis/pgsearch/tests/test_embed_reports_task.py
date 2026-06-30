@@ -427,6 +427,18 @@ def test_logs_warning_on_multi_item_bisect(settings, caplog_tasks):
     assert any("rejected as too large; bisecting" in m for m in warning_msgs)
 
 
+def test_enqueue_embed_reports_logs_info_with_counts_and_priority(settings, caplog_tasks):
+    settings.EMBEDDING_SUBJOB_SIZE = 3
+    with patch("radis.pgsearch.tasks.app.configure_task"):
+        enqueue_embed_reports([1, 2, 3, 4, 5, 6, 7], priority=5)
+
+    info_msgs = [r.getMessage() for r in caplog_tasks.records if r.levelname == "INFO"]
+    assert any(
+        "enqueue_embed_reports: deferred 3 subjob(s) for 7 report(s) at priority=5" in m
+        for m in info_msgs
+    )
+
+
 def test_logs_info_finish_with_counts_and_duration(settings, caplog_tasks):
     reports = [ReportFactory.create() for _ in range(2)]
     pks = [r.pk for r in reports]
