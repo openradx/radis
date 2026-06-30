@@ -378,3 +378,20 @@ def test_truncate_ids_returns_first_n():
     assert _truncate_ids([1, 2, 3], limit=50) == [1, 2, 3]
     assert _truncate_ids(list(range(100)), limit=3) == [0, 1, 2]
     assert _truncate_ids([], limit=10) == []
+
+
+def test_logs_info_finish_with_counts_and_duration(settings, caplog_tasks):
+    reports = [ReportFactory.create() for _ in range(2)]
+    pks = [r.pk for r in reports]
+    vec = _unit_vec(settings.EMBEDDING_DIM)
+    fake = _make_fake_client(vec)
+
+    with patch("radis.pgsearch.tasks.EmbeddingClient", return_value=fake):
+        embed_reports_task(report_ids=pks)
+
+    info_msgs = [r.getMessage() for r in caplog_tasks.records if r.levelname == "INFO"]
+    finish = [m for m in info_msgs if "embed_reports_task: finished" in m]
+    assert finish, info_msgs
+    assert "embedded=2" in finish[0]
+    assert "skipped=0" in finish[0]
+    assert "duration_ms=" in finish[0]

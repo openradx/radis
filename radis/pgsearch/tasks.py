@@ -1,4 +1,5 @@
 import logging
+import time
 
 import stamina
 from django.conf import settings
@@ -192,6 +193,7 @@ def embed_reports_task(report_ids: list[int]) -> None:
         return
 
     logger.info("embed_reports_task: start; reports=%d", len(report_ids))
+    start_t = time.perf_counter()
 
     rsvs = list(
         ReportSearchIndex.objects.filter(report_id__in=report_ids)
@@ -223,3 +225,10 @@ def embed_reports_task(report_ids: list[int]) -> None:
             len(skipped),
             [rsv.report.pk for rsv in skipped],
         )
+    duration_ms = int((time.perf_counter() - start_t) * 1000)
+    logger.info(
+        "embed_reports_task: finished; embedded=%d skipped=%d duration_ms=%d",
+        len(embedded),
+        len(skipped),
+        duration_ms,
+    )
