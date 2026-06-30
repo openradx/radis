@@ -25,7 +25,6 @@ A rate-limit gate was developed on the `feature/auto-labeling_muhammad` branch (
 ## Non-goals / out of scope
 
 - **Labels app** — not present on `main`; untouched here. It adopts the core `LLMClient` later when this branch merges with the labeling work.
-- The `extract_data` user-message / `extra_body` changes from the labeling branch — not on `main`; preserve `main`'s behavior (prompt sent as a **system** message, no `extra_body`).
 - **Cross-process** rate-limit coordination. The gate is per-process, matching the original design. Interactive chat runs in the web/Daphne process; extractions and subscriptions run in worker processes; each process has its own gate. A truly global gate (shared state in Postgres/Redis) is a separate, larger effort.
 - The current `feature/auto-labeling_muhammad` branch is left completely untouched.
 
@@ -63,7 +62,12 @@ A rate-limit gate was developed on the `feature/auto-labeling_muhammad` branch (
   - `chat(messages, max_completion_tokens=None, max_wait=None) -> str`. `max_wait` defaults to `settings.LLM_RATE_LIMIT_INTERACTIVE_MAX_WAIT_SECONDS`. Body wrapped in `run_through_gate_async(..., with_transient_retries_async(...))`.
 - `LLMClient` (renamed from `ChatClient`):
   - `__init__` sets `max_retries=0` and `timeout=settings.LLM_REQUEST_TIMEOUT_SECONDS` on the `OpenAI` client.
-  - `extract_data(prompt, schema, max_wait=None) -> BaseModel`. `max_wait` defaults to `settings.LLM_RATE_LIMIT_MAX_WAIT_SECONDS`. Preserves `main`'s call shape (prompt as a **system** message, no `extra_body`). Body wrapped in `run_through_gate(..., with_transient_retries(...))`.
+  - `__init__` reads `self._extra_body = getattr(settings, "LLM_EXTRA_BODY", {}) or {}`.
+  - `extract_data(prompt, schema, max_wait=None) -> BaseModel`. `max_wait` defaults to `settings.LLM_RATE_LIMIT_MAX_WAIT_SECONDS`. Sends the prompt as a **user** message (not `system`) and passes `extra_body=self._extra_body`. Body wrapped in `run_through_gate(..., with_transient_retries(...))`.
+
+> **Note — two behavior changes carried over from the `feature/auto-labeling_muhammad` branch (not on `main`):**
+> 1. `extract_data` sends the prompt as a **user** message. `main` sends it as `system`, which several OpenAI-compatible servers (Qwen/vLLM, llama.cpp) reject with a "no user message" error.
+> 2. `extract_data` passes `extra_body` from the new `LLM_EXTRA_BODY` setting (default disables provider "thinking"). Scoped to `extract_data` only — the async `chat()` path does **not** apply `extra_body`. This slightly changes runtime behavior for extractions/subscriptions (they begin sending `enable_thinking: False`), which is the desired behavior for structured output and keeps `core/utils/llm_client.py` identical to what the labeling branch needs for a clean merge.
 
 ### Removed
 
@@ -74,6 +78,7 @@ A rate-limit gate was developed on the `feature/auto-labeling_muhammad` branch (
 | Setting | Default | Purpose |
 |---|---|---|
 | `LLM_REQUEST_TIMEOUT_SECONDS` | `60.0` | Per-request client timeout (both clients). |
+| `LLM_EXTRA_BODY` | `{"chat_template_kwargs": {"enable_thinking": false}}` | Provider quirks sent with each `extract_data` call (JSON). |
 | `LLM_RATE_LIMIT_BACKOFF_BASE_SECONDS` | `5.0` | First exponential pause when no `Retry-After`. |
 | `LLM_RATE_LIMIT_FALLBACK_MAX_SECONDS` | `120.0` | Caps the header-less exponential guess. |
 | `LLM_RATE_LIMIT_HEADER_CEILING_SECONDS` | `3600.0` | Safety rail on a single `Retry-After`. |
