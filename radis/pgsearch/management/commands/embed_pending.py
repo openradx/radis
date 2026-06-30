@@ -27,11 +27,16 @@ Properties:
 - **Rate-limited.** Worker concurrency caps load on the embedding service
   regardless of how many tasks this command enqueues.
 """
+
+import logging
+
 from django.conf import settings
 from django.core.management.base import BaseCommand
 
 from radis.pgsearch.models import ReportSearchIndex
 from radis.pgsearch.tasks import enqueue_embed_reports
+
+logger = logging.getLogger(__name__)
 
 
 class Command(BaseCommand):
@@ -61,6 +66,13 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **opts) -> None:
+        subjob_size = opts["subjob_size"]
+        logger.info(
+            "embed_pending: command invoked; subjob_size=%d limit=%s",
+            subjob_size,
+            opts["limit"],
+        )
+
         ids = list(
             ReportSearchIndex.objects.filter(embedding__isnull=True)
             .order_by("report_id")
@@ -72,15 +84,15 @@ class Command(BaseCommand):
             self.stdout.write("Nothing to embed.")
             return
 
-        subjob_size = opts["subjob_size"]
-        self.stdout.write(
-            f"Enqueuing {len(ids)} report(s) in subjobs of {subjob_size}..."
-        )
+        self.stdout.write(f"Enqueuing {len(ids)} report(s) in subjobs of {subjob_size}...")
         subjob_count = enqueue_embed_reports(
             ids,
             subjob_size=subjob_size,
             priority=settings.EMBEDDING_BACKFILL_PRIORITY,
         )
-        self.stdout.write(
-            self.style.SUCCESS(f"Done. Deferred {subjob_count} subjob(s).")
+        self.stdout.write(self.style.SUCCESS(f"Done. Deferred {subjob_count} subjob(s)."))
+        logger.info(
+            "embed_pending: done; reports=%d subjobs=%d",
+            len(ids),
+            subjob_count,
         )
