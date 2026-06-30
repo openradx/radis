@@ -9,8 +9,9 @@ from radis.chats.utils.testing_helpers import (
     create_openai_client_mock,
     make_rate_limit_error,
 )
-from radis.core.utils.llm_client import _LLM_GATE, AsyncChatClient, LLMClient
-from radis.core.utils.rate_limit import RateLimited
+from radis.core.utils import llm_client
+from radis.core.utils.llm_client import _LLM_GATE, _LLM_RPM_LIMITER, AsyncChatClient, LLMClient
+from radis.core.utils.rate_limit import RateLimited, RpmLimiter
 
 
 class _Schema(BaseModel):
@@ -20,8 +21,10 @@ class _Schema(BaseModel):
 @pytest.fixture(autouse=True)
 def reset_gate():
     _LLM_GATE.reset()
+    _LLM_RPM_LIMITER.reset()
     yield
     _LLM_GATE.reset()
+    _LLM_RPM_LIMITER.reset()
 
 
 def test_llm_client_sets_max_retries_and_timeout(settings):
@@ -96,3 +99,35 @@ async def test_chat_defers_when_rate_limit_exceeds_budget():
     with patch("openai.AsyncOpenAI", return_value=mock):
         with pytest.raises(RateLimited):
             await AsyncChatClient().chat([{"role": "user", "content": "hi"}], max_wait=20.0)
+
+
+def test_default_rpm_limiter_is_disabled():
+    # Default LLM_MAX_RPM is 0, so the process-global limiter is a no-op.
+    assert _LLM_RPM_LIMITER.acquire(deadline=0.0) is True
+
+
+def test_extract_data_defers_when_rpm_exhausted(monkeypatch):
+    # A drained 1-rpm limiter: the next permit is 60s away, beyond a 30s budget,
+    # so the limiter (reached via the client) defers without ever calling the LLM.
+    limiter = RpmLimiter(1)
+    assert limiter.acquire(deadline=0.0) is True  # consumes the starting permit (no wait)
+    monkeypatch.setattr(llm_client, "_LLM_RPM_LIMITER", limiter)
+
+    mock = create_openai_client_mock(_Schema(value="never"))
+    with patch("openai.OpenAI", return_value=mock):
+        with pytest.raises(RateLimited):
+            LLMClient().extract_data("p", _Schema, max_wait=30.0)
+    cast(MagicMock, mock).beta.chat.completions.parse.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_chat_defers_when_rpm_exhausted(monkeypatch):
+    limiter = RpmLimiter(1)
+    assert limiter.acquire(deadline=0.0) is True  # consumes the starting permit (no wait)
+    monkeypatch.setattr(llm_client, "_LLM_RPM_LIMITER", limiter)
+
+    mock = create_async_openai_client_mock("never")
+    with patch("openai.AsyncOpenAI", return_value=mock):
+        with pytest.raises(RateLimited):
+            await AsyncChatClient().chat([{"role": "user", "content": "hi"}], max_wait=30.0)
+    cast(MagicMock, mock).chat.completions.create.assert_not_called()
