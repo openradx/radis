@@ -454,3 +454,47 @@ def test_logs_info_finish_with_counts_and_duration(settings, caplog_tasks):
     assert "embedded=2" in finish[0]
     assert "skipped=0" in finish[0]
     assert "duration_ms=" in finish[0]
+
+
+def test_log_stamina_retry_emits_warning_for_embed_call(caplog_tasks):
+    from stamina.instrumentation import RetryDetails
+
+    from radis.pgsearch.tasks import _log_stamina_retry
+
+    details = RetryDetails(
+        name="radis.pgsearch.tasks._embed_chunk_with_retry",
+        args=(),
+        kwargs={},
+        retry_num=2,
+        wait_for=1.25,
+        waited_so_far=0.5,
+        caused_by=RuntimeError("boom"),
+    )
+    _log_stamina_retry(details)
+
+    warning_msgs = [r.getMessage() for r in caplog_tasks.records if r.levelname == "WARNING"]
+    assert any(
+        "embed_reports_task: embedding HTTP call failed; attempt=2 "
+        "retrying in 1.25s. Error: boom" in m
+        for m in warning_msgs
+    )
+
+
+def test_log_stamina_retry_ignores_other_callsites(caplog_tasks):
+    from stamina.instrumentation import RetryDetails
+
+    from radis.pgsearch.tasks import _log_stamina_retry
+
+    details = RetryDetails(
+        name="some.other.module._other_retry",
+        args=(),
+        kwargs={},
+        retry_num=1,
+        wait_for=0.5,
+        waited_so_far=0.0,
+        caused_by=RuntimeError("not ours"),
+    )
+    _log_stamina_retry(details)
+
+    warning_msgs = [r.getMessage() for r in caplog_tasks.records if r.levelname == "WARNING"]
+    assert warning_msgs == []

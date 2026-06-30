@@ -2,6 +2,7 @@ import logging
 import time
 
 import stamina
+import stamina.instrumentation
 from django.conf import settings
 from procrastinate.contrib.django import app
 from procrastinate.types import JSONValue
@@ -49,6 +50,20 @@ def _embed_chunk_with_retry(client: EmbeddingClient, texts: list[str]) -> list[l
     excluded by the predicate so the bisect logic above this layer can
     catch and resolve it without burning retry budget."""
     return client.embed_documents(texts)
+
+
+def _log_stamina_retry(details: stamina.instrumentation.RetryDetails) -> None:
+    """Stamina on_retry hook. Logs WARNING per retry attempt of the
+    embedding HTTP call. Filters by callsite name so this hook stays a
+    no-op for any other stamina-decorated function added later."""
+    if details.name != "radis.pgsearch.tasks._embed_chunk_with_retry":
+        return
+    logger.warning(
+        "embed_reports_task: embedding HTTP call failed; attempt=%d retrying in %.2fs. Error: %s",
+        details.retry_num,
+        details.wait_for,
+        details.caused_by,
+    )
 
 
 @app.task
