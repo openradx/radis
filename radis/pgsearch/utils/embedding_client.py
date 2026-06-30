@@ -75,9 +75,10 @@ def _classify_too_large(exc: openai.BadRequestError) -> EmbeddingClientError:
     (no `error.code`) are deliberately treated as NOT too-large — bisecting
     on the wrong error is worse than not bisecting on a real one.
 
-    The SDK unwraps `response.body["error"]` into `exc.body` and extracts
-    `exc.body.get("code")` into `exc.code`, so we read `exc.code` directly
-    rather than navigating the raw JSON envelope."""
+    The SDK promotes the JSON `error.code` field onto `exc.code` directly,
+    so we read `exc.code` rather than navigating `exc.body["error"]["code"]`.
+    For non-OpenAI-shaped 4xx bodies that lack a structured `error.code`,
+    `exc.code` is None and we fall through to the base EmbeddingClientError."""
     code: str | None = exc.code
     snippet = str(exc)[:200]
     if code in _TOO_LARGE_ERROR_CODES:
@@ -113,9 +114,9 @@ class EmbeddingClient:
 
     def embed_documents(self, texts: list[str]) -> list[list[float]]:
         try:
-            # encoding_format="float" keeps the wire format as plain JSON floats and
-            # prevents the SDK from defaulting to base64 (which adds an unwanted
-            # `encoding_format` key to the request body seen by the server).
+            # encoding_format="float" requests JSON-float vectors. Without this
+            # the SDK defaults to base64, which would require a decode step
+            # back to floats — extra work and a less debuggable wire format.
             response = self._client.embeddings.create(
                 model=self._model, input=texts, encoding_format="float"
             )
