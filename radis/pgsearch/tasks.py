@@ -210,10 +210,19 @@ def embed_reports_task(report_ids: list[int]) -> None:
     batch_size = settings.EMBEDDING_BATCH_SIZE
     embedded: list[ReportSearchIndex] = []
     skipped: list[ReportSearchIndex] = []
-    with EmbeddingClient() as client:
-        for start in range(0, len(rsvs), batch_size):
-            chunk = rsvs[start : start + batch_size]
-            _embed_with_bisect(client, chunk, embedded, skipped)
+    try:
+        with EmbeddingClient() as client:
+            for start in range(0, len(rsvs), batch_size):
+                chunk = rsvs[start : start + batch_size]
+                _embed_with_bisect(client, chunk, embedded, skipped)
+    except EmbeddingClientError as exc:
+        logger.error(
+            "embed_reports_task: embedding client failure after retries; "
+            "report_ids=%s. Will be retried by Procrastinate. Error: %s",
+            _truncate_ids(report_ids),
+            exc,
+        )
+        raise
 
     if embedded:
         ReportSearchIndex.objects.bulk_update(embedded, fields=["embedding"])

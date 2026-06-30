@@ -372,6 +372,24 @@ def test_stamina_does_not_retry_payload_too_large(settings, stamina_active):
     assert ReportSearchIndex.objects.filter(embedding__isnull=True).count() == 1
 
 
+def test_logs_error_on_client_failure_and_reraises(caplog_tasks):
+    reports = [ReportFactory.create() for _ in range(2)]
+    pks = [r.pk for r in reports]
+    fake = MagicMock()
+    fake.__enter__ = MagicMock(return_value=fake)
+    fake.__exit__ = MagicMock(return_value=None)
+    fake.embed_documents = MagicMock(side_effect=EmbeddingClientError("service down"))
+
+    with patch("radis.pgsearch.tasks.EmbeddingClient", return_value=fake):
+        with pytest.raises(EmbeddingClientError):
+            embed_reports_task(report_ids=pks)
+
+    error_msgs = [r.getMessage() for r in caplog_tasks.records if r.levelname == "ERROR"]
+    assert any(
+        "embed_reports_task: embedding client failure after retries" in m for m in error_msgs
+    )
+
+
 def test_truncate_ids_returns_first_n():
     from radis.pgsearch.tasks import _truncate_ids
 
