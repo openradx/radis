@@ -1,3 +1,5 @@
+import logging
+
 from django.conf import settings
 from django.contrib import admin, messages
 from django.db.models import Count
@@ -7,6 +9,8 @@ from procrastinate.contrib.django.models import ProcrastinateJob
 
 from .models import ReportSearchIndex
 from .tasks import enqueue_embed_reports
+
+logger = logging.getLogger(__name__)
 
 
 @admin.register(ReportSearchIndex)
@@ -73,9 +77,14 @@ class ReportSearchIndexAdmin(admin.ModelAdmin):
 
         self.message_user(
             request,
-            f"Enqueued {len(report_ids)} report(s) across "
-            f"{subjob_count} subjob(s) for embedding.",
+            f"Enqueued {len(report_ids)} report(s) across {subjob_count} subjob(s) for embedding.",
             level=messages.SUCCESS,
+        )
+        logger.info(
+            "admin.enqueue_pending_embeddings: user=%s enqueued %d report(s) across %d subjob(s)",
+            request.user.get_username(),
+            len(report_ids),
+            subjob_count,
         )
 
     @admin.action(description="Clear embeddings (NULL them) — for same-dim model swap")

@@ -1,6 +1,7 @@
 """Tests for the ReportSearchIndex admin pipeline-stats badge."""
 
-from unittest.mock import MagicMock
+import logging
+from unittest.mock import MagicMock, patch
 
 import pytest
 from django.contrib.admin.sites import AdminSite
@@ -116,3 +117,27 @@ def test_clear_embeddings_for_remodel_nulls_only_selected_rows_with_embeddings()
     # message_user reports the number cleared, not the number selected.
     msg_args = admin_instance.message_user.call_args
     assert "Cleared embeddings on 2 row(s)" in msg_args.args[1]
+
+
+def test_enqueue_pending_embeddings_logs_info_with_user_and_counts(caplog):
+    admin_logger = logging.getLogger("radis.pgsearch.admin")
+    admin_logger.addHandler(caplog.handler)
+    caplog.set_level(logging.INFO, logger="radis.pgsearch.admin")
+    try:
+        targets = [ReportFactory.create() for _ in range(2)]
+        selected = ReportSearchIndex.objects.filter(report_id__in=[r.pk for r in targets])
+        request = MagicMock()
+        request.user.get_username.return_value = "alice"
+
+        admin_instance = ReportSearchIndexAdmin(ReportSearchIndex, AdminSite())
+        admin_instance.message_user = MagicMock()
+        with patch("radis.pgsearch.admin.enqueue_embed_reports", return_value=1):
+            admin_instance.enqueue_pending_embeddings(request, selected)
+    finally:
+        admin_logger.removeHandler(caplog.handler)
+
+    info_msgs = [r.getMessage() for r in caplog.records if r.levelname == "INFO"]
+    assert any(
+        "admin.enqueue_pending_embeddings: user=alice enqueued 2 report(s) across 1 subjob(s)" in m
+        for m in info_msgs
+    )
