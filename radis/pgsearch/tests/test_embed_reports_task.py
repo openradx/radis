@@ -357,3 +357,11 @@ def test_stamina_does_not_retry_payload_too_large(settings, stamina_active):
     # Single call — no stamina retry for payload-too-large.
     assert fake.embed_documents.call_count == 1
     assert ReportSearchIndex.objects.filter(embedding__isnull=True).count() == 1
+
+
+def test_truncate_ids_returns_first_n():
+    from radis.pgsearch.tasks import _truncate_ids
+
+    assert _truncate_ids([1, 2, 3], limit=50) == [1, 2, 3]
+    assert _truncate_ids(list(range(100)), limit=3) == [0, 1, 2]
+    assert _truncate_ids([], limit=10) == []

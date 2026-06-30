@@ -16,6 +16,10 @@ from .utils.indexing import bulk_upsert_report_search_indexes
 logger = logging.getLogger(__name__)
 
 
+def _truncate_ids(ids: list[int], limit: int = 50) -> list[int]:
+    return list(ids[:limit])
+
+
 def _is_retryable_embedding_error(exc: Exception) -> bool:
     """stamina retry predicate. Retry transient embedding-service failures
     (5xx, network, timeouts — all surfaced as `EmbeddingClientError`) but
