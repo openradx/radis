@@ -232,7 +232,7 @@ def embed_reports_task(report_ids: list[int]) -> None:
             "model; report_ids=%s. Fix the upstream report or raise the model context "
             "limit; their RSV rows stay NULL until embedded.",
             len(skipped),
-            [rsv.report.pk for rsv in skipped],
+            _truncate_ids([rsv.report.pk for rsv in skipped]),
         )
     duration_ms = int((time.perf_counter() - start_t) * 1000)
     logger.info(
