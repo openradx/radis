@@ -44,9 +44,8 @@ def make_capturing_openai_mock(answers: dict[str, bool]) -> tuple[MagicMock, _Ca
     every ``parse`` call (model, messages, response_format).
     """
     capture = _Capture()
-    Result = create_model(  # type: ignore[call-overload]
-        "Result", **{name: (bool, ...) for name in answers}
-    )
+    field_definitions: dict[str, Any] = {name: (bool, ...) for name in answers}
+    Result = create_model("Result", **field_definitions)
     parsed = Result(**answers)
 
     def fake_parse(*, model: str, messages: Any, response_format: Any) -> MagicMock:
@@ -204,8 +203,8 @@ def test_subscribed_item_created_when_all_answers_true():
         SubscriptionTaskProcessor(task).start()
 
     item = SubscribedItem.objects.get()
-    assert item.report_id == report.pk
-    assert item.subscription_id == task.job.subscription_id
+    assert item.report == report
+    assert item.subscription == task.job.subscription
     assert item.answers == {"question_0": True, "question_1": True}
 
 

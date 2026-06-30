@@ -10,10 +10,11 @@ The LLM is never called for real -- ``openai.OpenAI`` is patched at the SDK
 boundary used by ``radis.chats.utils.chat_client.ChatClient``.
 """
 
-from typing import Any
+from typing import Any, cast
 from unittest.mock import MagicMock, patch
 
 import pytest
+from django.db.models import QuerySet
 from pydantic import BaseModel
 from pytest_mock import MockerFixture
 
@@ -88,9 +89,11 @@ def test_generate_output_fields_schema_maps_each_output_type():
     assert fields["finding"].annotation is str
     assert fields["malignant"].annotation is bool
     # NUMERIC maps to ``float | int`` (a Union), so a float and an int validate.
-    instance = Schema(finding="x", size=3.5, malignant=True)
+    # Schema is built dynamically, so its fields aren't statically known to the type
+    # checker; access them through Any-typed instances.
+    instance = cast(Any, Schema(finding="x", size=3.5, malignant=True))
     assert instance.size == 3.5
-    assert Schema(finding="x", size=7, malignant=False).size == 7
+    assert cast(Any, Schema(finding="x", size=7, malignant=False)).size == 7
     # All fields are required (``...``); omitting one is a validation error.
     with pytest.raises(Exception):
         Schema(finding="x")
@@ -112,7 +115,8 @@ def test_generate_output_fields_schema_raises_on_unknown_type():
             return [_Field()]
 
     with pytest.raises(ValueError, match="Unknown data type: Z"):
-        generate_output_fields_schema(_QS())
+        # _QS duck-types the QuerySet.all() the function calls; cast for the checker.
+        generate_output_fields_schema(cast(QuerySet[OutputField], _QS()))
 
 
 @pytest.mark.django_db
@@ -122,7 +126,10 @@ def test_generate_output_fields_prompt_lists_name_and_description():
         job=job, name="laterality", description="left or right", output_type=OutputType.TEXT
     )
     OutputField.objects.create(
-        job=job, name="effusion", description="pleural effusion present", output_type=OutputType.BOOLEAN
+        job=job,
+        name="effusion",
+        description="pleural effusion present",
+        output_type=OutputType.BOOLEAN,
     )
 
     prompt = generate_output_fields_prompt(job.output_fields)

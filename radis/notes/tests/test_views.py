@@ -335,7 +335,7 @@ def test_note_edit_view_post_cannot_overwrite_other_users_note():
 
     victim_note.refresh_from_db()
     # The victim's note must be untouched and still owned by them.
-    assert victim_note.owner_id == owner.pk, "attacker took ownership of another user's note"
+    assert victim_note.owner == owner, "attacker took ownership of another user's note"
     assert victim_note.text == "Original", "attacker overwrote another user's note text"
 
 

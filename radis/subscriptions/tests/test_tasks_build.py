@@ -165,7 +165,7 @@ def test_subscription_launcher_creates_one_preparing_job_per_subscription(monkey
 
     jobs = SubscriptionJob.objects.all()
     assert jobs.count() == 3
-    assert {j.subscription_id for j in jobs} == {s.pk for s in subs}
+    assert {j.subscription.pk for j in jobs} == {s.pk for s in subs}
     assert all(j.status == SubscriptionJob.Status.PREPARING for j in jobs)
     # Owner is copied from the subscription.
     for job in jobs:

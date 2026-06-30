@@ -13,7 +13,7 @@ These go beyond the happy-path API contract tests in ``test_api.py`` and assert
   through rows.
 """
 
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 
 import pytest
 from adit_radis_shared.accounts.factories import AdminUserFactory, GroupFactory
@@ -52,7 +52,7 @@ def validated(document_id: str, *, group: Group, **overrides) -> dict:
         "patient_birth_date": date(1976, 5, 23),
         "patient_sex": "M",
         "study_description": "CT Thorax",
-        "study_datetime": datetime(2000, 8, 10, 11, 37, tzinfo=timezone.utc),
+        "study_datetime": datetime(2000, 8, 10, 11, 37, tzinfo=UTC),
         "study_instance_uid": "1.2.3",
         "accession_number": "345348389",
         "modalities": [{"code": "CT"}],
@@ -76,7 +76,7 @@ def make_payload(document_id: str, *, group: Group, **overrides) -> dict:
         "patient_birth_date": date(1976, 5, 23).isoformat(),
         "patient_sex": "M",
         "study_description": "CT Thorax",
-        "study_datetime": datetime(2000, 8, 10, 11, 37, tzinfo=timezone.utc).isoformat(),
+        "study_datetime": datetime(2000, 8, 10, 11, 37, tzinfo=UTC).isoformat(),
         "study_instance_uid": "1.2.3",
         "accession_number": "345348389",
         "modalities": ["CT"],
@@ -102,21 +102,28 @@ def test_document_id_is_unique_at_db_level():
 
 
 @pytest.mark.django_db
-def test_duplicate_document_id_within_one_batch_rolls_back_whole_batch():
-    """Two rows sharing a ``document_id`` in a single bulk call hit the unique
-    constraint during ``bulk_create``; the whole atomic block rolls back so no
-    report (nor any metadata) is written.
+def test_duplicate_document_id_within_one_batch_dedupes_keeping_last():
+    """Two rows sharing a ``document_id`` in a single bulk call are de-duplicated
+    by ``_bulk_upsert_reports`` (last occurrence wins) rather than hitting the
+    unique constraint during ``bulk_create``.
 
-    The viewset action does not catch this ``IntegrityError`` (it surfaces as a
-    500), but the database is left clean -- that is the property under test.
+    Upstream's bulk-upsert (#187) intentionally collapses same-``document_id``
+    rows in the payload to avoid crashing the whole batch; exactly one report is
+    written and it carries the *second* row's fields.
     """
     group = GroupFactory.create()
 
-    with pytest.raises(IntegrityError):
-        _bulk_upsert_reports([validated("dupe", group=group), validated("dupe", group=group)])
+    created, updated = _bulk_upsert_reports(
+        [
+            validated("dupe", group=group, body="first version"),
+            validated("dupe", group=group, body="second version"),
+        ]
+    )
 
-    assert Report.objects.count() == 0
-    assert Metadata.objects.count() == 0
+    assert created == ["dupe"]
+    assert updated == []
+    assert Report.objects.filter(document_id="dupe").count() == 1
+    assert Report.objects.get(document_id="dupe").body == "second version"
 
 
 # --------------------------------------------------------------------------- #
@@ -232,15 +239,15 @@ class BulkUpsertOnCommitTests(TestCase):
         assert len(callbacks) == 1
         assert created_seen == [["commit-1"]]
 
-    def test_no_handlers_fire_when_transaction_rolls_back(self):
+    def test_duplicate_in_batch_dedupes_and_fires_handler_once_on_commit(self):
         self._seed()
-        fired: list[str] = []
+        created_seen: list[list[str]] = []
 
         class _Handler:
             name = "spy"
 
             def handle(self, reports):
-                fired.append("called")
+                created_seen.append([r.document_id for r in reports])
 
         from radis.reports.api import viewsets
 
@@ -248,19 +255,23 @@ class BulkUpsertOnCommitTests(TestCase):
         viewsets.reports_created_handlers = [_Handler()]
         viewsets.reports_updated_handlers = []
 
-        # A duplicate-in-batch raises IntegrityError inside the atomic block, so
-        # the on_commit callback is discarded and the handler never fires.
-        with self.assertRaises(IntegrityError):
-            with self.captureOnCommitCallbacks(execute=True):
-                _bulk_upsert_reports(
-                    [
-                        validated("rb", group=self.group),
-                        validated("rb", group=self.group),
-                    ]
-                )
+        # A duplicate document_id in the batch is de-duplicated (last wins) instead
+        # of raising; the block commits, so the created handler fires exactly once
+        # for the single surviving report -- and only after commit.
+        with self.captureOnCommitCallbacks(execute=True) as callbacks:
+            created, _ = _bulk_upsert_reports(
+                [
+                    validated("rb", group=self.group, body="first version"),
+                    validated("rb", group=self.group, body="second version"),
+                ]
+            )
+            assert created == ["rb"]
+            assert created_seen == []
 
-        assert fired == []
-        assert Report.objects.filter(document_id="rb").count() == 0
+        assert len(callbacks) == 1
+        assert created_seen == [["rb"]]
+        assert Report.objects.filter(document_id="rb").count() == 1
+        assert Report.objects.get(document_id="rb").body == "second version"
 
 
 # --------------------------------------------------------------------------- #

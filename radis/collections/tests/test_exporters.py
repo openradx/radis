@@ -5,11 +5,12 @@ produced workbook with openpyxl and verify the header row plus the cell values
 of collected reports (document fields, formatted dates, modalities).
 """
 
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 
 import pytest
 from adit_radis_shared.accounts.factories import UserFactory
 from openpyxl import load_workbook
+from openpyxl.worksheet.worksheet import Worksheet
 
 from radis.collections.factories import CollectionFactory
 from radis.collections.utils.exporters import export_collection
@@ -28,11 +29,13 @@ EXPECTED_HEADER = [
 ]
 
 
-def _load_sheet(collection):
+def _load_sheet(collection) -> Worksheet:
     file = export_collection(collection)
     file.seek(0)
     wb = load_workbook(file)
-    return wb.active
+    ws = wb.active
+    assert ws is not None
+    return ws
 
 
 @pytest.mark.django_db
@@ -52,7 +55,7 @@ def test_export_report_cell_values():
         pacs_name="Test PACS",
         patient_id="PAT-12345",
         patient_birth_date=date(1980, 1, 15),
-        study_datetime=datetime(2024, 3, 15, 10, 30, tzinfo=timezone.utc),
+        study_datetime=datetime(2024, 3, 15, 10, 30, tzinfo=UTC),
         study_description="CT Thorax",
         study_instance_uid="1.2.3.4.5",
         accession_number="ACC-9999",
@@ -79,7 +82,9 @@ def test_export_report_cell_values():
     assert by_col["Study Instance UID"] == "1.2.3.4.5"
     assert by_col["Accession Number"] == "ACC-9999"
     # Modalities are joined with ", " in insertion order.
-    assert set(by_col["Modalities"].split(", ")) == {"CT", "PT"}
+    modalities = by_col["Modalities"]
+    assert isinstance(modalities, str)
+    assert set(modalities.split(", ")) == {"CT", "PT"}
     assert by_col["Content"] == "Findings: no acute abnormality."
 
 
@@ -94,7 +99,8 @@ def test_export_multiple_reports_all_present():
     ws = _load_sheet(collection)
 
     rows = list(ws.iter_rows(min_row=2, values_only=True))
-    patient_ids = {row[EXPECTED_HEADER.index("Patient ID")] for row in rows}
+    pid_col = EXPECTED_HEADER.index("Patient ID")
+    patient_ids = {str(row[pid_col]) for row in rows}
     assert patient_ids == {"PAT-AAA", "PAT-BBB"}
 
 

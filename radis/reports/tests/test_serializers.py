@@ -10,7 +10,7 @@ The serializer's ``create``/``update`` touch the DB, so those tests are marked
 ``django_db``; the pure (de)serialization tests do not need a database.
 """
 
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 
 import pytest
 from adit_radis_shared.accounts.factories import GroupFactory
@@ -41,7 +41,7 @@ def wire_payload(document_id: str = "doc-ser-0001", **overrides) -> dict:
         "patient_birth_date": date(1976, 5, 23).isoformat(),
         "patient_sex": "M",
         "study_description": "CT of the Thorax",
-        "study_datetime": datetime(2000, 8, 10, 11, 37, tzinfo=timezone.utc).isoformat(),
+        "study_datetime": datetime(2000, 8, 10, 11, 37, tzinfo=UTC).isoformat(),
         "study_instance_uid": "34343-34343-34343",
         "accession_number": "345348389",
         "modalities": ["CT", "PT"],

@@ -24,7 +24,9 @@ from django.urls import reverse
 from radis.chats.models import Chat, ChatMessage, ChatRole
 from radis.reports.factories import ReportFactory
 
-HX = {"headers": {"HX-Request": "true"}}
+# HTMX marker header. Passed via ``headers=`` so the test client sets HTTP_HX_REQUEST,
+# which the views require (a missing header raises SuspiciousOperation -> 400).
+HX_HEADERS = {"HX-Request": "true"}
 
 
 @contextlib.contextmanager
@@ -98,14 +100,14 @@ async def test_create_chat_general_prompt_persists_messages_and_title():
         resp = await client.post(
             reverse("chat_create"),
             data={"prompt": "What is pneumonia?", "report_id": ""},
-            **HX,
+            headers=HX_HEADERS,
         )
 
     assert resp.status_code == 200
 
     chat = await sync_to_async(Chat.objects.get)()
-    assert chat.owner_id == user.pk
-    assert chat.report_id is None
+    assert await sync_to_async(lambda: chat.owner)() == user
+    assert await sync_to_async(lambda: chat.report)() is None
     # Title comes from the (stripped, punctuation-trimmed) second LLM response.
     assert chat.title == "Generated Title"
 
@@ -142,13 +144,13 @@ async def test_create_chat_with_report_embeds_report_body_in_system_prompt():
         resp = await client.post(
             reverse("chat_create"),
             data={"prompt": "Summarize", "report_id": str(report.pk)},
-            **HX,
+            headers=HX_HEADERS,
         )
 
     assert resp.status_code == 200
 
     chat = await sync_to_async(Chat.objects.get)()
-    assert chat.report_id == report.pk
+    assert await sync_to_async(lambda: chat.report)() == report
 
     # The report body must be substituted into the system prompt that reaches the LLM.
     system_prompt = capture.calls[0]["messages"][0]["content"]
@@ -206,7 +208,7 @@ async def test_update_chat_sends_full_history_and_appends_turn():
         resp = await client.post(
             reverse("chat_update", args=[chat.pk]),
             data={"prompt": "second question"},
-            **HX,
+            headers=HX_HEADERS,
         )
 
     assert resp.status_code == 200
@@ -261,7 +263,7 @@ async def test_update_chat_owned_by_other_user_is_blocked():
             await client.post(
                 reverse("chat_update", args=[chat.pk]),
                 data={"prompt": "hello"},
-                **HX,
+                headers=HX_HEADERS,
             )
 
     # The LLM must never be consulted for a chat the user does not own.
@@ -295,4 +297,5 @@ async def test_chat_list_requires_login():
     resp = await client.get(reverse("chat_list"))
     # LoginRequired -> redirect to login.
     assert resp.status_code == 302
-    assert "/login" in resp.url or "next=" in resp.url
+    location = resp["Location"]
+    assert "/login" in location or "next=" in location

@@ -175,6 +175,7 @@ def test_update_missing_without_upsert_raises_404(client: RadisClient):
     report_data = create_report_data()  # never created server-side
     with pytest.raises(requests.HTTPError) as exc:
         client.update_report(report_data.document_id, report_data, upsert=False)
+    assert exc.value.response is not None
     assert exc.value.response.status_code == 404
 
 
@@ -269,6 +270,7 @@ def test_delete_report_returns_none_and_removes(client: RadisClient):
 def test_delete_missing_report_raises_404(client: RadisClient):
     with pytest.raises(requests.HTTPError) as exc:
         client.delete_report("never-existed")
+    assert exc.value.response is not None
     assert exc.value.response.status_code == 404
 
 
@@ -284,4 +286,5 @@ def test_bad_token_is_rejected(live_server: LiveServer):
 
     with pytest.raises(requests.HTTPError) as exc:
         bad_client.create_report(report_data)
+    assert exc.value.response is not None
     assert exc.value.response.status_code in (401, 403)

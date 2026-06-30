@@ -19,13 +19,15 @@ rendered view) is disabled::
         radis/search/tests/test_views_e2e.py
 """
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 from adit_radis_shared.accounts.factories import GroupFactory, UserFactory
+from django.contrib.auth.models import Group
 from django.test import Client
 
 from radis.reports.factories import LanguageFactory, ReportFactory
+from radis.reports.models import Report
 from radis.search.site import search_provider
 
 pytestmark = pytest.mark.django_db
@@ -40,14 +42,16 @@ def _user_with_active_group():
     return user, group
 
 
-def _logged_in_client() -> tuple[Client, object]:
+def _logged_in_client() -> tuple[Client, Group]:
     client = Client()
     user, group = _user_with_active_group()
     client.force_login(user)
     return client, group
 
 
-def _seed_report(body: str, *, document_id: str, groups=None, **overrides) -> object:
+def _seed_report(
+    body: str, *, document_id: str, groups: list[Group] | None = None, **overrides
+) -> Report:
     """Create a Report (and, via signal, its search vector) with English config.
 
     ``ReportFactory`` does not assign any groups by default, but search is now
@@ -258,14 +262,14 @@ def test_study_date_filter_propagates_into_query():
         "pneumonia case",
         document_id="E2E-2023",
         modalities=["CT"],
-        study_datetime=datetime(2023, 6, 15, 9, 0, tzinfo=timezone.utc),
+        study_datetime=datetime(2023, 6, 15, 9, 0, tzinfo=UTC),
         groups=[group],
     )
     out_of_range = _seed_report(
         "pneumonia case",
         document_id="E2E-2010",
         modalities=["CT"],
-        study_datetime=datetime(2010, 1, 1, 9, 0, tzinfo=timezone.utc),
+        study_datetime=datetime(2010, 1, 1, 9, 0, tzinfo=UTC),
         groups=[group],
     )
 
@@ -293,7 +297,7 @@ def test_age_filter_propagates_into_query():
         document_id="E2E-YOUNG",
         modalities=["CT"],
         patient_birth_date=datetime(1983, 1, 1).date(),
-        study_datetime=datetime(2023, 1, 1, tzinfo=timezone.utc),  # ~40
+        study_datetime=datetime(2023, 1, 1, tzinfo=UTC),  # ~40
         groups=[group],
     )
     old = _seed_report(
@@ -301,7 +305,7 @@ def test_age_filter_propagates_into_query():
         document_id="E2E-OLD",
         modalities=["CT"],
         patient_birth_date=datetime(1943, 1, 1).date(),
-        study_datetime=datetime(2023, 1, 1, tzinfo=timezone.utc),  # ~80
+        study_datetime=datetime(2023, 1, 1, tzinfo=UTC),  # ~80
         groups=[group],
     )
 
