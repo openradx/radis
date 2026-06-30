@@ -35,8 +35,10 @@ def caplog_tasks(caplog):
     """Attach caplog's handler to `radis.pgsearch.tasks` directly.
 
     The `radis` logger has `propagate=False` in settings, so caplog's
-    root handler doesn't see records emitted under it. Yield caplog
-    so tests can assert on `caplog.records`."""
+    root handler doesn't see records emitted under it. Captures from
+    DEBUG upward — tests should filter `caplog.records` by `levelname`
+    when asserting. Yields `caplog` so tests can assert on
+    `caplog.records`."""
     task_logger = logging.getLogger("radis.pgsearch.tasks")
     task_logger.addHandler(caplog.handler)
     caplog.set_level(logging.DEBUG, logger="radis.pgsearch.tasks")
