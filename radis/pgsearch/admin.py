@@ -112,3 +112,8 @@ class ReportSearchIndexAdmin(admin.ModelAdmin):
             f"action) to backfill against the new model.",
             level=messages.SUCCESS,
         )
+        logger.info(
+            "admin.clear_embeddings_for_remodel: user=%s cleared %d embedding(s)",
+            request.user.get_username(),
+            cleared,
+        )

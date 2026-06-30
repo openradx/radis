@@ -141,3 +141,30 @@ def test_enqueue_pending_embeddings_logs_info_with_user_and_counts(caplog):
         "admin.enqueue_pending_embeddings: user=alice enqueued 2 report(s) across 1 subjob(s)" in m
         for m in info_msgs
     )
+
+
+def test_clear_embeddings_for_remodel_logs_info_with_user_and_count(caplog):
+    admin_logger = logging.getLogger("radis.pgsearch.admin")
+    admin_logger.addHandler(caplog.handler)
+    caplog.set_level(logging.INFO, logger="radis.pgsearch.admin")
+    try:
+        targets = [ReportFactory.create() for _ in range(2)]
+        for r in targets:
+            rsi = ReportSearchIndex.objects.get(report_id=r.pk)
+            rsi.embedding = [0.1] * 1024
+            rsi.save()
+        selected = ReportSearchIndex.objects.filter(report_id__in=[r.pk for r in targets])
+        request = MagicMock()
+        request.user.get_username.return_value = "bob"
+
+        admin_instance = ReportSearchIndexAdmin(ReportSearchIndex, AdminSite())
+        admin_instance.message_user = MagicMock()
+        admin_instance.clear_embeddings_for_remodel(request, selected)
+    finally:
+        admin_logger.removeHandler(caplog.handler)
+
+    info_msgs = [r.getMessage() for r in caplog.records if r.levelname == "INFO"]
+    assert any(
+        "admin.clear_embeddings_for_remodel: user=bob cleared 2 embedding(s)" in m
+        for m in info_msgs
+    )
