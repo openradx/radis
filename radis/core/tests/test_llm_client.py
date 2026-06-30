@@ -44,8 +44,9 @@ def test_extract_data_uses_user_message_and_extra_body(settings):
     assert call["extra_body"] == {"foo": "bar"}
 
 
-def test_extract_data_recovers_after_one_rate_limit(settings):
-    settings.LLM_RATE_LIMIT_BACKOFF_BASE_SECONDS = 0.0  # no real wait
+def test_extract_data_recovers_after_one_rate_limit():
+    # No real wait: the injected 429 carries retry-after: 0. (`_LLM_GATE` reads its backoff
+    # settings once at import time, so overriding them via `settings` here would be a no-op.)
     mock = cast(MagicMock, create_openai_client_mock(_Schema(value="ok")))
     calls = {"n": 0}
     success_response = mock.beta.chat.completions.parse.return_value

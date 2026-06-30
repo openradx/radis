@@ -17,6 +17,9 @@ TRANSIENT_ERRORS = (openai.APIConnectionError, openai.InternalServerError)
 class RateLimited(Exception):
     """A call could not complete within its wait budget; defer it."""
 
+    def __init__(self, message: str = "LLM rate limit exceeded the wait budget") -> None:
+        super().__init__(message)
+
 
 class RateLimitGate:
     """Per-process barrier that makes all LLM callers back off together on a 429.
