@@ -335,6 +335,26 @@ EXTERNAL_LLM_PROVIDER_URL = env.str("EXTERNAL_LLM_PROVIDER_URL", default="")
 EXTERNAL_LLM_PROVIDER_API_KEY = env.str("EXTERNAL_LLM_PROVIDER_API_KEY", default="")
 LLM_SERVICE_DEV_PORT = env.int("LLM_SERVICE_DEV_PORT", default=8080)
 LLM_SERVICE_URL = env.str("LLM_SERVICE_URL", default=f"http://localhost:{LLM_SERVICE_DEV_PORT}/v1")
+LLM_REQUEST_TIMEOUT_SECONDS = env.float("LLM_REQUEST_TIMEOUT_SECONDS", default=60.0)
+# Provider quirks (e.g. Qwen's enable_thinking flag) sent with each extract_data call.
+LLM_EXTRA_BODY = env.json(
+    "LLM_EXTRA_BODY", default={"chat_template_kwargs": {"enable_thinking": False}}
+)
+# Rate-limit gate: one per-process backoff window shared by every LLM client.
+LLM_RATE_LIMIT_BACKOFF_BASE_SECONDS = env.float("LLM_RATE_LIMIT_BACKOFF_BASE_SECONDS", default=5.0)
+LLM_RATE_LIMIT_FALLBACK_MAX_SECONDS = env.float(
+    "LLM_RATE_LIMIT_FALLBACK_MAX_SECONDS", default=120.0
+)
+LLM_RATE_LIMIT_HEADER_CEILING_SECONDS = env.float(
+    "LLM_RATE_LIMIT_HEADER_CEILING_SECONDS", default=3600.0
+)
+# Per-call wait budgets: long for batch jobs, short for interactive chat.
+LLM_RATE_LIMIT_MAX_WAIT_SECONDS = env.float("LLM_RATE_LIMIT_MAX_WAIT_SECONDS", default=300.0)
+LLM_RATE_LIMIT_INTERACTIVE_MAX_WAIT_SECONDS = env.float(
+    "LLM_RATE_LIMIT_INTERACTIVE_MAX_WAIT_SECONDS", default=20.0
+)
+LLM_TRANSIENT_RETRY_ATTEMPTS = env.int("LLM_TRANSIENT_RETRY_ATTEMPTS", default=2)
+LLM_TRANSIENT_RETRY_BASE_SECONDS = env.float("LLM_TRANSIENT_RETRY_BASE_SECONDS", default=1.0)
 
 # Chat
 CHAT_GENERATE_TITLE_SYSTEM_PROMPT = """
