@@ -151,10 +151,9 @@ def run_through_gate[T](
         except openai.RateLimitError as exc:
             retry_after = _parse_retry_after(exc)
             pause = gate.note_rate_limited(retry_after)  # arm first so others back off too
-            effective = retry_after if retry_after is not None else pause
-            logger.warning("Rate-limited; backing off %.1fs", effective)
-            if now() + effective > deadline:
-                raise RateLimited() from exc  # can't wait it out; defer
+            logger.warning("Rate-limited; backing off %.1fs", pause)
+            # Loop back: wait_until_open() waits out the (clamped) window if it fits the
+            # budget, or defers (RateLimited) when the armed window exceeds the deadline.
 
 
 async def run_through_gate_async[T](
@@ -174,11 +173,10 @@ async def run_through_gate_async[T](
             return result
         except openai.RateLimitError as exc:
             retry_after = _parse_retry_after(exc)
-            pause = gate.note_rate_limited(retry_after)
-            effective = retry_after if retry_after is not None else pause
-            logger.warning("Rate-limited; backing off %.1fs", effective)
-            if now() + effective > deadline:
-                raise RateLimited() from exc
+            pause = gate.note_rate_limited(retry_after)  # arm first so others back off too
+            logger.warning("Rate-limited; backing off %.1fs", pause)
+            # Loop back: wait_until_open_async() waits out the (clamped) window if it fits
+            # the budget, or defers (RateLimited) when the armed window exceeds the deadline.
 
 
 def with_transient_retries[T](

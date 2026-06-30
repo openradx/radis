@@ -204,6 +204,22 @@ def test_run_through_gate_retry_after_over_budget_defers_and_arms():
     assert gate.wait_until_open(clock.now() + 300.0) is False
 
 
+def test_run_through_gate_clamps_retry_after_to_ceiling_for_budget_decision():
+    clock = FakeClock()
+    gate = make_gate(clock)  # header_ceiling=3600
+    calls = {"n": 0}
+
+    def fn():
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise make_rate_limit_error({"retry-after": "4000"})  # > ceiling
+        return "ok"
+
+    # Budget 3700 > clamped window 3600: wait the clamped window, then succeed (no defer).
+    assert run_through_gate(gate, 3700.0, fn, now=clock.now) == "ok"
+    assert clock.slept == [3600.0]
+
+
 def test_run_through_gate_non_429_propagates_untouched():
     clock = FakeClock()
     gate = make_gate(clock)
@@ -256,6 +272,22 @@ async def test_run_through_gate_async_over_budget_defers():
 
     with pytest.raises(RateLimited):
         await run_through_gate_async(gate, 300.0, fn, now=clock.now)
+
+
+@pytest.mark.asyncio
+async def test_run_through_gate_async_clamps_retry_after_to_ceiling_for_budget_decision():
+    clock = FakeClock()
+    gate = make_gate(clock)
+    calls = {"n": 0}
+
+    async def fn():
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise make_rate_limit_error({"retry-after": "4000"})
+        return "ok"
+
+    assert await run_through_gate_async(gate, 3700.0, fn, now=clock.now) == "ok"
+    assert clock.slept == [3600.0]
 
 
 # --- transient retries (sync) ---
