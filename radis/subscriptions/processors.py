@@ -6,8 +6,8 @@ from adit_radis_shared.common.types import User
 from django import db
 from django.conf import settings
 
-from radis.chats.utils.chat_client import ChatClient
 from radis.core.processors import AnalysisTaskProcessor
+from radis.core.utils.llm_client import LLMClient
 from radis.reports.models import Report
 
 from .models import (
@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 class SubscriptionTaskProcessor(AnalysisTaskProcessor):
     def __init__(self, task: SubscriptionTask) -> None:
         super().__init__(task)
-        self.client = ChatClient()
+        self.client = LLMClient()
 
     def process_task(self, task: SubscriptionTask) -> None:
         user: User = task.job.owner

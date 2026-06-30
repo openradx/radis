@@ -16,10 +16,11 @@ from openai.types.chat import ChatCompletionMessageParam
 
 from radis.chats.forms import CreateChatForm, PromptForm
 from radis.chats.tables import ChatTable
+from radis.core.utils.llm_client import AsyncChatClient
+from radis.core.utils.rate_limit import RateLimited
 from radis.reports.models import Report
 
 from .models import Chat, ChatMessage, ChatRole
-from .utils.chat_client import AsyncChatClient
 
 
 @require_GET
@@ -63,26 +64,41 @@ async def chat_create_view(request: AuthenticatedHttpRequest) -> HttpResponse:
 
             client = AsyncChatClient()
 
-            # Generate an answer for the user prompt
-            answer = await client.chat(
-                [
-                    {"role": "system", "content": instructions_system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ],
-            )
+            try:
+                # Generate an answer for the user prompt
+                answer = await client.chat(
+                    [
+                        {"role": "system", "content": instructions_system_prompt},
+                        {"role": "user", "content": user_prompt},
+                    ],
+                )
 
-            # Generate a title for the chat
-            title_system_prompt = Template(settings.CHAT_GENERATE_TITLE_SYSTEM_PROMPT).substitute(
-                {"num_words": 6, "user_prompt": user_prompt, "assistant_response": answer}
-            )
+                # Generate a title for the chat
+                title_system_prompt = Template(
+                    settings.CHAT_GENERATE_TITLE_SYSTEM_PROMPT
+                ).substitute(
+                    {"num_words": 6, "user_prompt": user_prompt, "assistant_response": answer}
+                )
 
-            title = await client.chat(
-                [
-                    {"role": "system", "content": title_system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ],
-                max_completion_tokens=20,
-            )
+                title = await client.chat(
+                    [
+                        {"role": "system", "content": title_system_prompt},
+                        {"role": "user", "content": user_prompt},
+                    ],
+                    max_completion_tokens=20,
+                )
+            except RateLimited:
+                return render(
+                    request,
+                    "chats/_chat.html",
+                    {
+                        "chat": None,
+                        "report": report,
+                        "chat_messages": [],
+                        "form": form,
+                        "error": "The LLM service is busy. Please try again in a moment.",
+                    },
+                )
             title = title.strip().rstrip(string.punctuation)[:100]
 
             chat = await Chat.objects.acreate(owner=request.user, title=title, report=report)
@@ -170,7 +186,25 @@ async def chat_update_view(request: AuthenticatedHttpRequest, pk: int) -> HttpRe
         messages.append({"role": "user", "content": prompt})
 
         client = AsyncChatClient()
-        response = await client.chat(messages)
+        try:
+            response = await client.chat(messages)
+        except RateLimited:
+            return render(
+                request,
+                "chats/_chat.html",
+                {
+                    "chat": chat,
+                    "report": chat.report,
+                    "chat_messages": [
+                        message
+                        async for message in chat.messages.exclude(role=ChatRole.SYSTEM).order_by(
+                            "id"
+                        )
+                    ],
+                    "form": form,
+                    "error": "The LLM service is busy. Please try again in a moment.",
+                },
+            )
 
         await ChatMessage.objects.acreate(chat=chat, role=ChatRole.USER, content=prompt)
         await ChatMessage.objects.acreate(chat=chat, role=ChatRole.ASSISTANT, content=response)
