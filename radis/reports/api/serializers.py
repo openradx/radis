@@ -107,7 +107,7 @@ class ReportSerializer(serializers.ModelSerializer):
         modalities = validated_data.pop("modalities")
 
         with transaction.atomic():
-            language_instance = Language.objects.get(**language)
+            language_instance, _ = Language.objects.get_or_create(**language)
             report.language = language_instance
 
             for attr, value in validated_data.items():
@@ -133,19 +133,19 @@ class ReportSerializer(serializers.ModelSerializer):
     def to_internal_value(self, data: Any) -> Any:
         if "language" in data:
             if not isinstance(data["language"], str):
-                raise ValidationError("Invalid language type.")
+                raise ValidationError({"language": "Invalid language type."})
             data["language"] = {"code": data["language"]}
 
         if "metadata" in data:
             if not isinstance(data["metadata"], dict):
-                raise ValidationError("Invalid metadata type.")
+                raise ValidationError({"metadata": "Invalid metadata type."})
             data["metadata"] = [
                 {"key": key, "value": value} for key, value in data["metadata"].items()
             ]
 
         if "modalities" in data:
             if not isinstance(data["modalities"], list):
-                raise ValidationError("Invalid modalities type.")
+                raise ValidationError({"modalities": "Invalid modalities type."})
             data["modalities"] = [{"code": code} for code in data["modalities"]]
 
         return super().to_internal_value(data)
