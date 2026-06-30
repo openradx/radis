@@ -355,6 +355,8 @@ LLM_RATE_LIMIT_INTERACTIVE_MAX_WAIT_SECONDS = env.float(
 )
 LLM_TRANSIENT_RETRY_ATTEMPTS = env.int("LLM_TRANSIENT_RETRY_ATTEMPTS", default=2)
 LLM_TRANSIENT_RETRY_BASE_SECONDS = env.float("LLM_TRANSIENT_RETRY_BASE_SECONDS", default=1.0)
+# Proactive cap on LLM requests per minute (per process). 0 disables the cap.
+LLM_MAX_RPM = env.int("LLM_MAX_RPM", default=0)
 
 # Chat
 CHAT_GENERATE_TITLE_SYSTEM_PROMPT = """
