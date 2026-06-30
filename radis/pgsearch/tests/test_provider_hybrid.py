@@ -174,9 +174,7 @@ def test_retrieve_falls_back_to_fts_on_embedding_error(group, reports_with_embed
     assert set(doc_ids) == {r0.document_id, r2.document_id}
 
 
-def test_documents_carry_cosine_distance_and_rrf_score(
-    group, reports_with_embeddings, settings
-):
+def test_documents_carry_cosine_distance_and_rrf_score(group, reports_with_embeddings, settings):
     """Verify cosine_distance is set for vector-side hits and rrf_score reflects fusion."""
     _, _, r2 = reports_with_embeddings
     dim = settings.EMBEDDING_DIM
@@ -233,9 +231,15 @@ def test_search_skips_embedding_when_query_reduces_to_not(monkeypatch, group):
     embed_query_calls: list[str] = []
 
     class FakeEC:
-        def __init__(self): pass
-        def __enter__(self): return self
-        def __exit__(self, *a): return False
+        def __init__(self):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
         def embed_query(self, text):
             embed_query_calls.append(text)
             raise AssertionError("embed_query should not be called for NOT-only query")
@@ -258,13 +262,20 @@ def test_search_embeds_only_positive_branch_for_and_not(monkeypatch, group, sett
     dim = settings.EMBEDDING_DIM
 
     class FakeEC:
-        def __init__(self): pass
-        def __enter__(self): return self
-        def __exit__(self, *a): return False
+        def __init__(self):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
         def embed_query(self, text):
             embed_query_calls.append(text)
             # Return a valid normalized unit vector of the right dim.
             import numpy as np
+
             v = np.ones(dim, dtype=np.float32)
             return (v / np.linalg.norm(v)).tolist()
 
@@ -278,3 +289,42 @@ def test_search_embeds_only_positive_branch_for_and_not(monkeypatch, group, sett
     providers.search(search)
 
     assert embed_query_calls == ["pneumothorax"]
+
+
+def test_openai_rate_limit_error_falls_back_to_fts(group, reports_with_embeddings):
+    """A 429 from the embedding service on the read path must trigger the FTS
+    fallback, not bubble to the search view. This is the typed-openai parallel
+    of test_embedding_failure_falls_back_to_fts."""
+    import httpx
+    import openai
+
+    r0, _, r2 = reports_with_embeddings
+    response = httpx.Response(429, request=httpx.Request("POST", "http://x"))
+    rate_limit_exc = openai.RateLimitError(message="slow down", response=response, body=None)
+    with patch("radis.pgsearch.providers.EmbeddingClient") as MockClient:
+        MockClient.return_value.__enter__.return_value = MockClient.return_value
+        MockClient.return_value.__exit__.return_value = None
+        MockClient.return_value.embed_query.side_effect = rate_limit_exc
+        result = search(_make_search("pneumothorax", group.pk))
+
+    ids = [d.document_id for d in result.documents]
+    # FTS-only matches come back; no exception escaped.
+    assert set(ids) == {r0.document_id, r2.document_id}
+
+
+def test_openai_rate_limit_error_in_retrieve_falls_back_to_fts(group, reports_with_embeddings):
+    """Same parallel for retrieve()."""
+    import httpx
+    import openai
+
+    r0, _, r2 = reports_with_embeddings
+    response = httpx.Response(429, request=httpx.Request("POST", "http://x"))
+    rate_limit_exc = openai.RateLimitError(message="slow down", response=response, body=None)
+    with patch("radis.pgsearch.providers.EmbeddingClient") as MockClient:
+        MockClient.return_value.__enter__.return_value = MockClient.return_value
+        MockClient.return_value.__exit__.return_value = None
+        MockClient.return_value.embed_query.side_effect = rate_limit_exc
+        result = retrieve(_make_search("pneumothorax", group.pk))
+
+    # No exception escaped; FTS-only retrieve returned something.
+    assert result is not None

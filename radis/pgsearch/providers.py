@@ -2,6 +2,7 @@ import logging
 from collections.abc import Iterator
 from typing import Literal, cast
 
+import openai
 from django.conf import settings
 from django.contrib.postgres.search import SearchHeadline, SearchQuery, SearchRank
 from django.db.models import F, Q
@@ -108,7 +109,7 @@ def search(search: Search) -> SearchResult:
         try:
             with EmbeddingClient() as ec:
                 query_vec = ec.embed_query(query_text)
-        except EmbeddingClientError as e:
+        except (EmbeddingClientError, openai.OpenAIError) as e:
             logger.warning("Hybrid search falling back to FTS-only: %s", e)
             query_vec = None
 
@@ -221,7 +222,7 @@ def retrieve(search: Search) -> Iterator[str]:
         try:
             with EmbeddingClient() as ec:
                 query_vec = ec.embed_query(query_text)
-        except EmbeddingClientError as e:
+        except (EmbeddingClientError, openai.OpenAIError) as e:
             logger.warning("Hybrid retrieve falling back to FTS-only: %s", e)
             query_vec = None
 
