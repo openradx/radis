@@ -191,6 +191,8 @@ def embed_reports_task(report_ids: list[int]) -> None:
     if not report_ids:
         return
 
+    logger.info("embed_reports_task: start; reports=%d", len(report_ids))
+
     rsvs = list(
         ReportSearchIndex.objects.filter(report_id__in=report_ids)
         .select_related("report")

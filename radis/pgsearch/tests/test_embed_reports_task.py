@@ -80,6 +80,19 @@ def test_no_matching_rsvs_no_ops():
     client_cls.assert_not_called()
 
 
+def test_logs_info_start_with_report_count(settings, caplog_tasks):
+    reports = [ReportFactory.create() for _ in range(2)]
+    pks = [r.pk for r in reports]
+    vec = _unit_vec(settings.EMBEDDING_DIM)
+    fake = _make_fake_client(vec)
+
+    with patch("radis.pgsearch.tasks.EmbeddingClient", return_value=fake):
+        embed_reports_task(report_ids=pks)
+
+    info_msgs = [r.getMessage() for r in caplog_tasks.records if r.levelname == "INFO"]
+    assert any("embed_reports_task: start; reports=2" in m for m in info_msgs)
+
+
 def test_embeds_in_internal_batches(settings):
     settings.EMBEDDING_BATCH_SIZE = 2
     reports = [ReportFactory.create() for _ in range(5)]
