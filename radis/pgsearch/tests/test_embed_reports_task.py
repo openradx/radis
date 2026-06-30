@@ -30,6 +30,22 @@ def stamina_active():
     stamina.set_active(False)
 
 
+@pytest.fixture
+def caplog_tasks(caplog):
+    """Attach caplog's handler to `radis.pgsearch.tasks` directly.
+
+    The `radis` logger has `propagate=False` in settings, so caplog's
+    root handler doesn't see records emitted under it. Yield caplog
+    so tests can assert on `caplog.records`."""
+    task_logger = logging.getLogger("radis.pgsearch.tasks")
+    task_logger.addHandler(caplog.handler)
+    caplog.set_level(logging.DEBUG, logger="radis.pgsearch.tasks")
+    try:
+        yield caplog
+    finally:
+        task_logger.removeHandler(caplog.handler)
+
+
 pytestmark = pytest.mark.django_db(transaction=True)
 
 
