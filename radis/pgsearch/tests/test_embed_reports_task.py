@@ -518,3 +518,50 @@ def test_log_stamina_retry_ignores_other_callsites(caplog_tasks):
 
     warning_msgs = [r.getMessage() for r in caplog_tasks.records if r.levelname == "WARNING"]
     assert warning_msgs == []
+
+
+@pytest.mark.django_db(False)
+def test_predicate_retries_openai_connection_error():
+    import openai
+
+    from radis.pgsearch.tasks import _is_retryable_embedding_error
+
+    exc = openai.APIConnectionError(request=None)  # type: ignore[arg-type]
+    assert _is_retryable_embedding_error(exc) is True
+
+
+@pytest.mark.django_db(False)
+def test_predicate_retries_openai_internal_server_error():
+    import httpx
+    import openai
+
+    from radis.pgsearch.tasks import _is_retryable_embedding_error
+
+    # InternalServerError is an APIStatusError subclass; construct via the
+    # SDK's __init__ which only requires message + response + body in modern
+    # versions. Use a minimal httpx.Response to satisfy the signature.
+    response = httpx.Response(503, request=httpx.Request("POST", "http://x"))
+    exc = openai.InternalServerError(message="boom", response=response, body=None)
+    assert _is_retryable_embedding_error(exc) is True
+
+
+@pytest.mark.django_db(False)
+def test_predicate_does_not_retry_openai_rate_limit_error():
+    """429 must reach the future rate-limit gate, not be silently retried."""
+    import httpx
+    import openai
+
+    from radis.pgsearch.tasks import _is_retryable_embedding_error
+
+    response = httpx.Response(429, request=httpx.Request("POST", "http://x"))
+    exc = openai.RateLimitError(message="slow", response=response, body=None)
+    assert _is_retryable_embedding_error(exc) is False
+
+
+@pytest.mark.django_db(False)
+def test_predicate_does_not_retry_payload_too_large_error():
+    """Unchanged behavior — verify the existing exclusion still holds after the widening."""
+    from radis.pgsearch.tasks import _is_retryable_embedding_error
+    from radis.pgsearch.utils.embedding_client import EmbeddingPayloadTooLargeError
+
+    assert _is_retryable_embedding_error(EmbeddingPayloadTooLargeError("x")) is False

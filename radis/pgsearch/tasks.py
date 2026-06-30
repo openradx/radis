@@ -1,6 +1,7 @@
 import logging
 import time
 
+import openai
 import stamina
 import stamina.instrumentation
 from django.conf import settings
@@ -22,16 +23,28 @@ def _truncate_ids(ids: list[int], limit: int = 50) -> list[int]:
     return list(ids[:limit])
 
 
+# Transient classes we retry. 429 (RateLimitError) is deliberately NOT here —
+# it must reach the rate-limit gate so the worker backs off in coordination
+# rather than each thread re-discovering the limit on its own retries.
+_RETRYABLE_OPENAI_ERRORS: tuple[type[BaseException], ...] = (
+    openai.APIConnectionError,
+    openai.APITimeoutError,
+    openai.InternalServerError,
+)
+
+
 def _is_retryable_embedding_error(exc: Exception) -> bool:
-    """stamina retry predicate. Retry transient embedding-service failures
-    (5xx, network, timeouts — all surfaced as `EmbeddingClientError`) but
-    NOT `EmbeddingPayloadTooLargeError`, which is a deterministic rejection
-    of an input that exceeds the model's context window. Retrying that
-    one would just hit the same wall — the bisect logic in
-    `_embed_with_bisect` handles it instead."""
-    return isinstance(exc, EmbeddingClientError) and not isinstance(
-        exc, EmbeddingPayloadTooLargeError
-    )
+    """stamina retry predicate. Retry transient failures from either the old
+    EmbeddingClientError surface or the typed openai SDK surface. Exclude:
+    - EmbeddingPayloadTooLargeError (deterministic; bisect handles it)
+    - openai.RateLimitError (gate handles it; retrying would silence the 429)."""
+    if isinstance(exc, EmbeddingPayloadTooLargeError):
+        return False
+    if isinstance(exc, openai.RateLimitError):
+        return False
+    if isinstance(exc, EmbeddingClientError):
+        return True
+    return isinstance(exc, _RETRYABLE_OPENAI_ERRORS)
 
 
 @stamina.retry(
