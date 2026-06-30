@@ -1,6 +1,10 @@
+import logging
+
 from django.apps import AppConfig
 from django.conf import settings
 from django.core.checks import Error, register
+
+logger = logging.getLogger(__name__)
 
 
 class PgSearchConfig(AppConfig):
@@ -93,6 +97,12 @@ def _index_reports(reports):
     """
     if not reports:
         return
+
+    logger.info(
+        "pgsearch.index_reports: handler invoked; reports=%d mode=%s",
+        len(reports),
+        "sync" if settings.PGSEARCH_SYNC_INDEXING else "async",
+    )
 
     from radis.pgsearch.tasks import enqueue_bulk_index_reports, enqueue_embed_reports
     from radis.pgsearch.utils.indexing import bulk_upsert_report_search_indexes
