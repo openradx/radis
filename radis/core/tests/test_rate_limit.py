@@ -6,6 +6,7 @@ from radis.chats.utils.testing_helpers import make_connection_error, make_rate_l
 from radis.core.utils.rate_limit import (
     RateLimited,
     RateLimitGate,
+    RpmLimiter,
     _parse_retry_after,
     run_through_gate,
     run_through_gate_async,
@@ -365,3 +366,114 @@ async def test_transient_retry_async_does_not_catch_rate_limit_error():
     with pytest.raises(make_rate_limit_error().__class__):
         await with_transient_retries_async(fn, attempts=2, base=1.0, sleep=fake_sleep)
     assert calls["n"] == 1
+
+
+# --- RpmLimiter ---
+
+
+def test_rpm_limiter_disabled_is_noop():
+    clock = FakeClock()
+    limiter = RpmLimiter(0, now=clock.now, sleep=clock.sleep)
+    assert limiter.acquire(clock.now() + 1.0) is True
+    assert clock.slept == []
+
+
+def test_rpm_limiter_allows_burst_up_to_capacity():
+    clock = FakeClock()
+    limiter = RpmLimiter(3, now=clock.now, sleep=clock.sleep)
+    # Starts full: 3 permits consumable back-to-back with no wait.
+    assert limiter.acquire(clock.now() + 100.0) is True
+    assert limiter.acquire(clock.now() + 100.0) is True
+    assert limiter.acquire(clock.now() + 100.0) is True
+    assert clock.slept == []
+
+
+def test_rpm_limiter_waits_for_refill_within_budget():
+    clock = FakeClock()
+    limiter = RpmLimiter(1, now=clock.now, sleep=clock.sleep)  # rate = 1/60 permits/sec
+    assert limiter.acquire(clock.now() + 1.0) is True  # consume the starting permit
+    # Next permit is 60s away; budget allows it.
+    assert limiter.acquire(clock.now() + 120.0) is True
+    assert clock.slept == [60.0]
+
+
+def test_rpm_limiter_defers_when_refill_exceeds_deadline():
+    clock = FakeClock()
+    limiter = RpmLimiter(1, now=clock.now, sleep=clock.sleep)
+    assert limiter.acquire(clock.now() + 1.0) is True  # drain the permit
+    # Next permit is 60s away; deadline is only 30s out -> defer without sleeping/consuming.
+    assert limiter.acquire(clock.now() + 30.0) is False
+    assert clock.slept == []
+    # Still nothing consumed beyond the first: a 30s-budget retry still defers.
+    assert limiter.acquire(clock.now() + 30.0) is False
+
+
+def test_rpm_limiter_reset_refills_to_full():
+    clock = FakeClock()
+    limiter = RpmLimiter(1, now=clock.now, sleep=clock.sleep)
+    assert limiter.acquire(clock.now() + 1.0) is True  # drain
+    limiter.reset()
+    assert limiter.acquire(clock.now() + 1.0) is True  # full again, no wait
+    assert clock.slept == []
+
+
+@pytest.mark.asyncio
+async def test_rpm_limiter_async_waits_for_refill_within_budget():
+    clock = FakeClock()
+    limiter = RpmLimiter(1, now=clock.now, sleep=clock.sleep, async_sleep=clock.async_sleep)
+    assert await limiter.acquire_async(clock.now() + 1.0) is True
+    assert await limiter.acquire_async(clock.now() + 120.0) is True
+    assert clock.slept == [60.0]
+
+
+@pytest.mark.asyncio
+async def test_rpm_limiter_async_defers_when_refill_exceeds_deadline():
+    clock = FakeClock()
+    limiter = RpmLimiter(1, now=clock.now, sleep=clock.sleep, async_sleep=clock.async_sleep)
+    assert await limiter.acquire_async(clock.now() + 1.0) is True
+    assert await limiter.acquire_async(clock.now() + 30.0) is False
+    assert clock.slept == []
+
+
+# --- run_through_gate with an RpmLimiter ---
+
+
+def test_run_through_gate_runs_when_rpm_permit_available():
+    clock = FakeClock()
+    gate = make_gate(clock)
+    rpm = RpmLimiter(60, now=clock.now, sleep=clock.sleep)
+    assert run_through_gate(gate, 300.0, lambda: "ok", now=clock.now, rpm=rpm) == "ok"
+    assert clock.slept == []
+
+
+def test_run_through_gate_defers_when_rpm_over_budget():
+    clock = FakeClock()
+    gate = make_gate(clock)
+    rpm = RpmLimiter(1, now=clock.now, sleep=clock.sleep)
+    assert rpm.acquire(clock.now() + 1.0) is True  # drain the only permit
+    calls = {"n": 0}
+
+    def fn():
+        calls["n"] += 1
+        return "ok"
+
+    with pytest.raises(RateLimited):
+        run_through_gate(gate, 30.0, fn, now=clock.now, rpm=rpm)  # next permit 60s > 30 budget
+    assert calls["n"] == 0  # fn never ran
+
+
+@pytest.mark.asyncio
+async def test_run_through_gate_async_defers_when_rpm_over_budget():
+    clock = FakeClock()
+    gate = make_gate(clock)
+    rpm = RpmLimiter(1, now=clock.now, sleep=clock.sleep, async_sleep=clock.async_sleep)
+    assert rpm.acquire(clock.now() + 1.0) is True
+    calls = {"n": 0}
+
+    async def fn():
+        calls["n"] += 1
+        return "ok"
+
+    with pytest.raises(RateLimited):
+        await run_through_gate_async(gate, 30.0, fn, now=clock.now, rpm=rpm)
+    assert calls["n"] == 0

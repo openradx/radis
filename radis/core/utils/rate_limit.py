@@ -98,6 +98,78 @@ class RateLimitGate:
             await self._async_sleep(max(0.0, open_at - self._now()))
 
 
+class RpmLimiter:
+    """Per-process token bucket capping LLM requests per minute.
+
+    Holds up to `max_rpm` request permits, refilling at max_rpm/60 permits per second.
+    Each LLM request consumes one permit. Disabled (every acquire is an immediate no-op)
+    when max_rpm <= 0. Permits are abstract request credits, unrelated to LLM tokens.
+    """
+
+    def __init__(
+        self,
+        max_rpm: int,
+        now: Callable[[], float] = time.monotonic,
+        sleep: Callable[[float], None] = time.sleep,
+        async_sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+    ) -> None:
+        self._enabled = max_rpm > 0
+        self._capacity = float(max_rpm)
+        self._refill_rate = max_rpm / 60.0  # permits per second
+        self._now = now
+        self._sleep = sleep
+        self._async_sleep = async_sleep
+        self._lock = threading.Lock()
+        self._permits = float(max_rpm)  # start full so an initial burst is allowed
+        self._last_refill = now()
+
+    def reset(self) -> None:
+        """Refill to full. For tests that share the process-global limiter."""
+        with self._lock:
+            self._permits = self._capacity
+            self._last_refill = self._now()
+
+    def _take_or_wait(self) -> float:
+        """Refill, then consume one permit if available (return 0.0), else return the
+        seconds until the next permit. Holds the lock only for this math, never to sleep.
+        """
+        with self._lock:
+            now = self._now()
+            elapsed = now - self._last_refill
+            if elapsed > 0:
+                self._permits = min(self._capacity, self._permits + elapsed * self._refill_rate)
+                self._last_refill = now
+            if self._permits >= 1.0:
+                self._permits -= 1.0
+                return 0.0
+            return (1.0 - self._permits) / self._refill_rate
+
+    def acquire(self, deadline: float) -> bool:
+        """Consume a permit, waiting until one is free. Returns False (without consuming)
+        if the next permit would arrive after `deadline`."""
+        if not self._enabled:
+            return True
+        while True:
+            wait = self._take_or_wait()
+            if wait == 0.0:
+                return True
+            if self._now() + wait > deadline:
+                return False
+            self._sleep(wait)
+
+    async def acquire_async(self, deadline: float) -> bool:
+        """Async twin of acquire; never blocks the event loop with time.sleep."""
+        if not self._enabled:
+            return True
+        while True:
+            wait = self._take_or_wait()
+            if wait == 0.0:
+                return True
+            if self._now() + wait > deadline:
+                return False
+            await self._async_sleep(wait)
+
+
 def _parse_retry_after(exc: openai.RateLimitError) -> float | None:
     """Read Retry-After from a 429 response as seconds, or None.
 
@@ -137,6 +209,7 @@ def run_through_gate[T](
     budget: float,
     fn: Callable[[], T],
     now: Callable[[], float] = time.monotonic,
+    rpm: RpmLimiter | None = None,
 ) -> T:
     """Run `fn` through the gate, backing off on 429 up to `budget` seconds.
 
@@ -147,6 +220,8 @@ def run_through_gate[T](
     while True:
         if not gate.wait_until_open(deadline):
             raise RateLimited()  # an earlier 429 armed a window past our budget
+        if rpm is not None and not rpm.acquire(deadline):
+            raise RateLimited()  # RPM cap can't grant a permit within the budget
         try:
             result = fn()
             gate.note_success()
@@ -164,12 +239,15 @@ async def run_through_gate_async[T](
     budget: float,
     fn: Callable[[], Awaitable[T]],
     now: Callable[[], float] = time.monotonic,
+    rpm: RpmLimiter | None = None,
 ) -> T:
     """Async twin of run_through_gate; `fn` is awaited."""
     deadline = now() + budget
     while True:
         if not await gate.wait_until_open_async(deadline):
             raise RateLimited()
+        if rpm is not None and not await rpm.acquire_async(deadline):
+            raise RateLimited()  # RPM cap can't grant a permit within the budget
         try:
             result = await fn()
             gate.note_success()
