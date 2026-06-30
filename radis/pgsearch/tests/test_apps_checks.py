@@ -35,9 +35,17 @@ def test_check_fails_with_e001_when_dim_diverges_from_migration():
 
 
 def test_check_fails_with_e002_when_migration_field_missing():
-    with patch(
-        "radis.pgsearch.apps._migration_embedding_dim", return_value=None
-    ):
+    with patch("radis.pgsearch.apps._migration_embedding_dim", return_value=None):
         errors = check_embedding_dim_matches_migration(app_configs=None)
     assert len(errors) == 1
     assert errors[0].id == "pgsearch.E002"
+
+
+def test_stamina_on_retry_hook_includes_log_stamina_retry():
+    """`PgSearchConfig.ready()` registers our embed-call WARNING hook
+    so stamina retries surface in logs."""
+    from stamina.instrumentation import get_on_retry_hooks
+
+    from radis.pgsearch.tasks import _log_stamina_retry
+
+    assert _log_stamina_retry in get_on_retry_hooks()

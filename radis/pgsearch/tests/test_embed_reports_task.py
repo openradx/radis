@@ -480,6 +480,26 @@ def test_log_stamina_retry_emits_warning_for_embed_call(caplog_tasks):
     )
 
 
+def test_stamina_retry_emits_warning_through_registered_hook(
+    settings, stamina_active, caplog_tasks
+):
+    settings.EMBEDDING_BATCH_SIZE = 4
+    reports = [ReportFactory.create() for _ in range(2)]
+    pks = [r.pk for r in reports]
+    vec = _unit_vec(settings.EMBEDDING_DIM)
+
+    fake = MagicMock()
+    fake.__enter__ = MagicMock(return_value=fake)
+    fake.__exit__ = MagicMock(return_value=None)
+    fake.embed_documents = MagicMock(side_effect=[EmbeddingClientError("blip"), [vec, vec]])
+
+    with patch("radis.pgsearch.tasks.EmbeddingClient", return_value=fake):
+        embed_reports_task(report_ids=pks)
+
+    warning_msgs = [r.getMessage() for r in caplog_tasks.records if r.levelname == "WARNING"]
+    assert any("embedding HTTP call failed; attempt=1" in m for m in warning_msgs)
+
+
 def test_log_stamina_retry_ignores_other_callsites(caplog_tasks):
     from stamina.instrumentation import RetryDetails
 

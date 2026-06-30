@@ -7,7 +7,12 @@ class PgSearchConfig(AppConfig):
     name = "radis.pgsearch"
 
     def ready(self):
+        import stamina.instrumentation
+
         from . import signals as signals  # noqa: F401
+        from .tasks import _log_stamina_retry
+
+        stamina.instrumentation.set_on_retry_hooks([_log_stamina_retry])
 
         register_app()
 
@@ -123,20 +128,14 @@ def register_app():
 
     from .providers import count, filter, retrieve, search
 
-    register_reports_created_handler(
-        ReportsCreatedHandler(name="PG Search", handle=_index_reports)
-    )
-    register_reports_updated_handler(
-        ReportsUpdatedHandler(name="PG Search", handle=_index_reports)
-    )
+    register_reports_created_handler(ReportsCreatedHandler(name="PG Search", handle=_index_reports))
+    register_reports_updated_handler(ReportsUpdatedHandler(name="PG Search", handle=_index_reports))
 
     register_search_provider(
         SearchProvider(
             name="PG Search",
             search=search,
-            max_results=max(
-                settings.HYBRID_VECTOR_TOP_K, settings.HYBRID_FTS_MAX_RESULTS
-            ),
+            max_results=max(settings.HYBRID_VECTOR_TOP_K, settings.HYBRID_FTS_MAX_RESULTS),
         )
     )
 
