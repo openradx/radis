@@ -151,3 +151,4 @@ backups/
 models/
 .docker-data/
 .worktrees/
+.superpowers/
