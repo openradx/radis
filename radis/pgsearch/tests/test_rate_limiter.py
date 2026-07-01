@@ -2,6 +2,7 @@
 
 from datetime import timedelta
 
+import openai
 import pytest
 from django.utils import timezone
 
@@ -148,3 +149,37 @@ def test_search_priority_waits_on_search_when_both_exhausted(settings, monkeypat
     # search event ages out of the window and gets pruned before the new
     # one is inserted, so it's gone by the time capacity frees up.
     assert EmbeddingRateLimitEvent.objects.filter(bucket="embedding_search").count() == 1
+
+
+def _make_rate_limit_error(message: str, retry_after: str | None = None) -> "openai.RateLimitError":
+    import httpx
+    import openai
+
+    request = httpx.Request("POST", "http://embed.example/v1/embeddings")
+    headers = {"Retry-After": retry_after} if retry_after else {}
+    response = httpx.Response(429, headers=headers, request=request, json={"detail": message})
+    return openai.RateLimitError(message=message, response=response, body=None)
+
+
+def test_parse_retry_after_uses_header_when_present():
+    from radis.pgsearch.utils import rate_limiter as rl
+
+    exc = _make_rate_limit_error("Limit 60/min exceeded. Wait 27s.", retry_after="12")
+
+    assert rl.parse_retry_after(exc) == 12.0
+
+
+def test_parse_retry_after_falls_back_to_wait_message():
+    from radis.pgsearch.utils import rate_limiter as rl
+
+    exc = _make_rate_limit_error("Limit 60/min exceeded. Wait 27s.")
+
+    assert rl.parse_retry_after(exc) == 27.0
+
+
+def test_parse_retry_after_default_when_neither_present():
+    from radis.pgsearch.utils import rate_limiter as rl
+
+    exc = _make_rate_limit_error("rate limited")
+
+    assert rl.parse_retry_after(exc) == rl._DEFAULT_RETRY_AFTER

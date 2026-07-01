@@ -8,9 +8,11 @@ cost possibly weighted by request size, exact formula unconfirmed).
 
 from __future__ import annotations
 
+import re
 import time
 from datetime import timedelta
 
+import openai
 from django.conf import settings
 from django.db import connection, transaction
 from django.db.models import Sum
@@ -59,9 +61,7 @@ def _try_acquire_once(bucket: str, weight: int) -> tuple[bool, float]:
         _advisory_lock(bucket)
         now = _now()
         window_start = now - _WINDOW
-        EmbeddingRateLimitEvent.objects.filter(
-            bucket=bucket, sent_at__lt=window_start
-        ).delete()
+        EmbeddingRateLimitEvent.objects.filter(bucket=bucket, sent_at__lt=window_start).delete()
         current_weight = (
             EmbeddingRateLimitEvent.objects.filter(bucket=bucket).aggregate(total=Sum("weight"))[
                 "total"
@@ -108,3 +108,26 @@ def acquire_search_priority_token(weight: int = 1) -> None:
     if try_acquire_immediate("embedding_background", weight):
         return
     acquire_token("embedding_search", weight)
+
+
+_WAIT_RE = re.compile(r"[Ww]ait (\d+(?:\.\d+)?)s")
+_DEFAULT_RETRY_AFTER = 5.0
+
+
+def parse_retry_after(exc: openai.RateLimitError) -> float:
+    """Extract the gateway's own authoritative wait time from a 429: the
+    standard HTTP `Retry-After` header first, then the `"Wait Xs"` phrasing
+    this specific gateway uses in its response body, then a conservative
+    default if neither is present."""
+    response = getattr(exc, "response", None)
+    if response is not None:
+        header = response.headers.get("Retry-After")
+        if header is not None:
+            try:
+                return float(header)
+            except ValueError:
+                pass
+    match = _WAIT_RE.search(str(exc))
+    if match:
+        return float(match.group(1))
+    return _DEFAULT_RETRY_AFTER
