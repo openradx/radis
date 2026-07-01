@@ -150,3 +150,5 @@ docker-compose.override.yml
 backups/
 models/
 .docker-data/
+.worktrees/
+.superpowers/

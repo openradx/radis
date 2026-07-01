@@ -336,6 +336,42 @@ EXTERNAL_LLM_PROVIDER_API_KEY = env.str("EXTERNAL_LLM_PROVIDER_API_KEY", default
 LLM_SERVICE_DEV_PORT = env.int("LLM_SERVICE_DEV_PORT", default=8080)
 LLM_SERVICE_URL = env.str("LLM_SERVICE_URL", default=f"http://localhost:{LLM_SERVICE_DEV_PORT}/v1")
 
+# Embedding service (per-deployment)
+EMBEDDING_PROVIDER_URL = env.str("EMBEDDING_PROVIDER_URL", default="")
+EMBEDDING_PROVIDER_API_KEY = env.str("EMBEDDING_PROVIDER_API_KEY", default="")
+EMBEDDING_MODEL_NAME = env.str("EMBEDDING_MODEL_NAME", default="Qwen/Qwen3-Embedding-4B")
+EMBEDDING_DIM = env.int("EMBEDDING_DIM", default=1024)
+
+# Embedding tuning constants
+EMBEDDING_REQUEST_TIMEOUT = 30
+EMBEDDING_QUERY_INSTRUCTION = (
+    "Instruct: Given a radiology search query, retrieve relevant radiology reports.\nQuery: "
+)
+EMBEDDING_BATCH_SIZE = 32
+EMBEDDING_SUBJOB_SIZE = 1000
+# Procrastinate task priorities for the `embeddings` queue. Live writes
+# (write-path handler + FTS chain) get LIVE; operator-initiated backfill
+# (`embed_pending`, admin action) gets BACKFILL. A million-row backfill
+# parks itself ahead of every later live write without this split.
+EMBEDDING_LIVE_PRIORITY = 1
+EMBEDDING_BACKFILL_PRIORITY = 0
+# Rate-limit gate split of the embedding gateway's ~60 request/min budget
+# (confirmed empirically; see
+# docs/superpowers/specs/2026-07-01-embedding-rate-limit-gate-design.md).
+# Search/retrieval is low-volume and interactive (a blocked live search is a
+# real UX cost); background bulk embedding is high-volume and non-interactive
+# (a delay is invisible). Search gets a reserved floor plus spillover into
+# background's spare capacity; background is capped to its own share and can
+# never borrow from search's floor. Tunable — leave headroom below the true
+# ceiling given unconfirmed cost-weighting on large requests.
+EMBEDDING_SEARCH_RATE_LIMIT_PER_MINUTE = 10
+EMBEDDING_BACKGROUND_RATE_LIMIT_PER_MINUTE = 50
+
+# Hybrid search tuning
+HYBRID_VECTOR_TOP_K = 100
+HYBRID_FTS_MAX_RESULTS = 10_000
+HYBRID_RRF_K = 60
+
 # Chat
 CHAT_GENERATE_TITLE_SYSTEM_PROMPT = """
 Summarize the following conversation in $num_words words or less and in the same language as

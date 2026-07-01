@@ -1,8 +1,8 @@
-from radis.pgsearch.models import ReportSearchVector
+from radis.pgsearch.models import ReportSearchIndex
 from radis.search.site import ReportDocument
 
 
-class AnnotatedReportSearchVector(ReportSearchVector):
+class AnnotatedReportSearchIndex(ReportSearchIndex):
     rank: float
     summary: str
 
@@ -11,7 +11,9 @@ class AnnotatedReportSearchVector(ReportSearchVector):
 
 
 def document_from_pgsearch_response(
-    record: AnnotatedReportSearchVector,
+    record: AnnotatedReportSearchIndex,
+    cosine_distance: float | None = None,
+    rrf_score: float = 0.0,
 ) -> ReportDocument:
     report = record.report
     return ReportDocument(
@@ -24,4 +26,6 @@ def document_from_pgsearch_response(
         study_description=report.study_description,
         modalities=report.modality_codes,
         summary=record.summary,
+        cosine_distance=cosine_distance,
+        rrf_score=rrf_score,
     )

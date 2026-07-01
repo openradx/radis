@@ -17,6 +17,8 @@ class ReportDocument(NamedTuple):
     study_description: str
     modalities: list[str]
     summary: str
+    cosine_distance: float | None = None
+    rrf_score: float = 0.0
 
     @property
     def full_report(self) -> Report:

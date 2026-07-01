@@ -6,7 +6,7 @@ from django.db import connection
 
 from radis.reports.models import Report
 
-from ..models import ReportSearchVector
+from ..models import ReportSearchIndex
 from .language_utils import code_to_language
 
 logger = logging.getLogger(__name__)
@@ -17,7 +17,7 @@ def _chunked(items: list[int], size: int) -> Iterable[list[int]]:
         yield items[index : index + size]
 
 
-def bulk_upsert_report_search_vectors(
+def bulk_upsert_report_search_indexes(
     report_ids: Iterable[int],
     chunk_size: int | None = None,
 ) -> None:
@@ -54,8 +54,8 @@ def bulk_upsert_report_search_vectors(
             )
 
         for config, config_ids in config_to_ids.items():
-            ReportSearchVector.objects.bulk_create(
-                [ReportSearchVector(report_id=report_id) for report_id in config_ids],
+            ReportSearchIndex.objects.bulk_create(
+                [ReportSearchIndex(report_id=report_id) for report_id in config_ids],
                 ignore_conflicts=True,
                 batch_size=settings.PGSEARCH_BULK_INSERT_BATCH_SIZE,
             )
@@ -63,7 +63,7 @@ def bulk_upsert_report_search_vectors(
             with connection.cursor() as cursor:
                 cursor.execute(
                     """
-                    UPDATE pgsearch_reportsearchvector v
+                    UPDATE pgsearch_reportsearchindex v
                     SET search_vector = to_tsvector(%s::regconfig, r.body)
                     FROM reports_report r
                     WHERE v.report_id = r.id AND r.id = ANY(%s)

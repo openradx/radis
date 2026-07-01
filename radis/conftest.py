@@ -1,4 +1,5 @@
 import nest_asyncio2
+import stamina
 
 pytest_plugins = ["adit_radis_shared.pytest_fixtures"]
 
@@ -11,3 +12,7 @@ def pytest_configure():
     # https://github.com/pytest-dev/pytest-asyncio/issues/543
     # https://github.com/microsoft/playwright-pytest/issues/167
     nest_asyncio2.apply()
+
+    # Disable stamina retries for tests by default; transient-blip retry
+    # behaviour is exercised explicitly where needed via `stamina.set_active`.
+    stamina.set_active(False)
