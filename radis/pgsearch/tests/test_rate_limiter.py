@@ -109,3 +109,42 @@ def test_two_waves_recover_independently(settings, monkeypatch):
     # After sleeping past t=60, Wave A events expire and are pruned on next retry.
     # Remaining: 2 Wave B events + 1 newly created event = 3.
     assert EmbeddingRateLimitEvent.objects.filter(bucket="embedding_background").count() == 3
+
+
+def test_search_priority_spillover_uses_background_when_search_exhausted(settings, monkeypatch):
+    settings.EMBEDDING_SEARCH_RATE_LIMIT_PER_MINUTE = 1
+    settings.EMBEDDING_BACKGROUND_RATE_LIMIT_PER_MINUTE = 2
+    from radis.pgsearch.utils import rate_limiter as rl
+
+    _install_fake_clock(monkeypatch)
+
+    rl.acquire_token("embedding_search")  # exhausts the search floor
+    rl.acquire_search_priority_token()  # must spill into background
+
+    from radis.pgsearch.models import EmbeddingRateLimitEvent
+
+    assert EmbeddingRateLimitEvent.objects.filter(bucket="embedding_search").count() == 1
+    assert EmbeddingRateLimitEvent.objects.filter(bucket="embedding_background").count() == 1
+
+
+def test_search_priority_waits_on_search_when_both_exhausted(settings, monkeypatch):
+    settings.EMBEDDING_SEARCH_RATE_LIMIT_PER_MINUTE = 1
+    settings.EMBEDDING_BACKGROUND_RATE_LIMIT_PER_MINUTE = 1
+    from radis.pgsearch.utils import rate_limiter as rl
+
+    clock = _install_fake_clock(monkeypatch)
+
+    rl.acquire_token("embedding_search")
+    rl.acquire_token("embedding_background")
+    start = clock.current
+    rl.acquire_search_priority_token()
+
+    # Waited on search's own bucket (~60s), not left permanently blocked.
+    assert (clock.current - start).total_seconds() >= 59
+
+    from radis.pgsearch.models import EmbeddingRateLimitEvent
+
+    # Only 1, not 2: the wait resolves precisely because the original
+    # search event ages out of the window and gets pruned before the new
+    # one is inserted, so it's gone by the time capacity frees up.
+    assert EmbeddingRateLimitEvent.objects.filter(bucket="embedding_search").count() == 1

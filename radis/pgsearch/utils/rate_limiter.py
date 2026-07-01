@@ -95,3 +95,16 @@ def acquire_token(bucket: str, weight: int = 1) -> None:
         if acquired:
             return
         _sleep(wait_for)
+
+
+def acquire_search_priority_token(weight: int = 1) -> None:
+    """Search/retrieval acquisition: try the reserved search floor first,
+    then opportunistically spill into background's spare capacity, and only
+    block (waiting on the search bucket specifically) if both are exhausted.
+    Background's own acquisition path never references "embedding_search",
+    so it structurally cannot borrow from this reserved floor."""
+    if try_acquire_immediate("embedding_search", weight):
+        return
+    if try_acquire_immediate("embedding_background", weight):
+        return
+    acquire_token("embedding_search", weight)
