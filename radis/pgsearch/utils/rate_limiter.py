@@ -8,8 +8,10 @@ cost possibly weighted by request size, exact formula unconfirmed).
 
 from __future__ import annotations
 
+import logging
 import re
 import time
+from collections.abc import Callable
 from datetime import timedelta
 
 import openai
@@ -19,6 +21,8 @@ from django.db.models import Sum
 from django.utils import timezone
 
 from ..models import EmbeddingRateLimitEvent
+
+logger = logging.getLogger(__name__)
 
 _WINDOW = timedelta(seconds=60)
 
@@ -131,3 +135,33 @@ def parse_retry_after(exc: openai.RateLimitError) -> float:
     if match:
         return float(match.group(1))
     return _DEFAULT_RETRY_AFTER
+
+
+def call_with_rate_limit[T](
+    acquire_fn: Callable[[], None], fn: Callable[[], T], max_attempts: int = 3
+) -> T:
+    """Acquire capacity, then call `fn`. If the real gateway still rejects
+    with a 429 despite our own gating (our proactive ledger is a best-effort
+    estimate — see the design doc on unconfirmed cost-weighting), honor the
+    server's own reported wait time and retry, up to `max_attempts`. The
+    ledger entry already recorded for the failed attempt is deliberately not
+    rolled back: a 429 means the real gateway is more constrained than our
+    estimate, so removing our own record would only make future estimates
+    more optimistic, the wrong direction."""
+    for attempt in range(1, max_attempts + 1):
+        acquire_fn()
+        try:
+            return fn()
+        except openai.RateLimitError as exc:
+            wait = parse_retry_after(exc)
+            logger.warning(
+                "embedding rate-limit gate: got 429 despite internal gating; "
+                "server-reported wait=%.1fs (attempt %d/%d)",
+                wait,
+                attempt,
+                max_attempts,
+            )
+            if attempt == max_attempts:
+                raise
+            _sleep(wait)
+    raise AssertionError("unreachable: loop always returns or raises")

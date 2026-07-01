@@ -183,3 +183,51 @@ def test_parse_retry_after_default_when_neither_present():
     exc = _make_rate_limit_error("rate limited")
 
     assert rl.parse_retry_after(exc) == rl._DEFAULT_RETRY_AFTER
+
+
+def test_call_with_rate_limit_returns_on_first_success(monkeypatch):
+    from radis.pgsearch.utils import rate_limiter as rl
+
+    acquire_calls = []
+    result = rl.call_with_rate_limit(lambda: acquire_calls.append(1), lambda: "ok")
+
+    assert result == "ok"
+    assert len(acquire_calls) == 1
+
+
+def test_call_with_rate_limit_honors_wait_and_retries(monkeypatch):
+    from radis.pgsearch.utils import rate_limiter as rl
+
+    sleep_calls = []
+    monkeypatch.setattr(rl, "_sleep", lambda seconds: sleep_calls.append(seconds))
+
+    attempts = {"n": 0}
+
+    def flaky():
+        attempts["n"] += 1
+        if attempts["n"] < 3:
+            raise _make_rate_limit_error("Limit 60/min exceeded. Wait 3s.")
+        return "ok"
+
+    result = rl.call_with_rate_limit(lambda: None, flaky)
+
+    assert result == "ok"
+    assert attempts["n"] == 3
+    assert sleep_calls == [3.0, 3.0]
+
+
+def test_call_with_rate_limit_raises_after_max_attempts(monkeypatch):
+    import openai
+
+    from radis.pgsearch.utils import rate_limiter as rl
+
+    monkeypatch.setattr(rl, "_sleep", lambda seconds: None)
+    acquire_calls = []
+
+    def always_fails():
+        raise _make_rate_limit_error("Limit 60/min exceeded. Wait 1s.")
+
+    with pytest.raises(openai.RateLimitError):
+        rl.call_with_rate_limit(lambda: acquire_calls.append(1), always_fails, max_attempts=3)
+
+    assert len(acquire_calls) == 3
