@@ -72,21 +72,6 @@ async def chat_create_view(request: AuthenticatedHttpRequest) -> HttpResponse:
                         {"role": "user", "content": user_prompt},
                     ],
                 )
-
-                # Generate a title for the chat
-                title_system_prompt = Template(
-                    settings.CHAT_GENERATE_TITLE_SYSTEM_PROMPT
-                ).substitute(
-                    {"num_words": 6, "user_prompt": user_prompt, "assistant_response": answer}
-                )
-
-                title = await client.chat(
-                    [
-                        {"role": "system", "content": title_system_prompt},
-                        {"role": "user", "content": user_prompt},
-                    ],
-                    max_completion_tokens=20,
-                )
             except RateLimited:
                 return render(
                     request,
@@ -99,6 +84,22 @@ async def chat_create_view(request: AuthenticatedHttpRequest) -> HttpResponse:
                         "error": "The LLM service is busy. Please try again in a moment.",
                     },
                 )
+
+            # Generate a title for the chat. The title is secondary, so if it is rate-limited
+            # we keep the answer and fall back to the user prompt instead of failing the request.
+            title_system_prompt = Template(settings.CHAT_GENERATE_TITLE_SYSTEM_PROMPT).substitute(
+                {"num_words": 6, "user_prompt": user_prompt, "assistant_response": answer}
+            )
+            try:
+                title = await client.chat(
+                    [
+                        {"role": "system", "content": title_system_prompt},
+                        {"role": "user", "content": user_prompt},
+                    ],
+                    max_completion_tokens=20,
+                )
+            except RateLimited:
+                title = user_prompt
             title = title.strip().rstrip(string.punctuation)[:100]
 
             chat = await Chat.objects.acreate(owner=request.user, title=title, report=report)

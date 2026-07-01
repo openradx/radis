@@ -201,6 +201,8 @@ def _parse_retry_after(exc: openai.RateLimitError) -> float | None:
         return None
     if retry_date is None:
         return None
+    if retry_date.tzinfo is None:  # an RFC "-0000" offset yields a naive datetime; treat as UTC
+        retry_date = retry_date.replace(tzinfo=UTC)
     return max(0.0, (retry_date - datetime.now(UTC)).total_seconds())
 
 
@@ -222,6 +224,10 @@ def run_through_gate[T](
             raise RateLimited()  # an earlier 429 armed a window past our budget
         if rpm is not None and not rpm.acquire(deadline):
             raise RateLimited()  # RPM cap can't grant a permit within the budget
+        # Another caller's 429 may have armed the gate while we waited for a permit;
+        # re-check so we don't fire into a freshly-closed window (permit stays held).
+        if not gate.wait_until_open(deadline):
+            raise RateLimited()
         try:
             result = fn()
             gate.note_success()
@@ -248,6 +254,10 @@ async def run_through_gate_async[T](
             raise RateLimited()
         if rpm is not None and not await rpm.acquire_async(deadline):
             raise RateLimited()  # RPM cap can't grant a permit within the budget
+        # Another caller's 429 may have armed the gate while we waited for a permit;
+        # re-check so we don't fire into a freshly-closed window (permit stays held).
+        if not await gate.wait_until_open_async(deadline):
+            raise RateLimited()
         try:
             result = await fn()
             gate.note_success()

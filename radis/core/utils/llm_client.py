@@ -17,6 +17,11 @@ from radis.core.utils.rate_limit import (
 
 logger = logging.getLogger(__name__)
 
+
+class LLMResponseError(Exception):
+    """The LLM returned no usable content (e.g. a refusal or an empty completion)."""
+
+
 # Process-global so every LLM caller in this worker/web process shares one backoff window.
 _LLM_GATE = RateLimitGate(
     base_seconds=settings.LLM_RATE_LIMIT_BACKOFF_BASE_SECONDS,
@@ -80,7 +85,11 @@ class AsyncChatClient:
 
         completion = await self._client.chat.completions.create(**request)
         answer = completion.choices[0].message.content
-        assert answer is not None
+        if answer is None:  # a refusal or empty completion, not a programmer invariant
+            raise LLMResponseError(
+                f"LLM returned no content (model={self._model_name}, "
+                f"finish_reason={completion.choices[0].finish_reason})"
+            )
         logger.debug("Received from LLM: %s", answer)
         return answer
 
@@ -132,6 +141,10 @@ class LLMClient:
             extra_body=self._extra_body,
         )
         event = completion.choices[0].message.parsed
-        assert event
+        if event is None:  # a refusal or a parse failure, not a programmer invariant
+            raise LLMResponseError(
+                f"LLM returned no parsed response (model={self._llm_model_name}, "
+                f"finish_reason={completion.choices[0].finish_reason})"
+            )
         logger.debug("Received from LLM: %s", event)
         return event

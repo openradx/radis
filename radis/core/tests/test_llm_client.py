@@ -10,7 +10,13 @@ from radis.chats.utils.testing_helpers import (
     make_rate_limit_error,
 )
 from radis.core.utils import llm_client
-from radis.core.utils.llm_client import _LLM_GATE, _LLM_RPM_LIMITER, AsyncChatClient, LLMClient
+from radis.core.utils.llm_client import (
+    _LLM_GATE,
+    _LLM_RPM_LIMITER,
+    AsyncChatClient,
+    LLMClient,
+    LLMResponseError,
+)
 from radis.core.utils.rate_limit import RateLimited, RpmLimiter
 
 
@@ -99,6 +105,23 @@ async def test_chat_defers_when_rate_limit_exceeds_budget():
     with patch("openai.AsyncOpenAI", return_value=mock):
         with pytest.raises(RateLimited):
             await AsyncChatClient().chat([{"role": "user", "content": "hi"}], max_wait=20.0)
+
+
+@pytest.mark.asyncio
+async def test_chat_raises_when_content_is_none():
+    # A refusal/empty completion yields content=None; surface it explicitly instead of
+    # asserting (which would be stripped under python -O).
+    mock = create_async_openai_client_mock(None)
+    with patch("openai.AsyncOpenAI", return_value=mock):
+        with pytest.raises(LLMResponseError):
+            await AsyncChatClient().chat([{"role": "user", "content": "hi"}])
+
+
+def test_extract_data_raises_when_parsed_is_none():
+    mock = create_openai_client_mock(None)
+    with patch("openai.OpenAI", return_value=mock):
+        with pytest.raises(LLMResponseError):
+            LLMClient().extract_data("p", _Schema)
 
 
 def test_default_rpm_limiter_is_disabled():

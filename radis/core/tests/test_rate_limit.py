@@ -164,6 +164,18 @@ def test_parse_retry_after_http_date():
     assert 55.0 <= seconds <= 60.0
 
 
+def test_parse_retry_after_http_date_naive_offset_does_not_crash():
+    # An RFC "-0000" offset parses to a naive datetime; the gate must treat it as UTC
+    # instead of crashing on a naive-vs-aware subtraction.
+    from datetime import datetime, timedelta
+
+    when = datetime.now(UTC) + timedelta(seconds=60)
+    value = when.strftime("%a, %d %b %Y %H:%M:%S -0000")
+    seconds = _parse_retry_after(make_rate_limit_error({"retry-after": value}))
+    assert seconds is not None
+    assert 55.0 <= seconds <= 60.0
+
+
 def test_parse_retry_after_missing_returns_none():
     assert _parse_retry_after(make_rate_limit_error({})) is None
 
@@ -476,4 +488,46 @@ async def test_run_through_gate_async_defers_when_rpm_over_budget():
 
     with pytest.raises(RateLimited):
         await run_through_gate_async(gate, 30.0, fn, now=clock.now, rpm=rpm)
+    assert calls["n"] == 0
+
+
+def test_run_through_gate_rechecks_gate_after_rpm_acquire():
+    # Simulates another caller's 429 arming the gate while we waited for a permit:
+    # the permit is granted but the gate is now closed past our budget, so we must defer
+    # instead of firing into the freshly-closed window.
+    clock = FakeClock()
+    gate = make_gate(clock)
+    calls = {"n": 0}
+
+    class ArmingRpm:
+        def acquire(self, deadline: float) -> bool:
+            gate.note_rate_limited(3600.0)  # arm the gate well past the 30s budget
+            return True
+
+    def fn():
+        calls["n"] += 1
+        return "ok"
+
+    with pytest.raises(RateLimited):
+        run_through_gate(gate, 30.0, fn, now=clock.now, rpm=ArmingRpm())  # type: ignore[arg-type]
+    assert calls["n"] == 0  # re-check caught the armed gate; fn never ran
+
+
+@pytest.mark.asyncio
+async def test_run_through_gate_async_rechecks_gate_after_rpm_acquire():
+    clock = FakeClock()
+    gate = make_gate(clock)
+    calls = {"n": 0}
+
+    class ArmingRpm:
+        async def acquire_async(self, deadline: float) -> bool:
+            gate.note_rate_limited(3600.0)
+            return True
+
+    async def fn():
+        calls["n"] += 1
+        return "ok"
+
+    with pytest.raises(RateLimited):
+        await run_through_gate_async(gate, 30.0, fn, now=clock.now, rpm=ArmingRpm())  # type: ignore[arg-type]
     assert calls["n"] == 0
