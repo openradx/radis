@@ -32,6 +32,14 @@ class ReportSearchIndex(models.Model):
                 ef_construction=64,
                 opclasses=["vector_cosine_ops"],
             ),
+            # Partial index backing the admin's pending-embedding count. The
+            # HNSW index above can't serve an IS NULL check, so without this
+            # that count is a full table scan on every changelist request.
+            models.Index(
+                fields=["id"],
+                condition=models.Q(embedding__isnull=True),
+                name="pgsearch_pending_embedding_idx",
+            ),
         ]
 
     def __str__(self) -> str:
