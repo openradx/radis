@@ -170,6 +170,19 @@ def _embed_with_bisect(
     and append it to `skipped` instead of raising — that way the rest of
     the task's batch still gets embedded.
 
+    Also bisects on `openai.APITimeoutError` once stamina's retry budget is
+    exhausted: this backend has no explicit "batch too large" rejection
+    (confirmed empirically — it accepts arbitrarily large batches and just
+    gets proportionally slower, ~8.5ms/item), so a chunk that's too big for
+    `EMBEDDING_REQUEST_TIMEOUT` times out instead of erroring. Retrying a
+    timeout at the same chunk size is not transient recovery, it's a repeat
+    of the same doomed call — the fix is the same as for an explicit
+    rejection: shrink the chunk. Without this, `openai.APITimeoutError`
+    (not an `EmbeddingClientError` subclass) would propagate uncaught past
+    `embed_reports_task`'s own error handling straight into Procrastinate's
+    generic task retry, which retries the whole subjob at the same chunk
+    size indefinitely.
+
     Transient errors are absorbed by `_embed_chunk_with_retry`'s stamina
     wrapper. Anything that escapes after stamina's attempts/timeout budget
     is exhausted propagates so Procrastinate's task-level retry applies.
@@ -178,23 +191,44 @@ def _embed_with_bisect(
         return
     try:
         vectors = _embed_chunk_with_retry(client, [rsv.report.body for rsv in rsvs])
-    except EmbeddingPayloadTooLargeError as exc:
+    except (EmbeddingPayloadTooLargeError, openai.APITimeoutError) as exc:
+        timed_out = isinstance(exc, openai.APITimeoutError)
         if len(rsvs) == 1:
             offender = rsvs[0]
-            logger.error(
-                "embed_reports_task: report_id=%s body_chars=%d rejected by embedding "
-                "service as too large; skipping. Backend error: %s",
-                offender.report.pk,
-                len(offender.report.body),
-                exc,
-            )
+            if timed_out:
+                logger.error(
+                    "embed_reports_task: report_id=%s body_chars=%d timed out "
+                    "embedding alone after retries exhausted (EMBEDDING_REQUEST_TIMEOUT="
+                    "%ss); skipping. Error: %s",
+                    offender.report.pk,
+                    len(offender.report.body),
+                    settings.EMBEDDING_REQUEST_TIMEOUT,
+                    exc,
+                )
+            else:
+                logger.error(
+                    "embed_reports_task: report_id=%s body_chars=%d rejected by embedding "
+                    "service as too large; skipping. Backend error: %s",
+                    offender.report.pk,
+                    len(offender.report.body),
+                    exc,
+                )
             skipped.append(offender)
             return
-        logger.warning(
-            "embed_reports_task: chunk of %d report(s) rejected as too large; "
-            "bisecting to isolate offender(s).",
-            len(rsvs),
-        )
+        if timed_out:
+            logger.warning(
+                "embed_reports_task: chunk of %d report(s) timed out after retries "
+                "(EMBEDDING_REQUEST_TIMEOUT=%ss); bisecting — chunk is likely too "
+                "large for the configured timeout, not a transient failure.",
+                len(rsvs),
+                settings.EMBEDDING_REQUEST_TIMEOUT,
+            )
+        else:
+            logger.warning(
+                "embed_reports_task: chunk of %d report(s) rejected as too large; "
+                "bisecting to isolate offender(s).",
+                len(rsvs),
+            )
         mid = len(rsvs) // 2
         _embed_with_bisect(client, rsvs[:mid], embedded, skipped)
         _embed_with_bisect(client, rsvs[mid:], embedded, skipped)

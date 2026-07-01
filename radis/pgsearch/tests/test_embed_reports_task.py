@@ -3,7 +3,9 @@
 import logging
 from unittest.mock import MagicMock, patch
 
+import httpx
 import numpy as np
+import openai
 import pytest
 import stamina
 
@@ -54,6 +56,15 @@ pytestmark = pytest.mark.django_db(transaction=True)
 def _unit_vec(dim: int) -> list[float]:
     v = np.ones(dim, dtype=np.float32)
     return (v / np.linalg.norm(v)).tolist()
+
+
+def _timeout_error() -> openai.APITimeoutError:
+    """This backend has no explicit 'batch too large' rejection (confirmed
+    empirically against the real embedding gateway — it accepts arbitrarily
+    large batches and just gets proportionally slower), so an oversized
+    chunk surfaces as a timeout instead of an error response."""
+    request = httpx.Request("POST", "https://embedding.example/v1/embeddings")
+    return openai.APITimeoutError(request)
 
 
 def _make_fake_client(vec: list[float]) -> MagicMock:
@@ -298,6 +309,110 @@ def test_bisects_on_too_large_and_isolates_offender(settings, caplog, monkeypatc
     error_msgs = [r.getMessage() for r in caplog.records if r.levelname == "ERROR"]
     assert any(f"report_id={offender_pk}" in msg and "body_chars=" in msg for msg in error_msgs)
     assert any("skipped as too large" in msg and str(offender_pk) in msg for msg in error_msgs)
+
+
+def test_bisects_on_timeout_and_isolates_offender(settings, caplog, monkeypatch):
+    """A chunk that times out (rather than being explicitly rejected) must
+    bisect the same way a too-large rejection does — retrying at the same
+    chunk size would just time out again. Once isolated to a single
+    offender, it's logged as ERROR and skipped; the rest of the batch still
+    gets embedded."""
+    settings.EMBEDDING_BATCH_SIZE = 4
+    reports = [ReportFactory.create() for _ in range(4)]
+    pks = [r.pk for r in reports]
+    offender_pk = pks[2]
+
+    vec = _unit_vec(settings.EMBEDDING_DIM)
+
+    def fake_embed(texts):
+        offender_body = (
+            ReportSearchIndex.objects.select_related("report")
+            .get(report_id=offender_pk)
+            .report.body
+        )
+        if offender_body in texts:
+            raise _timeout_error()
+        return [vec] * len(texts)
+
+    fake = MagicMock()
+    fake.__enter__ = MagicMock(return_value=fake)
+    fake.__exit__ = MagicMock(return_value=None)
+    fake.embed_documents = MagicMock(side_effect=fake_embed)
+
+    task_logger = logging.getLogger("radis.pgsearch.tasks")
+    task_logger.addHandler(caplog.handler)
+    caplog.set_level(logging.ERROR, logger="radis.pgsearch.tasks")
+    try:
+        with patch("radis.pgsearch.tasks.EmbeddingClient", return_value=fake):
+            embed_reports_task(report_ids=pks)
+    finally:
+        task_logger.removeHandler(caplog.handler)
+
+    rsvs_by_pk = {
+        rsv.report.pk: rsv
+        for rsv in ReportSearchIndex.objects.filter(report_id__in=pks).select_related("report")
+    }
+    assert rsvs_by_pk[offender_pk].embedding is None
+    for pk in pks:
+        if pk == offender_pk:
+            continue
+        assert rsvs_by_pk[pk].embedding is not None
+
+    error_msgs = [r.getMessage() for r in caplog.records if r.levelname == "ERROR"]
+    assert any(
+        f"report_id={offender_pk}" in msg and "timed out" in msg for msg in error_msgs
+    )
+    assert any("skipped as too large" in msg and str(offender_pk) in msg for msg in error_msgs)
+
+
+def test_logs_warning_on_timeout_bisect(settings, caplog_tasks):
+    settings.EMBEDDING_BATCH_SIZE = 4
+    reports = [ReportFactory.create() for _ in range(4)]
+    pks = [r.pk for r in reports]
+    offender_pk = pks[2]
+    vec = _unit_vec(settings.EMBEDDING_DIM)
+
+    def fake_embed(texts):
+        offender_body = (
+            ReportSearchIndex.objects.select_related("report")
+            .get(report_id=offender_pk)
+            .report.body
+        )
+        if offender_body in texts:
+            raise _timeout_error()
+        return [vec] * len(texts)
+
+    fake = MagicMock()
+    fake.__enter__ = MagicMock(return_value=fake)
+    fake.__exit__ = MagicMock(return_value=None)
+    fake.embed_documents = MagicMock(side_effect=fake_embed)
+
+    with patch("radis.pgsearch.tasks.EmbeddingClient", return_value=fake):
+        embed_reports_task(report_ids=pks)
+
+    warning_msgs = [r.getMessage() for r in caplog_tasks.records if r.levelname == "WARNING"]
+    assert any("timed out after retries" in m and "bisecting" in m for m in warning_msgs)
+
+
+def test_stamina_does_not_retry_timeout_past_bisect(settings, stamina_active):
+    """Once a single-row chunk still times out after stamina's own retry
+    budget, `_embed_with_bisect` must skip it rather than let the raw
+    `openai.APITimeoutError` escape uncaught (it isn't an
+    `EmbeddingClientError` subclass, so nothing else in the call chain
+    would catch it)."""
+    settings.EMBEDDING_BATCH_SIZE = 1
+    reports = [ReportFactory.create() for _ in range(1)]
+    pks = [r.pk for r in reports]
+
+    fake = MagicMock()
+    fake.__enter__ = MagicMock(return_value=fake)
+    fake.__exit__ = MagicMock(return_value=None)
+    fake.embed_documents = MagicMock(side_effect=_timeout_error())
+
+    with patch("radis.pgsearch.tasks.EmbeddingClient", return_value=fake):
+        embed_reports_task(report_ids=pks)
+
+    assert ReportSearchIndex.objects.filter(embedding__isnull=True).count() == 1
 
 
 def test_non_too_large_error_propagates_without_bisecting():
