@@ -50,3 +50,34 @@ class ReportSearchIndex(models.Model):
         language = code_to_language(self.report.language.code)
         self.search_vector = SearchVector(models.Value(body), config=language)
         super().save(*args, **kwargs)
+
+
+class EmbeddingRateLimitEvent(models.Model):
+    """Sliding-window ledger for the embedding gateway's rate limit.
+
+    Confirmed empirically against the production gateway: a genuine sliding
+    window of ~60 request-equivalents/minute, where each admitted request
+    independently expires exactly 60 seconds after *it* was recorded — not a
+    fixed window, not a continuous per-second refill, not tied to request
+    completion. See the design doc for how this was confirmed
+    (docs/superpowers/specs/2026-07-01-embedding-rate-limit-gate-design.md).
+
+    Rows older than the 60s window are pruned opportunistically by every
+    acquisition attempt in `radis.pgsearch.utils.rate_limiter`, so this table
+    stays small automatically — no separate cleanup job needed.
+    """
+
+    bucket = models.CharField(max_length=32)
+    sent_at = models.DateTimeField()
+    weight = models.PositiveIntegerField(default=1)
+
+    class Meta:
+        indexes = [
+            models.Index(
+                fields=["bucket", "sent_at"],
+                name="pgsearch_ratelimit_bucket_idx",
+            )
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.bucket} @ {self.sent_at} (weight={self.weight})"
