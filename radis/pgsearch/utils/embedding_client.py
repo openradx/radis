@@ -31,6 +31,16 @@ class EmbeddingPayloadTooLargeError(EmbeddingClientError):
 # false-positived on unrelated 4xx; the structured code does not.
 _TOO_LARGE_ERROR_CODES = frozenset({"context_length_exceeded", "string_above_max_length"})
 
+# Some OpenAI-compat gateways don't set a descriptive string `error.code` at
+# all — confirmed empirically against the real production embedding gateway
+# (the internal embedding gateway), which echoes the HTTP status as `code` (e.g. `400`,
+# not `"context_length_exceeded"`) but still sets the structured
+# `error.param` field to name the offending parameter. A context-length
+# rejection there reports `param="input_tokens"` with a message like "This
+# model's maximum context length is 16384 tokens...". Checking `param` is
+# still a structured-field match, not substring matching on the message.
+_TOO_LARGE_ERROR_PARAMS = frozenset({"input_tokens"})
+
 
 def _build_http_client() -> httpx.Client:
     """Indirection so tests can swap in an httpx.MockTransport. The returned
@@ -71,19 +81,25 @@ def _normalize_response(
 
 def _classify_too_large(exc: openai.BadRequestError) -> EmbeddingClientError:
     """Map a BadRequestError to either the too-large subclass or the base
-    error, based on the structured error.code. Non-OpenAI-shaped bodies
-    (no `error.code`) are deliberately treated as NOT too-large — bisecting
-    on the wrong error is worse than not bisecting on a real one.
+    error, based on the structured error.code / error.param. Non-OpenAI-shaped
+    bodies (neither field set) are deliberately treated as NOT too-large —
+    bisecting on the wrong error is worse than not bisecting on a real one.
 
-    The SDK promotes the JSON `error.code` field onto `exc.code` directly,
-    so we read `exc.code` rather than navigating `exc.body["error"]["code"]`.
-    For non-OpenAI-shaped 4xx bodies that lack a structured `error.code`,
-    `exc.code` is None and we fall through to the base EmbeddingClientError."""
+    The SDK promotes the JSON `error.code` / `error.param` fields onto
+    `exc.code` / `exc.param` directly, so we read those rather than
+    navigating `exc.body["error"][...]`. Checked in order: a canonical
+    `code` match first, then the `param="input_tokens"` fallback for
+    gateways that don't set a descriptive code (see `_TOO_LARGE_ERROR_PARAMS`)."""
     code: str | None = exc.code
+    param: str | None = exc.param
     snippet = str(exc)[:200]
     if code in _TOO_LARGE_ERROR_CODES:
         return EmbeddingPayloadTooLargeError(
             f"Embedding service rejected payload as too large (code={code}): {snippet}"
+        )
+    if param in _TOO_LARGE_ERROR_PARAMS:
+        return EmbeddingPayloadTooLargeError(
+            f"Embedding service rejected payload as too large (param={param}): {snippet}"
         )
     return EmbeddingClientError(f"Embedding service returned 400: {snippet}")
 

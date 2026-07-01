@@ -264,6 +264,68 @@ def test_too_large_via_400_with_string_above_max_length_code(monkeypatch):
     EMBEDDING_REQUEST_TIMEOUT=10,
     EMBEDDING_QUERY_INSTRUCTION="",
 )
+def test_too_large_via_400_with_input_tokens_param(monkeypatch):
+    """Some gateways don't set a descriptive `error.code` at all — confirmed
+    empirically against the production embedding gateway, which echoes the
+    HTTP status as `code` (an int, not `"context_length_exceeded"`) but
+    still sets `error.param="input_tokens"` on a context-length rejection.
+    That must still classify as too-large via the `param` fallback."""
+    from radis.pgsearch.utils import embedding_client as ec
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            400,
+            json={
+                "error": {
+                    "message": (
+                        "This model's maximum context length is 16384 tokens. However, "
+                        "your prompt contains at least 16385 input tokens."
+                    ),
+                    "type": "BadRequestError",
+                    "param": "input_tokens",
+                    "code": 400,
+                }
+            },
+        )
+
+    _install_transport(monkeypatch, handler)
+    with pytest.raises(ec.EmbeddingPayloadTooLargeError):
+        ec.EmbeddingClient().embed_documents(["x"])
+
+
+@override_settings(
+    EMBEDDING_PROVIDER_URL="http://embed.example/v1",
+    EMBEDDING_PROVIDER_API_KEY="",
+    EMBEDDING_MODEL_NAME="qwen3",
+    EMBEDDING_DIM=2,
+    EMBEDDING_REQUEST_TIMEOUT=10,
+    EMBEDDING_QUERY_INSTRUCTION="",
+)
+def test_400_with_other_param_is_not_too_large(monkeypatch):
+    """A `param` unrelated to input length must not be classified as
+    too-large — only the specific `input_tokens` param is a length signal."""
+    from radis.pgsearch.utils import embedding_client as ec
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            400,
+            json={"error": {"message": "invalid model", "param": "model", "code": 400}},
+        )
+
+    _install_transport(monkeypatch, handler)
+    with pytest.raises(ec.EmbeddingClientError) as excinfo:
+        ec.EmbeddingClient().embed_documents(["x"])
+    assert not isinstance(excinfo.value, ec.EmbeddingPayloadTooLargeError)
+
+
+@override_settings(
+    EMBEDDING_PROVIDER_URL="http://embed.example/v1",
+    EMBEDDING_PROVIDER_API_KEY="",
+    EMBEDDING_MODEL_NAME="qwen3",
+    EMBEDDING_DIM=2,
+    EMBEDDING_REQUEST_TIMEOUT=10,
+    EMBEDDING_QUERY_INSTRUCTION="",
+)
 def test_400_with_other_code_is_not_too_large(monkeypatch):
     """400 with a non-context-length error code surfaces as
     EmbeddingClientError (not the too-large subclass)."""
