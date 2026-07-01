@@ -66,9 +66,9 @@ class RateLimitGate:
             else:
                 self._consecutive_429 += 1
                 pause = min(self._base * 2 ** (self._consecutive_429 - 1), self._fallback_max)
-            self._blocked_until = max(
-                self._blocked_until, self._now() + pause
-            )  # extend, never shrink
+            # Defensive: if two requests get rate-limited concurrently, don't let the
+            # second (shorter) pause shrink an already-armed longer window.
+            self._blocked_until = max(self._blocked_until, self._now() + pause)
             return pause
 
     def wait_until_open(self, deadline: float) -> bool:
