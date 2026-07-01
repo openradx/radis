@@ -3,6 +3,7 @@ import email.utils
 import logging
 import threading
 import time
+from collections import deque
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 
@@ -99,12 +100,16 @@ class RateLimitGate:
 
 
 class RpmLimiter:
-    """Per-process token bucket capping LLM requests per minute.
+    """Per-process sliding-window limiter capping LLM requests per minute.
 
-    Holds up to `max_rpm` request permits, refilling at max_rpm/60 permits per second.
-    Each LLM request consumes one permit. Disabled (every acquire is an immediate no-op)
-    when max_rpm <= 0. Permits are abstract request credits, unrelated to LLM tokens.
+    Records the timestamp of each request and allows at most `max_rpm` within any trailing
+    60s window (matching a provider whose 429 quota is a sliding window, not a continuous
+    refill). A full burst of `max_rpm` is permitted, then capacity returns as each request
+    ages out 60s after it was sent. Disabled (every acquire is an immediate no-op) when
+    max_rpm <= 0.
     """
+
+    _WINDOW = 60.0  # seconds; the provider's rate-limit window
 
     def __init__(
         self,
@@ -114,39 +119,37 @@ class RpmLimiter:
         async_sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     ) -> None:
         self._enabled = max_rpm > 0
-        self._capacity = float(max_rpm)
-        self._refill_rate = max_rpm / 60.0  # permits per second
+        self._max_rpm = max_rpm
         self._now = now
         self._sleep = sleep
         self._async_sleep = async_sleep
         self._lock = threading.Lock()
-        self._permits = float(max_rpm)  # start full so an initial burst is allowed
-        self._last_refill = now()
+        # Monotonic timestamps of requests sent within the last window, oldest first.
+        self._timestamps: deque[float] = deque()
 
     def reset(self) -> None:
-        """Refill to full. For tests that share the process-global limiter."""
+        """Clear the window. For tests that share the process-global limiter."""
         with self._lock:
-            self._permits = self._capacity
-            self._last_refill = self._now()
+            self._timestamps.clear()
 
     def _take_or_wait(self) -> float:
-        """Refill, then consume one permit if available (return 0.0), else return the
-        seconds until the next permit. Holds the lock only for this math, never to sleep.
+        """Drop timestamps older than the window, then take a slot if one is free
+        (return 0.0), else return the seconds until the oldest request ages out. Holds
+        the lock only for this math, never to sleep.
         """
         with self._lock:
             now = self._now()
-            elapsed = now - self._last_refill
-            if elapsed > 0:
-                self._permits = min(self._capacity, self._permits + elapsed * self._refill_rate)
-                self._last_refill = now
-            if self._permits >= 1.0:
-                self._permits -= 1.0
+            cutoff = now - self._WINDOW
+            while self._timestamps and self._timestamps[0] <= cutoff:
+                self._timestamps.popleft()  # this request has aged out of the window
+            if len(self._timestamps) < self._max_rpm:
+                self._timestamps.append(now)  # slot free -> take it
                 return 0.0
-            return (1.0 - self._permits) / self._refill_rate
+            return self._timestamps[0] + self._WINDOW - now  # wait until the oldest ages out
 
     def acquire(self, deadline: float) -> bool:
-        """Consume a permit, waiting until one is free. Returns False (without consuming)
-        if the next permit would arrive after `deadline`."""
+        """Take a slot, waiting until one is free. Returns False (without taking one)
+        if the next slot would free up after `deadline`."""
         if not self._enabled:
             return True
         while True:
@@ -223,9 +226,9 @@ def run_through_gate[T](
         if not gate.wait_until_open(deadline):
             raise RateLimited()  # an earlier 429 armed a window past our budget
         if rpm is not None and not rpm.acquire(deadline):
-            raise RateLimited()  # RPM cap can't grant a permit within the budget
-        # Another caller's 429 may have armed the gate while we waited for a permit;
-        # re-check so we don't fire into a freshly-closed window (permit stays held).
+            raise RateLimited()  # RPM cap can't free a slot within the budget
+        # Another caller's 429 may have armed the gate while we waited for a slot;
+        # re-check so we don't fire into a freshly-closed window (the slot stays held).
         if not gate.wait_until_open(deadline):
             raise RateLimited()
         try:
@@ -253,9 +256,9 @@ async def run_through_gate_async[T](
         if not await gate.wait_until_open_async(deadline):
             raise RateLimited()
         if rpm is not None and not await rpm.acquire_async(deadline):
-            raise RateLimited()  # RPM cap can't grant a permit within the budget
-        # Another caller's 429 may have armed the gate while we waited for a permit;
-        # re-check so we don't fire into a freshly-closed window (permit stays held).
+            raise RateLimited()  # RPM cap can't free a slot within the budget
+        # Another caller's 429 may have armed the gate while we waited for a slot;
+        # re-check so we don't fire into a freshly-closed window (the slot stays held).
         if not await gate.wait_until_open_async(deadline):
             raise RateLimited()
         try:

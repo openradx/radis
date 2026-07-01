@@ -130,10 +130,10 @@ def test_default_rpm_limiter_is_disabled():
 
 
 def test_extract_data_defers_when_rpm_exhausted(monkeypatch):
-    # A drained 1-rpm limiter: the next permit is 60s away, beyond a 30s budget,
-    # so the limiter (reached via the client) defers without ever calling the LLM.
+    # A 1-rpm limiter with its single slot already filled: it frees 60s away, beyond a
+    # 30s budget, so the limiter (reached via the client) defers without ever calling the LLM.
     limiter = RpmLimiter(1)
-    assert limiter.acquire(deadline=0.0) is True  # consumes the starting permit (no wait)
+    assert limiter.acquire(deadline=0.0) is True  # fills the single slot (no wait)
     monkeypatch.setattr(llm_client, "_LLM_RPM_LIMITER", limiter)
 
     mock = create_openai_client_mock(_Schema(value="never"))
@@ -146,7 +146,7 @@ def test_extract_data_defers_when_rpm_exhausted(monkeypatch):
 @pytest.mark.asyncio
 async def test_chat_defers_when_rpm_exhausted(monkeypatch):
     limiter = RpmLimiter(1)
-    assert limiter.acquire(deadline=0.0) is True  # consumes the starting permit (no wait)
+    assert limiter.acquire(deadline=0.0) is True  # fills the single slot (no wait)
     monkeypatch.setattr(llm_client, "_LLM_RPM_LIMITER", limiter)
 
     mock = create_async_openai_client_mock("never")

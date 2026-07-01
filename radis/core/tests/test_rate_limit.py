@@ -393,44 +393,58 @@ def test_rpm_limiter_disabled_is_noop():
 def test_rpm_limiter_allows_burst_up_to_capacity():
     clock = FakeClock()
     limiter = RpmLimiter(3, now=clock.now, sleep=clock.sleep)
-    # Starts full: 3 permits consumable back-to-back with no wait.
+    # An empty window admits a full burst of max_rpm back-to-back with no wait.
     assert limiter.acquire(clock.now() + 100.0) is True
     assert limiter.acquire(clock.now() + 100.0) is True
     assert limiter.acquire(clock.now() + 100.0) is True
     assert clock.slept == []
 
 
-def test_rpm_limiter_waits_for_refill_within_budget():
+def test_rpm_limiter_waits_full_window_after_burst():
+    # Sliding window, not a token bucket: after a full burst the next request waits the whole
+    # 60s for the oldest to age out, not 60/max_rpm seconds for a single continuous "refill".
     clock = FakeClock()
-    limiter = RpmLimiter(1, now=clock.now, sleep=clock.sleep)  # rate = 1/60 permits/sec
-    assert limiter.acquire(clock.now() + 1.0) is True  # consume the starting permit
-    # Next permit is 60s away; budget allows it.
-    assert limiter.acquire(clock.now() + 120.0) is True
-    assert clock.slept == [60.0]
+    limiter = RpmLimiter(3, now=clock.now, sleep=clock.sleep)
+    for _ in range(3):
+        assert limiter.acquire(clock.now() + 100.0) is True  # fill the window at t0
+    assert limiter.acquire(clock.now() + 120.0) is True  # 4th request
+    assert clock.slept == [60.0]  # waited the full window, not 20s
 
 
-def test_rpm_limiter_defers_when_refill_exceeds_deadline():
+def test_rpm_limiter_frees_capacity_in_a_lump():
+    # Requests sent together age out together, so the whole burst's capacity returns at once.
+    clock = FakeClock()
+    limiter = RpmLimiter(3, now=clock.now, sleep=clock.sleep)
+    for _ in range(3):
+        assert limiter.acquire(clock.now() + 100.0) is True
+    clock.t += 60.0  # advance past the window so the whole burst ages out at once
+    for _ in range(3):
+        assert limiter.acquire(clock.now() + 1.0) is True
+    assert clock.slept == []  # capacity returned in a lump; no acquire had to wait
+
+
+def test_rpm_limiter_defers_when_wait_exceeds_deadline():
     clock = FakeClock()
     limiter = RpmLimiter(1, now=clock.now, sleep=clock.sleep)
-    assert limiter.acquire(clock.now() + 1.0) is True  # drain the permit
-    # Next permit is 60s away; deadline is only 30s out -> defer without sleeping/consuming.
+    assert limiter.acquire(clock.now() + 1.0) is True  # fill the 1-slot window
+    # The slot frees 60s out; deadline is only 30s -> defer without sleeping or taking a slot.
     assert limiter.acquire(clock.now() + 30.0) is False
     assert clock.slept == []
-    # Still nothing consumed beyond the first: a 30s-budget retry still defers.
+    # Nothing was taken: a second 30s-budget retry still defers.
     assert limiter.acquire(clock.now() + 30.0) is False
 
 
-def test_rpm_limiter_reset_refills_to_full():
+def test_rpm_limiter_reset_clears_window():
     clock = FakeClock()
     limiter = RpmLimiter(1, now=clock.now, sleep=clock.sleep)
-    assert limiter.acquire(clock.now() + 1.0) is True  # drain
+    assert limiter.acquire(clock.now() + 1.0) is True  # fill the window
     limiter.reset()
-    assert limiter.acquire(clock.now() + 1.0) is True  # full again, no wait
+    assert limiter.acquire(clock.now() + 1.0) is True  # window empty again, no wait
     assert clock.slept == []
 
 
 @pytest.mark.asyncio
-async def test_rpm_limiter_async_waits_for_refill_within_budget():
+async def test_rpm_limiter_async_waits_full_window_after_burst():
     clock = FakeClock()
     limiter = RpmLimiter(1, now=clock.now, sleep=clock.sleep, async_sleep=clock.async_sleep)
     assert await limiter.acquire_async(clock.now() + 1.0) is True
@@ -439,7 +453,7 @@ async def test_rpm_limiter_async_waits_for_refill_within_budget():
 
 
 @pytest.mark.asyncio
-async def test_rpm_limiter_async_defers_when_refill_exceeds_deadline():
+async def test_rpm_limiter_async_defers_when_wait_exceeds_deadline():
     clock = FakeClock()
     limiter = RpmLimiter(1, now=clock.now, sleep=clock.sleep, async_sleep=clock.async_sleep)
     assert await limiter.acquire_async(clock.now() + 1.0) is True
@@ -450,7 +464,7 @@ async def test_rpm_limiter_async_defers_when_refill_exceeds_deadline():
 # --- run_through_gate with an RpmLimiter ---
 
 
-def test_run_through_gate_runs_when_rpm_permit_available():
+def test_run_through_gate_runs_when_rpm_slot_available():
     clock = FakeClock()
     gate = make_gate(clock)
     rpm = RpmLimiter(60, now=clock.now, sleep=clock.sleep)
@@ -462,7 +476,7 @@ def test_run_through_gate_defers_when_rpm_over_budget():
     clock = FakeClock()
     gate = make_gate(clock)
     rpm = RpmLimiter(1, now=clock.now, sleep=clock.sleep)
-    assert rpm.acquire(clock.now() + 1.0) is True  # drain the only permit
+    assert rpm.acquire(clock.now() + 1.0) is True  # fill the only slot
     calls = {"n": 0}
 
     def fn():
@@ -470,7 +484,7 @@ def test_run_through_gate_defers_when_rpm_over_budget():
         return "ok"
 
     with pytest.raises(RateLimited):
-        run_through_gate(gate, 30.0, fn, now=clock.now, rpm=rpm)  # next permit 60s > 30 budget
+        run_through_gate(gate, 30.0, fn, now=clock.now, rpm=rpm)  # slot frees 60s > 30 budget
     assert calls["n"] == 0  # fn never ran
 
 
@@ -492,8 +506,8 @@ async def test_run_through_gate_async_defers_when_rpm_over_budget():
 
 
 def test_run_through_gate_rechecks_gate_after_rpm_acquire():
-    # Simulates another caller's 429 arming the gate while we waited for a permit:
-    # the permit is granted but the gate is now closed past our budget, so we must defer
+    # Simulates another caller's 429 arming the gate while we waited for a slot:
+    # the slot is granted but the gate is now closed past our budget, so we must defer
     # instead of firing into the freshly-closed window.
     clock = FakeClock()
     gate = make_gate(clock)
