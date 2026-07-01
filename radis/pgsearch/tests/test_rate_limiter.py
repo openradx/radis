@@ -78,6 +78,33 @@ def test_try_acquire_immediate_returns_false_without_waiting(settings, monkeypat
     assert clock.current == before  # non-blocking: clock must not advance
 
 
+def test_acquire_token_raises_when_weight_exceeds_capacity(settings, monkeypatch):
+    """weight > capacity can never be admitted; acquire_token must raise
+    immediately instead of looping/sleeping forever (a livelock)."""
+    settings.EMBEDDING_BACKGROUND_RATE_LIMIT_PER_MINUTE = 3
+    from radis.pgsearch.utils import rate_limiter as rl
+
+    _install_fake_clock(monkeypatch)
+    sleep_calls = []
+    monkeypatch.setattr(rl, "_sleep", lambda seconds: sleep_calls.append(seconds))
+
+    with pytest.raises(ValueError):
+        rl.acquire_token("embedding_background", weight=4)
+
+    # Raised before ever sleeping/looping — not after some retries.
+    assert sleep_calls == []
+
+
+def test_try_acquire_immediate_raises_when_weight_exceeds_capacity(settings, monkeypatch):
+    settings.EMBEDDING_BACKGROUND_RATE_LIMIT_PER_MINUTE = 2
+    from radis.pgsearch.utils import rate_limiter as rl
+
+    _install_fake_clock(monkeypatch)
+
+    with pytest.raises(ValueError):
+        rl.try_acquire_immediate("embedding_background", weight=3)
+
+
 def test_two_waves_recover_independently(settings, monkeypatch):
     """Mirrors the empirical two-wave test: tokens taken at different times
     must expire independently, not all at once or on a shared timer."""
@@ -153,7 +180,6 @@ def test_search_priority_waits_on_search_when_both_exhausted(settings, monkeypat
 
 def _make_rate_limit_error(message: str, retry_after: str | None = None) -> "openai.RateLimitError":
     import httpx
-    import openai
 
     request = httpx.Request("POST", "http://embed.example/v1/embeddings")
     headers = {"Retry-After": retry_after} if retry_after else {}

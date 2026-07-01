@@ -60,7 +60,15 @@ def _try_acquire_once(bucket: str, weight: int) -> tuple[bool, float]:
     """Single attempt: lock, prune expired rows, sum current weight, and
     either admit (insert a row) or report how long until enough capacity
     frees up. Returns (acquired, wait_seconds); wait_seconds is 0.0 when
-    acquired."""
+    acquired.
+
+    Raises ValueError immediately if `weight` exceeds the bucket's configured
+    capacity — such a request could never be admitted, so looping via
+    `acquire_token` would spin forever (opening a transaction and taking an
+    advisory lock every ~100ms) instead of failing loudly."""
+    capacity = configured_capacity(bucket)
+    if weight > capacity:
+        raise ValueError(f"weight {weight} exceeds capacity {capacity} for bucket {bucket!r}")
     with transaction.atomic():
         _advisory_lock(bucket)
         now = _now()
@@ -78,8 +86,12 @@ def _try_acquire_once(bucket: str, weight: int) -> tuple[bool, float]:
 
         oldest = EmbeddingRateLimitEvent.objects.filter(bucket=bucket).order_by("sent_at").first()
         if oldest is None:
-            # Only reachable if weight alone exceeds capacity with an empty
-            # bucket — nothing to wait on, so retry almost immediately.
+            # Defensive only: with the weight > capacity guard above, an
+            # empty bucket can never fail to admit here, so this shouldn't be
+            # reachable in practice. Kept as a safety net (e.g. against a
+            # capacity setting changing between the guard and this check)
+            # rather than trusting that invariant to hold forever — retry
+            # almost immediately since there's nothing to wait on.
             return False, 0.1
         wait_for = (oldest.sent_at + _WINDOW - now).total_seconds()
         return False, max(wait_for, 0.1)

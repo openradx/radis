@@ -398,9 +398,7 @@ def test_bisects_on_timeout_and_isolates_offender(settings, caplog, monkeypatch)
         assert rsvs_by_pk[pk].embedding is not None
 
     error_msgs = [r.getMessage() for r in caplog.records if r.levelname == "ERROR"]
-    assert any(
-        f"report_id={offender_pk}" in msg and "timed out" in msg for msg in error_msgs
-    )
+    assert any(f"report_id={offender_pk}" in msg and "timed out" in msg for msg in error_msgs)
     assert any("skipped as too large" in msg and str(offender_pk) in msg for msg in error_msgs)
 
 

@@ -131,6 +131,14 @@ class EmbeddingClient:
         self._instruction = settings.EMBEDDING_QUERY_INSTRUCTION
 
     def embed_documents(self, texts: list[str]) -> list[list[float]]:
+        """Low-level call to the embedding backend, with no rate-limit gating
+        of its own — `embed_query` (below) and `_embed_chunk_with_retry` in
+        `radis/pgsearch/tasks.py` are the two gated call sites that route
+        through this method. Calling `embed_documents` directly bypasses the
+        rate-limit gate entirely. New code that needs embeddings should go
+        through `embed_query` (retrieval) or the existing
+        `embed_reports_task` / `enqueue_embed_reports` path (bulk), not call
+        this method directly."""
         try:
             # encoding_format="float" requests JSON-float vectors. Without this
             # the SDK defaults to base64, which would require a decode step
