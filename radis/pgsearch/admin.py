@@ -20,6 +20,11 @@ class ReportSearchIndexAdmin(admin.ModelAdmin):
     search_fields = ("report__document_id",)
     actions = ("enqueue_pending_embeddings", "clear_embeddings_for_remodel")
     change_list_template = "admin/pgsearch/reportsearchindex/change_list.html"
+    # Unconfigured, `report` (OneToOneField) renders as a <select> populated
+    # with every Report row — ~1.7M rows in production — on every change-form
+    # load. raw_id_fields swaps that for a text input + lookup popup so
+    # opening a single row doesn't enumerate the whole table.
+    raw_id_fields = ("report",)
 
     def has_delete_permission(self, request, obj=None):
         # RSI rows are managed by the post_save signal on Report — deleting
