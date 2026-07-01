@@ -15,6 +15,7 @@ from .utils.embedding_client import (
     EmbeddingPayloadTooLargeError,
 )
 from .utils.indexing import bulk_upsert_report_search_indexes
+from .utils.rate_limiter import acquire_token, call_with_rate_limit
 
 logger = logging.getLogger(__name__)
 
@@ -61,8 +62,16 @@ def _embed_chunk_with_retry(client: EmbeddingClient, texts: list[str]) -> list[l
     blips (3 attempts within ~30s); Procrastinate handles extended outages
     (whole-task retry on backoff). `EmbeddingPayloadTooLargeError` is
     excluded by the predicate so the bisect logic above this layer can
-    catch and resolve it without burning retry budget."""
-    return client.embed_documents(texts)
+    catch and resolve it without burning retry budget.
+
+    Every real HTTP attempt here — including stamina retries and bisected
+    sub-chunks — goes through the background-tier rate-limit gate, which
+    also honors the gateway's own 429 wait time if our proactive gating
+    still lets a request through that the real backend rejects."""
+    return call_with_rate_limit(
+        lambda: acquire_token("embedding_background"),
+        lambda: client.embed_documents(texts),
+    )
 
 
 def _log_stamina_retry(details: stamina.instrumentation.RetryDetails) -> None:

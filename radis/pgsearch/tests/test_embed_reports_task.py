@@ -50,6 +50,17 @@ def caplog_tasks(caplog):
         task_logger.removeHandler(caplog.handler)
 
 
+@pytest.fixture(autouse=True)
+def _bypass_rate_limit_gate(monkeypatch):
+    """These tests exercise embed_reports_task's business logic (bisect,
+    retry, logging), not the rate-limit gate itself — that's covered in
+    test_rate_limiter.py. Patch it to a passthrough so these tests don't
+    depend on real DB-backed gating."""
+    from radis.pgsearch import tasks as tasks_module
+
+    monkeypatch.setattr(tasks_module, "call_with_rate_limit", lambda acquire_fn, fn: fn())
+
+
 pytestmark = pytest.mark.django_db(transaction=True)
 
 
@@ -119,6 +130,34 @@ def test_embeds_in_internal_batches(settings):
     sizes = [len(call.args[0]) for call in fake.embed_documents.call_args_list]
     assert sorted(sizes) == [1, 2, 2]
     assert ReportSearchIndex.objects.filter(embedding__isnull=True).count() == 0
+
+
+def test_embed_chunk_with_retry_uses_rate_limit_gate(monkeypatch):
+    from radis.pgsearch import tasks as tasks_module
+
+    calls = {}
+
+    def fake_call_with_rate_limit(acquire_fn, fn):
+        calls["acquire_fn"] = acquire_fn
+        return fn()
+
+    monkeypatch.setattr(tasks_module, "call_with_rate_limit", fake_call_with_rate_limit)
+
+    acquired = {}
+
+    def fake_acquire_token(bucket, weight=1):
+        acquired["bucket"] = bucket
+
+    monkeypatch.setattr(tasks_module, "acquire_token", fake_acquire_token)
+
+    fake_client = MagicMock()
+    fake_client.embed_documents = MagicMock(return_value=[[0.1, 0.2]])
+
+    result = tasks_module._embed_chunk_with_retry(fake_client, ["hello"])
+
+    assert result == [[0.1, 0.2]]
+    calls["acquire_fn"]()
+    assert acquired["bucket"] == "embedding_background"
 
 
 def test_embedding_error_propagates():
