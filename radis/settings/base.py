@@ -355,6 +355,17 @@ EMBEDDING_SUBJOB_SIZE = 1000
 # parks itself ahead of every later live write without this split.
 EMBEDDING_LIVE_PRIORITY = 1
 EMBEDDING_BACKFILL_PRIORITY = 0
+# Rate-limit gate split of the embedding gateway's ~60 request/min budget
+# (confirmed empirically; see
+# docs/superpowers/specs/2026-07-01-embedding-rate-limit-gate-design.md).
+# Search/retrieval is low-volume and interactive (a blocked live search is a
+# real UX cost); background bulk embedding is high-volume and non-interactive
+# (a delay is invisible). Search gets a reserved floor plus spillover into
+# background's spare capacity; background is capped to its own share and can
+# never borrow from search's floor. Tunable — leave headroom below the true
+# ceiling given unconfirmed cost-weighting on large requests.
+EMBEDDING_SEARCH_RATE_LIMIT_PER_MINUTE = 10
+EMBEDDING_BACKGROUND_RATE_LIMIT_PER_MINUTE = 50
 
 # Hybrid search tuning
 HYBRID_VECTOR_TOP_K = 100
