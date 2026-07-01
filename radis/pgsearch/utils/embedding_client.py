@@ -7,6 +7,8 @@ import httpx
 import openai
 from django.conf import settings
 
+from .rate_limiter import acquire_search_priority_token, call_with_rate_limit
+
 logger = logging.getLogger(__name__)
 
 
@@ -150,7 +152,10 @@ class EmbeddingClient:
 
     def embed_query(self, text: str) -> list[float]:
         prefixed = f"{self._instruction}{text}" if self._instruction else text
-        vectors = self.embed_documents([prefixed])
+        vectors = call_with_rate_limit(
+            acquire_search_priority_token,
+            lambda: self.embed_documents([prefixed]),
+        )
         if not vectors:
             raise EmbeddingClientError("Embedding service returned no vectors for query")
         return vectors[0]

@@ -31,6 +31,17 @@ def _install_transport(monkeypatch, handler):
     )
 
 
+@pytest.fixture(autouse=True)
+def _bypass_rate_limit_gate(monkeypatch):
+    """These tests exercise EmbeddingClient's request/response handling, not
+    the rate-limit gate itself (covered in test_rate_limiter.py). This file
+    has no django_db marker, so without this patch embed_query's real gate
+    would fail with a "database access not allowed" error."""
+    from radis.pgsearch.utils import embedding_client as ec
+
+    monkeypatch.setattr(ec, "call_with_rate_limit", lambda acquire_fn, fn: fn())
+
+
 @_patched_settings()
 def test_embed_documents_posts_payload_and_normalizes(monkeypatch):
     from radis.pgsearch.utils import embedding_client as ec
@@ -363,6 +374,34 @@ def test_400_with_no_error_object_is_not_too_large(monkeypatch):
     with pytest.raises(ec.EmbeddingClientError) as excinfo:
         ec.EmbeddingClient().embed_documents(["x"])
     assert not isinstance(excinfo.value, ec.EmbeddingPayloadTooLargeError)
+
+
+@_patched_settings()
+def test_embed_query_uses_rate_limit_gate(monkeypatch):
+    from radis.pgsearch.utils import embedding_client as ec
+
+    def fake_call_with_rate_limit(acquire_fn, fn):
+        acquire_fn()
+        return fn()
+
+    monkeypatch.setattr(ec, "call_with_rate_limit", fake_call_with_rate_limit)
+
+    acquired = {"called": False}
+
+    def fake_acquire_search_priority_token(weight=1):
+        acquired["called"] = True
+
+    monkeypatch.setattr(ec, "acquire_search_priority_token", fake_acquire_search_priority_token)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"data": [{"embedding": [1.0, 0.0, 0.0, 0.0]}]})
+
+    _install_transport(monkeypatch, handler)
+
+    vec = ec.EmbeddingClient().embed_query("pneumonia")
+
+    assert vec == [1.0, 0.0, 0.0, 0.0]
+    assert acquired["called"] is True
 
 
 @override_settings(
