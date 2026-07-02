@@ -155,7 +155,12 @@ DB):
 
 ## Migration note
 
-`0006_embeddingbackoffstate` follows `0005_delete_embeddingratelimitevent`.
-The prod image currently deployed was built before `0004`, so its next
-deploy applies 0004→0005→0006 in one `migrate` run; the 0004/0005
-create-then-drop pair is harmless and must stay (branch is pushed).
+Updated during implementation, at the user's direction: the never-applied
+`0004_embeddingratelimitevent` / `0005_delete_embeddingratelimitevent`
+create-then-drop pair was **squashed away** (deleted) rather than kept. This
+is safe because no live database ever applied them — the prod image was
+built before 0004 existed, staging runs a different branch, and the stale
+radis_dev postgres lacks pgvector so it never got past 0002. The new
+migrations are `0004_django6_index_rename` (pre-existing Django 6
+autodetector drift on ReportSearchIndex, captured separately) and
+`0005_embeddingbackoffstate` (this feature).
