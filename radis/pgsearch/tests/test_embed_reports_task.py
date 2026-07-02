@@ -515,3 +515,31 @@ def test_cancel_backfill_embeddings_returns_zero_when_queue_empty():
     from radis.pgsearch import tasks as tasks_module
 
     assert tasks_module.cancel_backfill_embeddings() == 0
+
+
+def test_embed_cancel_command_reports_count(settings):
+    from io import StringIO
+
+    from django.core.management import call_command
+
+    from radis.pgsearch import tasks as tasks_module
+
+    tasks_module.enqueue_embed_reports(
+        [1, 2], subjob_size=1, priority=settings.EMBEDDING_BACKFILL_PRIORITY
+    )
+
+    out = StringIO()
+    call_command("embed_cancel", stdout=out)
+
+    assert "Cancelled 2 queued backfill subjob(s)" in out.getvalue()
+
+
+def test_embed_cancel_command_handles_empty_queue():
+    from io import StringIO
+
+    from django.core.management import call_command
+
+    out = StringIO()
+    call_command("embed_cancel", stdout=out)
+
+    assert "No queued backfill subjobs to cancel." in out.getvalue()
