@@ -343,12 +343,16 @@ EMBEDDING_MODEL_NAME = env.str("EMBEDDING_MODEL_NAME", default="Qwen/Qwen3-Embed
 EMBEDDING_DIM = env.int("EMBEDDING_DIM", default=1024)
 
 # Embedding tuning constants
-EMBEDDING_REQUEST_TIMEOUT = 30
+EMBEDDING_REQUEST_TIMEOUT = env.int("EMBEDDING_REQUEST_TIMEOUT", default=30)
 EMBEDDING_QUERY_INSTRUCTION = (
     "Instruct: Given a radiology search query, retrieve relevant radiology reports.\nQuery: "
 )
-EMBEDDING_BATCH_SIZE = 1000
-EMBEDDING_SUBJOB_SIZE = 1000
+# Texts per HTTP call. A 429'd or timed-out call wastes its whole payload
+# and retries every text in it, so smaller batches bound the waste and
+# consume the gateway's sliding window in smoother increments.
+EMBEDDING_BATCH_SIZE = env.int("EMBEDDING_BATCH_SIZE", default=200)
+# Reports per Procrastinate subjob (task granularity, not HTTP granularity).
+EMBEDDING_SUBJOB_SIZE = env.int("EMBEDDING_SUBJOB_SIZE", default=1000)
 # Procrastinate task priorities for the `embeddings` queue. Live writes
 # (write-path handler + FTS chain) get LIVE; operator-initiated backfill
 # (`embed_pending`, admin action) gets BACKFILL. A million-row backfill

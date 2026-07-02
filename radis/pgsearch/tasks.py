@@ -116,8 +116,8 @@ def enqueue_embed_reports(
     Subjob size defaults to `settings.EMBEDDING_SUBJOB_SIZE` (the
     Procrastinate-task granularity). It's distinct from
     `settings.EMBEDDING_BATCH_SIZE` (the per-HTTP-call size inside one
-    task), though both currently default to 1000 — one HTTP call per
-    subjob. A 1M-report backfill becomes ~1k subjobs; many workers can
+    task) — each subjob makes ceil(subjob_size / EMBEDDING_BATCH_SIZE)
+    HTTP calls. A 1M-report backfill becomes ~1k subjobs; many workers can
     drain in parallel, retries have bounded blast radius, and a stuck
     task can't tie up the worker on the whole queue's worth of work.
 
