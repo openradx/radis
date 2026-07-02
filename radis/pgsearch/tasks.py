@@ -163,8 +163,10 @@ def cancel_backfill_embeddings() -> int:
     keeps distinct. Cancellation goes job-by-job through Procrastinate's
     cancel_job_by_id, which is race-safe: a job a worker grabbed between
     our select and the cancel returns False and simply runs to completion.
-    Returns the number of jobs actually cancelled. Resume = re-run
-    embed_pending (idempotent, embedding IS NULL filter)."""
+    Returns the number of jobs actually cancelled. Cancelled jobs are
+    terminal — continuing the backfill means re-running embed_pending,
+    which enqueues the still-NULL reports as fresh subjobs chunked at the
+    then-current EMBEDDING_SUBJOB_SIZE."""
     job_ids = list(
         ProcrastinateJob.objects.filter(
             task_name="radis.pgsearch.tasks.embed_reports_task",

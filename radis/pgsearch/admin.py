@@ -68,8 +68,10 @@ class ReportSearchIndexAdmin(admin.ModelAdmin):
             self.message_user(
                 request,
                 f"Cancelled {cancelled} queued backfill subjob(s). Running "
-                f"subjobs finish their current chunk; re-run embed_pending "
-                f"to resume.",
+                f"subjobs finish their current chunk. Re-running embed_pending "
+                f"enqueues the still-unembedded reports as fresh subjobs "
+                f"(chunked at the current subjob size) — cancelled jobs are "
+                f"never revived.",
                 level=messages.SUCCESS,
             )
         else:
