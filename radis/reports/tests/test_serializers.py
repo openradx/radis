@@ -76,6 +76,20 @@ def test_to_internal_value_reshapes_language_metadata_modalities():
     assert [m["code"] for m in vd["modalities"]] == ["CT", "PT"]
 
 
+@pytest.mark.django_db
+def test_to_internal_value_does_not_mutate_the_input_payload():
+    group = GroupFactory.create()
+    payload = wire_payload(group=group)
+    before = {key: value for key, value in payload.items()}
+
+    serializer = ReportSerializer(data=payload)
+
+    assert serializer.is_valid(), serializer.errors
+    # The wire-format reshaping must happen on a copy, not on the caller's
+    # payload (which may even be an immutable QueryDict).
+    assert payload == before
+
+
 # FIXED: the three type-guard branches in ``to_internal_value`` now raise a
 # *dict-shaped* ``ValidationError`` (e.g. ``{"language": "Invalid language
 # type."}``). Previously they raised ``ValidationError("Invalid <x> type.")``
@@ -145,31 +159,19 @@ def test_to_representation_collapses_to_wire_format():
 def test_create_then_representation_round_trips():
     """A payload run through create() and back through to_representation()
     yields the same flat language/metadata/modalities shapes.
-
-    Note: ``to_internal_value`` mutates the *input* dict in place (it rewrites
-    ``data["language"]`` to ``{"code": ...}`` etc.), so we snapshot the original
-    wire values before validating and compare the representation against those.
     """
     group = GroupFactory.create()
     payload = wire_payload(document_id="doc-roundtrip", group=group)
-    expected = {
-        "language": payload["language"],
-        "metadata": dict(payload["metadata"]),
-        "modalities": list(payload["modalities"]),
-        "document_id": payload["document_id"],
-    }
     serializer = ReportSerializer(data=payload)
     assert serializer.is_valid(), serializer.errors
 
     report = serializer.save()
     out = ReportSerializer(report).data
 
-    assert out["language"] == expected["language"]
-    assert out["metadata"] == expected["metadata"]
-    assert sorted(out["modalities"]) == sorted(expected["modalities"])
-    assert out["document_id"] == expected["document_id"]
-    # Document the in-place mutation side effect explicitly.
-    assert payload["language"] == {"code": "en"}
+    assert out["language"] == payload["language"]
+    assert out["metadata"] == payload["metadata"]
+    assert sorted(out["modalities"]) == sorted(payload["modalities"])
+    assert out["document_id"] == payload["document_id"]
 
 
 # --------------------------------------------------------------------------- #

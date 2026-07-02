@@ -131,6 +131,10 @@ class ReportSerializer(serializers.ModelSerializer):
         return report
 
     def to_internal_value(self, data: Any) -> Any:
+        if isinstance(data, dict):
+            # Don't mutate the caller's payload (it may even be an immutable QueryDict).
+            data = data.copy()
+
         if "language" in data:
             if not isinstance(data["language"], str):
                 raise ValidationError({"language": "Invalid language type."})
