@@ -107,3 +107,14 @@ def test_call_with_429_backoff_does_not_intercept_other_errors(monkeypatch):
         rl.call_with_429_backoff(fails)
 
     assert sleep_calls == []
+
+
+@pytest.mark.django_db
+def test_embedding_backoff_state_defaults():
+    from radis.pgsearch.models import EmbeddingBackoffState
+
+    state, created = EmbeddingBackoffState.objects.get_or_create(pk=1)
+
+    assert created
+    assert state.paused_until is None
+    assert state.consecutive_429s == 0
