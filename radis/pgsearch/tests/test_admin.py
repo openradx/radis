@@ -168,3 +168,72 @@ def test_clear_embeddings_for_remodel_logs_info_with_user_and_count(caplog):
         "admin.clear_embeddings_for_remodel: user=bob cleared 2 embedding(s)" in m
         for m in info_msgs
     )
+
+
+def test_cancel_backfill_url_is_registered():
+    from django.urls import reverse
+
+    assert reverse("admin:pgsearch_reportsearchindex_cancel_backfill").endswith(
+        "/cancel-backfill/"
+    )
+
+
+def test_cancel_backfill_view_cancels_and_redirects(settings):
+    from procrastinate.contrib.django.models import ProcrastinateJob
+
+    from radis.pgsearch import tasks as tasks_module
+
+    tasks_module.enqueue_embed_reports(
+        [1, 2], subjob_size=1, priority=settings.EMBEDDING_BACKFILL_PRIORITY
+    )
+
+    admin_instance = ReportSearchIndexAdmin(ReportSearchIndex, AdminSite())
+    admin_instance.message_user = MagicMock()
+    request = MagicMock()
+    request.method = "POST"
+    request.user.get_username.return_value = "alice"
+
+    response = admin_instance.cancel_backfill_view(request)
+
+    assert response.status_code == 302
+    assert ProcrastinateJob.objects.filter(status="cancelled").count() == 2
+    msg = admin_instance.message_user.call_args.args[1]
+    assert "Cancelled 2 queued backfill subjob(s)" in msg
+
+
+def test_cancel_backfill_view_warns_when_nothing_queued():
+    from django.contrib import messages
+
+    admin_instance = ReportSearchIndexAdmin(ReportSearchIndex, AdminSite())
+    admin_instance.message_user = MagicMock()
+    request = MagicMock()
+    request.method = "POST"
+
+    response = admin_instance.cancel_backfill_view(request)
+
+    assert response.status_code == 302
+    call = admin_instance.message_user.call_args
+    assert "No queued backfill subjobs to cancel." in call.args[1]
+    assert call.kwargs.get("level") == messages.WARNING
+
+
+def test_cancel_backfill_view_rejects_get():
+    admin_instance = ReportSearchIndexAdmin(ReportSearchIndex, AdminSite())
+    request = MagicMock()
+    request.method = "GET"
+
+    response = admin_instance.cancel_backfill_view(request)
+
+    assert response.status_code == 405
+
+
+def test_cancel_backfill_view_requires_change_permission():
+    from django.core.exceptions import PermissionDenied
+
+    admin_instance = ReportSearchIndexAdmin(ReportSearchIndex, AdminSite())
+    request = MagicMock()
+    request.method = "POST"
+    request.user.has_perm.return_value = False
+
+    with pytest.raises(PermissionDenied):
+        admin_instance.cancel_backfill_view(request)

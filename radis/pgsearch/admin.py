@@ -2,13 +2,16 @@ import logging
 
 from django.conf import settings
 from django.contrib import admin, messages
+from django.core.exceptions import PermissionDenied
 from django.db.models import Count
 from django.db.models.query import QuerySet
+from django.http import HttpResponse, HttpResponseNotAllowed, HttpResponseRedirect
 from django.http.request import HttpRequest
+from django.urls import path, reverse
 from procrastinate.contrib.django.models import ProcrastinateJob
 
 from .models import ReportSearchIndex
-from .tasks import enqueue_embed_reports
+from .tasks import cancel_backfill_embeddings, enqueue_embed_reports
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +43,47 @@ class ReportSearchIndexAdmin(admin.ModelAdmin):
         extra_context = extra_context or {}
         extra_context["embedding_pipeline_stats"] = self._embedding_pipeline_stats()
         return super().changelist_view(request, extra_context=extra_context)
+
+    def get_urls(self):
+        return [
+            path(
+                "cancel-backfill/",
+                self.admin_site.admin_view(self.cancel_backfill_view),
+                name="pgsearch_reportsearchindex_cancel_backfill",
+            ),
+            *super().get_urls(),
+        ]
+
+    def cancel_backfill_view(self, request: HttpRequest) -> HttpResponse:
+        """Queue-scoped counterpart to `embed_cancel`: cancel every queued
+        backfill subjob. A custom view (not an admin action) because admin
+        actions are row-scoped and cancelling the queue has nothing to do
+        with selected ReportSearchIndex rows."""
+        if request.method != "POST":
+            return HttpResponseNotAllowed(["POST"])
+        if not self.has_change_permission(request):
+            raise PermissionDenied
+        cancelled = cancel_backfill_embeddings()
+        if cancelled:
+            self.message_user(
+                request,
+                f"Cancelled {cancelled} queued backfill subjob(s). Running "
+                f"subjobs finish their current chunk; re-run embed_pending "
+                f"to resume.",
+                level=messages.SUCCESS,
+            )
+        else:
+            self.message_user(
+                request,
+                "No queued backfill subjobs to cancel.",
+                level=messages.WARNING,
+            )
+        logger.info(
+            "admin.cancel_backfill: user=%s cancelled %d subjob(s)",
+            request.user.get_username(),
+            cancelled,
+        )
+        return HttpResponseRedirect(reverse("admin:pgsearch_reportsearchindex_changelist"))
 
     @staticmethod
     def _embedding_pipeline_stats() -> dict[str, int]:

@@ -30,10 +30,24 @@ enqueued at `EMBEDDING_BACKFILL_PRIORITY` (0), live write-path subjobs at
   subjobs (at most the worker's concurrency) finish their current chunk
   and that `embed_pending` re-runs resume where things left off.
 - Live-path subjobs (priority 1) are never touched.
-- Decided while the user was away (flagged): no admin button (queue-scoped
-  cancel doesn't fit row-scoped admin actions; the stats badge already
-  shows the queue draining), and no abort of in-flight subjobs (bounded at
-  concurrency × subjob_size reports, minutes of work). Revisit on request.
+- Decided while the user was away (flagged): no abort of in-flight subjobs
+  (bounded at concurrency × subjob_size reports, minutes of work). Revisit
+  on request.
+
+### Addendum (user-requested): admin cancel button
+
+A queue-scoped cancel doesn't fit Django's row-scoped admin *actions*, but
+it fits a custom admin view: `ReportSearchIndexAdmin.get_urls()` registers
+`cancel-backfill/` (name `pgsearch_reportsearchindex_cancel_backfill`),
+handled by `cancel_backfill_view` — POST-only, gated on
+`has_change_permission` (the same permission the enqueue action needs),
+calls the shared `cancel_backfill_embeddings()` helper, reports the count
+via the messages framework, logs the acting username, and redirects back
+to the changelist. The already-customized changelist template gains a
+"Cancel queued backfill" button (a CSRF-protected inline form) inside the
+pipeline-stats badge, shown only when `todo > 0` — the button appears
+exactly when there is something to cancel, next to the numbers that say
+so.
 
 ## Feature 2: env-configurable throughput knobs
 
