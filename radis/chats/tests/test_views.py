@@ -16,7 +16,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from adit_radis_shared.accounts.factories import UserFactory
-from asgiref.sync import sync_to_async
+from channels.db import database_sync_to_async
 from django.http import HttpResponse
 from django.test import AsyncClient
 from django.urls import reverse
@@ -80,7 +80,7 @@ def make_capturing_async_openai_mock(*contents: str) -> tuple[MagicMock, _AsyncC
 
 async def _login(user) -> AsyncClient:
     client = AsyncClient()
-    await sync_to_async(client.force_login)(user)
+    await database_sync_to_async(client.force_login)(user)
     return client
 
 
@@ -92,7 +92,7 @@ async def _login(user) -> AsyncClient:
 @pytest.mark.asyncio
 @pytest.mark.django_db(transaction=True)
 async def test_create_chat_general_prompt_persists_messages_and_title():
-    user = await sync_to_async(UserFactory.create)(is_active=True)
+    user = await database_sync_to_async(UserFactory.create)(is_active=True)
     client = await _login(user)
 
     openai_mock, capture = make_capturing_async_openai_mock("LLM answer", "Generated Title")
@@ -105,14 +105,14 @@ async def test_create_chat_general_prompt_persists_messages_and_title():
 
     assert resp.status_code == 200
 
-    chat = await sync_to_async(Chat.objects.get)()
-    assert await sync_to_async(lambda: chat.owner)() == user
-    assert await sync_to_async(lambda: chat.report)() is None
+    chat = await database_sync_to_async(Chat.objects.get)()
+    assert await database_sync_to_async(lambda: chat.owner)() == user
+    assert await database_sync_to_async(lambda: chat.report)() is None
     # Title comes from the (stripped, punctuation-trimmed) second LLM response.
     assert chat.title == "Generated Title"
 
     # Three messages stored in order: SYSTEM, USER, ASSISTANT.
-    msgs = await sync_to_async(
+    msgs = await database_sync_to_async(
         lambda: list(chat.messages.order_by("id").values_list("role", "content"))
     )()
     assert [m[0] for m in msgs] == [ChatRole.SYSTEM, ChatRole.USER, ChatRole.ASSISTANT]
@@ -135,8 +135,8 @@ async def test_create_chat_general_prompt_persists_messages_and_title():
 @pytest.mark.asyncio
 @pytest.mark.django_db(transaction=True)
 async def test_create_chat_with_report_embeds_report_body_in_system_prompt():
-    user = await sync_to_async(UserFactory.create)(is_active=True)
-    report = await sync_to_async(ReportFactory.create)(body="UNIQUE-REPORT-FINDINGS-XYZ")
+    user = await database_sync_to_async(UserFactory.create)(is_active=True)
+    report = await database_sync_to_async(ReportFactory.create)(body="UNIQUE-REPORT-FINDINGS-XYZ")
     client = await _login(user)
 
     openai_mock, capture = make_capturing_async_openai_mock("answer", "title")
@@ -149,15 +149,15 @@ async def test_create_chat_with_report_embeds_report_body_in_system_prompt():
 
     assert resp.status_code == 200
 
-    chat = await sync_to_async(Chat.objects.get)()
-    assert await sync_to_async(lambda: chat.report)() == report
+    chat = await database_sync_to_async(Chat.objects.get)()
+    assert await database_sync_to_async(lambda: chat.report)() == report
 
     # The report body must be substituted into the system prompt that reaches the LLM.
     system_prompt = capture.calls[0]["messages"][0]["content"]
     assert "UNIQUE-REPORT-FINDINGS-XYZ" in system_prompt
 
     # And it must be persisted as the stored SYSTEM message.
-    system_msg = await sync_to_async(
+    system_msg = await database_sync_to_async(
         lambda: chat.messages.get(role=ChatRole.SYSTEM).content
     )()
     assert "UNIQUE-REPORT-FINDINGS-XYZ" in system_msg
@@ -166,7 +166,7 @@ async def test_create_chat_with_report_embeds_report_body_in_system_prompt():
 @pytest.mark.asyncio
 @pytest.mark.django_db(transaction=True)
 async def test_create_chat_post_without_htmx_is_rejected():
-    user = await sync_to_async(UserFactory.create)(is_active=True)
+    user = await database_sync_to_async(UserFactory.create)(is_active=True)
     client = await _login(user)
 
     openai_mock, _ = make_capturing_async_openai_mock("a", "t")
@@ -177,7 +177,7 @@ async def test_create_chat_post_without_htmx_is_rejected():
         )
 
     assert resp.status_code == 400
-    assert await sync_to_async(Chat.objects.count)() == 0
+    assert await database_sync_to_async(Chat.objects.count)() == 0
 
 
 # --------------------------------------------------------------------------- #
@@ -188,18 +188,18 @@ async def test_create_chat_post_without_htmx_is_rejected():
 @pytest.mark.asyncio
 @pytest.mark.django_db(transaction=True)
 async def test_update_chat_sends_full_history_and_appends_turn():
-    user = await sync_to_async(UserFactory.create)(is_active=True)
+    user = await database_sync_to_async(UserFactory.create)(is_active=True)
     client = await _login(user)
 
     # Seed a chat with an existing system/user/assistant turn.
-    chat = await sync_to_async(Chat.objects.create)(owner=user, title="t")
-    await sync_to_async(ChatMessage.objects.create)(
+    chat = await database_sync_to_async(Chat.objects.create)(owner=user, title="t")
+    await database_sync_to_async(ChatMessage.objects.create)(
         chat=chat, role=ChatRole.SYSTEM, content="SYS-PROMPT"
     )
-    await sync_to_async(ChatMessage.objects.create)(
+    await database_sync_to_async(ChatMessage.objects.create)(
         chat=chat, role=ChatRole.USER, content="first question"
     )
-    await sync_to_async(ChatMessage.objects.create)(
+    await database_sync_to_async(ChatMessage.objects.create)(
         chat=chat, role=ChatRole.ASSISTANT, content="first answer"
     )
 
@@ -225,7 +225,7 @@ async def test_update_chat_sends_full_history_and_appends_turn():
     ]
 
     # The new user + assistant messages were persisted.
-    roles = await sync_to_async(
+    roles = await database_sync_to_async(
         lambda: list(chat.messages.order_by("id").values_list("role", "content"))
     )()
     assert roles[-2] == (ChatRole.USER, "second question")
@@ -249,10 +249,10 @@ async def test_update_chat_owned_by_other_user_is_blocked():
     chat_delete_view use get_object_or_404 (HTTP 404). Consider aget_object_or_404
     in chat_update_view for consistent 404 behaviour.
     """
-    owner = await sync_to_async(UserFactory.create)(is_active=True)
-    other = await sync_to_async(UserFactory.create)(is_active=True)
-    chat = await sync_to_async(Chat.objects.create)(owner=owner, title="t")
-    await sync_to_async(ChatMessage.objects.create)(
+    owner = await database_sync_to_async(UserFactory.create)(is_active=True)
+    other = await database_sync_to_async(UserFactory.create)(is_active=True)
+    chat = await database_sync_to_async(Chat.objects.create)(owner=owner, title="t")
+    await database_sync_to_async(ChatMessage.objects.create)(
         chat=chat, role=ChatRole.SYSTEM, content="s"
     )
 
@@ -269,15 +269,15 @@ async def test_update_chat_owned_by_other_user_is_blocked():
     # The LLM must never be consulted for a chat the user does not own.
     assert len(capture.calls) == 0
     # No new messages were appended to the victim's chat.
-    assert await sync_to_async(chat.messages.count)() == 1
+    assert await database_sync_to_async(chat.messages.count)() == 1
 
 
 @pytest.mark.asyncio
 @pytest.mark.django_db(transaction=True)
 async def test_detail_view_only_returns_own_chat():
-    owner = await sync_to_async(UserFactory.create)(is_active=True)
-    other = await sync_to_async(UserFactory.create)(is_active=True)
-    chat = await sync_to_async(Chat.objects.create)(owner=owner, title="t")
+    owner = await database_sync_to_async(UserFactory.create)(is_active=True)
+    other = await database_sync_to_async(UserFactory.create)(is_active=True)
+    chat = await database_sync_to_async(Chat.objects.create)(owner=owner, title="t")
 
     # Owner can read it.
     owner_client = await _login(owner)
