@@ -24,7 +24,7 @@ class LLMResponseError(Exception):
 # Process-global so every LLM caller in this worker/web process shares one backoff window.
 _LLM_GATE = RateLimitGate(
     base_seconds=settings.LLM_RATE_LIMIT_BACKOFF_BASE_SECONDS,
-    fallback_max_seconds=settings.LLM_RATE_LIMIT_FALLBACK_MAX_SECONDS,
+    backoff_max_seconds=settings.LLM_RATE_LIMIT_BACKOFF_MAX_SECONDS,
     header_ceiling_seconds=settings.LLM_RATE_LIMIT_HEADER_CEILING_SECONDS,
 )
 

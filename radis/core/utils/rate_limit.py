@@ -32,21 +32,21 @@ class RateLimitGate:
     def __init__(
         self,
         base_seconds: float,
-        fallback_max_seconds: float,
+        backoff_max_seconds: float,
         header_ceiling_seconds: float,
         now: Callable[[], float] = time.monotonic,
         sleep: Callable[[float], None] = time.sleep,
         async_sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     ) -> None:
         self._base = base_seconds
-        self._fallback_max = fallback_max_seconds  # caps the header-less exponential guess only
-        self._header_ceiling = header_ceiling_seconds  # safety rail for an absurd Retry-After
+        self._backoff_max = backoff_max_seconds  # caps the exponential backoff pause
+        self._header_ceiling = header_ceiling_seconds  # above this a Retry-After is deemed absurd
         self._now = now
         self._sleep = sleep
         self._async_sleep = async_sleep
         self._lock = threading.Lock()
         self._blocked_until = 0.0  # monotonic deadline; gate is open when now() >= this
-        self._consecutive_429 = 0  # header-less 429s in a row; drives the exponential fallback
+        self._consecutive_429 = 0  # 429s without a usable Retry-After; drives the backoff ladder
 
     def reset(self) -> None:
         """Clear runtime state. For tests that share the process-global gate."""
@@ -61,11 +61,14 @@ class RateLimitGate:
     def note_rate_limited(self, retry_after: float | None) -> float:
         """Close the gate after a 429. Returns the pause used to arm it."""
         with self._lock:
-            if retry_after is not None:
-                pause = min(retry_after, self._header_ceiling)
+            if retry_after is not None and retry_after < self._header_ceiling:
+                # A sane Retry-After: trust the provider and wait exactly that long.
+                pause = retry_after
             else:
+                # No header, or an absurd one (>= header_ceiling): ignore it and climb the
+                # exponential backoff ladder, same as a header-less 429.
                 self._consecutive_429 += 1
-                pause = min(self._base * 2 ** (self._consecutive_429 - 1), self._fallback_max)
+                pause = min(self._base * 2 ** (self._consecutive_429 - 1), self._backoff_max)
             # Defensive: if two requests get rate-limited concurrently, don't let the
             # second (shorter) pause shrink an already-armed longer window.
             self._blocked_until = max(self._blocked_until, self._now() + pause)

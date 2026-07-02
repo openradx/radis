@@ -36,7 +36,7 @@ class FakeClock:
 def make_gate(clock: FakeClock) -> RateLimitGate:
     return RateLimitGate(
         base_seconds=5.0,
-        fallback_max_seconds=120.0,
+        backoff_max_seconds=120.0,
         header_ceiling_seconds=3600.0,
         now=clock.now,
         sleep=clock.sleep,
@@ -49,12 +49,21 @@ def make_gate(clock: FakeClock) -> RateLimitGate:
 
 def test_retry_after_within_budget_is_honored_in_full():
     gate = make_gate(FakeClock())
-    assert gate.note_rate_limited(200.0) == 200.0  # not clamped to fallback_max (120)
+    assert gate.note_rate_limited(200.0) == 200.0  # not clamped to backoff_max (120)
 
 
-def test_retry_after_above_ceiling_is_clamped_to_ceiling():
+def test_retry_after_at_or_above_ceiling_falls_back_to_exponential_backoff():
     gate = make_gate(FakeClock())
-    assert gate.note_rate_limited(4000.0) == 3600.0
+    # An absurd Retry-After (>= header_ceiling of 3600) is ignored; we climb the
+    # exponential backoff ladder instead (5, 10, ...) rather than honoring the header.
+    assert gate.note_rate_limited(4000.0) == 5.0
+    assert gate.note_rate_limited(4000.0) == 10.0
+
+
+def test_retry_after_at_or_above_ceiling_shares_the_ladder_with_headerless_429s():
+    gate = make_gate(FakeClock())
+    assert gate.note_rate_limited(None) == 5.0
+    assert gate.note_rate_limited(4000.0) == 10.0  # absurd header advances the same ladder
 
 
 def test_exponential_fallback_when_no_header():
@@ -216,20 +225,20 @@ def test_run_through_gate_retry_after_over_budget_defers_and_arms():
     assert gate.wait_until_open(clock.now() + 300.0) is False
 
 
-def test_run_through_gate_clamps_retry_after_to_ceiling_for_budget_decision():
+def test_run_through_gate_ignores_absurd_retry_after_and_uses_backoff():
     clock = FakeClock()
-    gate = make_gate(clock)  # header_ceiling=3600
+    gate = make_gate(clock)  # header_ceiling=3600, backoff base 5.0
     calls = {"n": 0}
 
     def fn():
         calls["n"] += 1
         if calls["n"] == 1:
-            raise make_rate_limit_error({"retry-after": "4000"})  # > ceiling
+            raise make_rate_limit_error({"retry-after": "4000"})  # >= ceiling -> absurd
         return "ok"
 
-    # Budget 3700 > clamped window 3600: wait the clamped window, then succeed (no defer).
+    # The absurd header is ignored: back off by the first ladder step (5.0), then succeed.
     assert run_through_gate(gate, 3700.0, fn, now=clock.now) == "ok"
-    assert clock.slept == [3600.0]
+    assert clock.slept == [5.0]
 
 
 def test_run_through_gate_non_429_propagates_untouched():
@@ -287,7 +296,7 @@ async def test_run_through_gate_async_over_budget_defers():
 
 
 @pytest.mark.asyncio
-async def test_run_through_gate_async_clamps_retry_after_to_ceiling_for_budget_decision():
+async def test_run_through_gate_async_ignores_absurd_retry_after_and_uses_backoff():
     clock = FakeClock()
     gate = make_gate(clock)
     calls = {"n": 0}
@@ -295,11 +304,12 @@ async def test_run_through_gate_async_clamps_retry_after_to_ceiling_for_budget_d
     async def fn():
         calls["n"] += 1
         if calls["n"] == 1:
-            raise make_rate_limit_error({"retry-after": "4000"})
+            raise make_rate_limit_error({"retry-after": "4000"})  # >= ceiling -> absurd
         return "ok"
 
+    # The absurd header is ignored: back off by the first ladder step (5.0), then succeed.
     assert await run_through_gate_async(gate, 3700.0, fn, now=clock.now) == "ok"
-    assert clock.slept == [3600.0]
+    assert clock.slept == [5.0]
 
 
 # --- transient retries (sync) ---
