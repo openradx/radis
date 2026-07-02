@@ -32,14 +32,13 @@ def _install_transport(monkeypatch, handler):
 
 
 @pytest.fixture(autouse=True)
-def _bypass_rate_limit_gate(monkeypatch):
+def _bypass_429_backoff(monkeypatch):
     """These tests exercise EmbeddingClient's request/response handling, not
-    the rate-limit gate itself (covered in test_rate_limiter.py). This file
-    has no django_db marker, so without this patch embed_query's real gate
-    would fail with a "database access not allowed" error."""
+    the 429 backoff itself (covered in test_rate_limiter.py). Patch it to a
+    passthrough so a stray 429 in a test double can't trigger real sleeps."""
     from radis.pgsearch.utils import embedding_client as ec
 
-    monkeypatch.setattr(ec, "call_with_rate_limit", lambda acquire_fn, fn: fn())
+    monkeypatch.setattr(ec, "call_with_429_backoff", lambda fn: fn())
 
 
 @_patched_settings()
@@ -190,8 +189,8 @@ def test_5xx_propagates_as_typed_openai_error(monkeypatch):
     EMBEDDING_QUERY_INSTRUCTION="",
 )
 def test_429_propagates_as_typed_rate_limit_error(monkeypatch):
-    """429 must surface as openai.RateLimitError (not wrapped) so a future
-    rate-limit gate can intercept it."""
+    """429 must surface as openai.RateLimitError (not wrapped) so
+    `call_with_429_backoff` can intercept it."""
     import openai
 
     from radis.pgsearch.utils import embedding_client as ec
@@ -212,109 +211,11 @@ def test_429_propagates_as_typed_rate_limit_error(monkeypatch):
     EMBEDDING_REQUEST_TIMEOUT=10,
     EMBEDDING_QUERY_INSTRUCTION="",
 )
-def test_too_large_via_413(monkeypatch):
-    from radis.pgsearch.utils import embedding_client as ec
+def test_400_propagates_as_typed_bad_request_error(monkeypatch):
+    """4xx client errors surface as typed SDK exceptions (not wrapped) so
+    they escape the stamina retry predicate and fail the subjob fast."""
+    import openai
 
-    def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(413, text="payload too large")
-
-    _install_transport(monkeypatch, handler)
-    with pytest.raises(ec.EmbeddingPayloadTooLargeError):
-        ec.EmbeddingClient().embed_documents(["x"])
-
-
-@override_settings(
-    EMBEDDING_PROVIDER_URL="http://embed.example/v1",
-    EMBEDDING_PROVIDER_API_KEY="",
-    EMBEDDING_MODEL_NAME="qwen3",
-    EMBEDDING_DIM=2,
-    EMBEDDING_REQUEST_TIMEOUT=10,
-    EMBEDDING_QUERY_INSTRUCTION="",
-)
-def test_too_large_via_400_with_context_length_exceeded_code(monkeypatch):
-    from radis.pgsearch.utils import embedding_client as ec
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(
-            400,
-            json={"error": {"message": "this is too long", "code": "context_length_exceeded"}},
-        )
-
-    _install_transport(monkeypatch, handler)
-    with pytest.raises(ec.EmbeddingPayloadTooLargeError):
-        ec.EmbeddingClient().embed_documents(["x"])
-
-
-@override_settings(
-    EMBEDDING_PROVIDER_URL="http://embed.example/v1",
-    EMBEDDING_PROVIDER_API_KEY="",
-    EMBEDDING_MODEL_NAME="qwen3",
-    EMBEDDING_DIM=2,
-    EMBEDDING_REQUEST_TIMEOUT=10,
-    EMBEDDING_QUERY_INSTRUCTION="",
-)
-def test_too_large_via_400_with_string_above_max_length_code(monkeypatch):
-    from radis.pgsearch.utils import embedding_client as ec
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(
-            400,
-            json={"error": {"message": "too long", "code": "string_above_max_length"}},
-        )
-
-    _install_transport(monkeypatch, handler)
-    with pytest.raises(ec.EmbeddingPayloadTooLargeError):
-        ec.EmbeddingClient().embed_documents(["x"])
-
-
-@override_settings(
-    EMBEDDING_PROVIDER_URL="http://embed.example/v1",
-    EMBEDDING_PROVIDER_API_KEY="",
-    EMBEDDING_MODEL_NAME="qwen3",
-    EMBEDDING_DIM=2,
-    EMBEDDING_REQUEST_TIMEOUT=10,
-    EMBEDDING_QUERY_INSTRUCTION="",
-)
-def test_too_large_via_400_with_input_tokens_param(monkeypatch):
-    """Some gateways don't set a descriptive `error.code` at all — confirmed
-    empirically against the production embedding gateway, which echoes the
-    HTTP status as `code` (an int, not `"context_length_exceeded"`) but
-    still sets `error.param="input_tokens"` on a context-length rejection.
-    That must still classify as too-large via the `param` fallback."""
-    from radis.pgsearch.utils import embedding_client as ec
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(
-            400,
-            json={
-                "error": {
-                    "message": (
-                        "This model's maximum context length is 16384 tokens. However, "
-                        "your prompt contains at least 16385 input tokens."
-                    ),
-                    "type": "BadRequestError",
-                    "param": "input_tokens",
-                    "code": 400,
-                }
-            },
-        )
-
-    _install_transport(monkeypatch, handler)
-    with pytest.raises(ec.EmbeddingPayloadTooLargeError):
-        ec.EmbeddingClient().embed_documents(["x"])
-
-
-@override_settings(
-    EMBEDDING_PROVIDER_URL="http://embed.example/v1",
-    EMBEDDING_PROVIDER_API_KEY="",
-    EMBEDDING_MODEL_NAME="qwen3",
-    EMBEDDING_DIM=2,
-    EMBEDDING_REQUEST_TIMEOUT=10,
-    EMBEDDING_QUERY_INSTRUCTION="",
-)
-def test_400_with_other_param_is_not_too_large(monkeypatch):
-    """A `param` unrelated to input length must not be classified as
-    too-large — only the specific `input_tokens` param is a length signal."""
     from radis.pgsearch.utils import embedding_client as ec
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -324,74 +225,21 @@ def test_400_with_other_param_is_not_too_large(monkeypatch):
         )
 
     _install_transport(monkeypatch, handler)
-    with pytest.raises(ec.EmbeddingClientError) as excinfo:
+    with pytest.raises(openai.BadRequestError):
         ec.EmbeddingClient().embed_documents(["x"])
-    assert not isinstance(excinfo.value, ec.EmbeddingPayloadTooLargeError)
-
-
-@override_settings(
-    EMBEDDING_PROVIDER_URL="http://embed.example/v1",
-    EMBEDDING_PROVIDER_API_KEY="",
-    EMBEDDING_MODEL_NAME="qwen3",
-    EMBEDDING_DIM=2,
-    EMBEDDING_REQUEST_TIMEOUT=10,
-    EMBEDDING_QUERY_INSTRUCTION="",
-)
-def test_400_with_other_code_is_not_too_large(monkeypatch):
-    """400 with a non-context-length error code surfaces as
-    EmbeddingClientError (not the too-large subclass)."""
-    from radis.pgsearch.utils import embedding_client as ec
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(
-            400,
-            json={"error": {"message": "missing field", "code": "invalid_request"}},
-        )
-
-    _install_transport(monkeypatch, handler)
-    with pytest.raises(ec.EmbeddingClientError) as excinfo:
-        ec.EmbeddingClient().embed_documents(["x"])
-    assert not isinstance(excinfo.value, ec.EmbeddingPayloadTooLargeError)
-
-
-@override_settings(
-    EMBEDDING_PROVIDER_URL="http://embed.example/v1",
-    EMBEDDING_PROVIDER_API_KEY="",
-    EMBEDDING_MODEL_NAME="qwen3",
-    EMBEDDING_DIM=2,
-    EMBEDDING_REQUEST_TIMEOUT=10,
-    EMBEDDING_QUERY_INSTRUCTION="",
-)
-def test_400_with_no_error_object_is_not_too_large(monkeypatch):
-    """Non-OpenAI-shaped 400 (no error.code) must NOT be classified as too-large
-    — bisecting on the wrong error is worse than not bisecting."""
-    from radis.pgsearch.utils import embedding_client as ec
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(400, text="plain text 400 from non-conforming provider")
-
-    _install_transport(monkeypatch, handler)
-    with pytest.raises(ec.EmbeddingClientError) as excinfo:
-        ec.EmbeddingClient().embed_documents(["x"])
-    assert not isinstance(excinfo.value, ec.EmbeddingPayloadTooLargeError)
 
 
 @_patched_settings()
-def test_embed_query_uses_rate_limit_gate(monkeypatch):
+def test_embed_query_uses_429_backoff(monkeypatch):
     from radis.pgsearch.utils import embedding_client as ec
 
-    def fake_call_with_rate_limit(acquire_fn, fn):
-        acquire_fn()
+    wrapped = {"called": False}
+
+    def fake_call_with_429_backoff(fn):
+        wrapped["called"] = True
         return fn()
 
-    monkeypatch.setattr(ec, "call_with_rate_limit", fake_call_with_rate_limit)
-
-    acquired = {"called": False}
-
-    def fake_acquire_search_priority_token(weight=1):
-        acquired["called"] = True
-
-    monkeypatch.setattr(ec, "acquire_search_priority_token", fake_acquire_search_priority_token)
+    monkeypatch.setattr(ec, "call_with_429_backoff", fake_call_with_429_backoff)
 
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json={"data": [{"embedding": [1.0, 0.0, 0.0, 0.0]}]})
@@ -401,7 +249,7 @@ def test_embed_query_uses_rate_limit_gate(monkeypatch):
     vec = ec.EmbeddingClient().embed_query("pneumonia")
 
     assert vec == [1.0, 0.0, 0.0, 0.0]
-    assert acquired["called"] is True
+    assert wrapped["called"] is True
 
 
 @override_settings(

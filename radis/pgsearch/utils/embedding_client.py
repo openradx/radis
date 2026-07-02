@@ -7,41 +7,17 @@ import httpx
 import openai
 from django.conf import settings
 
-from .rate_limiter import acquire_search_priority_token, call_with_rate_limit
+from .rate_limiter import call_with_429_backoff
 
 logger = logging.getLogger(__name__)
 
 
 class EmbeddingClientError(Exception):
-    """Raised when the embedding service returns an error or a malformed response,
-    or when configuration is invalid. Typed `openai.OpenAIError` subclasses
+    """Raised when the embedding service returns a malformed response or when
+    configuration is invalid. Typed `openai.OpenAIError` subclasses
     (RateLimitError, BadRequestError, InternalServerError, ...) are NOT wrapped
     in this class — callers that want to discriminate (stamina retry predicate,
-    future rate-limit gate) match on the SDK types directly."""
-
-
-class EmbeddingPayloadTooLargeError(EmbeddingClientError):
-    """Raised when the backend rejects a request because one or more inputs
-    exceed the model's context window. Callers can bisect the batch and
-    retry — `embed_reports_task` does exactly that."""
-
-
-# Stable, structured error codes the OpenAI-compat ecosystem returns when an
-# input exceeds the model context. The OpenAI SDK exposes these on
-# `BadRequestError.body["error"]["code"]`. Substring-matching the human-readable
-# message (the previous approach) drifted on provider version bumps and
-# false-positived on unrelated 4xx; the structured code does not.
-_TOO_LARGE_ERROR_CODES = frozenset({"context_length_exceeded", "string_above_max_length"})
-
-# Some OpenAI-compat gateways don't set a descriptive string `error.code` at
-# all — confirmed empirically against the real production embedding gateway
-# (the internal embedding gateway), which echoes the HTTP status as `code` (e.g. `400`,
-# not `"context_length_exceeded"`) but still sets the structured
-# `error.param` field to name the offending parameter. A context-length
-# rejection there reports `param="input_tokens"` with a message like "This
-# model's maximum context length is 16384 tokens...". Checking `param` is
-# still a structured-field match, not substring matching on the message.
-_TOO_LARGE_ERROR_PARAMS = frozenset({"input_tokens"})
+    429 backoff) match on the SDK types directly."""
 
 
 def _build_http_client() -> httpx.Client:
@@ -81,31 +57,6 @@ def _normalize_response(
     return normalized
 
 
-def _classify_too_large(exc: openai.BadRequestError) -> EmbeddingClientError:
-    """Map a BadRequestError to either the too-large subclass or the base
-    error, based on the structured error.code / error.param. Non-OpenAI-shaped
-    bodies (neither field set) are deliberately treated as NOT too-large —
-    bisecting on the wrong error is worse than not bisecting on a real one.
-
-    The SDK promotes the JSON `error.code` / `error.param` fields onto
-    `exc.code` / `exc.param` directly, so we read those rather than
-    navigating `exc.body["error"][...]`. Checked in order: a canonical
-    `code` match first, then the `param="input_tokens"` fallback for
-    gateways that don't set a descriptive code (see `_TOO_LARGE_ERROR_PARAMS`)."""
-    code: str | None = exc.code
-    param: str | None = exc.param
-    snippet = str(exc)[:200]
-    if code in _TOO_LARGE_ERROR_CODES:
-        return EmbeddingPayloadTooLargeError(
-            f"Embedding service rejected payload as too large (code={code}): {snippet}"
-        )
-    if param in _TOO_LARGE_ERROR_PARAMS:
-        return EmbeddingPayloadTooLargeError(
-            f"Embedding service rejected payload as too large (param={param}): {snippet}"
-        )
-    return EmbeddingClientError(f"Embedding service returned 400: {snippet}")
-
-
 class EmbeddingClient:
     """Sync embedding client over the openai SDK. Single OpenAI-compatible
     endpoint (set EMBEDDING_PROVIDER_URL to end in /v1). Same shape for OpenAI,
@@ -123,7 +74,7 @@ class EmbeddingClient:
             base_url=base_url,
             api_key=api_key,
             http_client=self._http,
-            max_retries=0,  # surface 429 immediately so a future gate can arm
+            max_retries=0,  # 429s are handled by call_with_429_backoff, not the SDK
             timeout=settings.EMBEDDING_REQUEST_TIMEOUT,
         )
         self._model = settings.EMBEDDING_MODEL_NAME
@@ -131,39 +82,22 @@ class EmbeddingClient:
         self._instruction = settings.EMBEDDING_QUERY_INSTRUCTION
 
     def embed_documents(self, texts: list[str]) -> list[list[float]]:
-        """Low-level call to the embedding backend, with no rate-limit gating
-        of its own — `embed_query` (below) and `_embed_chunk_with_retry` in
-        `radis/pgsearch/tasks.py` are the two gated call sites that route
-        through this method. Calling `embed_documents` directly bypasses the
-        rate-limit gate entirely. New code that needs embeddings should go
-        through `embed_query` (retrieval) or the existing
-        `embed_reports_task` / `enqueue_embed_reports` path (bulk), not call
-        this method directly."""
-        try:
-            # encoding_format="float" requests JSON-float vectors. Without this
-            # the SDK defaults to base64, which would require a decode step
-            # back to floats — extra work and a less debuggable wire format.
-            response = self._client.embeddings.create(
-                model=self._model, input=texts, encoding_format="float"
-            )
-        except openai.BadRequestError as exc:
-            raise _classify_too_large(exc) from exc
-        except openai.APIStatusError as exc:
-            if exc.status_code == 413:
-                raise EmbeddingPayloadTooLargeError(
-                    f"Embedding service rejected payload as too large (413): {exc}"
-                ) from exc
-            raise  # 429, 5xx etc. — propagate as the typed SDK exception
-
+        """Low-level call to the embedding backend, with no 429 handling of
+        its own — `embed_query` (below) and `_embed_chunk_with_retry` in
+        `radis/pgsearch/tasks.py` wrap it in `call_with_429_backoff`. HTTP
+        errors (400, 429, 5xx, ...) propagate as typed SDK exceptions."""
+        # encoding_format="float" requests JSON-float vectors. Without this
+        # the SDK defaults to base64, which would require a decode step
+        # back to floats — extra work and a less debuggable wire format.
+        response = self._client.embeddings.create(
+            model=self._model, input=texts, encoding_format="float"
+        )
         raw = [list(item.embedding) for item in response.data]
         return _normalize_response(raw, len(texts), self._dim)
 
     def embed_query(self, text: str) -> list[float]:
         prefixed = f"{self._instruction}{text}" if self._instruction else text
-        vectors = call_with_rate_limit(
-            acquire_search_priority_token,
-            lambda: self.embed_documents([prefixed]),
-        )
+        vectors = call_with_429_backoff(lambda: self.embed_documents([prefixed]))
         if not vectors:
             raise EmbeddingClientError("Embedding service returned no vectors for query")
         return vectors[0]
