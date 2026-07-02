@@ -6,6 +6,7 @@ import stamina
 import stamina.instrumentation
 from django.conf import settings
 from procrastinate.contrib.django import app
+from procrastinate.contrib.django.models import ProcrastinateJob
 from procrastinate.types import JSONValue
 
 from .models import ReportSearchIndex
@@ -151,6 +152,34 @@ def enqueue_embed_reports(
         priority,
     )
     return count
+
+
+def cancel_backfill_embeddings() -> int:
+    """Cancel every queued (todo) backfill-priority embed subjob.
+
+    "The backfill" has no job object of its own — it is exactly the
+    embed_reports_task jobs enqueued at EMBEDDING_BACKFILL_PRIORITY
+    (embed_pending / admin action), which the live write-path priority
+    keeps distinct. Cancellation goes job-by-job through Procrastinate's
+    cancel_job_by_id, which is race-safe: a job a worker grabbed between
+    our select and the cancel returns False and simply runs to completion.
+    Returns the number of jobs actually cancelled. Resume = re-run
+    embed_pending (idempotent, embedding IS NULL filter)."""
+    job_ids = list(
+        ProcrastinateJob.objects.filter(
+            task_name="radis.pgsearch.tasks.embed_reports_task",
+            queue_name="embeddings",
+            status="todo",
+            priority=settings.EMBEDDING_BACKFILL_PRIORITY,
+        ).values_list("id", flat=True)
+    )
+    cancelled = sum(1 for job_id in job_ids if app.job_manager.cancel_job_by_id(job_id))
+    logger.info(
+        "cancel_backfill_embeddings: cancelled %d of %d queued backfill subjob(s)",
+        cancelled,
+        len(job_ids),
+    )
+    return cancelled
 
 
 @app.task(queue="embeddings")

@@ -486,3 +486,32 @@ def test_predicate_does_not_retry_openai_rate_limit_error():
     response = httpx.Response(429, request=httpx.Request("POST", "http://x"))
     exc = openai.RateLimitError(message="slow", response=response, body=None)
     assert _is_retryable_embedding_error(exc) is False
+
+
+def test_cancel_backfill_embeddings_cancels_only_queued_backfill_jobs(settings):
+    from procrastinate.contrib.django.models import ProcrastinateJob
+
+    from radis.pgsearch import tasks as tasks_module
+
+    tasks_module.enqueue_embed_reports(
+        [1, 2, 3], subjob_size=1, priority=settings.EMBEDDING_BACKFILL_PRIORITY
+    )
+    tasks_module.enqueue_embed_reports([4], priority=settings.EMBEDDING_LIVE_PRIORITY)
+
+    cancelled = tasks_module.cancel_backfill_embeddings()
+
+    assert cancelled == 3
+    by_priority = {
+        priority: status
+        for priority, status in ProcrastinateJob.objects.filter(
+            task_name="radis.pgsearch.tasks.embed_reports_task"
+        ).values_list("priority", "status")
+    }
+    assert by_priority[settings.EMBEDDING_BACKFILL_PRIORITY] == "cancelled"
+    assert by_priority[settings.EMBEDDING_LIVE_PRIORITY] == "todo"
+
+
+def test_cancel_backfill_embeddings_returns_zero_when_queue_empty():
+    from radis.pgsearch import tasks as tasks_module
+
+    assert tasks_module.cancel_backfill_embeddings() == 0
