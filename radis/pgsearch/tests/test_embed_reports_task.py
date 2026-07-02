@@ -55,7 +55,7 @@ def _bypass_429_backoff(monkeypatch):
     test double can't trigger real sleeps."""
     from radis.pgsearch import tasks as tasks_module
 
-    monkeypatch.setattr(tasks_module, "call_with_429_backoff", lambda fn: fn())
+    monkeypatch.setattr(tasks_module, "call_with_429_backoff", lambda fn, **kwargs: fn())
 
 
 pytestmark = pytest.mark.django_db(transaction=True)
@@ -134,7 +134,7 @@ def test_embed_chunk_with_retry_wraps_call_in_429_backoff(monkeypatch):
 
     wrapped = {"called": False}
 
-    def fake_call_with_429_backoff(fn):
+    def fake_call_with_429_backoff(fn, **kwargs):
         wrapped["called"] = True
         return fn()
 

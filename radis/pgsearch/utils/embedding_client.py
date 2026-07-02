@@ -97,7 +97,9 @@ class EmbeddingClient:
 
     def embed_query(self, text: str) -> list[float]:
         prefixed = f"{self._instruction}{text}" if self._instruction else text
-        vectors = call_with_429_backoff(lambda: self.embed_documents([prefixed]))
+        vectors = call_with_429_backoff(
+            lambda: self.embed_documents([prefixed]), shared_gate=False
+        )
         if not vectors:
             raise EmbeddingClientError("Embedding service returned no vectors for query")
         return vectors[0]

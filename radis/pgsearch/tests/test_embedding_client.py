@@ -38,7 +38,7 @@ def _bypass_429_backoff(monkeypatch):
     passthrough so a stray 429 in a test double can't trigger real sleeps."""
     from radis.pgsearch.utils import embedding_client as ec
 
-    monkeypatch.setattr(ec, "call_with_429_backoff", lambda fn: fn())
+    monkeypatch.setattr(ec, "call_with_429_backoff", lambda fn, **kwargs: fn())
 
 
 @_patched_settings()
@@ -235,8 +235,12 @@ def test_embed_query_uses_429_backoff(monkeypatch):
 
     wrapped = {"called": False}
 
-    def fake_call_with_429_backoff(fn):
+    def fake_call_with_429_backoff(fn, **kwargs):
         wrapped["called"] = True
+        assert kwargs.get("shared_gate") is False, (
+            "embed_query must bypass the shared pause (a user is waiting) "
+            "while still recording its own 429s"
+        )
         return fn()
 
     monkeypatch.setattr(ec, "call_with_429_backoff", fake_call_with_429_backoff)
