@@ -96,23 +96,52 @@ def record_success() -> None:
     EmbeddingBackoffState.objects.filter(pk=_STATE_PK).update(consecutive_429s=0)
 
 
-def call_with_429_backoff[T](fn: Callable[[], T], max_attempts: int = 3) -> T:
-    """Call `fn`; on a 429 wait and retry with exponential backoff, up to
-    `max_attempts`. The base wait is the server's own reported wait time
-    (see `parse_retry_after`), doubled on each subsequent rejection. The
-    final 429 propagates so the caller's task-level retry policy applies."""
+def call_with_429_backoff[T](
+    fn: Callable[[], T], max_attempts: int = 3, shared_gate: bool = True
+) -> T:
+    """Call `fn`; on a 429 wait and retry, up to `max_attempts`, with the
+    wait shared across processes via EmbeddingBackoffState.
+
+    shared_gate=True (background bulk embedding): sleep out the shared
+    pause before every attempt, record 429s (extending the pause with
+    global doubling) and successes (resetting the doubling counter). The
+    shared pause is the only wait mechanism — no separate local sleep.
+
+    shared_gate=False (search/retrieval, a user is waiting): never reads
+    the shared pause; a 429 still gets recorded so background traffic
+    learns from it, but the local retry wait is the server's own hint with
+    per-attempt doubling, unscaled by the global counter. The final 429
+    always propagates so the caller's own retry/error policy applies."""
     for attempt in range(1, max_attempts + 1):
+        if shared_gate:
+            while (wait := shared_wait_seconds()) > 0:
+                logger.info("embedding shared backoff: waiting %.1fs before sending", wait)
+                _sleep(wait)
         try:
-            return fn()
+            result = fn()
         except openai.RateLimitError as exc:
+            retry_after = parse_retry_after(exc)
+            shared_wait = record_429(retry_after)
             if attempt == max_attempts:
                 raise
-            wait = parse_retry_after(exc) * 2 ** (attempt - 1)
-            logger.warning(
-                "embedding 429 backoff: waiting %.1fs before retry (attempt %d/%d)",
-                wait,
-                attempt,
-                max_attempts,
-            )
-            _sleep(wait)
+            if shared_gate:
+                logger.warning(
+                    "embedding 429: shared pause extended by %.1fs (attempt %d/%d)",
+                    shared_wait,
+                    attempt,
+                    max_attempts,
+                )
+            else:
+                local_wait = retry_after * 2 ** (attempt - 1)
+                logger.warning(
+                    "embedding 429 (ungated): waiting %.1fs before retry (attempt %d/%d)",
+                    local_wait,
+                    attempt,
+                    max_attempts,
+                )
+                _sleep(local_wait)
+            continue
+        if shared_gate:
+            record_success()
+        return result
     raise AssertionError("unreachable: loop always returns or raises")

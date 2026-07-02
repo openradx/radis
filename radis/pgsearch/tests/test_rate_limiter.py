@@ -66,25 +66,22 @@ def test_parse_retry_after_default_when_neither_present():
     assert rl.parse_retry_after(exc) == rl._DEFAULT_RETRY_AFTER
 
 
-def test_call_with_429_backoff_returns_on_first_success(monkeypatch):
+@pytest.mark.django_db
+def test_call_with_429_backoff_returns_on_first_success(clock):
     from radis.pgsearch.utils import rate_limiter as rl
-
-    sleep_calls = []
-    monkeypatch.setattr(rl, "_sleep", lambda seconds: sleep_calls.append(seconds))
 
     result = rl.call_with_429_backoff(lambda: "ok")
 
     assert result == "ok"
-    assert sleep_calls == []
+    assert clock.sleeps == []
 
 
-def test_call_with_429_backoff_waits_exponentially_then_succeeds(monkeypatch):
-    """The base wait comes from the server's own hint ("Wait 3s") and doubles
-    on each subsequent 429: 3s, then 6s."""
+@pytest.mark.django_db
+def test_call_with_429_backoff_waits_exponentially_then_succeeds(clock):
+    """The base wait comes from the server's own hint ("Wait 3s"), lands in
+    the shared pause, and doubles globally on each subsequent 429: 3s, 6s."""
+    from radis.pgsearch.models import EmbeddingBackoffState
     from radis.pgsearch.utils import rate_limiter as rl
-
-    sleep_calls = []
-    monkeypatch.setattr(rl, "_sleep", lambda seconds: sleep_calls.append(seconds))
 
     attempts = {"n": 0}
 
@@ -98,16 +95,18 @@ def test_call_with_429_backoff_waits_exponentially_then_succeeds(monkeypatch):
 
     assert result == "ok"
     assert attempts["n"] == 3
-    assert sleep_calls == [3.0, 6.0]
+    assert clock.sleeps == [3.0, 6.0]
+    # Success reset the global doubling counter.
+    assert EmbeddingBackoffState.objects.get(pk=1).consecutive_429s == 0
 
 
-def test_call_with_429_backoff_raises_after_max_attempts(monkeypatch):
-    """The final 429 propagates (no sleep after it) so the caller's
-    task-level retry policy applies."""
+@pytest.mark.django_db
+def test_call_with_429_backoff_raises_after_max_attempts(clock):
+    """The final 429 propagates so the caller's task-level retry policy
+    applies — but it is still recorded in the shared state first, so other
+    processes back off even though this caller gave up."""
+    from radis.pgsearch.models import EmbeddingBackoffState
     from radis.pgsearch.utils import rate_limiter as rl
-
-    sleep_calls = []
-    monkeypatch.setattr(rl, "_sleep", lambda seconds: sleep_calls.append(seconds))
 
     attempts = {"n": 0}
 
@@ -119,16 +118,15 @@ def test_call_with_429_backoff_raises_after_max_attempts(monkeypatch):
         rl.call_with_429_backoff(always_fails, max_attempts=3)
 
     assert attempts["n"] == 3
-    assert sleep_calls == [1.0, 2.0]
+    assert clock.sleeps == [1.0, 2.0]
+    assert EmbeddingBackoffState.objects.get(pk=1).consecutive_429s == 3
 
 
-def test_call_with_429_backoff_does_not_intercept_other_errors(monkeypatch):
+@pytest.mark.django_db
+def test_call_with_429_backoff_does_not_intercept_other_errors(clock):
     """Only 429s are backed off here — other errors propagate immediately
     to the stamina/Procrastinate layers."""
     from radis.pgsearch.utils import rate_limiter as rl
-
-    sleep_calls = []
-    monkeypatch.setattr(rl, "_sleep", lambda seconds: sleep_calls.append(seconds))
 
     def fails():
         raise ValueError("not a 429")
@@ -136,7 +134,95 @@ def test_call_with_429_backoff_does_not_intercept_other_errors(monkeypatch):
     with pytest.raises(ValueError):
         rl.call_with_429_backoff(fails)
 
-    assert sleep_calls == []
+    assert clock.sleeps == []
+
+
+@pytest.mark.django_db
+def test_shared_gate_sleeps_out_preexisting_pause(clock):
+    """A pause created by ANOTHER process (here: a direct record_429) gates
+    this caller before its first attempt."""
+    from radis.pgsearch.utils import rate_limiter as rl
+
+    rl.record_429(7.0)
+
+    result = rl.call_with_429_backoff(lambda: "ok")
+
+    assert result == "ok"
+    assert clock.sleeps == [7.0]
+
+
+@pytest.mark.django_db
+def test_shared_gate_rechecks_pause_extended_during_sleep(clock, monkeypatch):
+    """If another process extends the pause while we sleep, we sleep again
+    instead of firing into a known-throttled gateway."""
+    from radis.pgsearch.utils import rate_limiter as rl
+
+    rl.record_429(5.0)
+
+    original_sleep = clock.sleep
+    extended = {"done": False}
+
+    def sleep_and_extend(seconds: float) -> None:
+        original_sleep(seconds)
+        if not extended["done"]:
+            extended["done"] = True
+            rl.record_429(4.0)  # concurrent 429 elsewhere: pause += 4*2^1 = 8s
+
+    monkeypatch.setattr(rl, "_sleep", sleep_and_extend)
+
+    result = rl.call_with_429_backoff(lambda: "ok")
+
+    assert result == "ok"
+    assert clock.sleeps == [5.0, 8.0]
+
+
+@pytest.mark.django_db
+def test_ungated_search_path_skips_pause_but_records_its_429(clock):
+    """shared_gate=False (search): never waits on the shared pause, but a
+    429 it receives still informs the shared state for everyone else."""
+    from radis.pgsearch.models import EmbeddingBackoffState
+    from radis.pgsearch.utils import rate_limiter as rl
+
+    rl.record_429(60.0)  # big pause from background traffic
+
+    attempts = {"n": 0}
+
+    def flaky():
+        attempts["n"] += 1
+        if attempts["n"] < 2:
+            raise _make_rate_limit_error("Limit 60/min exceeded. Wait 3s.")
+        return "ok"
+
+    result = rl.call_with_429_backoff(flaky, shared_gate=False)
+
+    assert result == "ok"
+    # Slept only its own local 3s — not the 60s shared pause.
+    assert clock.sleeps == [3.0]
+    # ...but its 429 bumped the global counter.
+    assert EmbeddingBackoffState.objects.get(pk=1).consecutive_429s == 2
+
+
+@pytest.mark.django_db
+def test_ungated_local_wait_not_scaled_by_global_counter(clock):
+    """Bulk traffic may drive the global counter high; a user-facing search
+    retry must still wait only the server's own hint (local doubling)."""
+    from radis.pgsearch.utils import rate_limiter as rl
+
+    rl.record_429(5.0)
+    rl.record_429(5.0)  # global counter now 2
+
+    attempts = {"n": 0}
+
+    def flaky():
+        attempts["n"] += 1
+        if attempts["n"] < 2:
+            raise _make_rate_limit_error("Limit 60/min exceeded. Wait 3s.")
+        return "ok"
+
+    result = rl.call_with_429_backoff(flaky, shared_gate=False)
+
+    assert result == "ok"
+    assert clock.sleeps == [3.0]  # NOT 3 * 2^2
 
 
 @pytest.mark.django_db
