@@ -1,8 +1,13 @@
-"""Reactive 429 handling for the embedding gateway.
+"""Reactive 429 handling for the embedding gateway, shared across processes.
 
-No proactive gating: requests go straight to the gateway, and a 429 is
-answered with exponential backoff seeded by the server's own reported wait
-time (Retry-After header or the "Wait Xs" phrasing in the response body).
+No proactive gating: requests go straight to the gateway. But when any
+process receives a 429, the server-reported wait (Retry-After header or the
+"Wait Xs" phrasing in the body) is recorded in a shared singleton DB row
+(EmbeddingBackoffState) that all background embedding traffic consults
+before sending — one process's backoff gates every container, and repeat
+429s double the wait globally. The search path deliberately bypasses the
+shared pause (a user is waiting) but still records the 429s it receives.
+See docs/superpowers/specs/2026-07-02-shared-429-backoff-design.md.
 """
 
 from __future__ import annotations
@@ -11,10 +16,22 @@ import logging
 import re
 import time
 from collections.abc import Callable
+from datetime import timedelta
 
 import openai
+from django.db import transaction
+from django.utils import timezone
+
+from ..models import EmbeddingBackoffState
 
 logger = logging.getLogger(__name__)
+
+_STATE_PK = 1
+
+
+def _now():
+    """Seam so tests can inject a controllable clock instead of real time."""
+    return timezone.now()
 
 
 def _sleep(seconds: float) -> None:
@@ -43,6 +60,40 @@ def parse_retry_after(exc: openai.RateLimitError) -> float:
     if match:
         return float(match.group(1))
     return _DEFAULT_RETRY_AFTER
+
+
+def shared_wait_seconds() -> float:
+    """Seconds every gated (background) caller must still wait before
+    sending, per the shared pause. 0.0 when there is no active pause."""
+    state = EmbeddingBackoffState.objects.filter(pk=_STATE_PK).first()
+    if state is None or state.paused_until is None:
+        return 0.0
+    return max((state.paused_until - _now()).total_seconds(), 0.0)
+
+
+def record_429(retry_after: float) -> float:
+    """Record a 429 in the shared state: extend the pause (never shorten —
+    concurrent 429s take the max) and bump the global doubling counter.
+    Returns the wait this 429 contributed, `retry_after * 2**counter`."""
+    with transaction.atomic():
+        state, _ = EmbeddingBackoffState.objects.select_for_update().get_or_create(pk=_STATE_PK)
+        wait = retry_after * 2**state.consecutive_429s
+        candidate = _now() + timedelta(seconds=wait)
+        if state.paused_until is None or candidate > state.paused_until:
+            state.paused_until = candidate
+        state.consecutive_429s += 1
+        state.save()
+    return wait
+
+
+def record_success() -> None:
+    """Reset the global doubling counter after a gated call succeeded. The
+    pause itself is left to expire on its own. Cheap read first so the
+    steady-state happy path costs one SELECT and no writes."""
+    state = EmbeddingBackoffState.objects.filter(pk=_STATE_PK).first()
+    if state is None or state.consecutive_429s == 0:
+        return
+    EmbeddingBackoffState.objects.filter(pk=_STATE_PK).update(consecutive_429s=0)
 
 
 def call_with_429_backoff[T](fn: Callable[[], T], max_attempts: int = 3) -> T:

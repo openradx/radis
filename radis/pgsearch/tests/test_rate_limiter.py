@@ -1,8 +1,38 @@
 """Tests for radis.pgsearch.utils.rate_limiter (reactive 429 backoff)."""
 
+from datetime import timedelta
+
 import httpx
 import openai
 import pytest
+from django.utils import timezone
+
+
+class _FakeClock:
+    """Deterministic clock for the rate limiter's _now/_sleep seams: time
+    stands still except when _sleep advances it, so pause arithmetic in
+    assertions is exact."""
+
+    def __init__(self) -> None:
+        self.current = timezone.now()
+        self.sleeps: list[float] = []
+
+    def now(self):
+        return self.current
+
+    def sleep(self, seconds: float) -> None:
+        self.sleeps.append(seconds)
+        self.current += timedelta(seconds=seconds)
+
+
+@pytest.fixture
+def clock(monkeypatch) -> _FakeClock:
+    from radis.pgsearch.utils import rate_limiter as rl
+
+    c = _FakeClock()
+    monkeypatch.setattr(rl, "_now", c.now)
+    monkeypatch.setattr(rl, "_sleep", c.sleep)
+    return c
 
 
 def _make_rate_limit_error(message: str, retry_after: str | None = None) -> "openai.RateLimitError":
@@ -118,3 +148,72 @@ def test_embedding_backoff_state_defaults():
     assert created
     assert state.paused_until is None
     assert state.consecutive_429s == 0
+
+
+@pytest.mark.django_db
+def test_record_429_sets_pause_and_doubles_globally(clock):
+    from radis.pgsearch.models import EmbeddingBackoffState
+    from radis.pgsearch.utils import rate_limiter as rl
+
+    assert rl.record_429(10.0) == 10.0
+    assert rl.record_429(10.0) == 20.0
+
+    state = EmbeddingBackoffState.objects.get(pk=1)
+    assert state.consecutive_429s == 2
+    assert state.paused_until == clock.current + timedelta(seconds=20)
+
+
+@pytest.mark.django_db
+def test_record_429_extends_but_never_shortens_the_pause(clock):
+    from radis.pgsearch.models import EmbeddingBackoffState
+    from radis.pgsearch.utils import rate_limiter as rl
+
+    rl.record_429(30.0)
+    # Second 429 with a short server wait: 1s * 2^1 = 2s candidate loses
+    # to the existing 30s pause.
+    rl.record_429(1.0)
+
+    state = EmbeddingBackoffState.objects.get(pk=1)
+    assert state.paused_until == clock.current + timedelta(seconds=30)
+    assert state.consecutive_429s == 2
+
+
+@pytest.mark.django_db
+def test_shared_wait_seconds_reads_the_pause(clock):
+    from radis.pgsearch.utils import rate_limiter as rl
+
+    assert rl.shared_wait_seconds() == 0.0  # no row yet
+
+    rl.record_429(15.0)
+    assert rl.shared_wait_seconds() == 15.0
+
+    clock.current += timedelta(seconds=20)  # pause expired
+    assert rl.shared_wait_seconds() == 0.0
+
+
+@pytest.mark.django_db
+def test_record_success_resets_counter(clock):
+    from radis.pgsearch.models import EmbeddingBackoffState
+    from radis.pgsearch.utils import rate_limiter as rl
+
+    rl.record_429(5.0)
+    rl.record_success()
+
+    state = EmbeddingBackoffState.objects.get(pk=1)
+    assert state.consecutive_429s == 0
+    # The pause itself is NOT cleared — it expires on its own; only the
+    # doubling counter resets.
+    assert state.paused_until == clock.current + timedelta(seconds=5)
+
+
+@pytest.mark.django_db
+def test_record_success_is_read_only_when_counter_already_zero(
+    clock, django_assert_num_queries
+):
+    from radis.pgsearch.models import EmbeddingBackoffState
+    from radis.pgsearch.utils import rate_limiter as rl
+
+    EmbeddingBackoffState.objects.create(pk=1)
+
+    with django_assert_num_queries(1):
+        rl.record_success()
