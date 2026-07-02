@@ -8,7 +8,6 @@ from pydantic import BaseModel
 
 from radis.core.utils.rate_limit import (
     RateLimitGate,
-    RpmLimiter,
     run_through_gate,
     run_through_gate_async,
     with_transient_retries,
@@ -28,9 +27,6 @@ _LLM_GATE = RateLimitGate(
     fallback_max_seconds=settings.LLM_RATE_LIMIT_FALLBACK_MAX_SECONDS,
     header_ceiling_seconds=settings.LLM_RATE_LIMIT_HEADER_CEILING_SECONDS,
 )
-
-# Process-global proactive cap on LLM requests/minute. Disabled when LLM_MAX_RPM <= 0.
-_LLM_RPM_LIMITER = RpmLimiter(settings.LLM_MAX_RPM)
 
 
 def _get_base_url() -> str:
@@ -70,7 +66,6 @@ class AsyncChatClient:
                 settings.LLM_TRANSIENT_RETRY_ATTEMPTS,
                 settings.LLM_TRANSIENT_RETRY_BASE_SECONDS,
             ),
-            rpm=_LLM_RPM_LIMITER,
         )
 
     async def _chat(
@@ -126,7 +121,6 @@ class LLMClient:
                 settings.LLM_TRANSIENT_RETRY_ATTEMPTS,
                 settings.LLM_TRANSIENT_RETRY_BASE_SECONDS,
             ),
-            rpm=_LLM_RPM_LIMITER,
         )
 
     def _extract_data(self, prompt: str, schema: type[BaseModel]) -> BaseModel:

@@ -3,7 +3,6 @@ import email.utils
 import logging
 import threading
 import time
-from collections import deque
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 
@@ -99,80 +98,6 @@ class RateLimitGate:
             await self._async_sleep(max(0.0, open_at - self._now()))
 
 
-class RpmLimiter:
-    """Per-process sliding-window limiter capping LLM requests per minute.
-
-    Records the timestamp of each request and allows at most `max_rpm` within any trailing
-    60s window (matching a provider whose 429 quota is a sliding window, not a continuous
-    refill). A full burst of `max_rpm` is permitted, then capacity returns as each request
-    ages out 60s after it was sent. Disabled (every acquire is an immediate no-op) when
-    max_rpm <= 0.
-    """
-
-    _WINDOW = 60.0  # seconds; the provider's rate-limit window
-
-    def __init__(
-        self,
-        max_rpm: int,
-        now: Callable[[], float] = time.monotonic,
-        sleep: Callable[[float], None] = time.sleep,
-        async_sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
-    ) -> None:
-        self._enabled = max_rpm > 0
-        self._max_rpm = max_rpm
-        self._now = now
-        self._sleep = sleep
-        self._async_sleep = async_sleep
-        self._lock = threading.Lock()
-        # Monotonic timestamps of requests sent within the last window, oldest first.
-        self._timestamps: deque[float] = deque()
-
-    def reset(self) -> None:
-        """Clear the window. For tests that share the process-global limiter."""
-        with self._lock:
-            self._timestamps.clear()
-
-    def _take_or_wait(self) -> float:
-        """Drop timestamps older than the window, then take a slot if one is free
-        (return 0.0), else return the seconds until the oldest request ages out. Holds
-        the lock only for this math, never to sleep.
-        """
-        with self._lock:
-            now = self._now()
-            cutoff = now - self._WINDOW
-            while self._timestamps and self._timestamps[0] <= cutoff:
-                self._timestamps.popleft()  # this request has aged out of the window
-            if len(self._timestamps) < self._max_rpm:
-                self._timestamps.append(now)  # slot free -> take it
-                return 0.0
-            return self._timestamps[0] + self._WINDOW - now  # wait until the oldest ages out
-
-    def acquire(self, deadline: float) -> bool:
-        """Take a slot, waiting until one is free. Returns False (without taking one)
-        if the next slot would free up after `deadline`."""
-        if not self._enabled:
-            return True
-        while True:
-            wait = self._take_or_wait()
-            if wait == 0.0:
-                return True
-            if self._now() + wait > deadline:
-                return False
-            self._sleep(wait)
-
-    async def acquire_async(self, deadline: float) -> bool:
-        """Async twin of acquire; never blocks the event loop with time.sleep."""
-        if not self._enabled:
-            return True
-        while True:
-            wait = self._take_or_wait()
-            if wait == 0.0:
-                return True
-            if self._now() + wait > deadline:
-                return False
-            await self._async_sleep(wait)
-
-
 def _parse_retry_after(exc: openai.RateLimitError) -> float | None:
     """Read Retry-After from a 429 response as seconds, or None.
 
@@ -214,7 +139,6 @@ def run_through_gate[T](
     budget: float,
     fn: Callable[[], T],
     now: Callable[[], float] = time.monotonic,
-    rpm: RpmLimiter | None = None,
 ) -> T:
     """Run `fn` through the gate, backing off on 429 up to `budget` seconds.
 
@@ -225,12 +149,6 @@ def run_through_gate[T](
     while True:
         if not gate.wait_until_open(deadline):
             raise RateLimited()  # an earlier 429 armed a window past our budget
-        if rpm is not None and not rpm.acquire(deadline):
-            raise RateLimited()  # RPM cap can't free a slot within the budget
-        # Another caller's 429 may have armed the gate while we waited for a slot;
-        # re-check so we don't fire into a freshly-closed window (the slot stays held).
-        if not gate.wait_until_open(deadline):
-            raise RateLimited()
         try:
             result = fn()
             gate.note_success()
@@ -248,17 +166,10 @@ async def run_through_gate_async[T](
     budget: float,
     fn: Callable[[], Awaitable[T]],
     now: Callable[[], float] = time.monotonic,
-    rpm: RpmLimiter | None = None,
 ) -> T:
     """Async twin of run_through_gate; `fn` is awaited."""
     deadline = now() + budget
     while True:
-        if not await gate.wait_until_open_async(deadline):
-            raise RateLimited()
-        if rpm is not None and not await rpm.acquire_async(deadline):
-            raise RateLimited()  # RPM cap can't free a slot within the budget
-        # Another caller's 429 may have armed the gate while we waited for a slot;
-        # re-check so we don't fire into a freshly-closed window (the slot stays held).
         if not await gate.wait_until_open_async(deadline):
             raise RateLimited()
         try:
