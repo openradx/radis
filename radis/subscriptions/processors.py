@@ -46,26 +46,31 @@ class SubscriptionTaskProcessor(AnalysisTaskProcessor):
                 db.close_old_connections()
 
     def process_report(self, report: Report, task: SubscriptionTask) -> None:
-        subscription: Subscription = task.job.subscription
-        Schema = generate_questions_schema(subscription.questions)
-        prompt = Template(settings.QUESTIONS_SYSTEM_PROMPT).substitute(
-            {
-                "report": report.body,
-                "questions": generate_questions_for_prompt(subscription.questions),
-            }
-        )
-        result = self.client.extract_data(prompt, Schema)
-
-        is_accepted = all(
-            [getattr(result, field_name) for field_name in result.__pydantic_fields__]
-        )
-        if is_accepted:
-            SubscribedItem.objects.create(
-                subscription=task.job.subscription,
-                job=task.job,
-                report=report,
-                answers=result.model_dump(),
+        # Runs in a worker thread; its connection must be closed in that same
+        # thread (the close in process_task only reaches the main thread).
+        try:
+            subscription: Subscription = task.job.subscription
+            Schema = generate_questions_schema(subscription.questions)
+            prompt = Template(settings.QUESTIONS_SYSTEM_PROMPT).substitute(
+                {
+                    "report": report.body,
+                    "questions": generate_questions_for_prompt(subscription.questions),
+                }
             )
-            logger.debug(f"Report {report.pk} was accepted by subscription {subscription.pk}")
-        else:
-            logger.debug(f"Report {report.pk} was rejected by subscription {subscription.pk}")
+            result = self.client.extract_data(prompt, Schema)
+
+            is_accepted = all(
+                [getattr(result, field_name) for field_name in result.__pydantic_fields__]
+            )
+            if is_accepted:
+                SubscribedItem.objects.create(
+                    subscription=task.job.subscription,
+                    job=task.job,
+                    report=report,
+                    answers=result.model_dump(),
+                )
+                logger.debug(f"Report {report.pk} was accepted by subscription {subscription.pk}")
+            else:
+                logger.debug(f"Report {report.pk} was rejected by subscription {subscription.pk}")
+        finally:
+            db.close_old_connections()
