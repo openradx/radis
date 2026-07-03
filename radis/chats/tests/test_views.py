@@ -240,14 +240,8 @@ async def test_update_chat_sends_full_history_and_appends_turn():
 @pytest.mark.asyncio
 @pytest.mark.django_db(transaction=True)
 async def test_update_chat_owned_by_other_user_is_blocked():
-    """Ownership is enforced on update: a non-owner cannot mutate the chat and
-    the LLM is never consulted.
-
-    NOTE (inconsistency, not asserted as a bug here): chat_update_view uses
-    ``Chat.objects...aget(pk=pk, owner=request.user)`` which raises
-    Chat.DoesNotExist (HTTP 500) for a non-owner, whereas chat_detail_view /
-    chat_delete_view use get_object_or_404 (HTTP 404). Consider aget_object_or_404
-    in chat_update_view for consistent 404 behaviour.
+    """Ownership is enforced on update: a non-owner gets a 404 (consistent with
+    chat_detail_view / chat_delete_view) and the LLM is never consulted.
     """
     owner = await database_sync_to_async(UserFactory.create)(is_active=True)
     other = await database_sync_to_async(UserFactory.create)(is_active=True)
@@ -259,12 +253,12 @@ async def test_update_chat_owned_by_other_user_is_blocked():
     client = await _login(other)
     openai_mock, capture = make_capturing_async_openai_mock("nope")
     with patch("openai.AsyncOpenAI", return_value=openai_mock):
-        with pytest.raises(Chat.DoesNotExist):
-            await client.post(
-                reverse("chat_update", args=[chat.pk]),
-                data={"prompt": "hello"},
-                headers=HX_HEADERS,
-            )
+        response = await client.post(
+            reverse("chat_update", args=[chat.pk]),
+            data={"prompt": "hello"},
+            headers=HX_HEADERS,
+        )
+    assert response.status_code == 404
 
     # The LLM must never be consulted for a chat the user does not own.
     assert len(capture.calls) == 0
