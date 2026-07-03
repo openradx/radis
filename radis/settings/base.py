@@ -44,7 +44,7 @@ SECRET_KEY = env.str("DJANGO_SECRET_KEY")
 
 ALLOWED_HOSTS = env.list("DJANGO_ALLOWED_HOSTS")
 
-CSRF_TRUSTED_ORIGINS = env.list("DJANGO_CSRF_TRUSTED_ORIGINS")
+CSRF_TRUSTED_ORIGINS = env.list("DJANGO_CSRF_TRUSTED_ORIGINS", default=[])
 
 _stack_name = env.str("STACK_NAME", default="")
 SESSION_COOKIE_NAME = f"sessionid_{_stack_name}" if _stack_name else "sessionid"
@@ -334,7 +334,7 @@ BACKUP_CRON = env.str("BACKUP_CRON", default="0 3 * * *")
 FILTERS_EMPTY_CHOICE_LABEL = "Show All"
 
 # LLM configuration
-LLM_MODEL_NAME = env.str("LLM_MODEL_NAME", default="unused")
+LLM_MODEL_NAME = env.str("LLM_MODEL_NAME")
 EXTERNAL_LLM_PROVIDER_URL = env.str("EXTERNAL_LLM_PROVIDER_URL", default="")
 EXTERNAL_LLM_PROVIDER_API_KEY = env.str("EXTERNAL_LLM_PROVIDER_API_KEY", default="")
 LLM_SERVICE_DEV_PORT = env.int("LLM_SERVICE_DEV_PORT", default=8080)
