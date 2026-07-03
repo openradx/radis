@@ -46,7 +46,7 @@ class ExtractionTaskProcessor(AnalysisTaskProcessor):
             instance.is_processed = True
             instance.save()
         finally:
-            db.close_old_connections()
+            db.connections.close_all()
 
     def process_output_fields(self, instance: ExtractionInstance) -> None:
         job = instance.task.job

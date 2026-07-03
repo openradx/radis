@@ -60,7 +60,7 @@ class SubscriptionTaskProcessor(AnalysisTaskProcessor):
             result = self.client.extract_data(prompt, Schema)
 
             is_accepted = all(
-                [getattr(result, field_name) for field_name in result.__pydantic_fields__]
+                getattr(result, field_name) for field_name in result.__pydantic_fields__
             )
             if is_accepted:
                 SubscribedItem.objects.create(
@@ -73,4 +73,4 @@ class SubscriptionTaskProcessor(AnalysisTaskProcessor):
             else:
                 logger.debug(f"Report {report.pk} was rejected by subscription {subscription.pk}")
         finally:
-            db.close_old_connections()
+            db.connections.close_all()
