@@ -15,7 +15,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from django.db.models import QuerySet
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 from pytest_mock import MockerFixture
 
 from radis.extractions.models import (
@@ -95,7 +95,7 @@ def test_generate_output_fields_schema_maps_each_output_type():
     assert instance.size == 3.5
     assert cast(Any, Schema(finding="x", size=7, malignant=False)).size == 7
     # All fields are required (``...``); omitting one is a validation error.
-    with pytest.raises(Exception):
+    with pytest.raises(ValidationError):
         Schema(finding="x")
 
 

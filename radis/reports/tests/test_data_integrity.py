@@ -223,7 +223,12 @@ class BulkUpsertOnCommitTests(TestCase):
 
         # Register a spy handler; the bulk path schedules its invocation via
         # transaction.on_commit, so it must NOT run until the block commits.
-        self.addCleanup(setattr, viewsets, "reports_created_handlers", [])
+        self.addCleanup(
+            setattr, viewsets, "reports_created_handlers", viewsets.reports_created_handlers
+        )
+        self.addCleanup(
+            setattr, viewsets, "reports_updated_handlers", viewsets.reports_updated_handlers
+        )
         viewsets.reports_created_handlers = [_Handler()]
         viewsets.reports_updated_handlers = []
 
@@ -251,7 +256,12 @@ class BulkUpsertOnCommitTests(TestCase):
 
         from radis.reports.api import viewsets
 
-        self.addCleanup(setattr, viewsets, "reports_created_handlers", [])
+        self.addCleanup(
+            setattr, viewsets, "reports_created_handlers", viewsets.reports_created_handlers
+        )
+        self.addCleanup(
+            setattr, viewsets, "reports_updated_handlers", viewsets.reports_updated_handlers
+        )
         viewsets.reports_created_handlers = [_Handler()]
         viewsets.reports_updated_handlers = []
 
@@ -322,7 +332,7 @@ def test_deleting_report_keeps_shared_language_and_modalities():
 
 
 @pytest.mark.django_db
-def test_api_delete_removes_report_and_dependents():
+def test_api_delete_removes_report_and_dependents(monkeypatch):
     group = GroupFactory.create()
     admin = AdminUserFactory.create()
     client = APIClient()
@@ -330,8 +340,8 @@ def test_api_delete_removes_report_and_dependents():
     # Avoid the on-commit search-sync handlers (no external FTS DB in tests).
     from radis.reports.api import viewsets
 
-    viewsets.reports_created_handlers = []
-    viewsets.reports_deleted_handlers = []
+    monkeypatch.setattr(viewsets, "reports_created_handlers", [])
+    monkeypatch.setattr(viewsets, "reports_deleted_handlers", [])
 
     client.post(LIST_URL, make_payload("del-api", group=group), format="json")
     report = Report.objects.get(document_id="del-api")
