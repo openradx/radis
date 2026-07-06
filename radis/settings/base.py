@@ -44,7 +44,7 @@ SECRET_KEY = env.str("DJANGO_SECRET_KEY")
 
 ALLOWED_HOSTS = env.list("DJANGO_ALLOWED_HOSTS")
 
-CSRF_TRUSTED_ORIGINS = env.list("DJANGO_CSRF_TRUSTED_ORIGINS")
+CSRF_TRUSTED_ORIGINS = env.list("DJANGO_CSRF_TRUSTED_ORIGINS", default=[])
 
 _stack_name = env.str("STACK_NAME", default="")
 SESSION_COOKIE_NAME = f"sessionid_{_stack_name}" if _stack_name else "sessionid"
@@ -211,8 +211,12 @@ DEFAULT_FROM_EMAIL = SERVER_EMAIL
 # they can get support.
 SUPPORT_EMAIL = env.str("SUPPORT_EMAIL")
 
-# Also used by django-registration-redux to send account approval emails
-ADMINS = [(env.str("DJANGO_ADMIN_FULL_NAME"), env.str("DJANGO_ADMIN_EMAIL"))]
+# The Django server admins that will receive critical error notifications.
+ADMINS = [env.str("DJANGO_ADMIN_EMAIL")]
+
+# Used by django-registration-redux to send account approval emails to.
+# It expects (name, address) pairs.
+REGISTRATION_ADMINS = [(env.str("DJANGO_ADMIN_FULL_NAME"), env.str("DJANGO_ADMIN_EMAIL"))]
 
 # All REST API requests must come from authenticated clients
 REST_FRAMEWORK = {
@@ -330,7 +334,7 @@ BACKUP_CRON = env.str("BACKUP_CRON", default="0 3 * * *")
 FILTERS_EMPTY_CHOICE_LABEL = "Show All"
 
 # LLM configuration
-LLM_MODEL_NAME = env.str("LLM_MODEL_NAME", default="unused")
+LLM_MODEL_NAME = env.str("LLM_MODEL_NAME")
 EXTERNAL_LLM_PROVIDER_URL = env.str("EXTERNAL_LLM_PROVIDER_URL", default="")
 EXTERNAL_LLM_PROVIDER_API_KEY = env.str("EXTERNAL_LLM_PROVIDER_API_KEY", default="")
 LLM_SERVICE_DEV_PORT = env.int("LLM_SERVICE_DEV_PORT", default=8080)

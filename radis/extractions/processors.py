@@ -37,12 +37,16 @@ class ExtractionTaskProcessor(AnalysisTaskProcessor):
                 db.close_old_connections()
 
     def process_instance(self, instance: ExtractionInstance) -> None:
-        assert not instance.is_processed
-        instance.text = instance.report.body
-        self.process_output_fields(instance)
-        instance.is_processed = True
-        instance.save()
-        db.close_old_connections()
+        # Runs in a worker thread; its connection must be closed in that same
+        # thread, also when processing fails.
+        try:
+            assert not instance.is_processed
+            instance.text = instance.report.body
+            self.process_output_fields(instance)
+            instance.is_processed = True
+            instance.save()
+        finally:
+            db.connections.close_all()
 
     def process_output_fields(self, instance: ExtractionInstance) -> None:
         job = instance.task.job

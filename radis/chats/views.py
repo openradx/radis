@@ -173,7 +173,9 @@ async def chat_update_view(request: AuthenticatedHttpRequest, pk: int) -> HttpRe
     if not request.htmx:
         raise SuspiciousOperation
 
-    chat = await Chat.objects.prefetch_related("report").aget(pk=pk, owner=request.user)
+    chat = await aget_object_or_404(
+        Chat.objects.prefetch_related("report"), pk=pk, owner=request.user
+    )
 
     form = PromptForm(request.POST)
     if form.is_valid():
