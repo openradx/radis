@@ -48,7 +48,9 @@ def make_capturing_openai_mock(answers: dict[str, bool]) -> tuple[MagicMock, _Ca
     Result = create_model("Result", **field_definitions)
     parsed = Result(**answers)
 
-    def fake_parse(*, model: str, messages: Any, response_format: Any) -> MagicMock:
+    def fake_parse(
+        *, model: str, messages: Any, response_format: Any, extra_body: Any = None
+    ) -> MagicMock:
         capture.calls.append(
             {"model": model, "messages": list(messages), "response_format": response_format}
         )
@@ -59,9 +61,7 @@ def make_capturing_openai_mock(answers: dict[str, bool]) -> tuple[MagicMock, _Ca
     return openai_mock, capture
 
 
-def _make_task_with_reports(
-    question_texts: list[str], num_reports: int = 1
-) -> SubscriptionTask:
+def _make_task_with_reports(question_texts: list[str], num_reports: int = 1) -> SubscriptionTask:
     """Build a SubscriptionTask whose owner has an active group and whose
     reports are visible to that group."""
     user = UserFactory.create(is_active=True)
@@ -132,15 +132,13 @@ def test_report_body_and_questions_reach_the_model():
 
     # Reject (all False) so this test isolates the prompt/schema plumbing from
     # the accept path (covered by test_subscribed_item_created_when_all_answers_true).
-    openai_mock, capture = make_capturing_openai_mock(
-        {"question_0": False, "question_1": False}
-    )
+    openai_mock, capture = make_capturing_openai_mock({"question_0": False, "question_1": False})
     with patch("openai.OpenAI", return_value=openai_mock):
         SubscriptionTaskProcessor(task).start()
 
     assert len(capture.calls) == 1
     call = capture.calls[0]
-    assert call["messages"][0]["role"] == "system"
+    assert call["messages"][0]["role"] == "user"
     sent = call["messages"][0]["content"]
 
     assert report.body in sent
