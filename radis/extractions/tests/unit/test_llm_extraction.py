@@ -49,7 +49,9 @@ def make_capturing_openai_mock(output: BaseModel) -> tuple[MagicMock, _Capture]:
     """
     capture = _Capture()
 
-    def fake_parse(*, model: str, messages: Any, response_format: Any) -> MagicMock:
+    def fake_parse(
+        *, model: str, messages: Any, response_format: Any, extra_body: Any = None
+    ) -> MagicMock:
         capture.calls.append(
             {
                 "model": model,
@@ -162,9 +164,9 @@ def test_report_text_and_fields_reach_the_model(mocker: MockerFixture):
     assert len(capture.calls) == 1
     call = capture.calls[0]
 
-    # System prompt is the single message sent (role=system in ChatClient).
+    # The prompt is the single message sent (role=user in LLMClient).
     assert len(call["messages"]) == 1
-    assert call["messages"][0]["role"] == "system"
+    assert call["messages"][0]["role"] == "user"
     sent_prompt = call["messages"][0]["content"]
 
     # The full report body must be present in the prompt.
