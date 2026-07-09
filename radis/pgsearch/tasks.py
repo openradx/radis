@@ -1,16 +1,18 @@
 import logging
 import time
 
-import openai
-import stamina
-import stamina.instrumentation
 from django.conf import settings
 from procrastinate import RetryStrategy
 from procrastinate.contrib.django import app
 from procrastinate.contrib.django.models import ProcrastinateJob
 from procrastinate.types import JSONValue
 
-from radis.core.utils.rate_limit import RateLimited, run_through_gate
+from radis.core.utils.rate_limit import (
+    TRANSIENT_ERRORS,
+    RateLimited,
+    run_through_gate,
+    with_transient_retries,
+)
 
 from .models import ReportSearchIndex
 from .utils.embedding_client import EMBEDDING_GATE, EmbeddingClient, EmbeddingClientError
@@ -23,78 +25,37 @@ def _truncate_ids(ids: list[int], limit: int = 50) -> list[int]:
     return list(ids[:limit])
 
 
-# Transient classes we retry. 429 (RateLimitError) is deliberately NOT here —
-# the rate-limit gate handles it with the server-reported wait time;
-# stamina's fixed backoff would retry too early and silence the 429.
-_RETRYABLE_OPENAI_ERRORS: tuple[type[Exception], ...] = (
-    openai.APIConnectionError,
-    openai.APITimeoutError,
-    openai.InternalServerError,
-)
-
-
-def _is_retryable_embedding_error(exc: Exception) -> bool:
-    """stamina retry predicate. Retry transient failures, whether raised as
-    EmbeddingClientError or as a typed openai SDK exception. Exclude
-    openai.RateLimitError (the gate handles it; retrying here would silence
-    the 429). RateLimited (gate budget exhausted) is also not matched, so it
-    escapes stamina and fails the task over to EMBEDDING_TASK_RETRY_STRATEGY."""
-    if isinstance(exc, openai.RateLimitError):
-        return False
-    if isinstance(exc, EmbeddingClientError):
-        return True
-    return isinstance(exc, _RETRYABLE_OPENAI_ERRORS)
-
-
-# Procrastinate task-level retry: the outermost failure layer, after stamina
-# (brief blips, seconds) and the rate-limit gate (429s, up to the batch
-# budget). Exponential spacing (6s, 36s, ~4min, ~22min) covers extended
-# provider outages. Scoped to transient classes so misconfiguration (auth,
-# bad model name) fails the subjob immediately instead of burning retries.
-# A subjob that exhausts these attempts fails permanently — `embed_pending`
-# re-enqueues any reports still missing embeddings.
+# Procrastinate task-level retry: the outermost failure layer, after the local
+# transient retries (brief blips, seconds) and the rate-limit gate (429s, up
+# to the batch budget). Exponential spacing (6s, 36s, ~4min, ~22min) covers
+# extended provider outages. Scoped to transient classes so misconfiguration
+# (auth, bad model name) fails the subjob immediately instead of burning
+# retries. A subjob that exhausts these attempts fails permanently —
+# `embed_pending` re-enqueues any reports still missing embeddings.
 EMBEDDING_TASK_RETRY_STRATEGY = RetryStrategy(
     max_attempts=settings.EMBEDDING_TASK_MAX_ATTEMPTS,
     exponential_wait=settings.EMBEDDING_TASK_EXPONENTIAL_WAIT_SECONDS,
-    retry_exceptions={RateLimited, EmbeddingClientError, *_RETRYABLE_OPENAI_ERRORS},
+    retry_exceptions={RateLimited, EmbeddingClientError, *TRANSIENT_ERRORS},
 )
 
 
-@stamina.retry(
-    on=_is_retryable_embedding_error,
-    attempts=3,
-    timeout=30.0,
-    wait_initial=0.5,
-    wait_max=8.0,
-)
 def _embed_chunk_with_retry(client: EmbeddingClient, texts: list[str]) -> list[list[float]]:
-    """Single embed call wrapped in stamina-controlled transient retries.
-
-    Layered with Procrastinate's task-level retry: stamina handles brief
-    blips (3 attempts within ~30s); Procrastinate handles extended outages
-    (whole-task retry on backoff). Gateway 429s are handled inside the
-    per-process EMBEDDING_GATE, which waits out the server-reported pause
-    (or the exponential ladder) up to the batch budget, then raises
-    RateLimited — which escapes stamina and fails the task over to
-    Procrastinate."""
+    """Single embed call with the same layering as the LLM client: the
+    rate-limit gate outermost (429s: wait out the server-reported pause or
+    the exponential ladder within one batch budget, then raise RateLimited),
+    local transient retries inside (brief blips: connection/timeout/5xx and
+    malformed responses raised as EmbeddingClientError). 429 is not in the
+    retryable tuple, so it passes straight to the gate; RateLimited and
+    exhausted transient errors escape to Procrastinate's task-level retry."""
     return run_through_gate(
         EMBEDDING_GATE,
         settings.EMBEDDING_RATE_LIMIT_MAX_WAIT_SECONDS,
-        lambda: client.embed_documents(texts),
-    )
-
-
-def _log_stamina_retry(details: stamina.instrumentation.RetryDetails) -> None:
-    """Stamina on_retry hook. Logs WARNING per retry attempt of the
-    embedding HTTP call. Filters by callsite name so this hook stays a
-    no-op for any other stamina-decorated function added later."""
-    if details.name != "radis.pgsearch.tasks._embed_chunk_with_retry":
-        return
-    logger.warning(
-        "embed_reports_task: embedding HTTP call failed; attempt=%d retrying in %.2fs. Error: %s",
-        details.retry_num,
-        details.wait_for,
-        details.caused_by,
+        lambda: with_transient_retries(
+            lambda: client.embed_documents(texts),
+            settings.EMBEDDING_TRANSIENT_RETRY_ATTEMPTS,
+            settings.EMBEDDING_TRANSIENT_RETRY_BASE_SECONDS,
+            retryable=(*TRANSIENT_ERRORS, EmbeddingClientError),
+        ),
     )
 
 
@@ -213,11 +174,12 @@ def embed_reports_task(report_ids: list[int]) -> None:
 
     Failure handling, from innermost to outermost:
 
+    * Transient errors (connection, timeout, 5xx, malformed responses):
+      retried locally inside `_embed_chunk_with_retry`
+      (EMBEDDING_TRANSIENT_RETRY_ATTEMPTS retries with exponential backoff).
     * Gateway 429s: the per-process EMBEDDING_GATE waits out the
       server-reported pause (or an exponential ladder) up to the batch
       budget, then raises RateLimited.
-    * Transient errors (connection, timeout, 5xx): stamina retries
-      (3 attempts, ~30s budget) inside `_embed_chunk_with_retry`.
     * Anything that escapes both propagates so EMBEDDING_TASK_RETRY_STRATEGY
       retries the whole subjob (transient classes only).
 

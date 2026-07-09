@@ -7,7 +7,6 @@ import httpx
 import numpy as np
 import openai
 import pytest
-import stamina
 
 from radis.pgsearch.models import ReportSearchIndex
 from radis.pgsearch.tasks import (
@@ -20,13 +19,12 @@ from radis.reports.factories import ReportFactory
 
 
 @pytest.fixture
-def stamina_active():
-    """Enable stamina retries for the duration of one test. The repo-wide
-    conftest disables them so the rest of the suite isn't slowed by retry
-    backoffs."""
-    stamina.set_active(True)
-    yield
-    stamina.set_active(False)
+def no_retry_sleep(monkeypatch):
+    """No-op the transient-retry backoff sleeps (with_transient_retries uses
+    time.sleep) so tests that exercise retries don't slow the suite down."""
+    import time
+
+    monkeypatch.setattr(time, "sleep", lambda s: None)
 
 
 @pytest.fixture
@@ -292,10 +290,10 @@ def test_enqueue_embed_reports_explicit_backfill_priority(settings):
     )
 
 
-def test_timeout_propagates_after_retries(settings):
-    """A chunk that surfaces `openai.APITimeoutError` past stamina's retry
-    budget propagates so Procrastinate retries the whole subjob. Stamina
-    retries are disabled in the conftest, so this is a single call."""
+def test_timeout_propagates_after_retries(settings, no_retry_sleep):
+    """A chunk that surfaces `openai.APITimeoutError` past the transient
+    retry budget propagates so Procrastinate retries the whole subjob:
+    1 initial call + EMBEDDING_TRANSIENT_RETRY_ATTEMPTS retries."""
     settings.EMBEDDING_BATCH_SIZE = 2
     reports = [ReportFactory.create() for _ in range(2)]
     pks = [r.pk for r in reports]
@@ -309,12 +307,12 @@ def test_timeout_propagates_after_retries(settings):
         with pytest.raises(openai.APITimeoutError):
             embed_reports_task(report_ids=pks)
 
-    assert fake.embed_documents.call_count == 1
+    assert fake.embed_documents.call_count == 1 + settings.EMBEDDING_TRANSIENT_RETRY_ATTEMPTS
     assert ReportSearchIndex.objects.filter(embedding__isnull=True).count() == 2
 
 
-def test_stamina_retries_transient_then_succeeds(settings, stamina_active):
-    """stamina retries transient EmbeddingClientError: an embed call that
+def test_transient_retries_then_succeeds(settings, no_retry_sleep):
+    """Transient EmbeddingClientError is retried locally: an embed call that
     fails the first two attempts and succeeds on the third returns vectors
     without escalating to Procrastinate's task-level retry."""
     settings.EMBEDDING_BATCH_SIZE = 4
@@ -388,33 +386,10 @@ def test_logs_info_finish_with_counts_and_duration(settings, caplog_tasks):
     assert "duration_ms=" in finish[0]
 
 
-def test_log_stamina_retry_emits_warning_for_embed_call(caplog_tasks):
-    from stamina.instrumentation import RetryDetails
-
-    from radis.pgsearch.tasks import _log_stamina_retry
-
-    details = RetryDetails(
-        name="radis.pgsearch.tasks._embed_chunk_with_retry",
-        args=(),
-        kwargs={},
-        retry_num=2,
-        wait_for=1.25,
-        waited_so_far=0.5,
-        caused_by=RuntimeError("boom"),
-    )
-    _log_stamina_retry(details)
-
-    warning_msgs = [r.getMessage() for r in caplog_tasks.records if r.levelname == "WARNING"]
-    assert any(
-        "embed_reports_task: embedding HTTP call failed; attempt=2 "
-        "retrying in 1.25s. Error: boom" in m
-        for m in warning_msgs
-    )
-
-
-def test_stamina_retry_emits_warning_through_registered_hook(
-    settings, stamina_active, caplog_tasks
-):
+def test_transient_retry_emits_warning_log(settings, no_retry_sleep, caplog):
+    """A retried transient blip must surface as a WARNING from the shared
+    retry helper so operators see flakiness that never escalates to a
+    task failure."""
     settings.EMBEDDING_BATCH_SIZE = 4
     reports = [ReportFactory.create() for _ in range(2)]
     pks = [r.pk for r in reports]
@@ -425,80 +400,64 @@ def test_stamina_retry_emits_warning_through_registered_hook(
     fake.__exit__ = MagicMock(return_value=None)
     fake.embed_documents = MagicMock(side_effect=[EmbeddingClientError("blip"), [vec, vec]])
 
-    with patch("radis.pgsearch.tasks.EmbeddingClient", return_value=fake):
-        embed_reports_task(report_ids=pks)
+    rate_limit_logger = logging.getLogger("radis.core.utils.rate_limit")
+    rate_limit_logger.addHandler(caplog.handler)
+    try:
+        with caplog.at_level(logging.WARNING, logger="radis.core.utils.rate_limit"):
+            with patch("radis.pgsearch.tasks.EmbeddingClient", return_value=fake):
+                embed_reports_task(report_ids=pks)
+    finally:
+        rate_limit_logger.removeHandler(caplog.handler)
 
-    warning_msgs = [r.getMessage() for r in caplog_tasks.records if r.levelname == "WARNING"]
-    assert any("embedding HTTP call failed; attempt=1" in m for m in warning_msgs)
+    warning_msgs = [r.getMessage() for r in caplog.records if r.levelname == "WARNING"]
+    assert any("Transient error on attempt 1" in m for m in warning_msgs)
 
 
-def test_log_stamina_retry_ignores_other_callsites(caplog_tasks):
-    from stamina.instrumentation import RetryDetails
+@pytest.mark.django_db(False)
+def test_embed_chunk_retries_connection_error_then_succeeds(no_retry_sleep):
+    """Transient SDK errors are retried locally inside the chunk call."""
+    from radis.pgsearch import tasks as tasks_module
 
-    from radis.pgsearch.tasks import _log_stamina_retry
-
-    details = RetryDetails(
-        name="some.other.module._other_retry",
-        args=(),
-        kwargs={},
-        retry_num=1,
-        wait_for=0.5,
-        waited_so_far=0.0,
-        caused_by=RuntimeError("not ours"),
+    fake_client = MagicMock()
+    fake_client.embed_documents = MagicMock(
+        side_effect=[openai.APIConnectionError(request=None), [[0.1, 0.2]]]  # type: ignore[arg-type]
     )
-    _log_stamina_retry(details)
 
-    warning_msgs = [r.getMessage() for r in caplog_tasks.records if r.levelname == "WARNING"]
-    assert warning_msgs == []
-
-
-@pytest.mark.django_db(False)
-def test_predicate_retries_openai_connection_error():
-    import openai
-
-    from radis.pgsearch.tasks import _is_retryable_embedding_error
-
-    exc = openai.APIConnectionError(request=None)  # type: ignore[arg-type]
-    assert _is_retryable_embedding_error(exc) is True
+    assert tasks_module._embed_chunk_with_retry(fake_client, ["hello"]) == [[0.1, 0.2]]
+    assert fake_client.embed_documents.call_count == 2
 
 
 @pytest.mark.django_db(False)
-def test_predicate_retries_openai_internal_server_error():
-    import httpx
-    import openai
-
-    from radis.pgsearch.tasks import _is_retryable_embedding_error
-
-    # InternalServerError is an APIStatusError subclass; construct via the
-    # SDK's __init__ which only requires message + response + body in modern
-    # versions. Use a minimal httpx.Response to satisfy the signature.
-    response = httpx.Response(503, request=httpx.Request("POST", "http://x"))
-    exc = openai.InternalServerError(message="boom", response=response, body=None)
-    assert _is_retryable_embedding_error(exc) is True
-
-
-@pytest.mark.django_db(False)
-def test_predicate_does_not_retry_openai_rate_limit_error():
-    """429 must reach the rate-limit gate, not be silently retried by
-    stamina with a wait that ignores the server's own hint."""
-    import httpx
-    import openai
-
-    from radis.pgsearch.tasks import _is_retryable_embedding_error
+def test_embed_chunk_does_not_retry_rate_limit_error_locally():
+    """429 must reach the rate-limit gate untouched, not be retried locally
+    with a wait that ignores the server's own hint. (The gate is patched to
+    a passthrough here, so the 429 surfaces directly.)"""
+    from radis.pgsearch import tasks as tasks_module
 
     response = httpx.Response(429, request=httpx.Request("POST", "http://x"))
-    exc = openai.RateLimitError(message="slow", response=response, body=None)
-    assert _is_retryable_embedding_error(exc) is False
+    fake_client = MagicMock()
+    fake_client.embed_documents = MagicMock(
+        side_effect=openai.RateLimitError(message="slow", response=response, body=None)
+    )
+
+    with pytest.raises(openai.RateLimitError):
+        tasks_module._embed_chunk_with_retry(fake_client, ["hello"])
+    assert fake_client.embed_documents.call_count == 1
 
 
 @pytest.mark.django_db(False)
-def test_predicate_does_not_retry_rate_limited():
-    """RateLimited (gate budget exhausted) must escape stamina so the
-    Procrastinate retry strategy reschedules the whole subjob later."""
+def test_embed_chunk_does_not_retry_rate_limited():
+    """RateLimited (gate budget exhausted) must escape the transient retry
+    layer so the Procrastinate retry strategy reschedules the whole subjob."""
     from radis.core.utils.rate_limit import RateLimited
-    from radis.pgsearch.tasks import _is_retryable_embedding_error
+    from radis.pgsearch import tasks as tasks_module
 
-    assert _is_retryable_embedding_error(RateLimited()) is False
+    fake_client = MagicMock()
+    fake_client.embed_documents = MagicMock(side_effect=RateLimited())
+
+    with pytest.raises(RateLimited):
+        tasks_module._embed_chunk_with_retry(fake_client, ["hello"])
+    assert fake_client.embed_documents.call_count == 1
 
 
 @pytest.mark.django_db(False)
@@ -513,6 +472,10 @@ def test_embed_reports_task_retries_transient_errors_via_procrastinate():
     retry_exceptions = EMBEDDING_TASK_RETRY_STRATEGY.retry_exceptions or set()
     assert RateLimited in retry_exceptions
     assert EmbeddingClientError in retry_exceptions
+    # APIConnectionError covers APITimeoutError (subclass); Procrastinate
+    # matches via isinstance.
+    assert openai.APIConnectionError in retry_exceptions
+    assert openai.InternalServerError in retry_exceptions
 
 
 def test_cancel_backfill_embeddings_cancels_only_queued_backfill_jobs(settings):

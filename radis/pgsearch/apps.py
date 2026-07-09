@@ -11,12 +11,7 @@ class PgSearchConfig(AppConfig):
     name = "radis.pgsearch"
 
     def ready(self):
-        import stamina.instrumentation
-
         from . import signals as signals  # noqa: F401
-        from .tasks import _log_stamina_retry
-
-        stamina.instrumentation.set_on_retry_hooks([_log_stamina_retry])
 
         register_app()
 

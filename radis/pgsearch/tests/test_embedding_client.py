@@ -169,7 +169,7 @@ def test_oversized_embedding_truncates_and_renormalizes(monkeypatch):
 )
 def test_5xx_propagates_as_typed_openai_error(monkeypatch):
     """5xx must surface as openai.InternalServerError (not wrapped) so the
-    stamina retry predicate in tasks.py can match on the typed class."""
+    transient retry layer in tasks.py can match on the typed class."""
     import openai
 
     from radis.pgsearch.utils import embedding_client as ec
@@ -215,7 +215,7 @@ def test_429_propagates_as_typed_rate_limit_error(monkeypatch):
 )
 def test_400_propagates_as_typed_bad_request_error(monkeypatch):
     """4xx client errors surface as typed SDK exceptions (not wrapped) so
-    they escape the stamina retry predicate and fail the subjob fast."""
+    they escape the transient retry layer and fail the subjob fast."""
     import openai
 
     from radis.pgsearch.utils import embedding_client as ec

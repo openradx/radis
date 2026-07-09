@@ -42,16 +42,6 @@ def test_check_fails_with_e002_when_migration_field_missing():
     assert errors[0].id == "pgsearch.E002"
 
 
-def test_stamina_on_retry_hook_includes_log_stamina_retry():
-    """`PgSearchConfig.ready()` registers our embed-call WARNING hook
-    so stamina retries surface in logs."""
-    from stamina.instrumentation import get_on_retry_hooks
-
-    from radis.pgsearch.tasks import _log_stamina_retry
-
-    assert _log_stamina_retry in get_on_retry_hooks()
-
-
 def test_index_reports_logs_info_with_mode_and_count(settings, caplog):
     from radis.pgsearch.apps import _index_reports
 

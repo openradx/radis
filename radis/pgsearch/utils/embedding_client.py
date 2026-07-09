@@ -26,8 +26,8 @@ class EmbeddingClientError(Exception):
     """Raised when the embedding service returns a malformed response or when
     configuration is invalid. Typed `openai.OpenAIError` subclasses
     (RateLimitError, BadRequestError, InternalServerError, ...) are NOT wrapped
-    in this class — callers that want to discriminate (stamina retry predicate,
-    the rate-limit gate) match on the SDK types directly."""
+    in this class — callers that want to discriminate (the transient retry
+    layer, the rate-limit gate) match on the SDK types directly."""
 
 
 def _build_http_client() -> httpx.Client:

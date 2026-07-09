@@ -408,6 +408,11 @@ EMBEDDING_RATE_LIMIT_HEADER_CEILING_SECONDS = 1800.0
 # user is waiting and falling back to FTS-only beats hanging on a closed gate.
 EMBEDDING_RATE_LIMIT_MAX_WAIT_SECONDS = 300.0
 EMBEDDING_RATE_LIMIT_QUERY_MAX_WAIT_SECONDS = 10.0
+# Local retries of transient (non-429) embedding call failures, mirroring the
+# LLM_TRANSIENT_RETRY_* knobs above: N retries after the first call, with
+# exponential backoff base * 2**attempt (0.5s, 1s).
+EMBEDDING_TRANSIENT_RETRY_ATTEMPTS = 2
+EMBEDDING_TRANSIENT_RETRY_BASE_SECONDS = 0.5
 # Procrastinate-level retry of a whole embedding subjob (see
 # EMBEDDING_TASK_RETRY_STRATEGY in radis.pgsearch.tasks). Waits grow as
 # exponential_wait ** attempt: 6s, 36s, ~4min, ~22min.
