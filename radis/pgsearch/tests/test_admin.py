@@ -93,9 +93,9 @@ def test_delete_permission_denied():
     assert admin_instance.has_delete_permission(MagicMock()) is False
 
 
-def test_clear_embeddings_for_remodel_nulls_only_selected_rows_with_embeddings():
-    """Same-dim model swap: NULL the existing embeddings on selected rows.
-    Rows already NULL are no-ops; rows outside the selection are untouched."""
+def test_clear_embeddings_nulls_only_selected_rows_with_embeddings():
+    """NULL the existing embeddings on selected rows. Rows already NULL
+    are no-ops; rows outside the selection are untouched."""
     targets = [ReportFactory.create() for _ in range(3)]
     untouched = ReportFactory.create()
     for r in targets + [untouched]:
@@ -108,7 +108,7 @@ def test_clear_embeddings_for_remodel_nulls_only_selected_rows_with_embeddings()
     selected = ReportSearchIndex.objects.filter(report_id__in=[r.pk for r in targets])
     admin_instance = ReportSearchIndexAdmin(ReportSearchIndex, AdminSite())
     admin_instance.message_user = MagicMock()
-    admin_instance.clear_embeddings_for_remodel(MagicMock(), selected)
+    admin_instance.clear_embeddings(MagicMock(), selected)
 
     # Two of three targets had embeddings and got cleared.
     assert (
@@ -148,7 +148,7 @@ def test_enqueue_pending_embeddings_logs_info_with_user_and_counts(caplog):
     )
 
 
-def test_clear_embeddings_for_remodel_logs_info_with_user_and_count(caplog):
+def test_clear_embeddings_logs_info_with_user_and_count(caplog):
     admin_logger = logging.getLogger("radis.pgsearch.admin")
     admin_logger.addHandler(caplog.handler)
     caplog.set_level(logging.INFO, logger="radis.pgsearch.admin")
@@ -164,15 +164,12 @@ def test_clear_embeddings_for_remodel_logs_info_with_user_and_count(caplog):
 
         admin_instance = ReportSearchIndexAdmin(ReportSearchIndex, AdminSite())
         admin_instance.message_user = MagicMock()
-        admin_instance.clear_embeddings_for_remodel(request, selected)
+        admin_instance.clear_embeddings(request, selected)
     finally:
         admin_logger.removeHandler(caplog.handler)
 
     info_msgs = [r.getMessage() for r in caplog.records if r.levelname == "INFO"]
-    assert any(
-        "admin.clear_embeddings_for_remodel: user=bob cleared 2 embedding(s)" in m
-        for m in info_msgs
-    )
+    assert any("admin.clear_embeddings: user=bob cleared 2 embedding(s)" in m for m in info_msgs)
 
 
 def test_cancel_backfill_url_is_registered():

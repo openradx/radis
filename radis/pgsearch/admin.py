@@ -21,7 +21,7 @@ class ReportSearchIndexAdmin(admin.ModelAdmin):
     list_display = ("id", "report_id", "has_embedding")
     list_filter = (("embedding", admin.EmptyFieldListFilter),)
     search_fields = ("report__document_id",)
-    actions = ("enqueue_pending_embeddings", "clear_embeddings_for_remodel")
+    actions = ("enqueue_pending_embeddings", "clear_embeddings")
     change_list_template = "admin/pgsearch/reportsearchindex/change_list.html"
     # Unconfigured, `report` (OneToOneField) renders as a <select> populated
     # with every Report row — millions of rows in production — on every change-form
@@ -148,16 +148,13 @@ class ReportSearchIndexAdmin(admin.ModelAdmin):
             subjob_count,
         )
 
-    @admin.action(description="Clear embeddings (NULL them) — for same-dim model swap")
-    def clear_embeddings_for_remodel(
-        self, request: HttpRequest, queryset: QuerySet[ReportSearchIndex]
-    ) -> None:
-        # Same-dim model swap procedure: NULL the existing embeddings so
-        # the new model writes fresh ones via `embed_pending`. Uses
-        # queryset.update so post_save signals don't fire (we don't want
-        # auto-re-embedding here — that'd hit the embedding service
-        # immediately, possibly with the OLD model still configured).
-        # The operator drives the backfill explicitly afterward.
+    @admin.action(description="Clear embeddings (NULL them)")
+    def clear_embeddings(self, request: HttpRequest, queryset: QuerySet[ReportSearchIndex]) -> None:
+        # NULL the embeddings so `embed_pending` writes fresh ones (e.g.
+        # after a same-dim model swap). Uses queryset.update so post_save
+        # signals don't fire (we don't want auto-re-embedding here — that'd
+        # hit the embedding service immediately, possibly with the OLD model
+        # still configured). The operator drives the backfill explicitly.
         cleared = queryset.filter(embedding__isnull=False).update(embedding=None)
         if not cleared:
             self.message_user(
@@ -174,7 +171,7 @@ class ReportSearchIndexAdmin(admin.ModelAdmin):
             level=messages.SUCCESS,
         )
         logger.info(
-            "admin.clear_embeddings_for_remodel: user=%s cleared %d embedding(s)",
+            "admin.clear_embeddings: user=%s cleared %d embedding(s)",
             request.user.get_username(),
             cleared,
         )
