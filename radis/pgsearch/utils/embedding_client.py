@@ -7,9 +7,19 @@ import httpx
 import openai
 from django.conf import settings
 
-from .rate_limiter import call_with_429_backoff
+from radis.core.utils.rate_limit import RateLimitGate, run_through_gate
 
 logger = logging.getLogger(__name__)
+
+# Process-global so every embedding caller in this worker/web process shares one backoff
+# window. Deliberately separate from the LLM gate in core.utils.llm_client: the embedding
+# gateway is a different provider, so a 429 from one must not pause the other. Cross-process
+# coordination is unnecessary — each container backs off on the 429s it receives itself.
+EMBEDDING_GATE = RateLimitGate(
+    base_seconds=settings.EMBEDDING_RATE_LIMIT_BACKOFF_BASE_SECONDS,
+    backoff_max_seconds=settings.EMBEDDING_RATE_LIMIT_BACKOFF_MAX_SECONDS,
+    header_ceiling_seconds=settings.EMBEDDING_RATE_LIMIT_HEADER_CEILING_SECONDS,
+)
 
 
 class EmbeddingClientError(Exception):
@@ -17,7 +27,7 @@ class EmbeddingClientError(Exception):
     configuration is invalid. Typed `openai.OpenAIError` subclasses
     (RateLimitError, BadRequestError, InternalServerError, ...) are NOT wrapped
     in this class — callers that want to discriminate (stamina retry predicate,
-    429 backoff) match on the SDK types directly."""
+    the rate-limit gate) match on the SDK types directly."""
 
 
 def _build_http_client() -> httpx.Client:
@@ -74,7 +84,7 @@ class EmbeddingClient:
             base_url=base_url,
             api_key=api_key,
             http_client=self._http,
-            max_retries=0,  # 429s are handled by call_with_429_backoff, not the SDK
+            max_retries=0,  # 429s are handled by the rate-limit gate, not the SDK
             timeout=settings.EMBEDDING_REQUEST_TIMEOUT,
         )
         self._model = settings.EMBEDDING_MODEL_NAME
@@ -84,7 +94,7 @@ class EmbeddingClient:
     def embed_documents(self, texts: list[str]) -> list[list[float]]:
         """Low-level call to the embedding backend, with no 429 handling of
         its own — `embed_query` (below) and `_embed_chunk_with_retry` in
-        `radis/pgsearch/tasks.py` wrap it in `call_with_429_backoff`. HTTP
+        `radis/pgsearch/tasks.py` run it through `EMBEDDING_GATE`. HTTP
         errors (400, 429, 5xx, ...) propagate as typed SDK exceptions."""
         # encoding_format="float" requests JSON-float vectors. Without this
         # the SDK defaults to base64, which would require a decode step
@@ -96,9 +106,14 @@ class EmbeddingClient:
         return _normalize_response(raw, len(texts), self._dim)
 
     def embed_query(self, text: str) -> list[float]:
+        """Embed a search query through the gate with the short query budget:
+        a user is waiting, so when the gate is closed beyond that budget this
+        raises RateLimited and the provider falls back to FTS-only."""
         prefixed = f"{self._instruction}{text}" if self._instruction else text
-        vectors = call_with_429_backoff(
-            lambda: self.embed_documents([prefixed]), shared_gate=False
+        vectors = run_through_gate(
+            EMBEDDING_GATE,
+            settings.EMBEDDING_RATE_LIMIT_QUERY_MAX_WAIT_SECONDS,
+            lambda: self.embed_documents([prefixed]),
         )
         if not vectors:
             raise EmbeddingClientError("Embedding service returned no vectors for query")

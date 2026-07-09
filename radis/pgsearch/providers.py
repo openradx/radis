@@ -9,6 +9,7 @@ from django.contrib.postgres.search import SearchHeadline, SearchQuery, SearchRa
 from django.db.models import F, Q
 from pgvector.django import CosineDistance
 
+from radis.core.utils.rate_limit import RateLimited
 from radis.reports.models import Report
 from radis.search.site import ReportDocument, Search, SearchFilters, SearchResult
 from radis.search.utils.query_parser import (
@@ -156,7 +157,7 @@ def search(search: Search) -> SearchResult:
         try:
             with EmbeddingClient() as ec:
                 query_vec = ec.embed_query(query_text)
-        except (EmbeddingClientError, openai.OpenAIError) as e:
+        except (EmbeddingClientError, RateLimited, openai.OpenAIError) as e:
             logger.warning("Hybrid search falling back to FTS-only: %s", e)
             query_vec = None
 
@@ -269,7 +270,7 @@ def retrieve(search: Search) -> Iterator[str]:
         try:
             with EmbeddingClient() as ec:
                 query_vec = ec.embed_query(query_text)
-        except (EmbeddingClientError, openai.OpenAIError) as e:
+        except (EmbeddingClientError, RateLimited, openai.OpenAIError) as e:
             logger.warning("Hybrid retrieve falling back to FTS-only: %s", e)
             query_vec = None
 

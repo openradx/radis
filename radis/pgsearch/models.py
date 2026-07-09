@@ -50,23 +50,3 @@ class ReportSearchIndex(models.Model):
         language = code_to_language(self.report.language.code)
         self.search_vector = SearchVector(models.Value(body), config=language)
         super().save(*args, **kwargs)
-
-
-class EmbeddingBackoffState(models.Model):
-    """Singleton (always pk=1) shared reactive-backoff state for the
-    embedding gateway. When any process receives a 429 it records the
-    server-reported wait here; background embedding traffic in every
-    container consults this row before sending, so one process's backoff
-    gates them all. The counter makes repeat-429 doubling global. See
-    docs/superpowers/specs/2026-07-02-shared-429-backoff-design.md."""
-
-    paused_until = models.DateTimeField(null=True, default=None)
-    consecutive_429s = models.PositiveIntegerField(default=0)
-    updated_at = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        verbose_name = "Embedding backoff state"
-        verbose_name_plural = "Embedding backoff states"
-
-    def __str__(self) -> str:
-        return f"Embedding backoff state (paused_until={self.paused_until})"

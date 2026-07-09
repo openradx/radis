@@ -1,5 +1,15 @@
 # Shared cross-process 429 backoff for the embedding gateway
 
+> **Status: REVERTED (2026-07-09).** After main landed the generic per-process
+> `RateLimitGate` for LLM traffic (#242, `radis/core/utils/rate_limit.py`), the
+> DB-backed `EmbeddingBackoffState` singleton was removed in favor of a
+> per-process `EMBEDDING_GATE` built on that same class. Cross-process
+> coordination was judged not worth the extra model/migration surface: each
+> container backs off on the 429s it receives itself, and the search path is
+> protected by a short per-call wait budget instead of a gate bypass. Kept for
+> historical rationale only.
+
+
 ## Context
 
 Commit `c4be7b27` replaced the proactive sliding-window rate limiter

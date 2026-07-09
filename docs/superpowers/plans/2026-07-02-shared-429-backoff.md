@@ -1,5 +1,15 @@
 # Shared Cross-Process 429 Backoff Implementation Plan
 
+> **Status: REVERTED (2026-07-09).** After main landed the generic per-process
+> `RateLimitGate` for LLM traffic (#242, `radis/core/utils/rate_limit.py`), the
+> DB-backed `EmbeddingBackoffState` singleton was removed in favor of a
+> per-process `EMBEDDING_GATE` built on that same class. Cross-process
+> coordination was judged not worth the extra model/migration surface: each
+> container backs off on the 429s it receives itself, and the search path is
+> protected by a short per-call wait budget instead of a gate bypass. Kept for
+> historical rationale only.
+
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Make the embedding gateway's 429 backoff observable by every process sharing the database, with global exponential doubling, per `docs/superpowers/specs/2026-07-02-shared-429-backoff-design.md`.

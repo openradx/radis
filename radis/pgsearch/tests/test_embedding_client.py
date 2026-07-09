@@ -32,13 +32,16 @@ def _install_transport(monkeypatch, handler):
 
 
 @pytest.fixture(autouse=True)
-def _bypass_429_backoff(monkeypatch):
+def _bypass_rate_limit_gate(monkeypatch):
     """These tests exercise EmbeddingClient's request/response handling, not
-    the 429 backoff itself (covered in test_rate_limiter.py). Patch it to a
-    passthrough so a stray 429 in a test double can't trigger real sleeps."""
+    the rate-limit gate itself (covered in radis/core/tests/test_rate_limit.py).
+    Patch the gate runner to a passthrough so a stray 429 in a test double
+    can't trigger real sleeps, and reset the process-global gate so a 429
+    armed by one test can't leak a closed window into another."""
     from radis.pgsearch.utils import embedding_client as ec
 
-    monkeypatch.setattr(ec, "call_with_429_backoff", lambda fn, **kwargs: fn())
+    ec.EMBEDDING_GATE.reset()
+    monkeypatch.setattr(ec, "run_through_gate", lambda gate, budget, fn: fn())
 
 
 @_patched_settings()
@@ -189,8 +192,8 @@ def test_5xx_propagates_as_typed_openai_error(monkeypatch):
     EMBEDDING_QUERY_INSTRUCTION="",
 )
 def test_429_propagates_as_typed_rate_limit_error(monkeypatch):
-    """429 must surface as openai.RateLimitError (not wrapped) so
-    `call_with_429_backoff` can intercept it."""
+    """429 must surface as openai.RateLimitError (not wrapped) so the
+    rate-limit gate can intercept it."""
     import openai
 
     from radis.pgsearch.utils import embedding_client as ec
@@ -230,20 +233,19 @@ def test_400_propagates_as_typed_bad_request_error(monkeypatch):
 
 
 @_patched_settings()
-def test_embed_query_uses_429_backoff(monkeypatch):
+def test_embed_query_runs_through_gate_with_query_budget(monkeypatch):
+    from django.conf import settings
+
     from radis.pgsearch.utils import embedding_client as ec
 
-    wrapped = {"called": False}
+    seen = {}
 
-    def fake_call_with_429_backoff(fn, **kwargs):
-        wrapped["called"] = True
-        assert kwargs.get("shared_gate") is False, (
-            "embed_query must bypass the shared pause (a user is waiting) "
-            "while still recording its own 429s"
-        )
+    def fake_run_through_gate(gate, budget, fn):
+        seen["gate"] = gate
+        seen["budget"] = budget
         return fn()
 
-    monkeypatch.setattr(ec, "call_with_429_backoff", fake_call_with_429_backoff)
+    monkeypatch.setattr(ec, "run_through_gate", fake_run_through_gate)
 
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json={"data": [{"embedding": [1.0, 0.0, 0.0, 0.0]}]})
@@ -253,7 +255,10 @@ def test_embed_query_uses_429_backoff(monkeypatch):
     vec = ec.EmbeddingClient().embed_query("pneumonia")
 
     assert vec == [1.0, 0.0, 0.0, 0.0]
-    assert wrapped["called"] is True
+    assert seen["gate"] is ec.EMBEDDING_GATE, "embed_query must use the shared embedding gate"
+    assert seen["budget"] == settings.EMBEDDING_RATE_LIMIT_QUERY_MAX_WAIT_SECONDS, (
+        "a user is waiting on search, so embed_query gets the short query budget"
+    )
 
 
 @override_settings(

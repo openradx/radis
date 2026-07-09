@@ -9,10 +9,11 @@ from procrastinate.contrib.django import app
 from procrastinate.contrib.django.models import ProcrastinateJob
 from procrastinate.types import JSONValue
 
+from radis.core.utils.rate_limit import run_through_gate
+
 from .models import ReportSearchIndex
-from .utils.embedding_client import EmbeddingClient, EmbeddingClientError
+from .utils.embedding_client import EMBEDDING_GATE, EmbeddingClient, EmbeddingClientError
 from .utils.indexing import bulk_upsert_report_search_indexes
-from .utils.rate_limiter import call_with_429_backoff
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +23,7 @@ def _truncate_ids(ids: list[int], limit: int = 50) -> list[int]:
 
 
 # Transient classes we retry. 429 (RateLimitError) is deliberately NOT here —
-# `call_with_429_backoff` handles it with the server-reported wait time;
+# the rate-limit gate handles it with the server-reported wait time;
 # stamina's fixed backoff would retry too early and silence the 429.
 _RETRYABLE_OPENAI_ERRORS: tuple[type[BaseException], ...] = (
     openai.APIConnectionError,
@@ -34,8 +35,9 @@ _RETRYABLE_OPENAI_ERRORS: tuple[type[BaseException], ...] = (
 def _is_retryable_embedding_error(exc: Exception) -> bool:
     """stamina retry predicate. Retry transient failures from either the old
     EmbeddingClientError surface or the typed openai SDK surface. Exclude
-    openai.RateLimitError (`call_with_429_backoff` handles it; retrying here
-    would silence the 429)."""
+    openai.RateLimitError (the gate handles it; retrying here would silence
+    the 429). RateLimited (gate budget exhausted) is also not matched, so it
+    escapes stamina and fails the task over to Procrastinate's retry policy."""
     if isinstance(exc, openai.RateLimitError):
         return False
     if isinstance(exc, EmbeddingClientError):
@@ -55,10 +57,16 @@ def _embed_chunk_with_retry(client: EmbeddingClient, texts: list[str]) -> list[l
 
     Layered with Procrastinate's task-level retry: stamina handles brief
     blips (3 attempts within ~30s); Procrastinate handles extended outages
-    (whole-task retry on backoff). Gateway 429s are handled inside
-    `call_with_429_backoff` with exponential backoff seeded by the
-    server-reported wait time."""
-    return call_with_429_backoff(lambda: client.embed_documents(texts))
+    (whole-task retry on backoff). Gateway 429s are handled inside the
+    per-process EMBEDDING_GATE, which waits out the server-reported pause
+    (or the exponential ladder) up to the batch budget, then raises
+    RateLimited — which escapes stamina and fails the task over to
+    Procrastinate."""
+    return run_through_gate(
+        EMBEDDING_GATE,
+        settings.EMBEDDING_RATE_LIMIT_MAX_WAIT_SECONDS,
+        lambda: client.embed_documents(texts),
+    )
 
 
 def _log_stamina_retry(details: stamina.instrumentation.RetryDetails) -> None:
@@ -190,8 +198,9 @@ def embed_reports_task(report_ids: list[int]) -> None:
 
     Failure handling, from innermost to outermost:
 
-    * Gateway 429s: `call_with_429_backoff` retries with exponential
-      backoff seeded by the server-reported wait time.
+    * Gateway 429s: the per-process EMBEDDING_GATE waits out the
+      server-reported pause (or an exponential ladder) up to the batch
+      budget, then defers via RateLimited.
     * Transient errors (connection, timeout, 5xx): stamina retries
       (3 attempts, ~30s budget) inside `_embed_chunk_with_retry`.
     * Anything that escapes both propagates so Procrastinate's task-level

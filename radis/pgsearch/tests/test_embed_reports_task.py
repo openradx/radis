@@ -48,14 +48,18 @@ def caplog_tasks(caplog):
 
 
 @pytest.fixture(autouse=True)
-def _bypass_429_backoff(monkeypatch):
+def _bypass_rate_limit_gate(monkeypatch):
     """These tests exercise embed_reports_task's business logic (retry,
-    logging), not the 429 backoff itself — that's covered in
-    test_rate_limiter.py. Patch it to a passthrough so a stray 429 in a
-    test double can't trigger real sleeps."""
+    logging), not the rate-limit gate itself — that's covered in
+    radis/core/tests/test_rate_limit.py. Patch the gate runner to a
+    passthrough so a stray 429 in a test double can't trigger real sleeps,
+    and reset the process-global gate so a 429 armed by one test can't
+    leak a closed window into another."""
     from radis.pgsearch import tasks as tasks_module
+    from radis.pgsearch.utils.embedding_client import EMBEDDING_GATE
 
-    monkeypatch.setattr(tasks_module, "call_with_429_backoff", lambda fn, **kwargs: fn())
+    EMBEDDING_GATE.reset()
+    monkeypatch.setattr(tasks_module, "run_through_gate", lambda gate, budget, fn: fn())
 
 
 pytestmark = pytest.mark.django_db(transaction=True)
@@ -129,16 +133,20 @@ def test_embeds_in_internal_batches(settings):
     assert ReportSearchIndex.objects.filter(embedding__isnull=True).count() == 0
 
 
-def test_embed_chunk_with_retry_wraps_call_in_429_backoff(monkeypatch):
+def test_embed_chunk_with_retry_runs_through_gate_with_batch_budget(monkeypatch):
+    from django.conf import settings
+
     from radis.pgsearch import tasks as tasks_module
+    from radis.pgsearch.utils.embedding_client import EMBEDDING_GATE
 
-    wrapped = {"called": False}
+    seen = {}
 
-    def fake_call_with_429_backoff(fn, **kwargs):
-        wrapped["called"] = True
+    def fake_run_through_gate(gate, budget, fn):
+        seen["gate"] = gate
+        seen["budget"] = budget
         return fn()
 
-    monkeypatch.setattr(tasks_module, "call_with_429_backoff", fake_call_with_429_backoff)
+    monkeypatch.setattr(tasks_module, "run_through_gate", fake_run_through_gate)
 
     fake_client = MagicMock()
     fake_client.embed_documents = MagicMock(return_value=[[0.1, 0.2]])
@@ -146,7 +154,10 @@ def test_embed_chunk_with_retry_wraps_call_in_429_backoff(monkeypatch):
     result = tasks_module._embed_chunk_with_retry(fake_client, ["hello"])
 
     assert result == [[0.1, 0.2]]
-    assert wrapped["called"] is True
+    assert seen["gate"] is EMBEDDING_GATE, "task embedding must use the shared embedding gate"
+    assert seen["budget"] == settings.EMBEDDING_RATE_LIMIT_MAX_WAIT_SECONDS, (
+        "background batches get the long batch budget, not the query budget"
+    )
     fake_client.embed_documents.assert_called_once_with(["hello"])
 
 
@@ -476,7 +487,7 @@ def test_predicate_retries_openai_internal_server_error():
 
 @pytest.mark.django_db(False)
 def test_predicate_does_not_retry_openai_rate_limit_error():
-    """429 must reach `call_with_429_backoff`, not be silently retried by
+    """429 must reach the rate-limit gate, not be silently retried by
     stamina with a wait that ignores the server's own hint."""
     import httpx
     import openai

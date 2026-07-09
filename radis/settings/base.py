@@ -396,6 +396,18 @@ EMBEDDING_SUBJOB_SIZE = env.int("EMBEDDING_SUBJOB_SIZE", default=1000)
 # parks itself ahead of every later live write without this split.
 EMBEDDING_LIVE_PRIORITY = 1
 EMBEDDING_BACKFILL_PRIORITY = 0
+# Rate-limit gate for the embedding provider: one per-process backoff window shared by
+# every embedding caller in the process (mirrors the LLM gate in core.utils.llm_client).
+# The embedding gateway is a different provider than the LLM, so it gets its own gate —
+# a 429 from one must not pause the other. Semantics of each knob match the LLM_RATE_LIMIT_*
+# settings above.
+EMBEDDING_RATE_LIMIT_BACKOFF_BASE_SECONDS = 2.0
+EMBEDDING_RATE_LIMIT_BACKOFF_MAX_SECONDS = 120.0
+EMBEDDING_RATE_LIMIT_HEADER_CEILING_SECONDS = 1800.0
+# Wait budgets: long for background embedding tasks; short for the search path, where a
+# user is waiting and falling back to FTS-only beats hanging on a closed gate.
+EMBEDDING_RATE_LIMIT_MAX_WAIT_SECONDS = 300.0
+EMBEDDING_RATE_LIMIT_QUERY_MAX_WAIT_SECONDS = 10.0
 
 # Hybrid search tuning
 HYBRID_VECTOR_TOP_K = 100
