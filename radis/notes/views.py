@@ -52,7 +52,7 @@ class NoteEditView(LoginRequiredMixin, HtmxOnlyMixin, UpdateView):
             queryset = self.get_queryset()
 
         report_id: int = self.kwargs["report_id"]
-        return Note.objects.filter(report_id=report_id).first()
+        return Note.objects.filter(report_id=report_id, owner=self.request.user).first()
 
     def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
         context = super().get_context_data(**kwargs)

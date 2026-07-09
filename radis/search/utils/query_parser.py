@@ -157,9 +157,7 @@ class QueryParser:
         phrase is preserved verbatim.
         """
         pattern = re.compile(r"\b\w+:\S+")
-        return self._modify_unquoted_segments(
-            input_string, lambda s: pattern.sub("", s)
-        )
+        return self._modify_unquoted_segments(input_string, lambda s: pattern.sub("", s))
 
     def _replace_invalid_characters(self, input_string: str) -> str:
         def handle_segment(segment: str) -> str:
@@ -217,7 +215,7 @@ class QueryParser:
         word = ~(not_ | and_ | or_) + pp.Regex(r"[^\s()]+").set_parse_action(
             lambda t: TermNode("WORD", t[0])  # type: ignore
         )
-        phrase = pp.QuotedString(quoteChar='"', esc_char="\\").set_parse_action(
+        phrase = pp.QuotedString(quote_char='"', esc_char="\\").set_parse_action(
             lambda t: TermNode("PHRASE", t[0])  # type: ignore
         )
         term = phrase | word

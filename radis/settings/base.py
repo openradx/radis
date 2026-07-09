@@ -44,7 +44,7 @@ SECRET_KEY = env.str("DJANGO_SECRET_KEY")
 
 ALLOWED_HOSTS = env.list("DJANGO_ALLOWED_HOSTS")
 
-CSRF_TRUSTED_ORIGINS = env.list("DJANGO_CSRF_TRUSTED_ORIGINS")
+CSRF_TRUSTED_ORIGINS = env.list("DJANGO_CSRF_TRUSTED_ORIGINS", default=[])
 
 _stack_name = env.str("STACK_NAME", default="")
 SESSION_COOKIE_NAME = f"sessionid_{_stack_name}" if _stack_name else "sessionid"
@@ -211,8 +211,12 @@ DEFAULT_FROM_EMAIL = SERVER_EMAIL
 # they can get support.
 SUPPORT_EMAIL = env.str("SUPPORT_EMAIL")
 
-# Also used by django-registration-redux to send account approval emails
-ADMINS = [(env.str("DJANGO_ADMIN_FULL_NAME"), env.str("DJANGO_ADMIN_EMAIL"))]
+# The Django server admins that will receive critical error notifications.
+ADMINS = [env.str("DJANGO_ADMIN_EMAIL")]
+
+# Used by django-registration-redux to send account approval emails to.
+# It expects (name, address) pairs.
+REGISTRATION_ADMINS = [(env.str("DJANGO_ADMIN_FULL_NAME"), env.str("DJANGO_ADMIN_EMAIL"))]
 
 # All REST API requests must come from authenticated clients
 REST_FRAMEWORK = {
@@ -330,11 +334,44 @@ BACKUP_CRON = env.str("BACKUP_CRON", default="0 3 * * *")
 FILTERS_EMPTY_CHOICE_LABEL = "Show All"
 
 # LLM configuration
-LLM_MODEL_NAME = env.str("LLM_MODEL_NAME", default="unused")
+LLM_MODEL_NAME = env.str("LLM_MODEL_NAME")
 EXTERNAL_LLM_PROVIDER_URL = env.str("EXTERNAL_LLM_PROVIDER_URL", default="")
 EXTERNAL_LLM_PROVIDER_API_KEY = env.str("EXTERNAL_LLM_PROVIDER_API_KEY", default="")
 LLM_SERVICE_DEV_PORT = env.int("LLM_SERVICE_DEV_PORT", default=8080)
 LLM_SERVICE_URL = env.str("LLM_SERVICE_URL", default=f"http://localhost:{LLM_SERVICE_DEV_PORT}/v1")
+# How long a single LLM HTTP request may take before the client aborts it.
+LLM_REQUEST_TIMEOUT_SECONDS = env.float("LLM_REQUEST_TIMEOUT_SECONDS", default=60.0)
+# Provider quirks (e.g. Qwen's enable_thinking flag) sent with each extract_data call.
+LLM_EXTRA_BODY = env.json(
+    "LLM_EXTRA_BODY", default={"chat_template_kwargs": {"enable_thinking": False}}
+)
+
+# Rate-limit gate: one per-process backoff window shared by every LLM client. On a 429
+# it closes the gate so all callers back off together instead of hammering the provider.
+#
+# First step of the exponential backoff ladder used when the provider sends no Retry-After
+# header (or an absurd one, see HEADER_CEILING). Doubles each consecutive 429: 2, 4, 8...
+LLM_RATE_LIMIT_BACKOFF_BASE_SECONDS = env.float("LLM_RATE_LIMIT_BACKOFF_BASE_SECONDS", default=2.0)
+# Upper cap on that exponential backoff pause, so the ladder never climbs past this.
+LLM_RATE_LIMIT_BACKOFF_MAX_SECONDS = env.float("LLM_RATE_LIMIT_BACKOFF_MAX_SECONDS", default=120.0)
+
+# Per-call wait budgets: how long a call may sit behind the gate before it is deferred.
+# Long for background batch jobs (extractions), short for interactive chat where a user waits.
+LLM_RATE_LIMIT_MAX_WAIT_SECONDS = env.float("LLM_RATE_LIMIT_MAX_WAIT_SECONDS", default=300.0)
+LLM_RATE_LIMIT_INTERACTIVE_MAX_WAIT_SECONDS = env.float(
+    "LLM_RATE_LIMIT_INTERACTIVE_MAX_WAIT_SECONDS", default=20.0
+)
+
+# Local retries for transient, per-request errors (connection drops, 5xx) — not 429s, which
+# the gate owns. Retries this many times with an exponential delay starting at the base.
+LLM_TRANSIENT_RETRY_ATTEMPTS = env.int("LLM_TRANSIENT_RETRY_ATTEMPTS", default=2)
+LLM_TRANSIENT_RETRY_BASE_SECONDS = env.float("LLM_TRANSIENT_RETRY_BASE_SECONDS", default=1.0)
+
+# A Retry-After below this is trusted and honored verbatim. At or above it, the header is
+# treated as absurd and ignored, falling back to the exponential backoff ladder instead.
+LLM_RATE_LIMIT_HEADER_CEILING_SECONDS = env.float(
+    "LLM_RATE_LIMIT_HEADER_CEILING_SECONDS", default=1800.0
+)
 
 # Embedding service (per-deployment)
 EMBEDDING_PROVIDER_URL = env.str("EMBEDDING_PROVIDER_URL", default="")

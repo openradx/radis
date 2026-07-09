@@ -17,3 +17,7 @@ DEBUG_TOOLBAR_CONFIG = {"SHOW_TOOLBAR_CALLBACK": lambda request: False}
 # fast-fails into EmbeddingClientError rather than touching the network. Tests
 # that exercise the embedding path explicitly patch the client.
 EMBEDDING_PROVIDER_URL = ""
+
+# No real backups as a side effect of tests that run the worker (the periodic
+# backup_db task would fire when a test run crosses its cron time).
+BACKUP_ENABLED = False
