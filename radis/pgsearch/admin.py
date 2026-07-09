@@ -24,7 +24,7 @@ class ReportSearchIndexAdmin(admin.ModelAdmin):
     actions = ("enqueue_pending_embeddings", "clear_embeddings_for_remodel")
     change_list_template = "admin/pgsearch/reportsearchindex/change_list.html"
     # Unconfigured, `report` (OneToOneField) renders as a <select> populated
-    # with every Report row — ~1.7M rows in production — on every change-form
+    # with every Report row — millions of rows in production — on every change-form
     # load. raw_id_fields swaps that for a text input + lookup popup so
     # opening a single row doesn't enumerate the whole table.
     raw_id_fields = ("report",)
@@ -98,9 +98,19 @@ class ReportSearchIndexAdmin(admin.ModelAdmin):
             .values_list("status")
             .annotate(n=Count("id"))
         )
+        # Counted separately because the cancel-backfill button only cancels
+        # backfill-priority jobs — gating it on the overall todo count would
+        # offer a cancel that then reports "nothing to cancel" whenever the
+        # queue holds only live write-path jobs.
+        todo_backfill = ProcrastinateJob.objects.filter(
+            queue_name="embeddings",
+            status="todo",
+            priority=settings.EMBEDDING_BACKFILL_PRIORITY,
+        ).count()
         return {
             "pending_reports": pending,
             "todo": queue_counts.get("todo", 0),
+            "todo_backfill": todo_backfill,
             "doing": queue_counts.get("doing", 0),
             "failed": queue_counts.get("failed", 0),
         }

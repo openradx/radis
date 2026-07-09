@@ -32,8 +32,9 @@ class EmbeddingClientError(Exception):
 
 def _build_http_client() -> httpx.Client:
     """Indirection so tests can swap in an httpx.MockTransport. The returned
-    client is passed to openai.OpenAI(http_client=...)."""
-    return httpx.Client(timeout=settings.EMBEDDING_REQUEST_TIMEOUT)
+    client is passed to openai.OpenAI(http_client=...); the SDK applies
+    EMBEDDING_REQUEST_TIMEOUT per request, so no timeout is set here."""
+    return httpx.Client()
 
 
 def _l2_normalize(vec: list[float]) -> list[float]:

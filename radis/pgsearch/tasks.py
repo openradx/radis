@@ -5,11 +5,12 @@ import openai
 import stamina
 import stamina.instrumentation
 from django.conf import settings
+from procrastinate import RetryStrategy
 from procrastinate.contrib.django import app
 from procrastinate.contrib.django.models import ProcrastinateJob
 from procrastinate.types import JSONValue
 
-from radis.core.utils.rate_limit import run_through_gate
+from radis.core.utils.rate_limit import RateLimited, run_through_gate
 
 from .models import ReportSearchIndex
 from .utils.embedding_client import EMBEDDING_GATE, EmbeddingClient, EmbeddingClientError
@@ -25,7 +26,7 @@ def _truncate_ids(ids: list[int], limit: int = 50) -> list[int]:
 # Transient classes we retry. 429 (RateLimitError) is deliberately NOT here —
 # the rate-limit gate handles it with the server-reported wait time;
 # stamina's fixed backoff would retry too early and silence the 429.
-_RETRYABLE_OPENAI_ERRORS: tuple[type[BaseException], ...] = (
+_RETRYABLE_OPENAI_ERRORS: tuple[type[Exception], ...] = (
     openai.APIConnectionError,
     openai.APITimeoutError,
     openai.InternalServerError,
@@ -33,16 +34,30 @@ _RETRYABLE_OPENAI_ERRORS: tuple[type[BaseException], ...] = (
 
 
 def _is_retryable_embedding_error(exc: Exception) -> bool:
-    """stamina retry predicate. Retry transient failures from either the old
-    EmbeddingClientError surface or the typed openai SDK surface. Exclude
+    """stamina retry predicate. Retry transient failures, whether raised as
+    EmbeddingClientError or as a typed openai SDK exception. Exclude
     openai.RateLimitError (the gate handles it; retrying here would silence
     the 429). RateLimited (gate budget exhausted) is also not matched, so it
-    escapes stamina and fails the task over to Procrastinate's retry policy."""
+    escapes stamina and fails the task over to EMBEDDING_TASK_RETRY_STRATEGY."""
     if isinstance(exc, openai.RateLimitError):
         return False
     if isinstance(exc, EmbeddingClientError):
         return True
     return isinstance(exc, _RETRYABLE_OPENAI_ERRORS)
+
+
+# Procrastinate task-level retry: the outermost failure layer, after stamina
+# (brief blips, seconds) and the rate-limit gate (429s, up to the batch
+# budget). Exponential spacing (6s, 36s, ~4min, ~22min) covers extended
+# provider outages. Scoped to transient classes so misconfiguration (auth,
+# bad model name) fails the subjob immediately instead of burning retries.
+# A subjob that exhausts these attempts fails permanently — `embed_pending`
+# re-enqueues any reports still missing embeddings.
+EMBEDDING_TASK_RETRY_STRATEGY = RetryStrategy(
+    max_attempts=settings.EMBEDDING_TASK_MAX_ATTEMPTS,
+    exponential_wait=settings.EMBEDDING_TASK_EXPONENTIAL_WAIT_SECONDS,
+    retry_exceptions={RateLimited, EmbeddingClientError, *_RETRYABLE_OPENAI_ERRORS},
+)
 
 
 @stamina.retry(
@@ -83,12 +98,12 @@ def _log_stamina_retry(details: stamina.instrumentation.RetryDetails) -> None:
     )
 
 
-@app.task
+@app.task(retry=RetryStrategy(max_attempts=3, wait=10))
 def bulk_index_reports(report_ids: list[int]) -> None:
     """Deferred FTS bulk-indexing for the bulk-upsert path
     (when `PGSEARCH_SYNC_INDEXING=False`).
 
-    Chains into `embed_reports_task` subjobs once RSV rows exist, so the
+    Chains into `embed_reports_task` subjobs once ReportSearchIndex rows exist, so the
     embeddings worker never reads a missing `report.body` or a stale tsvector.
     """
     if not report_ids:
@@ -192,7 +207,7 @@ def cancel_backfill_embeddings() -> int:
     return cancelled
 
 
-@app.task(queue="embeddings")
+@app.task(queue="embeddings", retry=EMBEDDING_TASK_RETRY_STRATEGY)
 def embed_reports_task(report_ids: list[int]) -> None:
     """Embed the named reports.
 
@@ -200,15 +215,15 @@ def embed_reports_task(report_ids: list[int]) -> None:
 
     * Gateway 429s: the per-process EMBEDDING_GATE waits out the
       server-reported pause (or an exponential ladder) up to the batch
-      budget, then defers via RateLimited.
+      budget, then raises RateLimited.
     * Transient errors (connection, timeout, 5xx): stamina retries
       (3 attempts, ~30s budget) inside `_embed_chunk_with_retry`.
-    * Anything that escapes both propagates so Procrastinate's task-level
-      retry policy applies to the whole subjob.
+    * Anything that escapes both propagates so EMBEDDING_TASK_RETRY_STRATEGY
+      retries the whole subjob (transient classes only).
 
     Callers must ensure ReportSearchIndex rows exist before deferring this
     task. `bulk_index_reports` chains the defer at the end of its run, and
-    `embed_pending` / the admin action filter on existing RSV rows by
+    `embed_pending` / the admin action filter on existing ReportSearchIndex rows by
     construction.
     """
     if not report_ids:
@@ -222,12 +237,16 @@ def embed_reports_task(report_ids: list[int]) -> None:
         .select_related("report")
         .only("id", "report_id", "report__body")
     )
-    if not rsvs:
+    if len(rsvs) < len(report_ids):
+        missing = sorted(set(report_ids) - {rsv.report.pk for rsv in rsvs})
         logger.warning(
-            "embed_reports_task: no ReportSearchIndex rows for report ids %s",
-            report_ids,
+            "embed_reports_task: %d report(s) have no ReportSearchIndex row and are "
+            "skipped; ids=%s",
+            len(missing),
+            _truncate_ids(missing),
         )
-        return
+        if not rsvs:
+            return
 
     batch_size = settings.EMBEDDING_BATCH_SIZE
     embedded: list[ReportSearchIndex] = []

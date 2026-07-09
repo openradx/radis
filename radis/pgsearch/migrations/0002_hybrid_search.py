@@ -2,18 +2,23 @@
 
 - Rename the per-report search row from `ReportSearchVector` to
   `ReportSearchIndex` (now holds the FTS tsvector *and* the dense
-  embedding; future trigram column would also live there).
-- Update the reverse accessor on Report (`search_vector` → `search_index`).
+  embedding; a future trigram column would also live there), including
+  the reverse accessor on Report (`search_vector` → `search_index`) and
+  the auto-named GIN index that follows the model name.
 - Install the pgvector extension.
 - Add the `embedding vector(1024)` column and its HNSW index for cosine
   similarity search.
+- Add a partial index on rows still missing an embedding: the admin's
+  pending-embedding count runs `WHERE embedding IS NULL` on every
+  changelist request, and the HNSW index can't serve an IS NULL
+  predicate — without this the count is a sequential scan over millions
+  of rows.
 
-Squashed from the previously-separate `0002_hybrid_search` (extension +
-embedding field + HNSW) and `0003_rename_search_index` (RenameModel +
-AlterField) so that hybrid search ships as a single coherent migration
-rather than three intermediate states no operator will ever see in
-isolation.
+Squashed from the intermediate branch migrations (schema, partial index,
+index rename) so hybrid search ships as one coherent migration rather
+than three states no operator will ever see in isolation.
 """
+
 import django.db.models.deletion
 import pgvector.django.indexes
 import pgvector.django.vector
@@ -34,6 +39,18 @@ class Migration(migrations.Migration):
         migrations.RenameModel(
             old_name="ReportSearchVector",
             new_name="ReportSearchIndex",
+        ),
+        migrations.AlterModelOptions(
+            name="reportsearchindex",
+            options={
+                "verbose_name": "Report search index",
+                "verbose_name_plural": "Report search indexes",
+            },
+        ),
+        migrations.RenameIndex(
+            model_name="reportsearchindex",
+            new_name="pgsearch_re_search__b0f715_gin",
+            old_name="pgsearch_re_search__a80d52_gin",
         ),
         migrations.AlterField(
             model_name="reportsearchindex",
@@ -57,6 +74,14 @@ class Migration(migrations.Migration):
                 m=16,
                 name="pgsearch_embedding_hnsw",
                 opclasses=["vector_cosine_ops"],
+            ),
+        ),
+        migrations.AddIndex(
+            model_name="reportsearchindex",
+            index=models.Index(
+                fields=["id"],
+                condition=models.Q(embedding__isnull=True),
+                name="pgsearch_pending_embedding_idx",
             ),
         ),
     ]

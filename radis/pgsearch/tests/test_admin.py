@@ -4,6 +4,7 @@ import logging
 from unittest.mock import MagicMock, patch
 
 import pytest
+from django.conf import settings
 from django.contrib.admin.sites import AdminSite
 from django.db import connection
 
@@ -26,10 +27,10 @@ def _clear_procrastinate_jobs():
         cur.execute("TRUNCATE procrastinate_jobs RESTART IDENTITY CASCADE")
 
 
-def _insert_procrastinate_job(status: str, queue: str = "embeddings") -> None:
+def _insert_procrastinate_job(status: str, queue: str = "embeddings", priority: int = 0) -> None:
     """Insert a row directly via SQL because ProcrastinateJob's Django ORM
     surface is intentionally read-only — Procrastinate owns writes. We
-    only need (queue_name, status) for the stats helper to count."""
+    only need (queue_name, status, priority) for the stats helper to count."""
     with connection.cursor() as cur:
         cur.execute(
             "INSERT INTO procrastinate_jobs "
@@ -38,7 +39,7 @@ def _insert_procrastinate_job(status: str, queue: str = "embeddings") -> None:
             [
                 queue,
                 "radis.pgsearch.tasks.embed_reports_task",
-                0,
+                priority,
                 '{"report_ids": []}',
                 status,
                 0,
@@ -64,9 +65,12 @@ def test_pipeline_stats_counts_procrastinate_jobs_by_status():
     _insert_procrastinate_job("failed")
     # Job on a different queue must not be counted.
     _insert_procrastinate_job("todo", queue="default")
+    # Live-priority job counts as todo but not as cancellable backfill.
+    _insert_procrastinate_job("todo", priority=settings.EMBEDDING_LIVE_PRIORITY)
 
     stats = ReportSearchIndexAdmin._embedding_pipeline_stats()
-    assert stats["todo"] == 2
+    assert stats["todo"] == 3
+    assert stats["todo_backfill"] == 2
     assert stats["doing"] == 1
     assert stats["failed"] == 1
 
@@ -76,6 +80,7 @@ def test_pipeline_stats_zero_when_no_queue_activity():
     assert stats == {
         "pending_reports": 0,
         "todo": 0,
+        "todo_backfill": 0,
         "doing": 0,
         "failed": 0,
     }
@@ -173,9 +178,7 @@ def test_clear_embeddings_for_remodel_logs_info_with_user_and_count(caplog):
 def test_cancel_backfill_url_is_registered():
     from django.urls import reverse
 
-    assert reverse("admin:pgsearch_reportsearchindex_cancel_backfill").endswith(
-        "/cancel-backfill/"
-    )
+    assert reverse("admin:pgsearch_reportsearchindex_cancel_backfill").endswith("/cancel-backfill/")
 
 
 def test_cancel_backfill_view_cancels_and_redirects(settings):

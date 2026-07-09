@@ -17,7 +17,7 @@
             {% endif %}
             failed
             <span style="color: #666; margin-left: 10px;">(<code>embeddings</code> queue)</span>
-            {% if embedding_pipeline_stats.todo %}
+            {% if embedding_pipeline_stats.todo_backfill %}
                 <form method="post"
                       action="{% url 'admin:pgsearch_reportsearchindex_cancel_backfill' %}"
                       style="display: inline;

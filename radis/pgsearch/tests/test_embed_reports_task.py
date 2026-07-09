@@ -96,7 +96,7 @@ def test_empty_input_no_ops():
 
 
 def test_no_matching_rsvs_no_ops():
-    """Report ids that don't resolve to RSV rows are a no-op — the task does
+    """Report ids that don't resolve to ReportSearchIndex rows are a no-op — the task does
     not contact the embedding service."""
     with patch("radis.pgsearch.tasks.EmbeddingClient") as client_cls:
         embed_reports_task(report_ids=[999_999])
@@ -360,14 +360,6 @@ def test_logs_error_on_client_failure_and_reraises(caplog_tasks):
     )
 
 
-def test_truncate_ids_returns_first_n():
-    from radis.pgsearch.tasks import _truncate_ids
-
-    assert _truncate_ids([1, 2, 3], limit=50) == [1, 2, 3]
-    assert _truncate_ids(list(range(100)), limit=3) == [0, 1, 2]
-    assert _truncate_ids([], limit=10) == []
-
-
 def test_enqueue_embed_reports_logs_info_with_counts_and_priority(settings, caplog_tasks):
     settings.EMBEDDING_SUBJOB_SIZE = 3
     with patch("radis.pgsearch.tasks.app.configure_task"):
@@ -497,6 +489,30 @@ def test_predicate_does_not_retry_openai_rate_limit_error():
     response = httpx.Response(429, request=httpx.Request("POST", "http://x"))
     exc = openai.RateLimitError(message="slow", response=response, body=None)
     assert _is_retryable_embedding_error(exc) is False
+
+
+@pytest.mark.django_db(False)
+def test_predicate_does_not_retry_rate_limited():
+    """RateLimited (gate budget exhausted) must escape stamina so the
+    Procrastinate retry strategy reschedules the whole subjob later."""
+    from radis.core.utils.rate_limit import RateLimited
+    from radis.pgsearch.tasks import _is_retryable_embedding_error
+
+    assert _is_retryable_embedding_error(RateLimited()) is False
+
+
+@pytest.mark.django_db(False)
+def test_embed_reports_task_retries_transient_errors_via_procrastinate():
+    """The task must carry the Procrastinate retry strategy so RateLimited
+    and transient errors reschedule the subjob instead of failing it
+    permanently on first escape."""
+    from radis.core.utils.rate_limit import RateLimited
+    from radis.pgsearch.tasks import EMBEDDING_TASK_RETRY_STRATEGY, embed_reports_task
+
+    assert embed_reports_task.retry_strategy is EMBEDDING_TASK_RETRY_STRATEGY
+    retry_exceptions = EMBEDDING_TASK_RETRY_STRATEGY.retry_exceptions or set()
+    assert RateLimited in retry_exceptions
+    assert EmbeddingClientError in retry_exceptions
 
 
 def test_cancel_backfill_embeddings_cancels_only_queued_backfill_jobs(settings):

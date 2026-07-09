@@ -312,6 +312,23 @@ def test_openai_rate_limit_error_falls_back_to_fts(group, reports_with_embedding
     assert set(ids) == {r0.document_id, r2.document_id}
 
 
+def test_rate_limited_falls_back_to_fts(group, reports_with_embeddings):
+    """RateLimited (the gate's query budget expired while a 429 backoff
+    window was armed) must trigger the FTS fallback like any other
+    embedding failure — a rate-limited provider must not break search."""
+    from radis.core.utils.rate_limit import RateLimited
+
+    r0, _, r2 = reports_with_embeddings
+    with patch("radis.pgsearch.providers.EmbeddingClient") as MockClient:
+        MockClient.return_value.__enter__.return_value = MockClient.return_value
+        MockClient.return_value.__exit__.return_value = None
+        MockClient.return_value.embed_query.side_effect = RateLimited()
+        result = search(_make_search("pneumothorax", group.pk))
+
+    ids = [d.document_id for d in result.documents]
+    assert set(ids) == {r0.document_id, r2.document_id}
+
+
 def test_openai_rate_limit_error_in_retrieve_falls_back_to_fts(group, reports_with_embeddings):
     """Same parallel for retrieve()."""
     import httpx

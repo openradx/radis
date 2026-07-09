@@ -6,9 +6,8 @@ from django.test import override_settings
 
 
 def _patched_settings():
-    """Decorator factory: returns a single override_settings with the minimal
-    config the new SDK-based client needs. Drops EMBEDDING_BACKEND and
-    EMBEDDING_PROVIDER_PATH (removed in this migration)."""
+    """Decorator factory: a single override_settings with the minimal
+    config the SDK-based client reads."""
     return override_settings(
         EMBEDDING_PROVIDER_URL="http://embed.example/v1",
         EMBEDDING_PROVIDER_API_KEY="secret",
@@ -259,6 +258,44 @@ def test_embed_query_runs_through_gate_with_query_budget(monkeypatch):
     assert seen["budget"] == settings.EMBEDDING_RATE_LIMIT_QUERY_MAX_WAIT_SECONDS, (
         "a user is waiting on search, so embed_query gets the short query budget"
     )
+
+
+@override_settings(
+    EMBEDDING_PROVIDER_URL="http://embed.example/v1",
+    EMBEDDING_PROVIDER_API_KEY="",
+    EMBEDDING_MODEL_NAME="qwen3",
+    EMBEDDING_DIM=2,
+    EMBEDDING_REQUEST_TIMEOUT=10,
+    EMBEDDING_QUERY_INSTRUCTION="",
+    EMBEDDING_RATE_LIMIT_QUERY_MAX_WAIT_SECONDS=0.0,
+)
+def test_429_through_real_gate_raises_rate_limited_and_arms_gate(monkeypatch):
+    """End-to-end: a gateway 429 travels MockTransport → typed SDK
+    RateLimitError → the real run_through_gate, which arms EMBEDDING_GATE
+    and — with a zero query budget — defers immediately via RateLimited
+    instead of sleeping out the 30s Retry-After."""
+    import time
+
+    from radis.core.utils.rate_limit import RateLimited, run_through_gate
+    from radis.pgsearch.utils import embedding_client as ec
+
+    # Undo the autouse passthrough: this test exercises the real gate wiring.
+    monkeypatch.setattr(ec, "run_through_gate", run_through_gate)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            429,
+            headers={"retry-after": "30"},
+            json={"error": {"message": "slow down"}},
+        )
+
+    _install_transport(monkeypatch, handler)
+    with pytest.raises(RateLimited):
+        ec.EmbeddingClient().embed_query("pneumonia")
+
+    # The 429 armed the shared gate: it reports closed to a caller whose
+    # deadline is now. (The autouse fixture resets the gate for later tests.)
+    assert ec.EMBEDDING_GATE.wait_until_open(deadline=time.monotonic()) is False
 
 
 @override_settings(

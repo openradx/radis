@@ -46,6 +46,9 @@ class ReportSearchIndex(models.Model):
         return f"Report {self.report.id} search index"
 
     def save(self, *args, **kwargs):
+        # Only the single-row path recomputes the tsvector here. The bulk
+        # paths (utils.indexing.bulk_upsert_report_search_indexes) bypass
+        # save() and duplicate this logic in SQL — keep both in sync.
         body = self.report.body if self.report else ""
         language = code_to_language(self.report.language.code)
         self.search_vector = SearchVector(models.Value(body), config=language)

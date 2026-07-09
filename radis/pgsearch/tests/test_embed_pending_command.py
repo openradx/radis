@@ -22,7 +22,7 @@ def test_nothing_to_embed():
 
 
 def test_enqueues_via_helper_with_explicit_subjob_size():
-    # ReportFactory triggers the FTS post_save signal → RSV row with embedding=NULL.
+    # ReportFactory triggers the FTS post_save signal → ReportSearchIndex row with embedding=NULL.
     reports = [ReportFactory.create() for _ in range(5)]
     expected_ids = sorted(r.pk for r in reports)
 

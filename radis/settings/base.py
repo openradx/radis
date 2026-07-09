@@ -408,6 +408,11 @@ EMBEDDING_RATE_LIMIT_HEADER_CEILING_SECONDS = 1800.0
 # user is waiting and falling back to FTS-only beats hanging on a closed gate.
 EMBEDDING_RATE_LIMIT_MAX_WAIT_SECONDS = 300.0
 EMBEDDING_RATE_LIMIT_QUERY_MAX_WAIT_SECONDS = 10.0
+# Procrastinate-level retry of a whole embedding subjob (see
+# EMBEDDING_TASK_RETRY_STRATEGY in radis.pgsearch.tasks). Waits grow as
+# exponential_wait ** attempt: 6s, 36s, ~4min, ~22min.
+EMBEDDING_TASK_MAX_ATTEMPTS = 5
+EMBEDDING_TASK_EXPONENTIAL_WAIT_SECONDS = 6
 
 # Hybrid search tuning
 HYBRID_VECTOR_TOP_K = 100

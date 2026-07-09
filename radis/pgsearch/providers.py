@@ -143,23 +143,50 @@ def _build_filter_query(filters: SearchFilters) -> Q:
     return fq
 
 
+# Typed SDK errors that signal misconfiguration (bad credentials, wrong model
+# name, malformed request), not load. Retrying or waiting won't fix them.
+_PERMANENT_EMBEDDING_ERRORS = (
+    openai.AuthenticationError,
+    openai.PermissionDeniedError,
+    openai.NotFoundError,
+    openai.BadRequestError,
+)
+
+
+def _embed_query_or_none(query_text: str, caller: str) -> list[float] | None:
+    """Embed the query text, or return None to signal FTS-only fallback.
+
+    Search must stay usable when the embedding service doesn't, so every
+    failure falls back — but at different log levels: transient conditions
+    (rate limiting, connection blips, 5xx) are expected under load and log a
+    WARNING, while permanent misconfiguration logs a full exception so it
+    reaches operators instead of hiding as a silently degraded search."""
+    try:
+        with EmbeddingClient() as ec:
+            return ec.embed_query(query_text)
+    except (EmbeddingClientError, *_PERMANENT_EMBEDDING_ERRORS):
+        logger.exception(
+            "%s falling back to FTS-only; embedding service looks misconfigured", caller
+        )
+        return None
+    except (RateLimited, openai.OpenAIError) as e:
+        logger.warning("%s falling back to FTS-only: %s", caller, e)
+        return None
+
+
 def search(search: Search) -> SearchResult:
     query_str = _build_query_string(search.query)
     language = _resolve_language(search.filters)
     filter_query = _build_filter_query(search.filters)
     tsquery = SearchQuery(query_str, search_type="raw", config=language)
 
-    # Vector side: strip NOT branches (see spec §7.8). If nothing is left,
-    # skip the embedding call entirely and fall through to FTS-only.
+    # Vector side: strip NOT branches (see
+    # docs/superpowers/specs/2026-05-28-hybrid-search.md §7.8). If nothing is
+    # left, skip the embedding call entirely and fall through to FTS-only.
     query_text = QueryParser.unparse_for_embedding(search.query)
     query_vec: list[float] | None = None
     if query_text.strip():
-        try:
-            with EmbeddingClient() as ec:
-                query_vec = ec.embed_query(query_text)
-        except (EmbeddingClientError, RateLimited, openai.OpenAIError) as e:
-            logger.warning("Hybrid search falling back to FTS-only: %s", e)
-            query_vec = None
+        query_vec = _embed_query_or_none(query_text, "Hybrid search")
 
     vec_rank: dict[int, int] = {}
     vec_distance: dict[int, float] = {}
@@ -262,17 +289,13 @@ def retrieve(search: Search) -> Iterator[str]:
     filter_query = _build_filter_query(search.filters)
     tsquery = SearchQuery(query_str, search_type="raw", config=language)
 
-    # Vector side: strip NOT branches (see spec §7.8). If nothing is left,
-    # skip the embedding call entirely and fall through to FTS-only.
+    # Vector side: strip NOT branches (see
+    # docs/superpowers/specs/2026-05-28-hybrid-search.md §7.8). If nothing is
+    # left, skip the embedding call entirely and fall through to FTS-only.
     query_text = QueryParser.unparse_for_embedding(search.query)
     query_vec: list[float] | None = None
     if query_text.strip():
-        try:
-            with EmbeddingClient() as ec:
-                query_vec = ec.embed_query(query_text)
-        except (EmbeddingClientError, RateLimited, openai.OpenAIError) as e:
-            logger.warning("Hybrid retrieve falling back to FTS-only: %s", e)
-            query_vec = None
+        query_vec = _embed_query_or_none(query_text, "Hybrid retrieve")
 
     vec_rank: dict[int, int] = {}
     if query_vec is not None:
