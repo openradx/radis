@@ -2,18 +2,32 @@
 
 import json
 import logging
+import re
 from unittest.mock import MagicMock, patch
 
 import pytest
 from django.conf import settings
 from django.contrib.admin.sites import AdminSite
 from django.db import connection
+from django.test import Client
+from django.urls import reverse
 
 from radis.pgsearch.admin import ReportSearchIndexAdmin
 from radis.pgsearch.models import ReportSearchIndex
 from radis.reports.factories import ReportFactory
 
 pytestmark = pytest.mark.django_db(transaction=True)
+
+
+@pytest.fixture
+def admin_client() -> Client:
+    """Create an authenticated admin client for testing the admin interface."""
+    from adit_radis_shared.accounts.factories import AdminUserFactory
+
+    client = Client()
+    admin_user = AdminUserFactory.create()
+    client.force_login(admin_user)
+    return client
 
 
 @pytest.fixture(autouse=True)
@@ -56,6 +70,12 @@ def _insert_procrastinate_job(
                 0,
             ],
         )
+
+
+def _squash_ws(html: str) -> str:
+    """Template newlines/indentation render as whitespace runs; collapse
+    them so assertions can match across djlint's line wrapping."""
+    return re.sub(r"\s+", " ", html)
 
 
 def test_pipeline_stats_counts_pending_rsvs():
@@ -126,6 +146,28 @@ def test_pipeline_stats_zero_when_no_queue_activity():
         "doing_reports": 0,
         "failed": 0,
     }
+
+
+def test_changelist_badge_shows_subjob_report_counts(admin_client):
+    _insert_procrastinate_job("todo", report_ids=[1, 2])
+    _insert_procrastinate_job("todo", report_ids=[3, 4, 5])
+    _insert_procrastinate_job("doing", report_ids=[6, 7, 8, 9])
+
+    url = reverse("admin:pgsearch_reportsearchindex_changelist")
+    html = _squash_ws(admin_client.get(url).content.decode())
+
+    assert "<strong>2</strong> subjobs queued (5 reports)" in html
+    assert "<strong>1</strong> subjob in-flight (4 reports)" in html
+
+
+def test_changelist_badge_zero_counts_render_plain(admin_client):
+    url = reverse("admin:pgsearch_reportsearchindex_changelist")
+    html = _squash_ws(admin_client.get(url).content.decode())
+
+    assert "<strong>0</strong> queued" in html
+    assert "<strong>0</strong> in-flight" in html
+    assert "subjob" not in html
+    assert "reports)" not in html
 
 
 def test_delete_permission_denied():

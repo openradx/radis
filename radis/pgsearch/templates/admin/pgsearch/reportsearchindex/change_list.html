@@ -7,8 +7,20 @@
                     border-left: 4px solid #79aec8">
             <strong>Embedding pipeline</strong>
             &nbsp;·&nbsp; <strong>{{ embedding_pipeline_stats.pending_reports }}</strong> report{{ embedding_pipeline_stats.pending_reports|pluralize }} awaiting embedding
-            &nbsp;·&nbsp; <strong>{{ embedding_pipeline_stats.todo }}</strong> queued
-            &nbsp;·&nbsp; <strong>{{ embedding_pipeline_stats.doing }}</strong> in-flight
+            &nbsp;·&nbsp;
+            {% if embedding_pipeline_stats.todo %}
+                <strong>{{ embedding_pipeline_stats.todo }}</strong> subjob{{ embedding_pipeline_stats.todo|pluralize }} queued
+                ({{ embedding_pipeline_stats.todo_reports }} report{{ embedding_pipeline_stats.todo_reports|pluralize }})
+            {% else %}
+                <strong>0</strong> queued
+            {% endif %}
+            &nbsp;·&nbsp;
+            {% if embedding_pipeline_stats.doing %}
+                <strong>{{ embedding_pipeline_stats.doing }}</strong> subjob{{ embedding_pipeline_stats.doing|pluralize }} in-flight
+                ({{ embedding_pipeline_stats.doing_reports }} report{{ embedding_pipeline_stats.doing_reports|pluralize }})
+            {% else %}
+                <strong>0</strong> in-flight
+            {% endif %}
             &nbsp;·&nbsp;
             {% if embedding_pipeline_stats.failed %}
                 <strong style="color: #ba2121;">{{ embedding_pipeline_stats.failed }}</strong>
