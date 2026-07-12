@@ -3,7 +3,8 @@ import logging
 from django.conf import settings
 from django.contrib import admin, messages
 from django.core.exceptions import PermissionDenied
-from django.db.models import Count
+from django.db.models import Count, Func, IntegerField, Sum
+from django.db.models.fields.json import KeyTransform
 from django.db.models.query import QuerySet
 from django.http import HttpResponse, HttpResponseNotAllowed, HttpResponseRedirect
 from django.http.request import HttpRequest
@@ -91,13 +92,23 @@ class ReportSearchIndexAdmin(admin.ModelAdmin):
     def _embedding_pipeline_stats() -> dict[str, int]:
         """Snapshot of the embedding pipeline for the admin badge: how many
         reports are still missing an embedding, and what Procrastinate is
-        doing about it right now."""
+        doing about it right now — subjob counts per status, plus how many
+        reports the queued and in-flight subjobs cover. The report totals
+        are summed DB-side from each job's args->'report_ids'
+        (jsonb_array_length); the id arrays never leave Postgres, which
+        matters when a large backfill holds millions of ids in `todo` jobs."""
         pending = ReportSearchIndex.objects.filter(embedding__isnull=True).count()
-        queue_counts = dict(
-            ProcrastinateJob.objects.filter(queue_name="embeddings")
-            .values_list("status")
-            .annotate(n=Count("id"))
+        report_count = Func(
+            KeyTransform("report_ids", "args"),
+            function="jsonb_array_length",
+            output_field=IntegerField(),
         )
+        queue_rows = {
+            row["status"]: row
+            for row in ProcrastinateJob.objects.filter(queue_name="embeddings")
+            .values("status")
+            .annotate(jobs=Count("id"), reports=Sum(report_count))
+        }
         # Counted separately because the cancel-backfill button only cancels
         # backfill-priority jobs — gating it on the overall todo count would
         # offer a cancel that then reports "nothing to cancel" whenever the
@@ -107,12 +118,17 @@ class ReportSearchIndexAdmin(admin.ModelAdmin):
             status="todo",
             priority=settings.EMBEDDING_BACKFILL_PRIORITY,
         ).count()
+        todo_row = queue_rows.get("todo", {})
+        doing_row = queue_rows.get("doing", {})
         return {
             "pending_reports": pending,
-            "todo": queue_counts.get("todo", 0),
+            "todo": todo_row.get("jobs", 0),
+            # Sum() returns NULL when no job has report_ids — coalesce here.
+            "todo_reports": todo_row.get("reports") or 0,
             "todo_backfill": todo_backfill,
-            "doing": queue_counts.get("doing", 0),
-            "failed": queue_counts.get("failed", 0),
+            "doing": doing_row.get("jobs", 0),
+            "doing_reports": doing_row.get("reports") or 0,
+            "failed": queue_rows.get("failed", {}).get("jobs", 0),
         }
 
     @admin.action(description="Enqueue embedding for selected rows (NULL only)")

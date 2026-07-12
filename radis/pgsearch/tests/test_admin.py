@@ -1,5 +1,6 @@
 """Tests for the ReportSearchIndex admin pipeline-stats badge."""
 
+import json
 import logging
 from unittest.mock import MagicMock, patch
 
@@ -27,10 +28,20 @@ def _clear_procrastinate_jobs():
         cur.execute("TRUNCATE procrastinate_jobs RESTART IDENTITY CASCADE")
 
 
-def _insert_procrastinate_job(status: str, queue: str = "embeddings", priority: int = 0) -> None:
+def _insert_procrastinate_job(
+    status: str,
+    queue: str = "embeddings",
+    priority: int = 0,
+    report_ids: list[int] | None = None,
+    args_json: str | None = None,
+) -> None:
     """Insert a row directly via SQL because ProcrastinateJob's Django ORM
-    surface is intentionally read-only — Procrastinate owns writes. We
-    only need (queue_name, status, priority) for the stats helper to count."""
+    surface is intentionally read-only — Procrastinate owns writes. The
+    stats helper reads (queue_name, status, priority) and sums
+    jsonb_array_length(args->'report_ids'); `args_json` overrides the args
+    payload entirely (e.g. '{}' for a job without report_ids)."""
+    if args_json is None:
+        args_json = json.dumps({"report_ids": report_ids or []})
     with connection.cursor() as cur:
         cur.execute(
             "INSERT INTO procrastinate_jobs "
@@ -40,7 +51,7 @@ def _insert_procrastinate_job(status: str, queue: str = "embeddings", priority: 
                 queue,
                 "radis.pgsearch.tasks.embed_reports_task",
                 priority,
-                '{"report_ids": []}',
+                args_json,
                 status,
                 0,
             ],
@@ -75,13 +86,44 @@ def test_pipeline_stats_counts_procrastinate_jobs_by_status():
     assert stats["failed"] == 1
 
 
+def test_pipeline_stats_sums_reports_per_status():
+    _insert_procrastinate_job("todo", report_ids=[1, 2])
+    _insert_procrastinate_job("todo", report_ids=[3, 4, 5])
+    _insert_procrastinate_job("doing", report_ids=[6, 7, 8, 9])
+    # Failed jobs stay a bare subjob count — their reports are not summed
+    # into either report total.
+    _insert_procrastinate_job("failed", report_ids=[10])
+    # Job on a different queue must not be counted.
+    _insert_procrastinate_job("todo", queue="default", report_ids=[11, 12])
+
+    stats = ReportSearchIndexAdmin._embedding_pipeline_stats()
+    assert stats["todo"] == 2
+    assert stats["todo_reports"] == 5
+    assert stats["doing"] == 1
+    assert stats["doing_reports"] == 4
+    assert stats["failed"] == 1
+
+
+def test_pipeline_stats_tolerates_jobs_without_report_ids():
+    """A job whose args lack report_ids contributes NULL to the sum, which
+    Sum() skips — the subjob is still counted, the report total isn't."""
+    _insert_procrastinate_job("todo", report_ids=[1, 2, 3])
+    _insert_procrastinate_job("todo", args_json="{}")
+
+    stats = ReportSearchIndexAdmin._embedding_pipeline_stats()
+    assert stats["todo"] == 2
+    assert stats["todo_reports"] == 3
+
+
 def test_pipeline_stats_zero_when_no_queue_activity():
     stats = ReportSearchIndexAdmin._embedding_pipeline_stats()
     assert stats == {
         "pending_reports": 0,
         "todo": 0,
+        "todo_reports": 0,
         "todo_backfill": 0,
         "doing": 0,
+        "doing_reports": 0,
         "failed": 0,
     }
 
