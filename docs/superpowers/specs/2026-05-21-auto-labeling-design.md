@@ -4,11 +4,6 @@
 **Date:** 2026-05-21 (consolidated 2026-06-10)
 **Owner:** Kai Schlamp
 
-> This is the single consolidated design spec for the auto-labeling feature. It folds in the
-> later refinements that shipped (name-keyed LLM schema fields, a YES/NO-only group gate, and
-> the search-page **Filters** widget that replaced the typed `label:` query syntax) and
-> describes the system as actually built.
-
 ## Overview
 
 Auto-labeling classifies radiology reports against admin-defined labels using an LLM. Labels are
@@ -20,7 +15,7 @@ evidence" buckets (`PRESENT`, `LIKELY`, `POSSIBLE`) attach the label to the repo
 per `(report, label_group)`.
 
 The gate is intentionally a different value space from the labels. A gate question ("Is this a
-Head CT?") is a categorical *applicability* check — Yes/No — answering "do this group's labels
+Head CT?") is a categorical _applicability_ check — Yes/No — answering "do this group's labels
 even apply to this report?". The five buckets answer a different question per label — "does this
 finding appear, and how strongly?" — where `UNMENTIONED` (the report never discusses the topic) is
 a genuinely distinct state a gate has no analogue for.
@@ -114,7 +109,7 @@ No snapshot columns, no `is_stale` flags. Both comparisons are pure joins over i
 
 All five bucket values are **stored**. `ABSENT`/`UNMENTIONED` produce real `LabelResult` rows, so
 stale detection and the backfill's "needs work" predicate treat a label that came back
-`ABSENT`/`UNMENTIONED` as *done*, with no re-labeling churn. Surfacing (report badges and search)
+`ABSENT`/`UNMENTIONED` as _done_, with no re-labeling churn. Surfacing (report badges and search)
 filters to `LabelResult.SURFACING_VALUES`. The control flow never branches on a label's bucket
 value; the LLM returns a bucket and we store it.
 
@@ -165,7 +160,7 @@ Terminal statuses (`SU`/`WA`/`FA`) are excluded, so finished jobs never block a 
    reports belong to a manual backfill.
 3. No active labels → return **without advancing**, so re-activation still covers the gap.
 4. If reports exist with `created_at >= last_scanned_at` → create a `LabelingJob(trigger=SCAN,
-   scan_from=last_scanned_at)` and `delay()` it.
+scan_from=last_scanned_at)` and `delay()` it.
 5. Advance the checkpoint to `now`.
 
 The periodic task only decides whether to create a job and advances the checkpoint; all report
@@ -233,8 +228,8 @@ Labels/groups are authored at runtime, so the structured-output schema is **gene
 from DB rows (`radis/labels/utils/schemas.py`):
 
 - **The schema enforces the choice.** Each label/group becomes one required field whose type is a
-  fixed enum (`BucketValue` = the five buckets; `GateValue` = YES/NO). The enum *types* are static;
-  only the *set of fields* is dynamic.
+  fixed enum (`BucketValue` = the five buckets; `GateValue` = YES/NO). The enum _types_ are static;
+  only the _set of fields_ is dynamic.
 - **The prompt teaches the choice.** A static, generic prompt (`utils/prompts.py`) explains what
   each value means and carries the report body. It contains **no label-specific text** — only
   `$report` is substituted.
@@ -280,16 +275,16 @@ fresh row → excluded.
 
 ### Decision table
 
-*Gate re-evaluated (stale or no prior answer):*
+_Gate re-evaluated (stale or no prior answer):_
 
-| Was | Now | Action |
-|---|---|---|
-| YES | YES | Save gate + run stale/missing labels (may be zero) |
-| YES | NO  | Save gate + delete all results for group |
-| NO / none | YES | Save gate + run all labels (none have results) |
-| NO / none | NO  | Save gate *(no results to delete)* |
+| Was       | Now | Action                                             |
+| --------- | --- | -------------------------------------------------- |
+| YES       | YES | Save gate + run stale/missing labels (may be zero) |
+| YES       | NO  | Save gate + delete all results for group           |
+| NO / none | YES | Save gate + run all labels (none have results)     |
+| NO / none | NO  | Save gate _(no results to delete)_                 |
 
-*Gate fresh (no re-evaluation):* `YES` → run stale/missing labels (skip if all fresh); `NO` → skip
+_Gate fresh (no re-evaluation):_ `YES` → run stale/missing labels (skip if all fresh); `NO` → skip
 group.
 
 ### Failure handling
@@ -320,6 +315,21 @@ As built — read-only monitoring plus a backfill button; no live-count widgets 
   distinguish scan vs manual at a glance.
 - **`ReportAdmin` inline** — `LabelResultInline` (read-only) on the report change form.
 
+### Follow-up: error visibility, job cancel, deletion (2026-06-26, shipped)
+
+A later refinement adjusted the admin described above:
+
+- **Error visibility** — per-report labeling failures are persisted: `task.log` gets one
+  `Report <id>: <Error>: <msg>` line per failed report (capped, with an `… and N more` footer)
+  and `task.message` reads "N of M reports failed to label."; `LabelingTaskAdmin` shows
+  `message` in the changelist and its read-only detail page.
+- **Cancel** — `LabelingJobAdmin` gained a POST-only `cancel/` view and a "Cancel job" button on
+  the job detail page (shown when `job.is_cancelable`), reusing the framework cancel logic
+  extracted into a shared `cancel_job` helper (`radis/core/utils/model_utils.py`).
+- **Deletion** — `LabelingTaskAdmin` now permits deletes so the job→task `CASCADE` succeeds,
+  while `LabelingJobAdmin` blocks deleting jobs in `ACTIVE_STATUSES` (cancel first) and drops
+  the bulk "delete selected" action (it would bypass the per-object active guard).
+
 ## End-User Surfacing
 
 ### Report detail page
@@ -336,12 +346,12 @@ Users filter by selecting one or more active labels from a multi-select listbox 
 (and its parser) was removed in favour of this widget — typing the prefix was awkward and
 undiscoverable, and a literal `label:foo` typed now is ordinary search text.
 
-| Decision | Choice | Rationale |
-|---|---|---|
-| Widget | Multi-select listbox (`size=6`) | Mirrors modalities; least new code. |
-| Which labels | Active only (`active=True`) | Inactive labels stop getting new results. |
-| Ordering | Alphabetical by `name` | Names are globally unique → flat list is unambiguous. |
-| Combine | **OR** (any selected label surfaces) | Matches modalities (`__in`). |
+| Decision     | Choice                               | Rationale                                             |
+| ------------ | ------------------------------------ | ----------------------------------------------------- |
+| Widget       | Multi-select listbox (`size=6`)      | Mirrors modalities; least new code.                   |
+| Which labels | Active only (`active=True`)          | Inactive labels stop getting new results.             |
+| Ordering     | Alphabetical by `name`               | Names are globally unique → flat list is unambiguous. |
+| Combine      | **OR** (any selected label surfaces) | Matches modalities (`__in`).                          |
 
 Wiring:
 
@@ -352,7 +362,7 @@ Wiring:
   `form.cleaned_data["labels"]` in.
 - `_build_filter_query` (`radis/pgsearch/providers.py`) adds a single
   `Q(report__in=<Report.objects.filter(label_results__label__name__in=labels,
-  label_results__value__in=SURFACING_VALUES).values("pk")>)` — deduplicated, OR across labels,
+label_results__value__in=SURFACING_VALUES).values("pk")>)` — deduplicated, OR across labels,
   surfacing buckets only regardless of staleness.
 
 ## Settings (`radis/settings/base.py`, `example.env`)
