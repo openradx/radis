@@ -5,8 +5,8 @@ from string import Template
 from django import db
 from django.conf import settings
 
-from radis.chats.utils.chat_client import ChatClient
 from radis.core.processors import AnalysisTaskProcessor
+from radis.core.utils.llm_client import LLMClient
 from radis.extractions.utils.processor_utils import (
     generate_output_fields_prompt,
     generate_output_fields_schema,
@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 class ExtractionTaskProcessor(AnalysisTaskProcessor):
     def __init__(self, task: ExtractionTask) -> None:
         super().__init__(task)
-        self.client = ChatClient()
+        self.client = LLMClient()
 
     def process_task(self, task: ExtractionTask) -> None:
         with ThreadPoolExecutor(max_workers=settings.EXTRACTION_LLM_CONCURRENCY_LIMIT) as executor:
@@ -37,12 +37,16 @@ class ExtractionTaskProcessor(AnalysisTaskProcessor):
                 db.close_old_connections()
 
     def process_instance(self, instance: ExtractionInstance) -> None:
-        assert not instance.is_processed
-        instance.text = instance.report.body
-        self.process_output_fields(instance)
-        instance.is_processed = True
-        instance.save()
-        db.close_old_connections()
+        # Runs in a worker thread; its connection must be closed in that same
+        # thread, also when processing fails.
+        try:
+            assert not instance.is_processed
+            instance.text = instance.report.body
+            self.process_output_fields(instance)
+            instance.is_processed = True
+            instance.save()
+        finally:
+            db.connections.close_all()
 
     def process_output_fields(self, instance: ExtractionInstance) -> None:
         job = instance.task.job

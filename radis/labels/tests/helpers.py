@@ -1,7 +1,7 @@
 """Test doubles for the LLM boundary used by ``label_report``.
 
-- ``FakeChatClient`` replaces ``ChatClient`` outright (unit tests).
-- ``create_labeling_openai_mock`` patches ``openai.OpenAI`` so the real ``ChatClient`` runs with
+- ``FakeChatClient`` replaces ``LLMClient`` outright (unit tests).
+- ``create_labeling_openai_mock`` patches ``openai.OpenAI`` so the real ``LLMClient`` runs with
   only the network mocked (integration test).
 """
 
@@ -39,7 +39,7 @@ def create_labeling_openai_mock(
     """An ``openai.OpenAI`` double for the two-phase flow: ``parse`` returns an instance of
     whichever schema each call requests — gate ("GateScreening") from ``gate_values``, label
     ("LabelClassification") from ``label_values``, keyed by group/label name. Patch via
-    ``patch("openai.OpenAI", return_value=...)`` so the real ``ChatClient`` runs.
+    ``patch("openai.OpenAI", return_value=...)`` so the real ``LLMClient`` runs.
     """
     gate_values = gate_values or {}
     label_values = label_values or {}

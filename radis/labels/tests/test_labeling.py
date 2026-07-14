@@ -10,7 +10,7 @@ from radis.reports.factories import ReportFactory
 
 
 def _patch_client(client):
-    return patch("radis.labels.labeling.ChatClient", return_value=client)
+    return patch("radis.labels.labeling.LLMClient", return_value=client)
 
 
 @pytest.mark.django_db

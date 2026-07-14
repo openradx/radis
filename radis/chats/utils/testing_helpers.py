@@ -17,7 +17,7 @@ def create_question_body() -> str:
     return " ".join(question_body)
 
 
-def create_async_openai_client_mock(content: str) -> openai.AsyncOpenAI:
+def create_async_openai_client_mock(content: str | None) -> openai.AsyncOpenAI:
     openai_mock = MagicMock()
     mock_response = MagicMock(choices=[MagicMock(message=MagicMock(content=content))])
     future = asyncio.Future()
@@ -26,7 +26,7 @@ def create_async_openai_client_mock(content: str) -> openai.AsyncOpenAI:
     return openai_mock
 
 
-def create_openai_client_mock(content: BaseModel) -> openai.OpenAI:
+def create_openai_client_mock(content: BaseModel | None) -> openai.OpenAI:
     openai_mock = MagicMock()
     mock_response = MagicMock(choices=[MagicMock(message=MagicMock(parsed=content))])
     openai_mock.beta.chat.completions.parse.return_value = mock_response

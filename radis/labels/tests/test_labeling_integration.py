@@ -1,4 +1,4 @@
-"""Runs the real ChatClient + schema/prompt builders with only openai.OpenAI mocked (the unit
+"""Runs the real LLMClient + schema/prompt builders with only openai.OpenAI mocked (the unit
 suite fakes that), pinning the prompt/schema sent on the wire and the gate→label flow."""
 
 from unittest.mock import patch
@@ -14,7 +14,7 @@ from radis.reports.factories import ReportFactory
 
 
 @pytest.mark.django_db
-def test_real_chat_client_two_phase_flow_persists_results():
+def test_real_llm_client_two_phase_flow_persists_results():
     """Gate YES drives per-label classification; both phases persist through the real client."""
     report = ReportFactory.create(body="CT thorax: dense consolidation in the right lower lobe.")
     group = LabelGroupFactory.create(name="Chest")
@@ -36,7 +36,7 @@ def test_real_chat_client_two_phase_flow_persists_results():
 
 
 @pytest.mark.django_db
-def test_real_chat_client_sends_rendered_prompt_and_built_schema():
+def test_real_llm_client_sends_rendered_prompt_and_built_schema():
     """The prompt and response_format on the wire are exactly what radis.labels builds."""
     report = ReportFactory.create(body="MRI head: no acute infarct.")
     group = LabelGroupFactory.create(name="Neuro", gate_question="Is this a head study?")
@@ -77,7 +77,7 @@ def test_real_chat_client_sends_rendered_prompt_and_built_schema():
 
 
 @pytest.mark.django_db
-def test_real_chat_client_gate_no_skips_label_classification():
+def test_real_llm_client_gate_no_skips_label_classification():
     """A NO gate short-circuits: one gate call, no label call, no results — via the real client."""
     report = ReportFactory.create(body="Abdomen ultrasound: unremarkable.")
     group = LabelGroupFactory.create(name="Chest")
