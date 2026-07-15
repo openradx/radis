@@ -548,7 +548,7 @@ subjob_count = enqueue_embed_reports(
 
 `--subjob-size` overrides the Procrastinate-task granularity per run; `--limit N` stops after enqueuing N reports (useful for a canary batch). Backfill priority keeps the enqueued subjobs behind live write-path work. A running backfill can be cancelled with `cancel_backfill_embeddings()` (exposed as the admin "cancel backfill" view), which cancels every still-`todo` backfill-priority subjob and stamps `cancelled_at` on active `EmbeddingBackfillRun` rows (§6.8); continuing later means simply re-running `embed_pending`.
 
-Each invocation (and each use of the admin `enqueue_pending_embeddings` action) also creates an `EmbeddingBackfillRun` row recording the enqueued baseline, so the admin badge can show per-backfill progress (§6.8).
+Each invocation (and each use of the admin `enqueue_pending_embeddings` action) also creates an `EmbeddingBackfillRun` row recording the enqueued baseline, so the admin badge can show per-backfill progress. At most one backfill is active at a time — a second invocation refuses while one is running (abandoned runs are auto-closed, §6.8).
 
 The three scenarios still apply:
 
@@ -625,10 +625,16 @@ queue state. Fields: `started_at`, `finished_at` (null), `cancelled_at` (null),
 (`embed_pending` or the admin username). A run is *active* while both end
 timestamps are NULL. Migration `0003_embeddingbackfillrun`.
 
-- **Creation:** `embed_pending` and the admin `enqueue_pending_embeddings`
-  action create a run with `total_reports = len(report_ids)` and thread
-  `run_id` through `enqueue_embed_reports` into each subjob's task args.
-  Write-path (live-priority) enqueues carry no run.
+- **Creation — one active backfill at a time:** `embed_pending` and the admin
+  `enqueue_pending_embeddings` action create a run with `total_reports =
+  len(report_ids)` and thread `run_id` through `enqueue_embed_reports` into
+  each subjob's task args. Write-path (live-priority) enqueues carry no run.
+  Both entry points **refuse to start while a run is active** ("Backfill
+  already active: 500/2000 processed. Cancel it first with `embed_cancel`.") —
+  with one escape hatch: an active run with zero live subjobs and `processed <
+  total` is *abandoned* (jobs lost to retry exhaustion or a dead worker); the
+  next invocation auto-closes it (stamps `cancelled_at`, logs the takeover)
+  and proceeds, so a wedged run can never block future backfills.
 - **Progress:** after its successful bulk-write, `embed_reports_task` increments
   `processed_reports` atomically (`F() + n`), then flips `finished_at` when
   `processed ≥ total`. Failed subjobs never increment. Counter-based progress
@@ -641,9 +647,13 @@ timestamps are NULL. Migration `0003_embeddingbackfillrun`.
   "stalled — no live subjobs" marker instead of implying progress (the
   dead-worker scenario: worker crashes are otherwise invisible here because the
   container stays "Up").
-- **Display:** the badge shows only the latest active run; concurrent runs are
-  allowed (enqueue semantics unchanged) but older ones are visible only in the
-  run history — a read-only `EmbeddingBackfillRun` admin listing.
+- **Display:** the badge shows *the* active run (single-active makes "latest"
+  unambiguous); finished/cancelled runs are visible in the run history — a
+  read-only `EmbeddingBackfillRun` admin listing.
+- **Terminology:** with the run as the explicit parent, *subjob* keeps its
+  meaning (a sub-unit of the backfill, mirroring core's `AnalysisJob` →
+  `AnalysisTask` shape); `EMBEDDING_SUBJOB_SIZE`, `--subjob-size`, and all
+  operator messages keep their names.
 
 **Secondary line.** Subjob counts by status plus the queue name, rendered only
 when any count is nonzero; `failed` keeps its red highlight; the cancel-backfill
