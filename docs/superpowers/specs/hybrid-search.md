@@ -1,6 +1,6 @@
 # Hybrid Search Design (FTS + Dense Vector via Qwen3-Embedding-4B)
 
-**Status:** Implemented on `feat/hybrid-search` — living document, last synced to code 2026-07-14
+**Status:** Implemented on `feat/hybrid-search` — living document, last synced to code 2026-07-14. Exception: §6.8 (report-centric badge + backfill runs) designed 2026-07-15, implementation pending.
 **Author:** RADIS team (Samuel Kwong)
 **Date:** 2026-05-28
 **History:** Single consolidated spec for hybrid search. The per-increment design docs it absorbed (initial 2026-05-15 design; embedding client OpenAI-SDK migration; pipeline logging; rate-limit gate; rate-limit generalization research; backfill cancel + throughput knobs; shared 429 backoff; admin badge subjob report counts) were removed 2026-07-14 and remain in git history. The consolidated implementation history lives in `docs/superpowers/plans/hybrid-search.md`.
@@ -119,9 +119,9 @@ Both ingest paths — single-create (`POST /api/reports/`, `PUT /api/reports/{id
 | `utils/embedding_client.py` | `EmbeddingClient` used by both the query path and `embed_reports_task` on the worker. Sync client over the `openai` SDK against a single OpenAI-compatible endpoint (`EMBEDDING_PROVIDER_URL` ending in `/v1`); SDK retries disabled (`max_retries=0`) so the rate-limit gate and transient-retry helper own all retry policy. Also hosts the process-global `EMBEDDING_GATE`. |
 | `apps.py` (modified) | `register_app()` now also registers `_index_reports` on both `reports_created_handlers` and `reports_updated_handlers`. In sync FTS mode the handler upserts inline then calls `enqueue_embed_reports`; in deferred FTS mode it enqueues `bulk_index_reports`, which chains the embed subjobs at the end of its own run. Also home of the `pgsearch.E001`/`E002` system checks (§4.6). This is the only place pgsearch wires itself into the reports app. |
 | `tasks.py` (embedding entries) | `enqueue_embed_reports(report_ids)` — the single chunking point that defers one `embed_reports_task` per `EMBEDDING_SUBJOB_SIZE` chunk, at live or backfill priority. `embed_reports_task(report_ids)` on the `embeddings` queue loads RSIs by `report_id`, embeds through `_embed_chunk_with_retry` (gate + transient retries, §6.2), then `bulk_update`s. Failures propagate so `EMBEDDING_TASK_RETRY_STRATEGY` applies. |
-| `admin.py` | Registers `ReportSearchIndex` with a `has_embedding` list display, an `embedding` `IsNull` filter, embedding-pipeline stats on the changelist, and two actions: `enqueue_pending_embeddings` (defers embed subjobs for selected NULL rows at backfill priority) and `clear_embeddings` (NULLs embeddings, e.g. before a same-dim model swap). A separate cancel-backfill view cancels still-queued backfill subjobs (also available as the `embed_cancel` management command). Mirrors `embed_pending` for operators who prefer the UI. The changelist badge distinguishes the two axes it reports: reports awaiting embedding (`embedding IS NULL`) vs. Procrastinate subjobs — `2 subjobs queued (1000 reports) · 1 subjob in-flight (500 reports) · 0 failed`, where the report totals are summed DB-side via `jsonb_array_length(args->'report_ids')` grouped by status (the id arrays never leave Postgres, which matters when a large backfill holds millions of ids in `todo` jobs); zero subjob counts render plain `0 queued`/`0 in-flight`, and `failed` stays a bare subjob count. |
+| `admin.py` | Registers `ReportSearchIndex` with a `has_embedding` list display, an `embedding` `IsNull` filter, the embedding-pipeline badge on the changelist (report-centric with subjob detail secondary, §6.8), and two actions: `enqueue_pending_embeddings` (defers embed subjobs for selected NULL rows at backfill priority) and `clear_embeddings` (NULLs embeddings, e.g. before a same-dim model swap). A separate cancel-backfill view cancels still-queued backfill subjobs (also available as the `embed_cancel` management command). Mirrors `embed_pending` for operators who prefer the UI. Also registers a read-only `EmbeddingBackfillRun` listing (run history, §6.8). |
 | `migrations/0002_hybrid_search.py` | Single squashed schema migration: renames `ReportSearchVector` → `ReportSearchIndex`, `CREATE EXTENSION vector`, adds the `embedding vector(1024)` column, the HNSW index, and a partial index on `embedding IS NULL` rows (backs the admin's pending-embedding count) |
-| `models.py` (modified) | `ReportSearchVector` renamed to `ReportSearchIndex`; adds the `embedding` field, `HnswIndex`, and the `pgsearch_pending_embedding_idx` partial index. No Job/Task models. |
+| `models.py` (modified) | `ReportSearchVector` renamed to `ReportSearchIndex`; adds the `embedding` field, `HnswIndex`, and the `pgsearch_pending_embedding_idx` partial index. Also `EmbeddingBackfillRun` (per-backfill progress state, §6.8). No Job/Task models. |
 | `signals.py` (unchanged from FTS-only) | The FTS `create_or_update_report_search_vector` receiver stays; **no embedding signal** |
 | `tasks.py` (FTS bits) | FTS bulk-indexing helper `bulk_upsert_report_search_indexes` and the `bulk_index_reports` Procrastinate task. `bulk_index_reports` upserts the RSI rows and then calls `enqueue_embed_reports(...)` at the end of its run, so the embeddings worker only ever sees report ids whose RSI rows are already committed (see §6.6). |
 | `providers.py` (modified) | Replaces `search()` and `retrieve()` bodies with hybrid logic |
@@ -546,7 +546,9 @@ subjob_count = enqueue_embed_reports(
 )
 ```
 
-`--subjob-size` overrides the Procrastinate-task granularity per run; `--limit N` stops after enqueuing N reports (useful for a canary batch). Backfill priority keeps the enqueued subjobs behind live write-path work. A running backfill can be cancelled with `cancel_backfill_embeddings()` (exposed as the admin "cancel backfill" view), which cancels every still-`todo` backfill-priority subjob; continuing later means simply re-running `embed_pending`.
+`--subjob-size` overrides the Procrastinate-task granularity per run; `--limit N` stops after enqueuing N reports (useful for a canary batch). Backfill priority keeps the enqueued subjobs behind live write-path work. A running backfill can be cancelled with `cancel_backfill_embeddings()` (exposed as the admin "cancel backfill" view), which cancels every still-`todo` backfill-priority subjob and stamps `cancelled_at` on active `EmbeddingBackfillRun` rows (§6.8); continuing later means simply re-running `embed_pending`.
+
+Each invocation (and each use of the admin `enqueue_pending_embeddings` action) also creates an `EmbeddingBackfillRun` row recording the enqueued baseline, so the admin badge can show per-backfill progress (§6.8).
 
 The three scenarios still apply:
 
@@ -585,6 +587,67 @@ The single-create / PUT path is unaffected by `PGSEARCH_SYNC_INDEXING`. Its FTS 
 ### 6.7 Sync DRF; no async views required
 
 The enqueue (`enqueue_embed_reports(...)`, which drives `configure_task(...).defer(...)`) is a synchronous Procrastinate API call, so the report views remain plain sync DRF (`ReportViewSet`, unchanged in shape from main). No `await` lives inside any request handler. The async-view rewrite proposed in PR #230 is **not a dependency** of this design and is intentionally not pulled in — the entire embedding workload lives on the worker side, behind the `embeddings` queue.
+
+### 6.8 Pipeline observability: report-centric badge and backfill runs
+
+The `ReportSearchIndex` changelist badge leads with reports (what operators care
+about) and relegates Procrastinate mechanics to a muted secondary line:
+
+```
+Embedding pipeline
+1456 / 4077 reports processed · 2000 queued · 500 in progress · 121 not queued
+Backfill: 500 / 2000 reports processed (25%) · started 12 min ago
+subjobs: 4 queued · 1 in-flight · 0 failed (embeddings queue)  [Cancel queued backfill]
+```
+
+**Primary line (global, no new state).** `embedded / total reports processed`,
+where `total = ReportSearchIndex.objects.count()` and `embedded = total −
+pending` (`pending` = `embedding IS NULL`). While `pending > 0`, the remainder
+is broken down (zero-valued segments omitted):
+
+- *queued* / *in progress* — reports covered by `todo` / `doing` subjobs, summed
+  DB-side via `jsonb_array_length(args->'report_ids')` grouped by status (the id
+  arrays never leave Postgres). "In progress" is exact, not approximate: a
+  subjob bulk-writes its embeddings only at completion, so none of a `doing`
+  job's reports are embedded yet.
+- *not queued* — `max(0, pending − queued − in progress)`: NULL rows no live job
+  covers (retry exhaustion, cancelled backfills, failed subjobs — failed jobs'
+  reports intentionally count here since they need re-enqueueing). This is the
+  "run `embed_pending`" signal. Clamped because the counts aren't one snapshot.
+
+The idle-and-done state is just `4077 / 4077 reports processed`.
+
+**Backfill line (per-run state).** `EmbeddingBackfillRun` rows track individual
+backfills — necessary because completed jobs are deleted from
+`procrastinate_jobs`, so a drain-scoped fraction is not derivable from live
+queue state. Fields: `started_at`, `finished_at` (null), `cancelled_at` (null),
+`total_reports`, `processed_reports` (default 0), `triggered_by`
+(`embed_pending` or the admin username). A run is *active* while both end
+timestamps are NULL. Migration `0003_embeddingbackfillrun`.
+
+- **Creation:** `embed_pending` and the admin `enqueue_pending_embeddings`
+  action create a run with `total_reports = len(report_ids)` and thread
+  `run_id` through `enqueue_embed_reports` into each subjob's task args.
+  Write-path (live-priority) enqueues carry no run.
+- **Progress:** after its successful bulk-write, `embed_reports_task` increments
+  `processed_reports` atomically (`F() + n`), then flips `finished_at` when
+  `processed ≥ total`. Failed subjobs never increment. Counter-based progress
+  is immune to the worker's `--delete-jobs` policy, unlike deriving progress
+  from surviving job rows.
+- **Cancel:** `cancel_backfill_embeddings()` stamps `cancelled_at` on active
+  runs, freezing their fraction in history.
+- **Stall detection:** for the active run, the badge counts live jobs whose args
+  carry its `run_id`; zero live jobs with `processed < total` renders a
+  "stalled — no live subjobs" marker instead of implying progress (the
+  dead-worker scenario: worker crashes are otherwise invisible here because the
+  container stays "Up").
+- **Display:** the badge shows only the latest active run; concurrent runs are
+  allowed (enqueue semantics unchanged) but older ones are visible only in the
+  run history — a read-only `EmbeddingBackfillRun` admin listing.
+
+**Secondary line.** Subjob counts by status plus the queue name, rendered only
+when any count is nonzero; `failed` keeps its red highlight; the cancel-backfill
+button keeps its existing `todo_backfill > 0` visibility rule.
 
 ## 7. Hybrid search provider
 
