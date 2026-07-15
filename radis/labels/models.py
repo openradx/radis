@@ -21,7 +21,7 @@ class LabelGroup(models.Model):
         ordering = ["name"]
 
     def __str__(self) -> str:
-        return f"LabelGroup {self.name} [{self.pk}]"
+        return self.name
 
 
 class Label(models.Model):
@@ -40,7 +40,7 @@ class Label(models.Model):
         indexes = [models.Index(fields=["active"])]
 
     def __str__(self) -> str:
-        return f"Label {self.name} [{self.pk}]"
+        return self.name
 
 
 class LabelResult(models.Model):

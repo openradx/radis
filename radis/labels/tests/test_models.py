@@ -17,6 +17,18 @@ from radis.reports.factories import ReportFactory
 
 
 @pytest.mark.django_db
+def test_group_str_is_plain_name():
+    group = LabelGroupFactory.create(name="Chest")
+    assert str(group) == "Chest"
+
+
+@pytest.mark.django_db
+def test_label_str_is_plain_name():
+    label = LabelFactory.create(name="Metastasis")
+    assert str(label) == "Metastasis"
+
+
+@pytest.mark.django_db
 def test_group_delete_cascades_to_labels_and_gate_answers():
     group = LabelGroupFactory.create()
     label = LabelFactory.create(group=group)
