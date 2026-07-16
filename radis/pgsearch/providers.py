@@ -1,3 +1,4 @@
+import hashlib
 import logging
 import unicodedata
 from collections.abc import Iterator
@@ -6,6 +7,7 @@ from typing import Literal, cast
 import openai
 from django.conf import settings
 from django.contrib.postgres.search import SearchHeadline, SearchQuery, SearchRank
+from django.core.cache import cache
 from django.db.models import F, Q
 from pgvector.django import CosineDistance
 
@@ -174,6 +176,33 @@ def _embed_query_or_none(query_text: str, caller: str) -> list[float] | None:
         return None
 
 
+def _embed_query_cached(query_text: str, caller: str) -> list[float] | None:
+    """Cache wrapper around `_embed_query_or_none`.
+
+    Pagination re-runs the whole search for every page, so without this every
+    page load re-calls the embedding service for the same query text. The key
+    covers everything that determines the vector — model, instruction, dim,
+    query text — because a shared cache backend (production uses the database)
+    outlives process restarts and thus config changes. Failures are not
+    cached: a transient outage must not pin searches to FTS-only for the TTL.
+    """
+    fingerprint = "\x00".join(
+        [
+            settings.EMBEDDING_MODEL_NAME,
+            settings.EMBEDDING_QUERY_INSTRUCTION,
+            str(settings.EMBEDDING_DIM),
+            query_text,
+        ]
+    )
+    key = "pgsearch-query-embedding-" + hashlib.sha256(fingerprint.encode()).hexdigest()
+    vec = cache.get(key)
+    if vec is None:
+        vec = _embed_query_or_none(query_text, caller)
+        if vec is not None:
+            cache.set(key, vec, timeout=settings.EMBEDDING_QUERY_CACHE_TIMEOUT_SECONDS)
+    return vec
+
+
 def search(search: Search) -> SearchResult:
     query_str = _build_query_string(search.query)
     language = _resolve_language(search.filters)
@@ -186,7 +215,7 @@ def search(search: Search) -> SearchResult:
     query_text = QueryParser.unparse_for_embedding(search.query)
     query_vec: list[float] | None = None
     if query_text.strip():
-        query_vec = _embed_query_or_none(query_text, "Hybrid search")
+        query_vec = _embed_query_cached(query_text, "Hybrid search")
 
     vec_rank: dict[int, int] = {}
     vec_distance: dict[int, float] = {}
@@ -295,7 +324,7 @@ def retrieve(search: Search) -> Iterator[str]:
     query_text = QueryParser.unparse_for_embedding(search.query)
     query_vec: list[float] | None = None
     if query_text.strip():
-        query_vec = _embed_query_or_none(query_text, "Hybrid retrieve")
+        query_vec = _embed_query_cached(query_text, "Hybrid retrieve")
 
     vec_rank: dict[int, int] = {}
     if query_vec is not None:

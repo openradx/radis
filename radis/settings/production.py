@@ -10,6 +10,18 @@ ENVIRONMENT = "production"
 
 DATABASES["default"]["PASSWORD"] = env.str("POSTGRES_PASSWORD")  # noqa: F405
 
+# The web service runs multiple replicas behind Docker Swarm's routing mesh (no session
+# stickiness), so the default per-process LocMemCache would miss on ~(N-1)/N of requests
+# (e.g. a search on page 1 warms one replica, page 2 lands on another). The database
+# backend shares the cache across all replicas through the Postgres they already use.
+# The `django_cache` table is created by `createcachetable` in the compose init service.
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.db.DatabaseCache",
+        "LOCATION": "django_cache",
+    }
+}
+
 STATIC_ROOT = env.str("DJANGO_STATIC_ROOT")
 
 STORAGES["staticfiles"] = {  # noqa: F405

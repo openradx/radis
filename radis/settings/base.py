@@ -396,6 +396,13 @@ EMBEDDING_SUBJOB_SIZE = env.int("EMBEDDING_SUBJOB_SIZE", default=1000)
 # parks itself ahead of every later live write without this split.
 EMBEDDING_LIVE_PRIORITY = 1
 EMBEDDING_BACKFILL_PRIORITY = 0
+# How long a search query's embedding stays in the Django cache. Paginating re-runs the
+# whole search per page, so this is what keeps page 2..n from re-calling the embedding
+# service for the same query text. Vectors are tiny (~8 KB) and deterministic per model
+# config, so the TTL only bounds staleness across model/config changes, not correctness.
+EMBEDDING_QUERY_CACHE_TIMEOUT_SECONDS = env.int(
+    "EMBEDDING_QUERY_CACHE_TIMEOUT_SECONDS", default=900
+)
 # Rate-limit gate for the embedding provider: one per-process backoff window shared by
 # every embedding caller in the process (mirrors the LLM gate in core.utils.llm_client).
 # The embedding gateway is a different provider than the LLM, so it gets its own gate —
