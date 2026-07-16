@@ -632,9 +632,11 @@ timestamps are NULL. Migration `0003_embeddingbackfillrun`.
   Both entry points **refuse to start while a run is active** ("Backfill
   already active: 500/2000 processed. Cancel it first with `embed_cancel`.") —
   with one escape hatch: an active run with zero live subjobs and `processed <
-  total` is *abandoned* (jobs lost to retry exhaustion or a dead worker); the
-  next invocation auto-closes it (stamps `cancelled_at`, logs the takeover)
-  and proceeds, so a wedged run can never block future backfills.
+  total` is *abandoned* (jobs lost to retry exhaustion or other job-loss edge
+  cases — a crashed worker's jobs sit in `doing` and count as live until the
+  restart-time requeue); the next invocation auto-closes it (stamps
+  `cancelled_at`, logs the takeover) and proceeds, so a wedged run can never
+  block future backfills.
 - **Progress:** after its successful bulk-write, `embed_reports_task` increments
   `processed_reports` atomically (`F() + n`), then flips `finished_at` when
   `processed ≥ total`. Failed subjobs never increment. Counter-based progress
