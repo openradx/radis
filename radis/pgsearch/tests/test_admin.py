@@ -7,13 +7,15 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from django.conf import settings
+from django.contrib import messages
 from django.contrib.admin.sites import AdminSite
 from django.db import connection
 from django.test import Client
 from django.urls import reverse
+from procrastinate.contrib.django.models import ProcrastinateJob
 
 from radis.pgsearch.admin import ReportSearchIndexAdmin
-from radis.pgsearch.models import ReportSearchIndex
+from radis.pgsearch.models import EmbeddingBackfillRun, ReportSearchIndex
 from radis.reports.factories import ReportFactory
 
 pytestmark = pytest.mark.django_db(transaction=True)
@@ -321,3 +323,44 @@ def test_cancel_backfill_view_requires_change_permission():
 
     with pytest.raises(PermissionDenied):
         admin_instance.cancel_backfill_view(request)
+
+
+def test_enqueue_pending_embeddings_creates_run_and_threads_run_id():
+    targets = [ReportFactory.create() for _ in range(2)]
+    selected = ReportSearchIndex.objects.filter(report_id__in=[r.pk for r in targets])
+    admin_instance = ReportSearchIndexAdmin(ReportSearchIndex, AdminSite())
+    admin_instance.message_user = MagicMock()
+    request = MagicMock()
+    request.user.get_username.return_value = "alice"
+
+    admin_instance.enqueue_pending_embeddings(request, selected)
+
+    run = EmbeddingBackfillRun.objects.get()
+    assert run.total_reports == 2
+    assert run.triggered_by == "alice"
+    job_args = ProcrastinateJob.objects.filter(queue_name="embeddings").values_list(
+        "args", flat=True
+    )
+    assert all(args.get("run_id") == run.pk for args in job_args)
+
+
+def test_enqueue_pending_embeddings_warns_while_backfill_active():
+    active = EmbeddingBackfillRun.objects.create(total_reports=10, triggered_by="first")
+    # An args payload carrying the active run's id makes the guard see a live
+    # subjob (the helper's default args carry no run_id, so it won't count):
+    _insert_procrastinate_job(
+        "todo", args_json=json.dumps({"report_ids": [1], "run_id": active.pk})
+    )
+    target = ReportFactory.create()
+    selected = ReportSearchIndex.objects.filter(report_id=target.pk)
+    admin_instance = ReportSearchIndexAdmin(ReportSearchIndex, AdminSite())
+    admin_instance.message_user = MagicMock()
+    request = MagicMock()
+    request.user.get_username.return_value = "bob"
+
+    admin_instance.enqueue_pending_embeddings(request, selected)
+
+    assert EmbeddingBackfillRun.objects.count() == 1  # no new run
+    call = admin_instance.message_user.call_args
+    assert "already active" in call.args[1]
+    assert call.kwargs.get("level") == messages.WARNING

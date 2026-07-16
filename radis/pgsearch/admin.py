@@ -12,7 +12,12 @@ from django.urls import path, reverse
 from procrastinate.contrib.django.models import ProcrastinateJob
 
 from .models import EmbeddingBackfillRun, ReportSearchIndex
-from .tasks import cancel_backfill_embeddings, enqueue_embed_reports
+from .tasks import (
+    ActiveBackfillError,
+    cancel_backfill_embeddings,
+    create_backfill_run,
+    enqueue_embed_reports,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -148,20 +153,29 @@ class ReportSearchIndexAdmin(admin.ModelAdmin):
             )
             return
 
+        try:
+            run = create_backfill_run(len(report_ids), triggered_by=request.user.get_username())
+        except ActiveBackfillError as exc:
+            self.message_user(request, str(exc), level=messages.WARNING)
+            return
+
         subjob_count = enqueue_embed_reports(
-            report_ids, priority=settings.EMBEDDING_BACKFILL_PRIORITY
+            report_ids, priority=settings.EMBEDDING_BACKFILL_PRIORITY, run_id=run.pk
         )
 
         self.message_user(
             request,
-            f"Enqueued {len(report_ids)} report(s) across {subjob_count} subjob(s) for embedding.",
+            f"Enqueued {len(report_ids)} report(s) across {subjob_count} subjob(s) "
+            f"for embedding (run {run.pk}).",
             level=messages.SUCCESS,
         )
         logger.info(
-            "admin.enqueue_pending_embeddings: user=%s enqueued %d report(s) across %d subjob(s)",
+            "admin.enqueue_pending_embeddings: user=%s enqueued %d report(s) across "
+            "%d subjob(s) for run %d",
             request.user.get_username(),
             len(report_ids),
             subjob_count,
+            run.pk,
         )
 
     @admin.action(description="Clear embeddings (NULL them)")

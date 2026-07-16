@@ -1,13 +1,16 @@
 """Tests for the `embed_pending` management command."""
 
+import json
 import logging
 from io import StringIO
 from unittest.mock import patch
 
 import pytest
 from django.conf import settings
-from django.core.management import call_command
+from django.core.management import CommandError, call_command
+from django.db import connection
 
+from radis.pgsearch.models import EmbeddingBackfillRun
 from radis.reports.factories import ReportFactory
 
 pytestmark = pytest.mark.django_db
@@ -82,3 +85,50 @@ def test_logs_info_at_invoke_and_done(caplog):
     info_msgs = [r.getMessage() for r in caplog.records if r.levelname == "INFO"]
     assert any("embed_pending: command invoked; subjob_size=5 limit=None" in m for m in info_msgs)
     assert any("embed_pending: done; reports=2 subjobs=1" in m for m in info_msgs)
+
+
+@pytest.fixture
+def insert_live_job_for_run():
+    """Insert a live (todo) embed_reports_task row carrying `run.pk`, via
+    raw SQL because ProcrastinateJob's Django ORM surface is read-only —
+    same pattern as `_insert_embed_job` in test_backfill_run.py."""
+
+    def _insert(run: EmbeddingBackfillRun) -> None:
+        with connection.cursor() as cur:
+            cur.execute(
+                "INSERT INTO procrastinate_jobs "
+                "(queue_name, task_name, priority, lock, queueing_lock, args, status, attempts) "
+                "VALUES ('embeddings', 'radis.pgsearch.tasks.embed_reports_task', 0, NULL, NULL, "
+                "%s, 'todo'::procrastinate_job_status, 0)",
+                [json.dumps({"report_ids": [1], "run_id": run.pk})],
+            )
+
+    return _insert
+
+
+def test_embed_pending_creates_run_with_enqueued_total():
+    [ReportFactory.create() for _ in range(3)]
+    call_command("embed_pending")
+    run = EmbeddingBackfillRun.objects.get()
+    assert run.total_reports == 3
+    assert run.is_active
+    assert run.triggered_by == "embed_pending"
+
+
+def test_embed_pending_refuses_while_backfill_active(insert_live_job_for_run):
+    active = EmbeddingBackfillRun.objects.create(total_reports=10, triggered_by="first")
+    insert_live_job_for_run(active)
+    ReportFactory.create()
+    with pytest.raises(CommandError, match="already active"):
+        call_command("embed_pending")
+    assert EmbeddingBackfillRun.objects.count() == 1
+
+
+def test_embed_pending_supersedes_abandoned_run():
+    EmbeddingBackfillRun.objects.create(total_reports=10, triggered_by="first")
+    ReportFactory.create()
+    call_command("embed_pending")
+    assert EmbeddingBackfillRun.objects.filter(cancelled_at__isnull=False).count() == 1
+    active = EmbeddingBackfillRun.get_active()
+    assert active is not None
+    assert active.triggered_by == "embed_pending"

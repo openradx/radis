@@ -26,15 +26,17 @@ Properties:
   the still-NULL rows.
 - **Rate-limited.** Worker concurrency caps load on the embedding service
   regardless of how many tasks this command enqueues.
+- **Single-active.** Only one backfill run can be active at a time; a
+  wedged (abandoned) run with no live subjobs is auto-superseded.
 """
 
 import logging
 
 from django.conf import settings
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 
 from radis.pgsearch.models import ReportSearchIndex
-from radis.pgsearch.tasks import enqueue_embed_reports
+from radis.pgsearch.tasks import ActiveBackfillError, create_backfill_run, enqueue_embed_reports
 
 logger = logging.getLogger(__name__)
 
@@ -84,13 +86,21 @@ class Command(BaseCommand):
             self.stdout.write("Nothing to embed.")
             return
 
+        try:
+            run = create_backfill_run(len(ids), triggered_by="embed_pending")
+        except ActiveBackfillError as exc:
+            raise CommandError(str(exc)) from exc
+
         self.stdout.write(f"Enqueuing {len(ids)} report(s) in subjobs of {subjob_size}...")
         subjob_count = enqueue_embed_reports(
             ids,
             subjob_size=subjob_size,
             priority=settings.EMBEDDING_BACKFILL_PRIORITY,
+            run_id=run.pk,
         )
-        self.stdout.write(self.style.SUCCESS(f"Done. Deferred {subjob_count} subjob(s)."))
+        self.stdout.write(
+            self.style.SUCCESS(f"Done. Deferred {subjob_count} subjob(s) for run {run.pk}.")
+        )
         logger.info(
             "embed_pending: done; reports=%d subjobs=%d",
             len(ids),
