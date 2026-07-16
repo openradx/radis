@@ -248,9 +248,9 @@ def build_gate_schema(groups):
         **{g.name: (GateValue, Field(description=g.gate_question)) for g in groups})
 ```
 
-The builders live in `radis/labels/utils/` and import `pydantic.create_model` and
-`radis.chats.utils.chat_client.ChatClient` (the same edge extractions uses) — **nothing** from
-`radis.extractions`, keeping the apps decoupled. A unit test asserts `BucketValue`/`GateValue`
+The builders live in `radis/labels/utils/` and import only `pydantic.create_model`; the LLM edge
+is the shared `radis.core.utils.llm_client.LLMClient` (the same client extractions uses) —
+**nothing** from `radis.extractions`, keeping the apps decoupled. A unit test asserts `BucketValue`/`GateValue`
 equal `LabelResult.Value`/`GateAnswer.Value` (drift guard). Every field is required, so every label
 gets a bucket and every group a gate answer; empty subsets never reach the builders.
 
@@ -370,7 +370,7 @@ label_results__value__in=SURFACING_VALUES).values("pk")>)` — deduplicated, OR 
 ```python
 LABELING_JOB_PRIORITY          = env.int("LABELING_JOB_PRIORITY",          default=1)   # scan and backfill share one priority (only one runs at a time)
 LABELING_TASK_BATCH_SIZE       = env.int("LABELING_TASK_BATCH_SIZE",       default=100)
-LABELING_LLM_CONCURRENCY_LIMIT = env.int("LABELING_LLM_CONCURRENCY_LIMIT", default=6)
+LABELING_LLM_CONCURRENCY_LIMIT = env.int("LABELING_LLM_CONCURRENCY_LIMIT", default=2)
 LABELING_GATE_BATCH_SIZE       = env.int("LABELING_GATE_BATCH_SIZE",       default=10)
 LABELING_SCAN_CRON             = env.str("LABELING_SCAN_CRON",             default="0 2 * * *")
 LABELING_SYSTEM_PROMPT         = env.str("LABELING_SYSTEM_PROMPT",         default=_DEFAULT_LABELING_SYSTEM_PROMPT)
@@ -380,7 +380,7 @@ LABELING_GATE_SYSTEM_PROMPT    = env.str("LABELING_GATE_SYSTEM_PROMPT",    defau
 Both prompts are generic — they carry no label/group-specific text (that rides in each schema
 field's `description=`) and substitute only `$report`. The default label prompt enumerates the five
 bucket meanings; the default gate prompt enumerates YES/NO. The labeling task reuses the existing
-`ChatClient`/LLM provider settings — no new LLM endpoint config.
+`LLMClient`/LLM provider settings — no new LLM endpoint config.
 
 ## Operational Considerations
 

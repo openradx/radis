@@ -47,7 +47,7 @@ Files: `radis/labels/{__init__,apps}.py`, `radis/labels/models.py`,
   values of `ACTIVE_STATUSES` (verify against `core/models.py`). The feature is pre-production, so
   this lives in the single initial migration rather than a follow-up.
 - Settings block (all `env`-backed): `LABELING_JOB_PRIORITY=1`, `LABELING_TASK_BATCH_SIZE=100`,
-  `LABELING_LLM_CONCURRENCY_LIMIT=6`, `LABELING_GATE_BATCH_SIZE=10`,
+  `LABELING_LLM_CONCURRENCY_LIMIT=2`, `LABELING_GATE_BATCH_SIZE=10`,
   `LABELING_SCAN_CRON="0 2 * * *"`, plus `LABELING_SYSTEM_PROMPT` / `LABELING_GATE_SYSTEM_PROMPT`
   with built-in generic defaults. Mirror the env vars (commented) in `example.env`.
 - Factories for all models (`LabelingJobFactory` defaults to MANUAL + a `UserFactory` owner).
@@ -61,7 +61,7 @@ Files: `radis/labels/utils/schemas.py`, `radis/labels/utils/prompts.py`.
   with one **name-keyed** required field each (`lbl.name` / `g.name`), description =
   `lbl.description` / `g.gate_question`.
 - `render_label_prompt` / `render_gate_prompt` — `Template(settings.…).substitute(report=body)`.
-- Import only `pydantic.create_model` and `radis.chats…ChatClient`; nothing from
+- Import only `pydantic.create_model` and `radis.core…LLMClient`; nothing from
   `radis.extractions`.
 
 ## Task 3 — Core engine
