@@ -13,10 +13,13 @@
   changelist request, and the HNSW index can't serve an IS NULL
   predicate — without this the count is a sequential scan over millions
   of rows.
+- Add `EmbeddingBackfillRun`, the run-history row behind the admin's
+  pipeline badge and the single-active-backfill guard.
 
 Squashed from the intermediate branch migrations (schema, partial index,
-index rename) so hybrid search ships as one coherent migration rather
-than three states no operator will ever see in isolation.
+index rename, backfill-run model) so hybrid search ships as one coherent
+migration rather than several states no operator will ever see in
+isolation.
 """
 
 import django.db.models.deletion
@@ -83,5 +86,28 @@ class Migration(migrations.Migration):
                 condition=models.Q(embedding__isnull=True),
                 name="pgsearch_pending_embedding_idx",
             ),
+        ),
+        migrations.CreateModel(
+            name="EmbeddingBackfillRun",
+            fields=[
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                ("started_at", models.DateTimeField(auto_now_add=True)),
+                ("finished_at", models.DateTimeField(blank=True, null=True)),
+                ("cancelled_at", models.DateTimeField(blank=True, null=True)),
+                ("total_reports", models.PositiveIntegerField()),
+                ("processed_reports", models.PositiveIntegerField(default=0)),
+                ("triggered_by", models.CharField(max_length=150)),
+            ],
+            options={
+                "ordering": ["-started_at"],
+            },
         ),
     ]
