@@ -1,6 +1,6 @@
 # Hybrid Search Design (FTS + Dense Vector via Qwen3-Embedding-4B)
 
-**Status:** Implemented on `feat/hybrid-search` — living document, last synced to code 2026-07-14. Exception: §6.8 (report-centric badge + backfill runs) designed 2026-07-15, implementation pending.
+**Status:** Implemented on `feat/hybrid-search` — living document, last synced to code 2026-07-16.
 **Author:** RADIS team (Samuel Kwong)
 **Date:** 2026-05-28
 **History:** Single consolidated spec for hybrid search. The per-increment design docs it absorbed (initial 2026-05-15 design; embedding client OpenAI-SDK migration; pipeline logging; rate-limit gate; rate-limit generalization research; backfill cancel + throughput knobs; shared 429 backoff; admin badge subjob report counts) were removed 2026-07-14 and remain in git history. The consolidated implementation history lives in `docs/superpowers/plans/hybrid-search.md`.
