@@ -11,7 +11,7 @@ from django.http.request import HttpRequest
 from django.urls import path, reverse
 from procrastinate.contrib.django.models import ProcrastinateJob
 
-from .models import ReportSearchIndex
+from .models import EmbeddingBackfillRun, ReportSearchIndex
 from .tasks import cancel_backfill_embeddings, enqueue_embed_reports
 
 logger = logging.getLogger(__name__)
@@ -191,3 +191,29 @@ class ReportSearchIndexAdmin(admin.ModelAdmin):
             request.user.get_username(),
             cleared,
         )
+
+
+@admin.register(EmbeddingBackfillRun)
+class EmbeddingBackfillRunAdmin(admin.ModelAdmin):
+    """Read-only backfill history ("what did last night's backfill do?").
+    Runs are created by embed_pending / the admin enqueue action and
+    mutated only by the task counter and cancel — never by hand."""
+
+    list_display = (
+        "id",
+        "started_at",
+        "finished_at",
+        "cancelled_at",
+        "processed_reports",
+        "total_reports",
+        "triggered_by",
+    )
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
