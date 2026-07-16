@@ -1,4 +1,5 @@
 import logging
+from typing import Any
 
 from django.conf import settings
 from django.contrib import admin, messages
@@ -94,14 +95,14 @@ class ReportSearchIndexAdmin(admin.ModelAdmin):
         return HttpResponseRedirect(reverse("admin:pgsearch_reportsearchindex_changelist"))
 
     @staticmethod
-    def _embedding_pipeline_stats() -> dict[str, int]:
-        """Snapshot of the embedding pipeline for the admin badge: how many
-        reports are still missing an embedding, and what Procrastinate is
-        doing about it right now — subjob counts per status, plus how many
-        reports the queued and in-flight subjobs cover. The report totals
-        are summed DB-side from each job's args->'report_ids'
-        (jsonb_array_length); the id arrays never leave Postgres, which
-        matters when a large backfill holds millions of ids in `todo` jobs."""
+    def _embedding_pipeline_stats() -> dict[str, Any]:
+        """Snapshot for the admin badge (spec §6.8), report-centric:
+        the global processed fraction plus a breakdown of the remainder
+        (queued / in progress / not queued), the active backfill run with
+        a stall flag, and the subjob mechanics for the secondary line.
+        Report totals per status are summed DB-side from each job's
+        args->'report_ids' (the id arrays never leave Postgres)."""
+        total = ReportSearchIndex.objects.count()
         pending = ReportSearchIndex.objects.filter(embedding__isnull=True).count()
         report_count = Func(
             KeyTransform("report_ids", "args"),
@@ -125,15 +126,26 @@ class ReportSearchIndexAdmin(admin.ModelAdmin):
         ).count()
         todo_row = queue_rows.get("todo", {})
         doing_row = queue_rows.get("doing", {})
+        todo_reports = todo_row.get("reports") or 0
+        doing_reports = doing_row.get("reports") or 0
+        run = EmbeddingBackfillRun.get_active()
+        run_stalled = bool(
+            run and run.processed_reports < run.total_reports and run.live_subjob_count() == 0
+        )
         return {
+            "total_reports": total,
+            "embedded_reports": total - pending,
             "pending_reports": pending,
             "todo": todo_row.get("jobs", 0),
-            # Sum() returns NULL when no job has report_ids — coalesce here.
-            "todo_reports": todo_row.get("reports") or 0,
+            "todo_reports": todo_reports,
             "todo_backfill": todo_backfill,
             "doing": doing_row.get("jobs", 0),
-            "doing_reports": doing_row.get("reports") or 0,
+            "doing_reports": doing_reports,
+            # Clamped: the counts above aren't one snapshot.
+            "unqueued_reports": max(0, pending - todo_reports - doing_reports),
             "failed": queue_rows.get("failed", {}).get("jobs", 0),
+            "run": run,
+            "run_stalled": run_stalled,
         }
 
     @admin.action(description="Enqueue embedding for selected rows (NULL only)")

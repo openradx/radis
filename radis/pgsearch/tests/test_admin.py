@@ -140,36 +140,99 @@ def test_pipeline_stats_tolerates_jobs_without_report_ids():
 def test_pipeline_stats_zero_when_no_queue_activity():
     stats = ReportSearchIndexAdmin._embedding_pipeline_stats()
     assert stats == {
+        "total_reports": 0,
+        "embedded_reports": 0,
         "pending_reports": 0,
         "todo": 0,
         "todo_reports": 0,
         "todo_backfill": 0,
         "doing": 0,
         "doing_reports": 0,
+        "unqueued_reports": 0,
         "failed": 0,
+        "run": None,
+        "run_stalled": False,
     }
 
 
-def test_changelist_badge_shows_subjob_report_counts(admin_client):
-    _insert_procrastinate_job("todo", report_ids=[1, 2])
-    _insert_procrastinate_job("todo", report_ids=[3, 4, 5])
-    _insert_procrastinate_job("doing", report_ids=[6, 7, 8, 9])
+def test_pipeline_stats_report_centric_keys():
+    pending = [ReportFactory.create() for _ in range(4)]
+    embedded = ReportFactory.create()
+    rsi = ReportSearchIndex.objects.get(report_id=embedded.pk)
+    rsi.embedding = [0.0] * 1024
+    rsi.save()
+    _insert_procrastinate_job("todo", report_ids=[pending[0].pk, pending[1].pk])
+    _insert_procrastinate_job("doing", report_ids=[pending[2].pk])
+
+    stats = ReportSearchIndexAdmin._embedding_pipeline_stats()
+    assert stats["total_reports"] == 5
+    assert stats["embedded_reports"] == 1
+    assert stats["pending_reports"] == 4
+    assert stats["unqueued_reports"] == 1  # 4 pending - 2 queued - 1 doing
+
+
+def test_pipeline_stats_unqueued_clamped_at_zero():
+    [ReportFactory.create() for _ in range(1)]
+    _insert_procrastinate_job("todo", report_ids=[1, 2, 3])  # covers more than pending
+    stats = ReportSearchIndexAdmin._embedding_pipeline_stats()
+    assert stats["unqueued_reports"] == 0
+
+
+def test_pipeline_stats_active_run_and_stall_flag():
+    run = EmbeddingBackfillRun.objects.create(total_reports=10, triggered_by="t")
+    stats = ReportSearchIndexAdmin._embedding_pipeline_stats()
+    assert stats["run"] == run
+    assert stats["run_stalled"] is True  # unfinished, no live subjobs
+
+    import json as _json
+
+    _insert_procrastinate_job("todo", args_json=_json.dumps({"report_ids": [1], "run_id": run.pk}))
+    stats = ReportSearchIndexAdmin._embedding_pipeline_stats()
+    assert stats["run_stalled"] is False
+
+
+def test_changelist_badge_report_centric_primary_line(admin_client):
+    pending = [ReportFactory.create() for _ in range(3)]
+    done = ReportFactory.create()
+    rsi = ReportSearchIndex.objects.get(report_id=done.pk)
+    rsi.embedding = [0.0] * 1024
+    rsi.save()
+    _insert_procrastinate_job("todo", report_ids=[pending[0].pk, pending[1].pk])
+    _insert_procrastinate_job("doing", report_ids=[pending[2].pk])
 
     url = reverse("admin:pgsearch_reportsearchindex_changelist")
     html = _squash_ws(admin_client.get(url).content.decode())
 
-    assert "<strong>2</strong> subjobs queued (5 reports)" in html
-    assert "<strong>1</strong> subjob in-flight (4 reports)" in html
+    assert "<strong>1</strong> / <strong>4</strong> reports processed" in html
+    assert "2 queued" in html
+    assert "1 in progress" in html
+    assert "not queued" not in html  # zero segment omitted
+    assert "subjobs: 1 queued · 1 in-flight · 0 failed" in html
 
 
-def test_changelist_badge_zero_counts_render_plain(admin_client):
+def test_changelist_badge_idle_state_is_bare_fraction(admin_client):
+    done = ReportFactory.create()
+    rsi = ReportSearchIndex.objects.get(report_id=done.pk)
+    rsi.embedding = [0.0] * 1024
+    rsi.save()
+
     url = reverse("admin:pgsearch_reportsearchindex_changelist")
     html = _squash_ws(admin_client.get(url).content.decode())
 
-    assert "<strong>0</strong> queued" in html
-    assert "<strong>0</strong> in-flight" in html
-    assert "subjob" not in html
-    assert "reports)" not in html
+    assert "<strong>1</strong> / <strong>1</strong> reports processed" in html
+    assert "queued" not in html
+    assert "in progress" not in html
+    assert "subjobs:" not in html
+    assert "Backfill:" not in html
+
+
+def test_changelist_badge_backfill_line_with_stall_marker(admin_client):
+    EmbeddingBackfillRun.objects.create(total_reports=8, processed_reports=2, triggered_by="t")
+    url = reverse("admin:pgsearch_reportsearchindex_changelist")
+    html = _squash_ws(admin_client.get(url).content.decode())
+
+    assert "Backfill: <strong>2</strong> / <strong>8</strong> reports processed (25%)" in html
+    assert "stalled — no live subjobs" in html
 
 
 def test_delete_permission_denied():
