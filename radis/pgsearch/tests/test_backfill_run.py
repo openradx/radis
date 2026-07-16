@@ -7,6 +7,11 @@ from django.db import connection
 from django.utils import timezone
 
 from radis.pgsearch.models import EmbeddingBackfillRun
+from radis.pgsearch.tasks import (
+    ActiveBackfillError,
+    cancel_backfill_embeddings,
+    create_backfill_run,
+)
 
 pytestmark = pytest.mark.django_db(transaction=True)
 
@@ -66,3 +71,29 @@ def test_live_subjob_count_scopes_to_run_and_live_statuses():
     _insert_embed_job("todo", run_id=other.pk, report_ids=[5])  # other run
     _insert_embed_job("todo", run_id=None, report_ids=[6])  # write-path job
     assert run.live_subjob_count() == 2
+
+
+def test_create_backfill_run_refuses_while_active_with_live_subjobs():
+    active = EmbeddingBackfillRun.objects.create(total_reports=10, triggered_by="first")
+    _insert_embed_job("todo", run_id=active.pk, report_ids=[1, 2])
+    with pytest.raises(ActiveBackfillError, match="already active"):
+        create_backfill_run(5, triggered_by="second")
+    assert EmbeddingBackfillRun.objects.count() == 1
+
+
+def test_create_backfill_run_auto_closes_abandoned_run():
+    abandoned = EmbeddingBackfillRun.objects.create(total_reports=10, triggered_by="first")
+    # no live jobs for `abandoned` -> it is auto-closed and superseded
+    run = create_backfill_run(5, triggered_by="second")
+    abandoned.refresh_from_db()
+    assert abandoned.cancelled_at is not None
+    assert run.is_active
+    assert run.total_reports == 5
+    assert EmbeddingBackfillRun.get_active() == run
+
+
+def test_cancel_backfill_embeddings_stamps_active_runs():
+    run = EmbeddingBackfillRun.objects.create(total_reports=10, triggered_by="test")
+    cancel_backfill_embeddings()
+    run.refresh_from_db()
+    assert run.cancelled_at is not None

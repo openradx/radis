@@ -1,14 +1,16 @@
 """Tests for `embed_reports_task` and its chaining from `bulk_index_reports`."""
 
 import logging
+from contextlib import contextmanager
 from unittest.mock import MagicMock, patch
 
 import httpx
 import numpy as np
 import openai
 import pytest
+from django.utils import timezone
 
-from radis.pgsearch.models import ReportSearchIndex
+from radis.pgsearch.models import EmbeddingBackfillRun, ReportSearchIndex
 from radis.pgsearch.tasks import (
     bulk_index_reports,
     embed_reports_task,
@@ -85,6 +87,24 @@ def _make_fake_client(vec: list[float]) -> MagicMock:
     instance.__exit__ = MagicMock(return_value=None)
     instance.embed_documents = MagicMock(side_effect=lambda texts: [vec] * len(texts))
     return instance
+
+
+@contextmanager
+def _mock_embedding_client(error: Exception | None = None):
+    """Patch `EmbeddingClient` using this file's `_make_fake_client` mock
+    style so `embed_documents` returns one unit vector per input text (or
+    raises `error`)."""
+    from django.conf import settings as dj_settings
+
+    if error is not None:
+        fake = MagicMock()
+        fake.__enter__ = MagicMock(return_value=fake)
+        fake.__exit__ = MagicMock(return_value=None)
+        fake.embed_documents = MagicMock(side_effect=error)
+    else:
+        fake = _make_fake_client(_unit_vec(dj_settings.EMBEDDING_DIM))
+    with patch("radis.pgsearch.tasks.EmbeddingClient", return_value=fake):
+        yield fake
 
 
 def test_empty_input_no_ops():
@@ -533,3 +553,55 @@ def test_embed_cancel_command_handles_empty_queue():
     call_command("embed_cancel", stdout=out)
 
     assert "No queued backfill subjobs to cancel." in out.getvalue()
+
+
+def test_embed_reports_task_increments_run_counter_and_flips_finished():
+    reports = [ReportFactory.create() for _ in range(3)]
+    run = EmbeddingBackfillRun.objects.create(total_reports=3, triggered_by="test")
+    with _mock_embedding_client():
+        embed_reports_task([r.pk for r in reports], run_id=run.pk)
+    run.refresh_from_db()
+    assert run.processed_reports == 3
+    assert run.finished_at is not None
+
+
+def test_embed_reports_task_partial_progress_leaves_run_unfinished():
+    reports = [ReportFactory.create() for _ in range(2)]
+    run = EmbeddingBackfillRun.objects.create(total_reports=5, triggered_by="test")
+    with _mock_embedding_client():
+        embed_reports_task([r.pk for r in reports], run_id=run.pk)
+    run.refresh_from_db()
+    assert run.processed_reports == 2
+    assert run.finished_at is None
+
+
+def test_embed_reports_task_failure_does_not_increment_counter():
+    reports = [ReportFactory.create() for _ in range(2)]
+    run = EmbeddingBackfillRun.objects.create(total_reports=2, triggered_by="test")
+    with _mock_embedding_client(error=EmbeddingClientError("boom")):
+        with pytest.raises(EmbeddingClientError):
+            embed_reports_task([r.pk for r in reports], run_id=run.pk)
+    run.refresh_from_db()
+    assert run.processed_reports == 0
+    assert run.finished_at is None
+
+
+def test_embed_reports_task_never_finishes_cancelled_run():
+    reports = [ReportFactory.create() for _ in range(2)]
+    run = EmbeddingBackfillRun.objects.create(
+        total_reports=2, triggered_by="test", cancelled_at=timezone.now()
+    )
+    with _mock_embedding_client():
+        embed_reports_task([r.pk for r in reports], run_id=run.pk)
+    run.refresh_from_db()
+    assert run.processed_reports == 2  # counter stays truthful
+    assert run.finished_at is None  # but a cancelled run never "finishes"
+
+
+def test_embed_reports_task_without_run_id_touches_no_run():
+    reports = [ReportFactory.create() for _ in range(1)]
+    run = EmbeddingBackfillRun.objects.create(total_reports=9, triggered_by="test")
+    with _mock_embedding_client():
+        embed_reports_task([r.pk for r in reports])
+    run.refresh_from_db()
+    assert run.processed_reports == 0

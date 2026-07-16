@@ -2,6 +2,9 @@ import logging
 import time
 
 from django.conf import settings
+from django.db.models import F
+from django.db.models.functions import Now
+from django.utils import timezone
 from procrastinate import RetryStrategy
 from procrastinate.contrib.django import app
 from procrastinate.contrib.django.models import ProcrastinateJob
@@ -14,7 +17,7 @@ from radis.core.utils.rate_limit import (
     with_transient_retries,
 )
 
-from .models import ReportSearchIndex
+from .models import EmbeddingBackfillRun, ReportSearchIndex
 from .utils.embedding_client import EMBEDDING_GATE, EmbeddingClient, EmbeddingClientError
 from .utils.indexing import bulk_upsert_report_search_indexes
 
@@ -88,11 +91,45 @@ def enqueue_bulk_index_reports(report_ids: list[int]) -> int | None:
     ).defer(report_ids=payload)
 
 
+class ActiveBackfillError(Exception):
+    """Raised when starting a backfill while another is still active."""
+
+
+def create_backfill_run(total_reports: int, triggered_by: str) -> EmbeddingBackfillRun:
+    """Create the run row for a backfill, enforcing single-active (§6.8).
+
+    Refuses while a run with live subjobs is active. An active run with NO
+    live subjobs and an unfinished counter is abandoned (jobs lost to retry
+    exhaustion or a dead worker): auto-close it and proceed, so a wedged
+    run can never block future backfills. Small check-then-act race window
+    is acceptable for operator tooling."""
+    active = EmbeddingBackfillRun.get_active()
+    if active is not None:
+        if active.live_subjob_count() > 0:
+            raise ActiveBackfillError(
+                f"Backfill already active (run {active.pk}: "
+                f"{active.processed_reports}/{active.total_reports} reports processed). "
+                f"Cancel it first with `embed_cancel` or the admin button."
+            )
+        active.cancelled_at = timezone.now()
+        active.save(update_fields=["cancelled_at"])
+        logger.warning(
+            "create_backfill_run: auto-closed abandoned run %d (%d/%d processed, no live subjobs)",
+            active.pk,
+            active.processed_reports,
+            active.total_reports,
+        )
+    return EmbeddingBackfillRun.objects.create(
+        total_reports=total_reports, triggered_by=triggered_by
+    )
+
+
 def enqueue_embed_reports(
     report_ids: list[int],
     *,
     subjob_size: int | None = None,
     priority: int | None = None,
+    run_id: int | None = None,
 ) -> int:
     """Chunk `report_ids` into subjobs and defer one `embed_reports_task`
     per chunk. Returns the number of subjobs deferred.
@@ -113,6 +150,9 @@ def enqueue_embed_reports(
     Single call site for every place that enqueues embedding work: the
     write-path handler, the FTS chain tail, `embed_pending`, and the
     admin action. Operators read one knob, not several.
+
+    `run_id` ties backfill subjobs to their `EmbeddingBackfillRun`;
+    write-path enqueues leave it None.
     """
     if not report_ids:
         return 0
@@ -127,7 +167,10 @@ def enqueue_embed_reports(
     count = 0
     for start in range(0, len(report_ids), size):
         chunk = report_ids[start : start + size]
-        deferrer.defer(report_ids=list(chunk))
+        kwargs: dict[str, JSONValue] = {"report_ids": list(chunk)}
+        if run_id is not None:
+            kwargs["run_id"] = run_id
+        deferrer.defer(**kwargs)
         count += 1
     logger.info(
         "enqueue_embed_reports: deferred %d subjob(s) for %d report(s) at priority=%d",
@@ -160,16 +203,21 @@ def cancel_backfill_embeddings() -> int:
         ).values_list("id", flat=True)
     )
     cancelled = sum(1 for job_id in job_ids if app.job_manager.cancel_job_by_id(job_id))
+    closed_runs = EmbeddingBackfillRun.objects.filter(
+        finished_at__isnull=True, cancelled_at__isnull=True
+    ).update(cancelled_at=Now())
     logger.info(
-        "cancel_backfill_embeddings: cancelled %d of %d queued backfill subjob(s)",
+        "cancel_backfill_embeddings: cancelled %d of %d queued backfill subjob(s); "
+        "closed %d run(s)",
         cancelled,
         len(job_ids),
+        closed_runs,
     )
     return cancelled
 
 
 @app.task(queue="embeddings", retry=EMBEDDING_TASK_RETRY_STRATEGY)
-def embed_reports_task(report_ids: list[int]) -> None:
+def embed_reports_task(report_ids: list[int], run_id: int | None = None) -> None:
     """Embed the named reports.
 
     Failure handling, from innermost to outermost:
@@ -187,6 +235,10 @@ def embed_reports_task(report_ids: list[int]) -> None:
     task. `bulk_index_reports` chains the defer at the end of its run, and
     `embed_pending` / the admin action filter on existing ReportSearchIndex rows by
     construction.
+
+    Increments the backfill run's counter on success; failed subjobs never
+    increment, so an abandoned run is detectable as `processed < total` with
+    no live subjobs.
     """
     if not report_ids:
         return
@@ -231,6 +283,19 @@ def embed_reports_task(report_ids: list[int]) -> None:
 
     if embedded:
         ReportSearchIndex.objects.bulk_update(embedded, fields=["embedding"])
+
+    if run_id is not None and embedded:
+        EmbeddingBackfillRun.objects.filter(pk=run_id).update(
+            processed_reports=F("processed_reports") + len(embedded)
+        )
+        # Flip finished_at exactly once, and never on a cancelled run.
+        EmbeddingBackfillRun.objects.filter(
+            pk=run_id,
+            finished_at__isnull=True,
+            cancelled_at__isnull=True,
+            processed_reports__gte=F("total_reports"),
+        ).update(finished_at=Now())
+
     duration_ms = int((time.perf_counter() - start_t) * 1000)
     logger.info(
         "embed_reports_task: finished; embedded=%d duration_ms=%d",
