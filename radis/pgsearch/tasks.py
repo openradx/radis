@@ -181,34 +181,56 @@ def enqueue_embed_reports(
     return count
 
 
-def cancel_backfill_embeddings() -> int:
-    """Cancel every queued (todo) backfill-priority embed subjob.
+def active_backfill_run_ids() -> list[int]:
+    """Pks of currently-active `EmbeddingBackfillRun` rows (both end
+    timestamps NULL). At most one in steady state (enforced by
+    `create_backfill_run`); the check-then-act race window documented
+    there can transiently allow more, so callers treat this as a list."""
+    return list(
+        EmbeddingBackfillRun.objects.filter(
+            finished_at__isnull=True, cancelled_at__isnull=True
+        ).values_list("pk", flat=True)
+    )
 
-    "The backfill" has no job object of its own — it is exactly the
-    embed_reports_task jobs enqueued at EMBEDDING_BACKFILL_PRIORITY
-    (embed_pending / admin action), which the live write-path priority
-    keeps distinct. Cancellation goes job-by-job through Procrastinate's
+
+def cancel_backfill_embeddings() -> int:
+    """Cancel every queued (todo) subjob belonging to an active backfill run.
+
+    Run-scoped, not priority-scoped: `./manage.py retry_stalled_jobs` (run
+    at stack start by both compose files) requeues stalled `doing` jobs at
+    a fixed priority, which can promote a backfill subjob above
+    EMBEDDING_BACKFILL_PRIORITY — a priority-based cancel would then miss
+    it while `EmbeddingBackfillRun.live_subjob_count()` (run_id-scoped)
+    still counts it as live. "The backfill's jobs" are therefore identified
+    by the active runs' `run_id` in job args, which survives that
+    re-prioritization. Write-path jobs carry no run_id and are never
+    cancelled. Cancellation goes job-by-job through Procrastinate's
     cancel_job_by_id, which is race-safe: a job a worker grabbed between
     our select and the cancel returns False and simply runs to completion.
     Returns the number of jobs actually cancelled. Cancelled jobs are
     terminal — continuing the backfill means re-running embed_pending,
     which enqueues the still-NULL reports as fresh subjobs chunked at the
     then-current EMBEDDING_SUBJOB_SIZE."""
-    job_ids = list(
-        ProcrastinateJob.objects.filter(
-            task_name="radis.pgsearch.tasks.embed_reports_task",
-            queue_name="embeddings",
-            status="todo",
-            priority=settings.EMBEDDING_BACKFILL_PRIORITY,
-        ).values_list("id", flat=True)
+    run_ids = active_backfill_run_ids()
+    job_ids = (
+        list(
+            ProcrastinateJob.objects.filter(
+                task_name="radis.pgsearch.tasks.embed_reports_task",
+                queue_name="embeddings",
+                status="todo",
+                args__run_id__in=run_ids,
+            ).values_list("id", flat=True)
+        )
+        if run_ids
+        else []
     )
     cancelled = sum(1 for job_id in job_ids if app.job_manager.cancel_job_by_id(job_id))
     closed_runs = EmbeddingBackfillRun.objects.filter(
         finished_at__isnull=True, cancelled_at__isnull=True
     ).update(cancelled_at=Now())
     logger.info(
-        "cancel_backfill_embeddings: cancelled %d of %d queued backfill subjob(s); "
-        "closed %d run(s)",
+        "cancel_backfill_embeddings: cancelled %d of %d queued run-scoped backfill "
+        "subjob(s); closed %d run(s)",
         cancelled,
         len(job_ids),
         closed_runs,

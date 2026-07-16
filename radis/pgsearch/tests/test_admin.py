@@ -12,6 +12,7 @@ from django.contrib.admin.sites import AdminSite
 from django.db import connection
 from django.test import Client
 from django.urls import reverse
+from django.utils import timezone
 from procrastinate.contrib.django.models import ProcrastinateJob
 
 from radis.pgsearch.admin import ReportSearchIndexAdmin
@@ -92,13 +93,15 @@ def test_pipeline_stats_counts_pending_rsvs():
 
 
 def test_pipeline_stats_counts_procrastinate_jobs_by_status():
-    _insert_procrastinate_job("todo")
-    _insert_procrastinate_job("todo")
+    run = EmbeddingBackfillRun.objects.create(total_reports=10, triggered_by="t")
+    _insert_procrastinate_job("todo", args_json=json.dumps({"report_ids": [], "run_id": run.pk}))
+    _insert_procrastinate_job("todo", args_json=json.dumps({"report_ids": [], "run_id": run.pk}))
     _insert_procrastinate_job("doing")
     _insert_procrastinate_job("failed")
     # Job on a different queue must not be counted.
     _insert_procrastinate_job("todo", queue="default")
-    # Live-priority job counts as todo but not as cancellable backfill.
+    # Todo job carrying no run_id (write-path) counts as todo but not as
+    # cancellable backfill — cancel is run-scoped, not priority-scoped.
     _insert_procrastinate_job("todo", priority=settings.EMBEDDING_LIVE_PRIORITY)
 
     stats = ReportSearchIndexAdmin._embedding_pipeline_stats()
@@ -106,6 +109,33 @@ def test_pipeline_stats_counts_procrastinate_jobs_by_status():
     assert stats["todo_backfill"] == 2
     assert stats["doing"] == 1
     assert stats["failed"] == 1
+
+
+def test_pipeline_stats_todo_backfill_scoped_to_active_run():
+    """todo_backfill counts only todo jobs whose run_id belongs to the
+    active run — not a since-closed run's leftover jobs, not write-path
+    jobs (no run_id), and it does count a job re-prioritized above
+    backfill priority (simulating retry_stalled_jobs) because the
+    selection is run-scoped, not priority-scoped."""
+    active = EmbeddingBackfillRun.objects.create(total_reports=5, triggered_by="t")
+    closed = EmbeddingBackfillRun.objects.create(
+        total_reports=3, triggered_by="t2", cancelled_at=timezone.now()
+    )
+    _insert_procrastinate_job(
+        "todo", args_json=json.dumps({"report_ids": [1], "run_id": active.pk})
+    )
+    _insert_procrastinate_job(
+        "todo",
+        priority=10,
+        args_json=json.dumps({"report_ids": [2], "run_id": active.pk}),
+    )
+    _insert_procrastinate_job(
+        "todo", args_json=json.dumps({"report_ids": [3], "run_id": closed.pk})
+    )
+    _insert_procrastinate_job("todo", args_json=json.dumps({"report_ids": [4]}))
+
+    stats = ReportSearchIndexAdmin._embedding_pipeline_stats()
+    assert stats["todo_backfill"] == 2
 
 
 def test_pipeline_stats_sums_reports_per_status():
@@ -332,8 +362,9 @@ def test_cancel_backfill_view_cancels_and_redirects(settings):
 
     from radis.pgsearch import tasks as tasks_module
 
+    run = EmbeddingBackfillRun.objects.create(total_reports=2, triggered_by="alice")
     tasks_module.enqueue_embed_reports(
-        [1, 2], subjob_size=1, priority=settings.EMBEDDING_BACKFILL_PRIORITY
+        [1, 2], subjob_size=1, priority=settings.EMBEDDING_BACKFILL_PRIORITY, run_id=run.pk
     )
 
     admin_instance = ReportSearchIndexAdmin(ReportSearchIndex, AdminSite())

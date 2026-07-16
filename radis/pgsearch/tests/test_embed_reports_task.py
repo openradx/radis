@@ -498,27 +498,53 @@ def test_embed_reports_task_retries_transient_errors_via_procrastinate():
     assert openai.InternalServerError in retry_exceptions
 
 
-def test_cancel_backfill_embeddings_cancels_only_queued_backfill_jobs(settings):
+def test_cancel_backfill_embeddings_cancels_only_run_scoped_jobs(settings):
+    """Cancellation is run-scoped, not priority-scoped: subjobs carrying the
+    active run's run_id are cancelled regardless of priority; a write-path
+    job with no run_id is left alone even if it happens to share the
+    backfill priority."""
     from procrastinate.contrib.django.models import ProcrastinateJob
 
     from radis.pgsearch import tasks as tasks_module
 
+    run = EmbeddingBackfillRun.objects.create(total_reports=10, triggered_by="test")
     tasks_module.enqueue_embed_reports(
-        [1, 2, 3], subjob_size=1, priority=settings.EMBEDDING_BACKFILL_PRIORITY
+        [1, 2, 3],
+        subjob_size=1,
+        priority=settings.EMBEDDING_BACKFILL_PRIORITY,
+        run_id=run.pk,
     )
     tasks_module.enqueue_embed_reports([4], priority=settings.EMBEDDING_LIVE_PRIORITY)
 
     cancelled = tasks_module.cancel_backfill_embeddings()
 
     assert cancelled == 3
-    by_priority = {
-        priority: status
-        for priority, status in ProcrastinateJob.objects.filter(
+    statuses = {
+        tuple(job.args["report_ids"]): job.status
+        for job in ProcrastinateJob.objects.filter(
             task_name="radis.pgsearch.tasks.embed_reports_task"
-        ).values_list("priority", "status")
+        )
     }
-    assert by_priority[settings.EMBEDDING_BACKFILL_PRIORITY] == "cancelled"
-    assert by_priority[settings.EMBEDDING_LIVE_PRIORITY] == "todo"
+    assert statuses[(1,)] == "cancelled"
+    assert statuses[(2,)] == "cancelled"
+    assert statuses[(3,)] == "cancelled"
+    assert statuses[(4,)] == "todo"  # no run_id: write-path job, never cancelled
+
+
+def test_cancel_backfill_embeddings_cancels_reprioritized_run_scoped_job():
+    """`./manage.py retry_stalled_jobs` (run at stack start) requeues
+    stalled `doing` jobs at its own fixed priority, which can promote a
+    backfill subjob above EMBEDDING_BACKFILL_PRIORITY. Because cancel keys
+    on run_id rather than priority, the re-prioritized subjob is still
+    caught."""
+    from radis.pgsearch import tasks as tasks_module
+
+    run = EmbeddingBackfillRun.objects.create(total_reports=5, triggered_by="test")
+    tasks_module.enqueue_embed_reports([1], subjob_size=1, priority=10, run_id=run.pk)
+
+    cancelled = tasks_module.cancel_backfill_embeddings()
+
+    assert cancelled == 1
 
 
 def test_cancel_backfill_embeddings_returns_zero_when_queue_empty():
@@ -534,8 +560,9 @@ def test_embed_cancel_command_reports_count(settings):
 
     from radis.pgsearch import tasks as tasks_module
 
+    run = EmbeddingBackfillRun.objects.create(total_reports=2, triggered_by="test")
     tasks_module.enqueue_embed_reports(
-        [1, 2], subjob_size=1, priority=settings.EMBEDDING_BACKFILL_PRIORITY
+        [1, 2], subjob_size=1, priority=settings.EMBEDDING_BACKFILL_PRIORITY, run_id=run.pk
     )
 
     out = StringIO()

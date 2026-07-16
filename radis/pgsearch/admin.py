@@ -15,6 +15,7 @@ from procrastinate.contrib.django.models import ProcrastinateJob
 from .models import EmbeddingBackfillRun, ReportSearchIndex
 from .tasks import (
     ActiveBackfillError,
+    active_backfill_run_ids,
     cancel_backfill_embeddings,
     create_backfill_run,
     enqueue_embed_reports,
@@ -84,7 +85,8 @@ class ReportSearchIndexAdmin(admin.ModelAdmin):
         else:
             self.message_user(
                 request,
-                "No queued backfill subjobs to cancel.",
+                "No queued backfill subjobs to cancel. The active backfill run "
+                "(if any) was closed.",
                 level=messages.WARNING,
             )
         logger.info(
@@ -116,14 +118,21 @@ class ReportSearchIndexAdmin(admin.ModelAdmin):
             .annotate(jobs=Count("id"), reports=Sum(report_count))
         }
         # Counted separately because the cancel-backfill button only cancels
-        # backfill-priority jobs — gating it on the overall todo count would
-        # offer a cancel that then reports "nothing to cancel" whenever the
-        # queue holds only live write-path jobs.
-        todo_backfill = ProcrastinateJob.objects.filter(
-            queue_name="embeddings",
-            status="todo",
-            priority=settings.EMBEDDING_BACKFILL_PRIORITY,
-        ).count()
+        # jobs carrying an active run's run_id (run-scoped, not
+        # priority-scoped — see cancel_backfill_embeddings) — gating it on
+        # the overall todo count would offer a cancel that then reports
+        # "nothing to cancel" whenever the queue holds only live
+        # write-path jobs.
+        run_ids = active_backfill_run_ids()
+        todo_backfill = (
+            ProcrastinateJob.objects.filter(
+                queue_name="embeddings",
+                status="todo",
+                args__run_id__in=run_ids,
+            ).count()
+            if run_ids
+            else 0
+        )
         todo_row = queue_rows.get("todo", {})
         doing_row = queue_rows.get("doing", {})
         todo_reports = todo_row.get("reports") or 0
