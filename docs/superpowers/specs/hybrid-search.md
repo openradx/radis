@@ -546,7 +546,7 @@ subjob_count = enqueue_embed_reports(
 )
 ```
 
-`--subjob-size` overrides the Procrastinate-task granularity per run; `--limit N` stops after enqueuing N reports (useful for a canary batch). Backfill priority keeps the enqueued subjobs behind live write-path work. A running backfill can be cancelled with `cancel_backfill_embeddings()` (exposed as the admin "cancel backfill" view), which cancels every still-`todo` backfill-priority subjob and stamps `cancelled_at` on active `EmbeddingBackfillRun` rows (§6.8); continuing later means simply re-running `embed_pending`.
+`--subjob-size` overrides the Procrastinate-task granularity per run; `--limit N` stops after enqueuing N reports (useful for a canary batch). Backfill priority keeps the enqueued subjobs behind live write-path work. A running backfill can be cancelled with `cancel_backfill_embeddings()` (exposed as the admin "cancel backfill" view), which cancels every still-`todo` subjob carrying an active run's `run_id` in its task args — run-scoped, not priority-scoped — and stamps `cancelled_at` on active `EmbeddingBackfillRun` rows (§6.8); continuing later means simply re-running `embed_pending`. `./manage.py retry_stalled_jobs` (run at stack start by both compose files) requeues stalled `doing` jobs at its own fixed priority, which can promote a backfill subjob above `EMBEDDING_BACKFILL_PRIORITY` — a known upstream trade-off — but cancellation is unaffected because it keys on `run_id`, not priority.
 
 Each invocation (and each use of the admin `enqueue_pending_embeddings` action) also creates an `EmbeddingBackfillRun` row recording the enqueued baseline, so the admin badge can show per-backfill progress. At most one backfill is active at a time — a second invocation refuses while one is running (abandoned runs are auto-closed, §6.8).
 
@@ -640,13 +640,22 @@ timestamps are NULL. Migration `0003_embeddingbackfillrun`.
   `processed ≥ total`. Failed subjobs never increment. Counter-based progress
   is immune to the worker's `--delete-jobs` policy, unlike deriving progress
   from surviving job rows.
-- **Cancel:** `cancel_backfill_embeddings()` stamps `cancelled_at` on active
-  runs, freezing their fraction in history.
+- **Cancel:** `cancel_backfill_embeddings()` cancels every still-`todo` subjob
+  carrying an active run's `run_id` in its task args — run-scoped, not
+  priority-scoped, so a subjob `retry_stalled_jobs` re-prioritized above
+  backfill priority (a known upstream trade-off, see §6.5) is still caught —
+  and stamps `cancelled_at` on active runs. In-flight (`doing`) subjobs are
+  left to finish and still increment the counter, so a cancelled run's
+  fraction keeps advancing rather than freezing in history; the counter stays
+  truthful and a cancelled run can even reach `processed == total`.
 - **Stall detection:** for the active run, the badge counts live jobs whose args
   carry its `run_id`; zero live jobs with `processed < total` renders a
-  "stalled — no live subjobs" marker instead of implying progress (the
-  dead-worker scenario: worker crashes are otherwise invisible here because the
-  container stays "Up").
+  "stalled — no live subjobs" marker instead of implying progress. This does
+  *not* catch the dead-worker scenario at the moment it happens — a crashed
+  worker's jobs sit in `doing` (still counted as live) until the next stack
+  restart's `retry_stalled_jobs` returns them to `todo`. The marker instead
+  fires on retry exhaustion, job loss, and mid-enqueue process kills: cases
+  where no job survives to represent the run at all.
 - **Display:** the badge shows *the* active run (single-active makes "latest"
   unambiguous); finished/cancelled runs are visible in the run history — a
   read-only `EmbeddingBackfillRun` admin listing.
