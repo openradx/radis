@@ -2,6 +2,7 @@ import logging
 from datetime import UTC, datetime
 
 from django.conf import settings
+from django.db import transaction
 from django.db.models import QuerySet
 from django.utils import timezone
 from procrastinate.contrib.django import app
@@ -105,8 +106,17 @@ def incremental_label_scan(timestamp: int) -> None:
     now = datetime.fromtimestamp(timestamp, tz=UTC)
     checkpoint, _ = LabelingScanCheckpoint.objects.get_or_create(pk=1)
 
-    if LabelingJob.objects.filter(status__in=LabelingJob.ACTIVE_STATUSES).exists():
-        logger.info("Active LabelingJob found, skipping scan tick (checkpoint unchanged).")
+    active_job = LabelingJob.objects.filter(status__in=LabelingJob.ACTIVE_STATUSES).first()
+    if active_job is not None:
+        # WARNING on purpose: a wedged active job blocks every future scan tick, so consecutive
+        # occurrences of this line are the only signal that labeling has silently stopped.
+        logger.warning(
+            "Active LabelingJob %s (status=%s, age=%s) found, skipping scan tick "
+            "(checkpoint unchanged).",
+            active_job.pk,
+            active_job.get_status_display(),
+            now - active_job.created_at,
+        )
         return
 
     if checkpoint.last_scanned_at is None:
@@ -120,12 +130,15 @@ def incremental_label_scan(timestamp: int) -> None:
         return
 
     if Report.objects.filter(created_at__gte=checkpoint.last_scanned_at).exists():
-        job = LabelingJob.objects.create(
-            trigger=LabelingJob.Trigger.SCAN,
-            scan_from=checkpoint.last_scanned_at,
-            status=AnalysisJob.Status.PENDING,
-        )
-        job.delay()
+        # Atomic so the job row and its Procrastinate queue row commit together — a crash in
+        # between would otherwise strand an active-but-never-queued job that wedges the singleton.
+        with transaction.atomic():
+            job = LabelingJob.objects.create(
+                trigger=LabelingJob.Trigger.SCAN,
+                scan_from=checkpoint.last_scanned_at,
+                status=AnalysisJob.Status.PENDING,
+            )
+            job.delay()
         logger.info("Created scan LabelingJob %s (scan_from=%s).", job.pk, job.scan_from)
 
     checkpoint.last_scanned_at = now

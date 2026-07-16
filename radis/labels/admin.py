@@ -174,16 +174,18 @@ class LabelingJobAdmin(admin.ModelAdmin):
         if request.method != "POST":
             return HttpResponseRedirect(changelist_url)
         try:
+            # delay() inside the transaction so the job row and its queue row commit together —
+            # a crash in between would otherwise strand an active-but-never-queued job.
             with transaction.atomic():
                 job = LabelingJob.objects.create(
                     trigger=LabelingJob.Trigger.MANUAL,
                     status=LabelingJob.Status.PENDING,
                     owner=request.user,
                 )
+                job.delay()
         except IntegrityError:
             self.message_user(request, "A labeling job is already active.", level=messages.ERROR)
             return HttpResponseRedirect(changelist_url)
-        job.delay()
         self.message_user(request, f"Started backfill job {job.pk}.", level=messages.SUCCESS)
         return HttpResponseRedirect(changelist_url)
 

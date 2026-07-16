@@ -74,6 +74,31 @@ def test_processor_persists_per_report_failures_to_log(monkeypatch):
 
 
 @pytest.mark.django_db(transaction=True)
+def test_processor_all_reports_failed_yields_failure(monkeypatch):
+    """A total failure is systemic (outage, bug), not per-report data trouble — the task must
+    escalate to FAILURE so the job doesn't settle at WARNING like a partial failure would."""
+    from radis.labels import processors
+
+    def fake_label_report(rid):
+        raise RuntimeError("LLM down")
+
+    monkeypatch.setattr(processors, "label_report", fake_label_report)
+
+    r1, r2 = ReportFactory.create(), ReportFactory.create()
+    job = LabelingJobFactory.create(status=LabelingJob.Status.PENDING)
+    task = LabelingTaskFactory.create(job=job, status=AnalysisTask.Status.PENDING)
+    task.reports.add(r1, r2)
+
+    processors.LabelingTaskProcessor(task).start()
+
+    task.refresh_from_db()
+    assert task.status == AnalysisTask.Status.FAILURE
+    assert task.message == "All 2 reports failed to label."
+    assert f"Report {r1.pk}: RuntimeError: LLM down" in task.log
+    assert f"Report {r2.pk}: RuntimeError: LLM down" in task.log
+
+
+@pytest.mark.django_db(transaction=True)
 def test_processor_truncates_large_failure_log(monkeypatch):
     from radis.labels import processors
 
@@ -92,7 +117,7 @@ def test_processor_truncates_large_failure_log(monkeypatch):
     processors.LabelingTaskProcessor(task).start()
 
     task.refresh_from_db()
-    assert task.status == AnalysisTask.Status.WARNING
-    assert task.message == "4 of 4 reports failed to label."
+    assert task.status == AnalysisTask.Status.FAILURE  # all failed -> escalated
+    assert task.message == "All 4 reports failed to label."
     assert task.log.count("Report ") == 2
     assert "… and 2 more" in task.log

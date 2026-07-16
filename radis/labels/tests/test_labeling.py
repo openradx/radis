@@ -163,6 +163,40 @@ def test_gate_flip_yes_to_no_deletes_results_atomically():
 
 
 @pytest.mark.django_db
+def test_gate_flip_deletion_is_scoped_to_flipping_group_and_report():
+    """A YES->NO flip deletes only (this report, this group)'s results — other groups on the
+    same report and the same group on other reports keep theirs."""
+    from radis.labels.labeling import label_report
+
+    report = ReportFactory.create(body="lungs clear")
+    other_report = ReportFactory.create(body="abdomen study")
+    group = LabelGroupFactory.create()
+    label = LabelFactory.create(group=group)
+    other_group = LabelGroupFactory.create()
+    other_label = LabelFactory.create(group=other_group)
+
+    GateAnswerFactory.create(report=report, label_group=group, value="YES")
+    LabelResult.objects.create(report=report, label=label, value=LabelResult.Value.PRESENT)
+    GateAnswerFactory.create(report=report, label_group=other_group, value="YES")
+    LabelResult.objects.create(report=report, label=other_label, value=LabelResult.Value.PRESENT)
+    GateAnswerFactory.create(report=other_report, label_group=group, value="YES")
+    LabelResult.objects.create(report=other_report, label=label, value=LabelResult.Value.PRESENT)
+
+    group.gate_question = "changed?"  # only this group's gate goes stale
+    group.save()
+
+    client = FakeChatClient(gate_values={group.name: "NO"})
+    with _patch_client(client):
+        label_report(report.pk)
+
+    assert client.gate_calls == [[group.name]]
+    assert client.label_calls == []
+    assert not LabelResult.objects.filter(report=report, label=label).exists()
+    assert LabelResult.objects.filter(report=report, label=other_label).exists()
+    assert LabelResult.objects.filter(report=other_report, label=label).exists()
+
+
+@pytest.mark.django_db
 def test_stale_gate_new_yes_old_no_runs_all_labels():
     from radis.labels.labeling import label_report
 

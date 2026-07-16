@@ -35,8 +35,14 @@ class LabelingTaskProcessor(AnalysisTaskProcessor):
                 db.close_old_connections()
 
         if failures:
-            task.status = AnalysisTask.Status.WARNING
-            task.message = f"{len(failures)} of {total} reports failed to label."
+            # All reports failing is systemic (LLM outage, bug) rather than per-report data
+            # trouble — escalate to FAILURE so the job doesn't settle at WARNING.
+            if len(failures) == total:
+                task.status = AnalysisTask.Status.FAILURE
+                task.message = f"All {total} reports failed to label."
+            else:
+                task.status = AnalysisTask.Status.WARNING
+                task.message = f"{len(failures)} of {total} reports failed to label."
             task.log = self._format_failure_log(failures)
 
     @staticmethod
