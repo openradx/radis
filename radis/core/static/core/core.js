@@ -46,6 +46,23 @@ document.addEventListener("alpine:init", () => {
   });
 });
 
+document.addEventListener("DOMContentLoaded", () => {
+  const preventAttr = "[data-prevent-enter-submit]";
+  document.querySelectorAll(preventAttr).forEach((formEl) => {
+    formEl.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter") {
+        return;
+      }
+      const target = event.target;
+      const isTextInput =
+        target instanceof HTMLInputElement &&
+        !["submit", "button"].includes(target.type);
+      if (isTextInput) {
+        event.preventDefault();
+      }
+    });
+  });
+});
 /**
  * An Alpine component that controls a Django FormSet
  *
@@ -66,15 +83,14 @@ function FormSet(rootEl) {
     formCount: parseInt(totalForms.value),
     minForms: parseInt(minForms.value),
     maxForms: parseInt(maxForms.value),
-    init() {
-      console.log(this.formCount);
-    },
+    init() {},
     addForm() {
-      const newForm = template.content.cloneNode(true);
+      if (!template) {
+        return;
+      }
       const idx = totalForms.value;
-      container.append(newForm);
-      const lastForm = container.querySelector(".formset-form:last-child");
-      lastForm.innerHTML = lastForm.innerHTML.replace(/__prefix__/g, idx);
+      const html = template.innerHTML.replace(/__prefix__/g, idx);
+      container.insertAdjacentHTML("beforeend", html);
       totalForms.value = (parseInt(idx) + 1).toString();
       this.formCount = parseInt(totalForms.value);
     },

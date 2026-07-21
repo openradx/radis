@@ -7,10 +7,9 @@ from django import forms
 from django.conf import settings
 from django.db.models import QuerySet
 
-from radis.core.constants import LANGUAGE_LABELS
+from radis.core.constants import AGE_STEP, LANGUAGE_LABELS, MAX_AGE, MIN_AGE
 from radis.core.layouts import RangeSlider
 from radis.reports.models import Language, Modality
-from radis.search.forms import AGE_STEP, MAX_AGE, MIN_AGE
 from radis.search.site import Search, SearchFilters
 from radis.search.utils.query_parser import QueryParser
 

@@ -4,10 +4,9 @@ from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Column, Div, Field, Layout, Row
 from django import forms
 
-from radis.core.constants import LANGUAGE_LABELS
+from radis.core.constants import AGE_STEP, LANGUAGE_LABELS, MAX_AGE, MIN_AGE
 from radis.core.layouts import Formset, RangeSlider
 from radis.reports.models import Language, Modality
-from radis.search.forms import AGE_STEP, MAX_AGE, MIN_AGE
 
 from .models import Question, Subscription
 
