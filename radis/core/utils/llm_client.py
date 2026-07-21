@@ -49,6 +49,10 @@ class AsyncChatClient:
         )
         self._model_name = settings.LLM_MODEL_NAME
 
+    async def close(self) -> None:
+        """Close the underlying HTTP client; call once the client is no longer needed."""
+        await self._client.close()
+
     async def chat(
         self,
         messages: Iterable[ChatCompletionMessageParam],

@@ -14,7 +14,6 @@ from typing import Any, cast
 from unittest.mock import MagicMock, patch
 
 import pytest
-from django.db.models import QuerySet
 from pydantic import BaseModel, ValidationError
 from pytest_mock import MockerFixture
 
@@ -84,7 +83,7 @@ def test_generate_output_fields_schema_maps_each_output_type():
         job=job, name="malignant", description="d", output_type=OutputType.BOOLEAN
     )
 
-    Schema = generate_output_fields_schema(job.output_fields)
+    Schema = generate_output_fields_schema(job.output_fields.all())
     fields = Schema.model_fields
 
     assert set(fields) == {"finding", "size", "malignant"}
@@ -112,13 +111,9 @@ def test_generate_output_fields_schema_raises_on_unknown_type():
         name = "weird"
         output_type = "Z"  # not TEXT/NUMERIC/BOOLEAN
 
-    class _QS:
-        def all(self):
-            return [_Field()]
-
     with pytest.raises(ValueError, match="Unknown data type: Z"):
-        # _QS duck-types the QuerySet.all() the function calls; cast for the checker.
-        generate_output_fields_schema(cast(QuerySet[OutputField], _QS()))
+        # The function takes any iterable of OutputField-likes; cast for the checker.
+        generate_output_fields_schema(cast(list[OutputField], [_Field()]))
 
 
 @pytest.mark.django_db
@@ -134,7 +129,7 @@ def test_generate_output_fields_prompt_lists_name_and_description():
         output_type=OutputType.BOOLEAN,
     )
 
-    prompt = generate_output_fields_prompt(job.output_fields)
+    prompt = generate_output_fields_prompt(job.output_fields.all())
 
     assert "laterality: left or right" in prompt
     assert "effusion: pleural effusion present" in prompt
