@@ -1,8 +1,9 @@
 """Tests for the subscriptions LLM accept/reject gate (processors.py).
 
 The gate (``SubscriptionTaskProcessor.process_report``) sends the report body
-plus the subscription questions to the LLM, receives a per-question boolean
-result, and creates a ``SubscribedItem`` only if EVERY question answered truthy.
+plus the subscription filter questions to the LLM, receives a per-question
+boolean result, and creates a ``SubscribedItem`` only if EVERY question is
+answered as expected.
 
 The LLM is mocked at the ``openai.OpenAI`` boundary with a fake that CAPTURES
 the prompt and the requested schema so we can assert the report text + questions
@@ -19,7 +20,7 @@ from pydantic import BaseModel, create_model
 
 from radis.reports.factories import ReportFactory
 from radis.subscriptions.factories import (
-    QuestionFactory,
+    FilterQuestionFactory,
     SubscriptionFactory,
     SubscriptionJobFactory,
     SubscriptionTaskFactory,
@@ -27,8 +28,9 @@ from radis.subscriptions.factories import (
 from radis.subscriptions.models import SubscribedItem, SubscriptionJob, SubscriptionTask
 from radis.subscriptions.processors import SubscriptionTaskProcessor
 from radis.subscriptions.utils.processor_utils import (
-    generate_questions_for_prompt,
-    generate_questions_schema,
+    generate_filter_questions_prompt,
+    generate_filter_questions_schema,
+    get_filter_question_field_name,
 )
 
 
@@ -40,8 +42,8 @@ class _Capture:
 def make_capturing_openai_mock(answers: dict[str, bool]) -> tuple[MagicMock, _Capture]:
     """Fake ``openai.OpenAI`` returning a parsed model built from ``answers``.
 
-    ``answers`` maps ``question_0``/``question_1``/... -> bool. The fake records
-    every ``parse`` call (model, messages, response_format).
+    ``answers`` maps filter question field names (``question_<pk>``) -> bool.
+    The fake records every ``parse`` call (model, messages, response_format).
     """
     capture = _Capture()
     field_definitions: dict[str, Any] = {name: (bool, ...) for name in answers}
@@ -70,7 +72,7 @@ def _make_task_with_reports(question_texts: list[str], num_reports: int = 1) -> 
 
     subscription = SubscriptionFactory.create(owner=user, group=group)
     for text in question_texts:
-        QuestionFactory.create(subscription=subscription, question=text)
+        FilterQuestionFactory.create(subscription=subscription, question=text)
 
     # Tasks are only processed once the job is PENDING (set by
     # process_subscription_job before enqueueing). AnalysisTaskProcessor.start()
@@ -88,34 +90,44 @@ def _make_task_with_reports(question_texts: list[str], num_reports: int = 1) -> 
     return task
 
 
+def _field_names(task: SubscriptionTask) -> list[str]:
+    return [
+        get_filter_question_field_name(question)
+        for question in task.job.subscription.filter_questions.order_by("pk")
+    ]
+
+
 # --------------------------------------------------------------------------- #
 # processor_utils: schema + prompt generation
 # --------------------------------------------------------------------------- #
 
 
 @pytest.mark.django_db
-def test_generate_questions_schema_creates_boolean_fields_per_question():
+def test_generate_filter_questions_schema_creates_boolean_fields_per_question():
     subscription = SubscriptionFactory.create()
-    QuestionFactory.create(subscription=subscription, question="Is there a fracture?")
-    QuestionFactory.create(subscription=subscription, question="Is it acute?")
+    q1 = FilterQuestionFactory.create(subscription=subscription, question="Is there a fracture?")
+    q2 = FilterQuestionFactory.create(subscription=subscription, question="Is it acute?")
 
-    Schema = generate_questions_schema(subscription.questions)
+    Schema = generate_filter_questions_schema(subscription.filter_questions.order_by("pk"))
 
-    assert set(Schema.model_fields) == {"question_0", "question_1"}
+    assert set(Schema.model_fields) == {
+        get_filter_question_field_name(q1),
+        get_filter_question_field_name(q2),
+    }
     for field in Schema.model_fields.values():
         assert field.annotation is bool
 
 
 @pytest.mark.django_db
-def test_generate_questions_for_prompt_enumerates_questions():
+def test_generate_filter_questions_prompt_enumerates_questions():
     subscription = SubscriptionFactory.create()
-    QuestionFactory.create(subscription=subscription, question="Is there a fracture?")
-    QuestionFactory.create(subscription=subscription, question="Is it acute?")
+    q1 = FilterQuestionFactory.create(subscription=subscription, question="Is there a fracture?")
+    q2 = FilterQuestionFactory.create(subscription=subscription, question="Is it acute?")
 
-    prompt = generate_questions_for_prompt(subscription.questions)
+    prompt = generate_filter_questions_prompt(subscription.filter_questions.order_by("pk"))
 
-    assert "question_0: Is there a fracture?" in prompt
-    assert "question_1: Is it acute?" in prompt
+    assert f"{get_filter_question_field_name(q1)}: Is there a fracture?" in prompt
+    assert f"{get_filter_question_field_name(q2)}: Is it acute?" in prompt
 
 
 # --------------------------------------------------------------------------- #
@@ -129,10 +141,11 @@ def test_report_body_and_questions_reach_the_model():
         ["Is there a pulmonary nodule?", "Is it larger than 5mm?"], num_reports=1
     )
     report = task.reports.get()
+    names = _field_names(task)
 
     # Reject (all False) so this test isolates the prompt/schema plumbing from
     # the accept path (covered by test_subscribed_item_created_when_all_answers_true).
-    openai_mock, capture = make_capturing_openai_mock({"question_0": False, "question_1": False})
+    openai_mock, capture = make_capturing_openai_mock({name: False for name in names})
     with patch("openai.OpenAI", return_value=openai_mock):
         SubscriptionTaskProcessor(task).start()
 
@@ -148,7 +161,7 @@ def test_report_body_and_questions_reach_the_model():
     # Requested schema carries one boolean field per question.
     schema = call["response_format"]
     assert issubclass(schema, BaseModel)
-    assert set(schema.model_fields) == {"question_0", "question_1"}
+    assert set(schema.model_fields) == set(names)
 
 
 # --------------------------------------------------------------------------- #
@@ -159,9 +172,10 @@ def test_report_body_and_questions_reach_the_model():
 @pytest.mark.django_db(transaction=True)
 def test_no_subscribed_item_when_any_answer_is_false():
     task = _make_task_with_reports(["q one", "q two"], num_reports=1)
+    names = _field_names(task)
 
-    # One True, one False -> rejected (gate requires ALL truthy).
-    openai_mock, _ = make_capturing_openai_mock({"question_0": True, "question_1": False})
+    # One True, one False -> rejected (expected answer defaults to YES).
+    openai_mock, _ = make_capturing_openai_mock({names[0]: True, names[1]: False})
     with patch("openai.OpenAI", return_value=openai_mock):
         SubscriptionTaskProcessor(task).start()
 
@@ -176,8 +190,9 @@ def test_reports_not_in_active_group_are_skipped():
     # Report that is NOT in the owner's active group must be filtered out.
     orphan = ReportFactory.create()
     task.reports.add(orphan)
+    names = _field_names(task)
 
-    openai_mock, capture = make_capturing_openai_mock({"question_0": False})
+    openai_mock, capture = make_capturing_openai_mock({names[0]: False})
     with patch("openai.OpenAI", return_value=openai_mock):
         SubscriptionTaskProcessor(task).start()
 
@@ -187,7 +202,7 @@ def test_reports_not_in_active_group_are_skipped():
 
 
 # --------------------------------------------------------------------------- #
-# Gate: accept decision -- exposes a real bug.
+# Gate: accept decision
 # --------------------------------------------------------------------------- #
 
 
@@ -195,15 +210,18 @@ def test_reports_not_in_active_group_are_skipped():
 def test_subscribed_item_created_when_all_answers_true():
     task = _make_task_with_reports(["q one", "q two"], num_reports=1)
     report = task.reports.get()
+    names = _field_names(task)
 
-    openai_mock, _ = make_capturing_openai_mock({"question_0": True, "question_1": True})
+    openai_mock, _ = make_capturing_openai_mock({name: True for name in names})
     with patch("openai.OpenAI", return_value=openai_mock):
         SubscriptionTaskProcessor(task).start()
 
     item = SubscribedItem.objects.get()
     assert item.report == report
     assert item.subscription == task.job.subscription
-    assert item.answers == {"question_0": True, "question_1": True}
+    assert item.filter_results == {
+        str(question.pk): True for question in task.job.subscription.filter_questions.all()
+    }
 
 
 @pytest.mark.django_db(transaction=True)
@@ -212,8 +230,9 @@ def test_accept_path_succeeds_and_creates_item():
     SubscribedItem and the task finishes SUCCESS (previously the wrong field name
     raised inside the worker thread and marked the task FAILURE)."""
     task = _make_task_with_reports(["q one"], num_reports=1)
+    names = _field_names(task)
 
-    openai_mock, _ = make_capturing_openai_mock({"question_0": True})
+    openai_mock, _ = make_capturing_openai_mock({names[0]: True})
     with patch("openai.OpenAI", return_value=openai_mock):
         SubscriptionTaskProcessor(task).start()
 
