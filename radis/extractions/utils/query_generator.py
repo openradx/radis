@@ -2,7 +2,7 @@
 Query Generator for Automated Query Creation from Extraction Fields
 
 This module provides functionality to automatically generate search queries
-from user-defined extraction fields using LLM with fallback strategies.
+from user-defined extraction fields using an LLM.
 """
 
 import logging
@@ -11,8 +11,11 @@ from collections.abc import Iterable
 from string import Template
 from typing import Any
 
+import openai
 from django.conf import settings
 
+from radis.core.utils.llm_client import LLMResponseError
+from radis.core.utils.rate_limit import RateLimited
 from radis.extractions.models import OutputField
 from radis.search.utils.query_parser import QueryParser
 
@@ -75,12 +78,12 @@ class AsyncQueryGenerator:
                     else:
                         logger.warning("LLM generated invalid query")
                         metadata["error"] = "LLM generated invalid query"
-            except RuntimeError as e:
+            except (LLMResponseError, RateLimited, openai.APIError) as e:
                 logger.error(f"Error during async LLM query generation: {e}", exc_info=True)
                 metadata["error"] = str(e)
 
-        logger.warning(f"Async query generation failed for {field_count} fields")
-        metadata["error"] = metadata.get("error") or "All generation methods failed"
+        logger.warning(f"Query generation failed for {field_count} fields")
+        metadata["error"] = metadata.get("error") or "Query generation failed"
         metadata["success"] = False
         return None, metadata
 
@@ -114,7 +117,7 @@ class AsyncQueryGenerator:
             logger.debug(f"Async LLM generated query: {query}")
             return query
 
-        except RuntimeError as e:
+        except (LLMResponseError, RateLimited, openai.APIError) as e:
             logger.error(f"Async LLM call failed: {e}")
             return None
         finally:

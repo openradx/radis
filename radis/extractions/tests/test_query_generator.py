@@ -120,3 +120,54 @@ def test_extract_query_from_response_quoted_first_line_with_explanation(generato
     response = '"lung AND nodule"\nExplanation: this query targets lung findings.'
 
     assert generator._extract_query_from_response(response) == "lung AND nodule"
+
+
+@pytest.mark.asyncio
+async def test_generation_disabled_returns_error_metadata(generator, settings):
+    """With auto generation disabled, no query is produced and metadata says why."""
+    settings.ENABLE_AUTO_QUERY_GENERATION = False
+    fields = [OutputField(name="f", description="d", output_type=OutputType.TEXT)]
+
+    query, metadata = await generator.generate_from_fields(fields)
+
+    assert query is None
+    assert metadata["success"] is False
+    assert metadata["error"] == "Query generation failed"
+
+
+@pytest.mark.asyncio
+@patch("radis.core.utils.llm_client.AsyncChatClient")
+async def test_llm_error_is_reported_in_metadata(mock_chat_client_class, generator, settings):
+    """An LLM failure surfaces as error metadata instead of an exception."""
+    from radis.core.utils.llm_client import LLMResponseError
+
+    mock_client = AsyncMock()
+    mock_client.chat.side_effect = LLMResponseError("LLM returned no content")
+    mock_chat_client_class.return_value = mock_client
+
+    settings.ENABLE_AUTO_QUERY_GENERATION = True
+    fields = [OutputField(name="f", description="d", output_type=OutputType.TEXT)]
+
+    query, metadata = await generator.generate_from_fields(fields)
+
+    assert query is None
+    assert metadata["success"] is False
+    assert metadata["error"] == "Query generation failed"
+
+
+@pytest.mark.asyncio
+@patch("radis.core.utils.llm_client.AsyncChatClient")
+async def test_invalid_generated_query_is_reported(mock_chat_client_class, generator, settings):
+    """An unparseable LLM query is rejected and reported via metadata."""
+    mock_client = AsyncMock()
+    mock_client.chat.return_value = "((((("
+    mock_chat_client_class.return_value = mock_client
+
+    settings.ENABLE_AUTO_QUERY_GENERATION = True
+    fields = [OutputField(name="f", description="d", output_type=OutputType.TEXT)]
+
+    query, metadata = await generator.generate_from_fields(fields)
+
+    assert query is None
+    assert metadata["success"] is False
+    assert metadata["error"] == "LLM generated invalid query"

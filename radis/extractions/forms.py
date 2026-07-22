@@ -126,7 +126,6 @@ class SearchForm(forms.ModelForm):
         language = cast(Language, cleaned_data["language"])
         modalities = cast(QuerySet[Modality], cleaned_data["modalities"])
 
-        # Calculate retrieval count with inline Search construction
         search = Search(
             query=cleaned_data["query_node"],
             offset=0,
@@ -171,9 +170,12 @@ class SearchForm(forms.ModelForm):
 
 
 class OutputFieldForm(forms.ModelForm):
-    """Hidden field to store selection options and array flag as JSON string.
-    This is done because the selection options are dynamic and the array toggle
-    is an alpine component that needs to be re-rendered on every change."""
+    """Form for one output field definition.
+
+    ``selection_options`` (a JSON list) and ``is_array`` ("true"/"false") are
+    hidden char fields because both are edited by a dynamic Alpine.js widget
+    that re-renders on every change and syncs its state into these inputs.
+    """
 
     selection_options = forms.CharField(
         required=False,

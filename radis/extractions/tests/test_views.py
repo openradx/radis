@@ -418,3 +418,58 @@ def test_extraction_instance_detail_view(client: Client):
 
     response = client.get(f"/extractions/instances/{instance.pk}/")
     assert response.status_code == 200
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "url",
+    ["/extractions/jobs/new/search-preview/", "/extractions/jobs/new/generate-query/"],
+)
+def test_htmx_endpoints_require_permission(client: Client, url: str):
+    """Regression test for the add_extractionjob requirement on the HTMX endpoints."""
+    user = UserFactory.create(is_active=True)
+    client.force_login(user)
+
+    method = client.get if url.endswith("search-preview/") else client.post
+    response = method(url)
+    assert response.status_code == 403
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "url",
+    ["/extractions/jobs/new/search-preview/", "/extractions/jobs/new/generate-query/"],
+)
+def test_htmx_endpoints_redirect_anonymous_users(client: Client, url: str):
+    method = client.get if url.endswith("search-preview/") else client.post
+    response = method(url)
+    assert response.status_code == 302
+    assert "/login" in response["Location"] or "/accounts" in response["Location"]
+
+
+@override_settings(DEBUG_TOOLBAR_CONFIG={"SHOW_TOOLBAR_CALLBACK": _hide_toolbar})
+@pytest.mark.django_db
+def test_extraction_result_download_escapes_spreadsheet_formulas(client: Client):
+    """Cells starting with =, +, -, @ are neutralized against CSV injection."""
+    user = UserFactory.create(is_active=True)
+    job = create_test_extraction_job(owner=user)
+
+    OutputFieldFactory.create(job=job, name="finding")
+
+    task = create_test_extraction_task(job=job)
+    language = LanguageFactory.create(code="en")
+    report = ReportFactory.create(language=language)
+    ExtractionInstanceFactory.create(
+        task=task,
+        report=report,
+        is_processed=True,
+        output={"finding": '=HYPERLINK("http://evil")'},
+    )
+
+    client.force_login(user)
+    response = client.get(f"/extractions/jobs/{job.pk}/results/download/")
+    assert response.status_code == 200
+
+    csv_text = _collect_csv(response)
+    assert "'=HYPERLINK" in csv_text
+    assert ',"=HYPERLINK' not in csv_text

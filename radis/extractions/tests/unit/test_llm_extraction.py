@@ -7,7 +7,7 @@ schema generation (incl. the unknown-type error branch), output
 parsing/persistence and job orchestration (task/instance creation).
 
 The LLM is never called for real -- ``openai.OpenAI`` is patched at the SDK
-boundary used by ``radis.chats.utils.chat_client.ChatClient``.
+boundary used by ``radis.core.utils.llm_client.LLMClient``.
 """
 
 from typing import Any, cast

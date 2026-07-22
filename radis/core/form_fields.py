@@ -50,7 +50,7 @@ def create_language_field(
         # For extraction forms (uses ModelChoiceField, returns Language objects)
         self.fields["language"] = create_language_field()
 
-        # For subscription forms (uses ModelChoiceField, allows "All")
+        # ModelChoiceField with an empty "All" choice
         self.fields["language"] = create_language_field(empty_label="All")
 
         # For search forms (uses ChoiceField with codes)

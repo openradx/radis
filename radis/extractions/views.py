@@ -1,8 +1,10 @@
 import csv
+import logging
 from collections.abc import Generator
 from typing import Any, cast
 from urllib.parse import urlencode
 
+import openai
 from adit_radis_shared.accounts.models import User
 from adit_radis_shared.common.mixins import (
     PageSizeSelectMixin,
@@ -27,6 +29,8 @@ from django.views.generic import DetailView, View
 from django_tables2 import SingleTableMixin, tables
 from formtools.wizard.views import SessionWizardView
 
+from radis.core.utils.llm_client import LLMResponseError
+from radis.core.utils.rate_limit import RateLimited
 from radis.core.views import (
     AnalysisJobCancelView,
     AnalysisJobDeleteView,
@@ -62,6 +66,9 @@ from .tables import (
 from .utils.csv_export import iter_extraction_result_rows
 
 EXTRACTIONS_SEARCH_PROVIDER = "extractions_search_provider"
+
+
+logger = logging.getLogger(__name__)
 
 
 class ExtractionUpdatePreferencesView(ExtractionsLockedMixin, BaseUpdatePreferencesView):
@@ -249,11 +256,10 @@ class ExtractionJobWizardView(
             search_form = form_objs[1]
             summary_form = form_objs[2]
 
-            # The query is always in search_form now (no conditional logic needed)
-            if summary_form.cleaned_data["send_finished_mail"]:
-                search_form.cleaned_data["send_finished_mail"] = True
-
             job: ExtractionJob = search_form.save(commit=False)
+            # cleaned_data is ignored by save(commit=False) for non-Meta fields,
+            # so the summary step's checkbox must be set on the instance.
+            job.send_finished_mail = summary_form.cleaned_data["send_finished_mail"]
 
             # Parse and normalize the query
             query = job.query
@@ -289,7 +295,10 @@ class ExtractionSearchPreviewView(LoginRequiredMixin, PermissionRequiredMixin, V
     request: AuthenticatedHttpRequest
 
     def get(self, request: AuthenticatedHttpRequest):
-        # Wizard step prefix for form field names
+        # Prefix of the wizard search step's form field names. The "1" must
+        # match ExtractionJobWizardView.SEARCH_STEP and the hardcoded "1-"
+        # field names in _query_generation_result.html and
+        # _search_preview_form_section.html.
         WIZARD_STEP_PREFIX = "1-"
 
         # Extract wizard data and strip "1-" prefix
@@ -385,7 +394,17 @@ class ExtractionSearchPreviewView(LoginRequiredMixin, PermissionRequiredMixin, V
             }
             return render(request, "extractions/_search_preview.html", context)
 
-        retrieval_count = extraction_retrieval_provider.count(search)
+        try:
+            retrieval_count = extraction_retrieval_provider.count(search)
+        except Exception:
+            logger.exception("Search preview count failed")
+            context = {
+                "count": None,
+                "search_url": None,
+                "error": "Failed to compute the report count. Please try again.",
+                "max_reports_limit": settings.EXTRACTION_MAXIMUM_REPORTS_COUNT,
+            }
+            return render(request, "extractions/_search_preview.html", context)
 
         # Generate search URL with codes (FIX: use codes not PKs!)
         search_params: dict[str, str | list[str]] = {"query": query_str}
@@ -557,7 +576,7 @@ class ExtractionQueryGeneratorView(LoginRequiredMixin, PermissionRequiredMixin, 
                 "error": None if metadata.get("success") else "Query generation failed",
             }
 
-        except (RuntimeError, ValueError) as e:
+        except (RuntimeError, ValueError, LLMResponseError, RateLimited, openai.APIError) as e:
             logger.error(f"Error during async query generation: {e}", exc_info=True)
             context = {
                 "error": f"Error generating query: {str(e)}",
