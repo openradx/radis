@@ -57,7 +57,7 @@ class SearchForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
 
         self.fields["query"].required = True
-        self.fields["language"] = create_language_field()
+        self.fields["language"] = create_language_field(required=True)
         self.fields["modalities"] = create_modality_field()
         self.fields["study_date_from"].widget = forms.DateInput(attrs={"type": "date"})
         self.fields["study_date_till"].widget = forms.DateInput(attrs={"type": "date"})
@@ -120,6 +120,8 @@ class SearchForm(forms.ModelForm):
             return cleaned_data
 
         active_group = self.user.active_group
+        if active_group is None:
+            raise forms.ValidationError("An active group is required to create an extraction job.")
 
         language = cast(Language, cleaned_data["language"])
         modalities = cast(QuerySet[Modality], cleaned_data["modalities"])

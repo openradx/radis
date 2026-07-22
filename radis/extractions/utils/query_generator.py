@@ -151,8 +151,11 @@ class AsyncQueryGenerator:
         Returns:
             Cleaned query string
         """
+        # Take the first line before unwrapping quotes, so trailing explanation
+        # lines don't stop a quoted query from being unwrapped.
+        cleaned = response.strip().split("\n")[0].strip()
         cleaned = re.sub(
-            r"^(query|search|generated query|result):\s*", "", response.strip(), flags=re.IGNORECASE
+            r"^(query|search|generated query|result):\s*", "", cleaned, flags=re.IGNORECASE
         )
 
         if cleaned.startswith('"') and cleaned.endswith('"'):
@@ -160,8 +163,7 @@ class AsyncQueryGenerator:
         elif cleaned.startswith("'") and cleaned.endswith("'"):
             cleaned = cleaned[1:-1]
 
-        cleaned = cleaned.split("\n")[0].strip()
-        return cleaned
+        return cleaned.strip()
 
     def validate_and_fix_query(self, query: str) -> tuple[str, list[str]]:
         """

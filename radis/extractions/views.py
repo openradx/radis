@@ -8,6 +8,7 @@ from adit_radis_shared.common.mixins import (
     PageSizeSelectMixin,
 )
 from adit_radis_shared.common.types import AuthenticatedHttpRequest
+from asgiref.sync import async_to_sync
 from django.conf import settings
 from django.contrib.auth.mixins import (
     LoginRequiredMixin,
@@ -456,8 +457,8 @@ class ExtractionQueryGeneratorView(LoginRequiredMixin, PermissionRequiredMixin, 
     permission_required = "extractions.add_extractionjob"
     request: AuthenticatedHttpRequest
 
-    async def post(self, request: AuthenticatedHttpRequest):
-        """Generate query asynchronously and save to wizard session."""
+    def post(self, request: AuthenticatedHttpRequest):
+        """Generate a query via the LLM and save it to the wizard session."""
         import logging
 
         logger = logging.getLogger(__name__)
@@ -536,7 +537,7 @@ class ExtractionQueryGeneratorView(LoginRequiredMixin, PermissionRequiredMixin, 
 
         try:
             generator = AsyncQueryGenerator()
-            generated_query, metadata = await generator.generate_from_fields(temp_fields)
+            generated_query, metadata = async_to_sync(generator.generate_from_fields)(temp_fields)
 
             # Store in wizard session
             extra_data["generated_query"] = generated_query or ""
