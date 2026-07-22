@@ -3,7 +3,6 @@ from collections.abc import Generator
 from logging import getLogger
 from typing import Any, cast
 
-from adit_radis_shared.accounts.models import User
 from adit_radis_shared.common.mixins import (
     PageSizeSelectMixin,
     RelatedFilterMixin,
@@ -208,11 +207,10 @@ class SubscriptionInboxView(
     page_sizes = [10, 25, 50]
 
     def get_queryset(self) -> QuerySet[Subscription]:
+        # Owner-only, like the detail/update/delete views: the inbox exposes
+        # report bodies and extraction results.
         assert self.model
         model = cast(type[Subscription], self.model)
-        user = cast(User, self.request.user)
-        if user.is_staff:
-            return model.objects.all()
         return model.objects.filter(owner=self.request.user)
 
     def get(self, request, *args, **kwargs):
@@ -300,8 +298,9 @@ class _Echo:
 class SubscriptionInboxDownloadView(LoginRequiredMixin, RelatedFilterMixin, DetailView):
     """Stream subscription inbox items as a CSV download.
 
-    Applies the same filters as SubscriptionInboxView to ensure users
-    download exactly what they see (respecting filters but ignoring pagination).
+    Applies the same filters as SubscriptionInboxView (ignoring pagination),
+    but additionally excludes items without extraction results — the download
+    is an export of extracted data, so filter-only items are omitted.
     """
 
     model = Subscription
@@ -312,9 +311,6 @@ class SubscriptionInboxDownloadView(LoginRequiredMixin, RelatedFilterMixin, Deta
         """Return only subscriptions owned by the current user."""
         assert self.model
         model = cast(type[Subscription], self.model)
-        user = cast(User, self.request.user)
-        if user.is_staff:
-            return model.objects.all()
         return model.objects.filter(owner=self.request.user)
 
     def get_ordering(self) -> str:

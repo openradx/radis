@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Iterable, Sequence
 from typing import Any
 
 from django.db.models import QuerySet
 
+from radis.extractions.utils.csv_export import _escape_formula
 from radis.subscriptions.models import SubscribedItem, Subscription
+
+logger = logging.getLogger(__name__)
 
 
 def _format_cell(value: Any) -> str:
@@ -16,7 +20,7 @@ def _format_cell(value: Any) -> str:
         return ""
     if isinstance(value, bool):
         return "yes" if value else "no"
-    return str(value)
+    return _escape_formula(str(value))
 
 
 def iter_subscribed_item_rows(
@@ -31,12 +35,11 @@ def iter_subscribed_item_rows(
     Yields:
         Sequences of stringified cell values suitable for csv.writer.
     """
-    # Get output field names in PK order (to match dict keys)
+    # Materialize names and PKs once, in the same PK order, so the columns and
+    # the pk-keyed extraction_results lookups stay aligned per row.
     field_names: list[str] = list(
         subscription.output_fields.order_by("pk").values_list("name", flat=True)
     )
-
-    # Pre-fetch field PKs to avoid N+1 query in the loop below
     field_pks: list[int] = list(
         subscription.output_fields.order_by("pk").values_list("pk", flat=True)
     )
@@ -50,42 +53,48 @@ def iter_subscribed_item_rows(
         "study_description",
         "modalities",
     ]
-    header.extend(field_names)
+    header.extend(_escape_formula(name) for name in field_names)
     yield header
 
-    # Data rows - prefetch related fields for efficiency
-    items = queryset.select_related("report").prefetch_related(
-        "report__modalities", "subscription__output_fields"
-    )
+    items = queryset.select_related("report").prefetch_related("report__modalities")
 
-    for item in items.iterator(chunk_size=1000):
-        # Format modalities as comma-separated codes
-        modality_codes = ",".join(
-            modality.code
-            for modality in sorted(
-                item.report.modalities.all(),
-                key=lambda modality: modality.code,
+    try:
+        for item in items.iterator(chunk_size=1000):
+            # Format modalities as comma-separated codes
+            modality_codes = ",".join(
+                modality.code
+                for modality in sorted(
+                    item.report.modalities.all(),
+                    key=lambda modality: modality.code,
+                )
             )
+
+            # Format study date
+            study_date = ""
+            if item.report.study_datetime:
+                study_date = item.report.study_datetime.strftime("%Y-%m-%d")
+
+            row = [
+                str(item.pk),
+                str(item.report.pk),
+                _escape_formula(item.report.patient_id or ""),
+                study_date,
+                _escape_formula(item.report.study_description or ""),
+                modality_codes,
+            ]
+
+            # Add extraction results (keyed by field PK as string)
+            extraction_results: dict[str, Any] = item.extraction_results or {}
+            for field_pk in field_pks:
+                value = extraction_results.get(str(field_pk))
+                row.append(_format_cell(value))
+
+            yield row
+    except Exception:
+        # The response is already streaming, so an error page is impossible;
+        # emit a marker row so a truncated download is distinguishable from a
+        # complete one.
+        logger.exception(
+            "Subscription CSV export aborted mid-stream for subscription %s", subscription.pk
         )
-
-        # Format study date
-        study_date = ""
-        if item.report.study_datetime:
-            study_date = item.report.study_datetime.strftime("%Y-%m-%d")
-
-        row = [
-            str(item.pk),
-            str(item.report.pk),
-            item.report.patient_id or "",
-            study_date,
-            item.report.study_description or "",
-            modality_codes,
-        ]
-
-        # Add extraction results (keyed by field PK as string)
-        extraction_results: dict[str, Any] = item.extraction_results or {}
-        for field_pk in field_pks:
-            value = extraction_results.get(str(field_pk))
-            row.append(_format_cell(value))
-
-        yield row
+        yield ["ERROR", "export incomplete due to a server error", "", "", "", ""]

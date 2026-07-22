@@ -6,10 +6,9 @@ from typing import Any
 from adit_radis_shared.common.types import User
 from django import db
 from django.conf import settings
-from pydantic import ValidationError
 
 from radis.core.processors import AnalysisTaskProcessor
-from radis.core.utils.llm_client import LLMClient, LLMResponseError
+from radis.core.utils.llm_client import LLMClient
 from radis.extractions.utils.processor_utils import (
     generate_output_fields_prompt,
     generate_output_fields_schema,
@@ -67,6 +66,17 @@ class SubscriptionTaskProcessor(AnalysisTaskProcessor):
         try:
             subscription: Subscription = task.job.subscription
 
+            # A report can be re-selected when its updated_at is bumped again or
+            # when a partially failed task is retried; skip it (and the LLM
+            # cost) if it is already in the inbox.
+            if SubscribedItem.objects.filter(subscription=subscription, report=report).exists():
+                logger.debug(
+                    "Report %s already subscribed for subscription %s - skipping",
+                    report.pk,
+                    subscription.pk,
+                )
+                return
+
             filter_results: dict[str, bool] = {}
             is_accepted = True
 
@@ -81,34 +91,30 @@ class SubscriptionTaskProcessor(AnalysisTaskProcessor):
                 )
                 filter_schema = generate_filter_questions_schema(filter_questions)
 
-                try:
-                    filter_response = self.client.extract_data(filter_prompt, filter_schema)
+                # LLM/validation errors deliberately propagate: they fail the
+                # task (visible, retryable), and the retry skips reports that
+                # already produced a SubscribedItem. Swallowing them here would
+                # silently drop the report forever, because last_refreshed has
+                # already advanced past it.
+                filter_response = self.client.extract_data(filter_prompt, filter_schema)
 
-                    for question in filter_questions:
-                        field_name = get_filter_question_field_name(question)
-                        answer = getattr(filter_response, field_name, None)
-                        if answer is None:
-                            logger.debug(
-                                "LLM returned None for question %s on report %s",
-                                question.pk,
-                                report.pk,
-                            )
+                for question in filter_questions:
+                    field_name = get_filter_question_field_name(question)
+                    answer = getattr(filter_response, field_name, None)
+                    if answer is None:
+                        logger.warning(
+                            "LLM returned None for question %s on report %s",
+                            question.pk,
+                            report.pk,
+                        )
+                        is_accepted = False
+                        break
+                    else:
+                        answer_bool = bool(answer)
+                        filter_results[str(question.pk)] = answer_bool
+                        if answer_bool != question.expected_answer_bool:
                             is_accepted = False
                             break
-                        else:
-                            answer_bool = bool(answer)
-                            filter_results[str(question.pk)] = answer_bool
-                            if answer_bool != question.expected_answer_bool:
-                                is_accepted = False
-                                break
-                except LLMResponseError as e:
-                    logger.error(
-                        f"LLM returned no usable response filtering report {report.pk}: {e}"
-                    )
-                    return
-                except ValidationError as e:
-                    logger.error(f"Response validation failed filtering report {report.pk}: {e}")
-                    return
             else:
                 logger.debug(
                     "Subscription %s has no filter questions; accepting report %s by default",
@@ -132,25 +138,12 @@ class SubscriptionTaskProcessor(AnalysisTaskProcessor):
                 )
                 extraction_schema = generate_output_fields_schema(output_fields)
 
-                try:
-                    extraction_response = self.client.extract_data(
-                        extraction_prompt, extraction_schema
-                    )
+                extraction_response = self.client.extract_data(extraction_prompt, extraction_schema)
 
-                    for field in output_fields:
-                        extraction_results[str(field.pk)] = getattr(
-                            extraction_response, get_output_field_name(field), None
-                        )
-                except LLMResponseError as e:
-                    logger.error(
-                        f"LLM returned no usable response extracting from report {report.pk}: {e}"
+                for field in output_fields:
+                    extraction_results[str(field.pk)] = getattr(
+                        extraction_response, get_output_field_name(field), None
                     )
-                    return
-                except ValidationError as e:
-                    logger.error(
-                        f"Response validation failed extracting from report {report.pk}: {e}"
-                    )
-                    return
 
             SubscribedItem.objects.create(
                 subscription=task.job.subscription,

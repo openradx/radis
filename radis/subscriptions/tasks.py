@@ -5,6 +5,7 @@ from itertools import batched
 from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
 from django.db import transaction
+from django.db.models import Exists, OuterRef
 from django.utils import timezone
 from procrastinate.contrib.django import app
 
@@ -35,6 +36,20 @@ def process_subscription_job(job_id: int) -> None:
 
     logger.info("Start processing job %s", job)
     assert job.status == SubscriptionJob.Status.PREPARING
+
+    try:
+        _build_subscription_job(job)
+    except Exception as err:
+        # Without this, the job would stay PREPARING forever and the launcher
+        # would skip the subscription on every future cron tick.
+        job.status = SubscriptionJob.Status.FAILURE
+        job.message = f"Failed to collect new reports: {err}"
+        job.queued_job_id = None
+        job.save()
+        raise
+
+
+def _build_subscription_job(job: SubscriptionJob) -> None:
 
     logger.debug("Collecting tasks for job %s", job)
 
@@ -94,17 +109,27 @@ def process_subscription_job(job_id: int) -> None:
 @app.task()
 def subscription_launcher(timestamp: int):
     logger.info("Launching SubscriptionJobs (Timestamp %s)", datetime.fromtimestamp(timestamp))
-    subscriptions = Subscription.objects.all().iterator(chunk_size=100)
-
     active_statuses = [
         SubscriptionJob.Status.PREPARING.value,
         SubscriptionJob.Status.PENDING.value,
         SubscriptionJob.Status.IN_PROGRESS.value,
     ]
 
+    subscriptions = (
+        Subscription.objects.annotate(
+            has_active_job=Exists(
+                SubscriptionJob.objects.filter(
+                    subscription=OuterRef("pk"), status__in=active_statuses
+                )
+            )
+        )
+        .all()
+        .iterator(chunk_size=100)
+    )
+
     for subscription in subscriptions:
         # Skip if subscription already has an active job
-        if subscription.jobs.filter(status__in=active_statuses).exists():
+        if subscription.has_active_job:  # type: ignore[attr-defined]  # Exists() annotation
             logger.debug(
                 "Skipping Subscription %s of user %s - active job already exists",
                 subscription.name,

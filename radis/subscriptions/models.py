@@ -110,6 +110,14 @@ class SubscribedItem(models.Model):
 
     class Meta:
         ordering = ["-created_at"]  # Most recent first
+        constraints = [
+            # A report may only land once in a subscription's inbox, even when
+            # its updated_at is bumped again or a failed task is retried.
+            models.UniqueConstraint(
+                fields=["subscription", "report"],
+                name="unique_subscribed_item_per_subscription_report",
+            )
+        ]
 
     def __str__(self):
         return f"SubscribedItem of {self.subscription} [{self.pk}]"

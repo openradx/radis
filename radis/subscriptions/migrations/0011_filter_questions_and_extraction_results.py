@@ -76,4 +76,11 @@ class Migration(migrations.Migration):
             model_name="subscription",
             name="query",
         ),
+        migrations.AddConstraint(
+            model_name="subscribeditem",
+            constraint=models.UniqueConstraint(
+                fields=("subscription", "report"),
+                name="unique_subscribed_item_per_subscription_report",
+            ),
+        ),
     ]

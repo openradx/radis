@@ -16,7 +16,11 @@ def get_filter_question_field_name(question: FilterQuestion) -> str:
 
 
 def get_output_field_name(field: OutputField) -> str:
-    """Return the field name used in extraction results."""
+    """Return the attribute name of the field in the Pydantic response schema.
+
+    Note: the persisted ``SubscribedItem.extraction_results`` dict is keyed by
+    ``str(field.pk)``, not by this name.
+    """
     return field.name
 
 

@@ -391,14 +391,16 @@ def test_subscription_inbox_view_unauthorized(client: Client):
 
 
 @pytest.mark.django_db
-def test_subscription_inbox_view_staff_access(client: Client):
+def test_subscription_inbox_view_staff_cannot_access_others(client: Client):
+    """The inbox exposes report bodies and extraction results (PHI) — it is
+    owner-only, with no staff bypass (consistent with detail/update/delete)."""
     owner = UserFactory.create(is_active=True)
     staff_user = UserFactory.create(is_active=True, is_staff=True)
     subscription = create_test_subscription(owner=owner)
 
     client.force_login(staff_user)
     response = client.get(f"/subscriptions/{subscription.pk}/inbox/")
-    assert response.status_code == 200
+    assert response.status_code == 404
 
 
 @pytest.mark.django_db
@@ -686,3 +688,68 @@ def test_subscription_inbox_combined_filter_and_sort(client: Client):
     assert items[0].pk == item1.pk  # Older study date
     assert items[1].pk == item2.pk  # Newer study date
     assert item3 not in items  # Different patient
+
+
+@pytest.mark.django_db
+def test_subscription_inbox_download_view(client: Client):
+    user = UserFactory.create(is_active=True)
+    subscription = create_test_subscription(owner=user)
+    language = LanguageFactory.create(code="en")
+
+    field = OutputFieldFactory.create(subscription=subscription, job=None, name="finding")
+    report = ReportFactory.create(language=language, study_description="CT Thorax")
+    SubscribedItemFactory.create(
+        subscription=subscription,
+        report=report,
+        extraction_results={str(field.pk): "pneumothorax"},
+    )
+
+    client.force_login(user)
+    response = client.get(f"/subscriptions/{subscription.pk}/inbox/download/")
+    assert response.status_code == 200
+    assert response["Content-Type"].startswith("text/csv")
+
+    chunks: list[bytes] = []
+    for chunk in response.streaming_content:  # type: ignore[attr-defined]
+        chunks.append(chunk if isinstance(chunk, bytes) else chunk.encode("utf-8"))
+    csv_text = b"".join(chunks).decode().lstrip("\ufeff")
+    lines = csv_text.strip().splitlines()
+    assert lines[0].startswith("subscribed_item_id,report_id,patient_id,study_date")
+    assert lines[0].strip().endswith("finding")
+    assert "pneumothorax" in lines[1]
+
+
+@pytest.mark.django_db
+def test_subscription_inbox_download_view_unauthorized(client: Client):
+    owner = UserFactory.create(is_active=True)
+    other_user = UserFactory.create(is_active=True)
+    subscription = create_test_subscription(owner=owner)
+
+    client.force_login(other_user)
+    response = client.get(f"/subscriptions/{subscription.pk}/inbox/download/")
+    assert response.status_code == 404
+
+
+@pytest.mark.django_db
+def test_subscription_inbox_download_view_staff_cannot_access_others(client: Client):
+    owner = UserFactory.create(is_active=True)
+    staff_user = UserFactory.create(is_active=True, is_staff=True)
+    subscription = create_test_subscription(owner=owner)
+
+    client.force_login(staff_user)
+    response = client.get(f"/subscriptions/{subscription.pk}/inbox/download/")
+    assert response.status_code == 404
+
+
+@pytest.mark.django_db
+def test_subscription_inbox_visit_updates_last_viewed_at(client: Client):
+    user = UserFactory.create(is_active=True)
+    subscription = create_test_subscription(owner=user)
+    assert subscription.last_viewed_at is None
+
+    client.force_login(user)
+    response = client.get(f"/subscriptions/{subscription.pk}/inbox/")
+    assert response.status_code == 200
+
+    subscription.refresh_from_db()
+    assert subscription.last_viewed_at is not None
