@@ -184,3 +184,44 @@ def test_output_field_form_accepts_unicode_and_long_selection_options():
     assert form.is_valid()
     instance = form.save(commit=False)
     assert instance.selection_options == [unicode_option.strip(), long_option.strip()]
+
+
+def _layout_html_blobs(layout) -> str:
+    collected: list[str] = []
+
+    def walk(item):
+        html = getattr(item, "html", None)
+        if isinstance(html, str):
+            collected.append(html)
+        for child in getattr(item, "fields", []):
+            walk(child)
+
+    walk(layout)
+    return " ".join(collected)
+
+
+@pytest.mark.django_db
+def test_search_form_texts_without_auto_query_generation(settings):
+    """With auto generation disabled, no auto-generation wording is shown."""
+    from django.contrib.auth import get_user_model
+
+    from radis.extractions.forms import SearchForm
+
+    settings.ENABLE_AUTO_QUERY_GENERATION = False
+    form = SearchForm(user=get_user_model()())
+
+    assert "auto-generated" not in form.fields["query"].help_text.lower()
+    assert "auto-generated" not in form.fields["query"].widget.attrs["placeholder"].lower()
+    assert "_query_generation_section" not in _layout_html_blobs(form.helper.layout)
+
+
+@pytest.mark.django_db
+def test_search_form_includes_generation_section_when_enabled(settings):
+    from django.contrib.auth import get_user_model
+
+    from radis.extractions.forms import SearchForm
+
+    settings.ENABLE_AUTO_QUERY_GENERATION = True
+    form = SearchForm(user=get_user_model()())
+
+    assert "_query_generation_section" in _layout_html_blobs(form.helper.layout)

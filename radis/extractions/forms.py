@@ -57,6 +57,9 @@ class SearchForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
 
         self.fields["query"].required = True
+        if not settings.ENABLE_AUTO_QUERY_GENERATION:
+            self.fields["query"].help_text = "Search query to filter reports."
+            self.fields["query"].widget.attrs["placeholder"] = "Search query"
         self.fields["language"] = create_language_field(required=True)
         self.fields["modalities"] = create_modality_field()
         self.fields["study_date_from"].widget = forms.DateInput(attrs={"type": "date"})
@@ -71,16 +74,20 @@ class SearchForm(forms.ModelForm):
         self.helper.layout = self.build_layout()
 
     def build_layout(self):
+        left_column_items: list[Any] = ["title"]
+        if settings.ENABLE_AUTO_QUERY_GENERATION:
+            # Query generation section (async HTMX)
+            left_column_items.append(
+                HTML('{% include "extractions/_query_generation_section.html" %}')
+            )
+        left_column_items.append("query")
+        # Preview div from template include
+        left_column_items.append(
+            HTML('{% include "extractions/_search_preview_form_section.html" %}')
+        )
         return Layout(
             Row(
-                Column(
-                    "title",
-                    # Query generation section (async HTMX)
-                    HTML('{% include "extractions/_query_generation_section.html" %}'),
-                    "query",
-                    # Preview div from template include
-                    HTML('{% include "extractions/_search_preview_form_section.html" %}'),
-                ),
+                Column(*left_column_items),
                 Column(
                     "language",
                     "modalities",

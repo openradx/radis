@@ -132,7 +132,7 @@ async def test_generation_disabled_returns_error_metadata(generator, settings):
 
     assert query is None
     assert metadata["success"] is False
-    assert metadata["error"] == "Query generation failed"
+    assert metadata["error"] == "Query generation is disabled"
 
 
 @pytest.mark.asyncio

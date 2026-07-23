@@ -197,6 +197,7 @@ class ExtractionJobWizardView(
 
     def get_context_data(self, form, **kwargs):
         context = super().get_context_data(form, **kwargs)
+        context["auto_query_generation_enabled"] = settings.ENABLE_AUTO_QUERY_GENERATION
 
         if self.steps.current == ExtractionJobWizardView.OUTPUT_FIELDS_STEP:
             # First step - just show the formset

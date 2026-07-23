@@ -62,6 +62,10 @@ class AsyncQueryGenerator:
             metadata["error"] = "No fields provided"
             return None, metadata
 
+        if not settings.ENABLE_AUTO_QUERY_GENERATION:
+            metadata["error"] = "Query generation is disabled"
+            return None, metadata
+
         if settings.ENABLE_AUTO_QUERY_GENERATION:
             try:
                 query = await self._call_llm(fields_list)

@@ -44,10 +44,14 @@
                 Choose a short and concise name and more detailed description for each field.
                 You can add up to 5 fields.
             </p>
-            <p>
-                In the next step, we will automatically generate a search query based on these fields,
-                which you can then review and refine.
-            </p>
+            {% if auto_query_generation_enabled %}
+                <p>
+                    In the next step, we will automatically generate a search query based on these fields,
+                    which you can then review and refine.
+                </p>
+            {% else %}
+                <p>In the next step, you will define a search query to select the reports to extract from.</p>
+            {% endif %}
             <p>
                 Example for an output field:
                 <br />
