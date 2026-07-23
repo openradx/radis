@@ -1,8 +1,7 @@
-import csv
-from collections.abc import Generator
 from logging import getLogger
 from typing import Any, cast
 
+from adit_radis_shared.accounts.models import User
 from adit_radis_shared.common.mixins import (
     PageSizeSelectMixin,
     RelatedFilterMixin,
@@ -25,6 +24,7 @@ from django.utils.text import slugify
 from django.views.generic import CreateView, DeleteView, DetailView, UpdateView
 from django_tables2 import SingleTableView
 
+from radis.core.utils.csv_export import stream_csv_response
 from radis.subscriptions.filters import SubscribedItemFilter, SubscriptionFilter
 from radis.subscriptions.tables import SubscriptionTable
 
@@ -207,10 +207,13 @@ class SubscriptionInboxView(
     page_sizes = [10, 25, 50]
 
     def get_queryset(self) -> QuerySet[Subscription]:
-        # Owner-only, like the detail/update/delete views: the inbox exposes
-        # report bodies and extraction results.
+        """Owner's subscriptions; staff can access all (consistent with the
+        extraction results download)."""
         assert self.model
         model = cast(type[Subscription], self.model)
+        user = cast(User, self.request.user)
+        if user.is_staff:
+            return model.objects.all()
         return model.objects.filter(owner=self.request.user)
 
     def get(self, request, *args, **kwargs):
@@ -308,9 +311,13 @@ class SubscriptionInboxDownloadView(LoginRequiredMixin, RelatedFilterMixin, Deta
     request: AuthenticatedHttpRequest
 
     def get_queryset(self) -> QuerySet[Subscription]:
-        """Return only subscriptions owned by the current user."""
+        """Owner's subscriptions; staff can access all (consistent with the
+        extraction results download)."""
         assert self.model
         model = cast(type[Subscription], self.model)
+        user = cast(User, self.request.user)
+        if user.is_staff:
+            return model.objects.all()
         return model.objects.filter(owner=self.request.user)
 
     def get_ordering(self) -> str:
@@ -370,24 +377,11 @@ class SubscriptionInboxDownloadView(LoginRequiredMixin, RelatedFilterMixin, Deta
         # Get the filtered queryset from filterset.qs
         filtered_items = filterset.qs
 
-        filename = self._build_filename(subscription)
-
-        response = StreamingHttpResponse(
-            self._stream_rows(subscription, filtered_items),
-            content_type="text/csv",
+        return stream_csv_response(
+            iter_subscribed_item_rows(subscription, filtered_items),
+            self._build_filename(subscription),
+            f"subscription {subscription.pk}",
         )
-        response["Content-Disposition"] = f'attachment; filename="{filename}"'
-        return response
-
-    def _stream_rows(
-        self, subscription: Subscription, items: QuerySet[SubscribedItem]
-    ) -> Generator[str, None, None]:
-        """Yield serialized CSV rows for the response."""
-        pseudo_buffer = _Echo()
-        writer = csv.writer(pseudo_buffer)
-        yield "\ufeff"  # UTF-8 BOM for Excel compatibility
-        for row in iter_subscribed_item_rows(subscription, items):
-            yield writer.writerow(row)
 
     def _build_filename(self, subscription: Subscription) -> str:
         """Generate a descriptive CSV filename for the subscription."""

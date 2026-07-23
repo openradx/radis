@@ -391,16 +391,16 @@ def test_subscription_inbox_view_unauthorized(client: Client):
 
 
 @pytest.mark.django_db
-def test_subscription_inbox_view_staff_cannot_access_others(client: Client):
-    """The inbox exposes report bodies and extraction results (PHI) — it is
-    owner-only, with no staff bypass (consistent with detail/update/delete)."""
+def test_subscription_inbox_view_staff_access(client: Client):
+    """Staff can access any subscription's inbox (consistent with the
+    extraction results download)."""
     owner = UserFactory.create(is_active=True)
     staff_user = UserFactory.create(is_active=True, is_staff=True)
     subscription = create_test_subscription(owner=owner)
 
     client.force_login(staff_user)
     response = client.get(f"/subscriptions/{subscription.pk}/inbox/")
-    assert response.status_code == 404
+    assert response.status_code == 200
 
 
 @pytest.mark.django_db
@@ -731,14 +731,14 @@ def test_subscription_inbox_download_view_unauthorized(client: Client):
 
 
 @pytest.mark.django_db
-def test_subscription_inbox_download_view_staff_cannot_access_others(client: Client):
+def test_subscription_inbox_download_view_staff_access(client: Client):
     owner = UserFactory.create(is_active=True)
     staff_user = UserFactory.create(is_active=True, is_staff=True)
     subscription = create_test_subscription(owner=owner)
 
     client.force_login(staff_user)
     response = client.get(f"/subscriptions/{subscription.pk}/inbox/download/")
-    assert response.status_code == 404
+    assert response.status_code == 200
 
 
 @pytest.mark.django_db

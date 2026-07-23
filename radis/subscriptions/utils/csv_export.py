@@ -2,25 +2,13 @@
 
 from __future__ import annotations
 
-import logging
 from collections.abc import Iterable, Sequence
 from typing import Any
 
 from django.db.models import QuerySet
 
-from radis.extractions.utils.csv_export import _escape_formula
+from radis.core.utils.csv_export import escape_formula, format_cell
 from radis.subscriptions.models import SubscribedItem, Subscription
-
-logger = logging.getLogger(__name__)
-
-
-def _format_cell(value: Any) -> str:
-    """Format a single output value for CSV export."""
-    if value is None:
-        return ""
-    if isinstance(value, bool):
-        return "yes" if value else "no"
-    return _escape_formula(str(value))
 
 
 def iter_subscribed_item_rows(
@@ -44,7 +32,6 @@ def iter_subscribed_item_rows(
         subscription.output_fields.order_by("pk").values_list("pk", flat=True)
     )
 
-    # Header row
     header = [
         "subscribed_item_id",
         "report_id",
@@ -53,48 +40,35 @@ def iter_subscribed_item_rows(
         "study_description",
         "modalities",
     ]
-    header.extend(_escape_formula(name) for name in field_names)
+    header.extend(escape_formula(name) for name in field_names)
     yield header
 
     items = queryset.select_related("report").prefetch_related("report__modalities")
 
-    try:
-        for item in items.iterator(chunk_size=1000):
-            # Format modalities as comma-separated codes
-            modality_codes = ",".join(
-                modality.code
-                for modality in sorted(
-                    item.report.modalities.all(),
-                    key=lambda modality: modality.code,
-                )
+    for item in items.iterator(chunk_size=1000):
+        modality_codes = ",".join(
+            modality.code
+            for modality in sorted(
+                item.report.modalities.all(),
+                key=lambda modality: modality.code,
             )
-
-            # Format study date
-            study_date = ""
-            if item.report.study_datetime:
-                study_date = item.report.study_datetime.strftime("%Y-%m-%d")
-
-            row = [
-                str(item.pk),
-                str(item.report.pk),
-                _escape_formula(item.report.patient_id or ""),
-                study_date,
-                _escape_formula(item.report.study_description or ""),
-                modality_codes,
-            ]
-
-            # Add extraction results (keyed by field PK as string)
-            extraction_results: dict[str, Any] = item.extraction_results or {}
-            for field_pk in field_pks:
-                value = extraction_results.get(str(field_pk))
-                row.append(_format_cell(value))
-
-            yield row
-    except Exception:
-        # The response is already streaming, so an error page is impossible;
-        # emit a marker row so a truncated download is distinguishable from a
-        # complete one.
-        logger.exception(
-            "Subscription CSV export aborted mid-stream for subscription %s", subscription.pk
         )
-        yield ["ERROR", "export incomplete due to a server error", "", "", "", ""]
+
+        study_date = ""
+        if item.report.study_datetime:
+            study_date = item.report.study_datetime.strftime("%Y-%m-%d")
+
+        row = [
+            str(item.pk),
+            str(item.report.pk),
+            escape_formula(item.report.patient_id or ""),
+            study_date,
+            escape_formula(item.report.study_description or ""),
+            modality_codes,
+        ]
+
+        extraction_results: dict[str, Any] = item.extraction_results or {}
+        for field_pk in field_pks:
+            row.append(format_cell(extraction_results.get(str(field_pk))))
+
+        yield row
