@@ -489,6 +489,9 @@ Generate the search query:"""
 # The maximum number of reports that can be extracted by one extraction job.
 EXTRACTION_MAXIMUM_REPORTS_COUNT = 25000
 
+# The maximum number of enumerated options a Selection output field may define.
+EXTRACTION_MAX_SELECTION_OPTIONS = 7
+
 # The default and urgent priorities for extraction tasks.
 EXTRACTION_DEFAULT_PRIORITY = 2
 EXTRACTION_URGENT_PRIORITY = 3

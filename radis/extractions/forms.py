@@ -18,7 +18,6 @@ from radis.reports.models import Language, Modality
 from radis.search.site import Search, SearchFilters
 from radis.search.utils.query_parser import QueryParser
 
-from .constants import MAX_SELECTION_OPTIONS
 from .models import ExtractionJob, OutputField, OutputType
 from .site import extraction_retrieval_provider
 from .utils.validation import validate_selection_options
@@ -212,7 +211,7 @@ class OutputFieldForm(forms.ModelForm):
         self.fields["selection_options"].widget.attrs.update(
             {
                 "data-selection-input": "true",
-                "data-max-selection-options": str(MAX_SELECTION_OPTIONS),
+                "data-max-selection-options": str(settings.EXTRACTION_MAX_SELECTION_OPTIONS),
             }
         )
         self.fields["is_array"].widget.attrs.update(

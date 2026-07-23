@@ -14,7 +14,7 @@ Including another URLconf
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
 
-from django.apps import apps
+from django.conf import settings
 from django.contrib import admin
 from django.urls import include, path
 
@@ -35,15 +35,11 @@ urlpatterns = [
     path("subscriptions/", include("radis.subscriptions.urls")),
 ]
 
-# Some Django test runners force `DEBUG=False` even if the settings module enables it.
-# If these apps/middlewares are installed, we must still include their URLs so
-# templates can reverse them without raising `NoReverseMatch`.
-if apps.is_installed("django_browser_reload"):
+# Debug Toolbar in Debug mode only
+if settings.DEBUG:
+    import debug_toolbar
+
     urlpatterns = [
         path("__reload__/", include("django_browser_reload.urls")),
-    ] + urlpatterns
-
-if apps.is_installed("debug_toolbar"):
-    urlpatterns = [
-        path("__debug__/", include("debug_toolbar.urls")),
+        path("__debug__/", include(debug_toolbar.urls)),
     ] + urlpatterns
