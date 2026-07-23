@@ -1,6 +1,4 @@
-import csv
 import logging
-from collections.abc import Generator
 from typing import Any, cast
 from urllib.parse import urlencode
 
@@ -31,6 +29,7 @@ from django.views.generic import DetailView, View
 from django_tables2 import SingleTableMixin, tables
 from formtools.wizard.views import SessionWizardView
 
+from radis.core.utils.csv_export import stream_csv_response
 from radis.core.utils.llm_client import LLMResponseError
 from radis.core.utils.rate_limit import RateLimited
 from radis.core.views import (
@@ -685,13 +684,6 @@ class ExtractionResultListView(
         return ExtractionInstance.objects.filter(task__job=job)
 
 
-class _Echo:
-    """Lightweight write-only buffer for csv.writer."""
-
-    def write(self, value: str) -> str:
-        return value
-
-
 class ExtractionResultDownloadView(ExtractionsLockedMixin, LoginRequiredMixin, DetailView):
     """Stream extraction results as a CSV download."""
 
@@ -709,22 +701,11 @@ class ExtractionResultDownloadView(ExtractionsLockedMixin, LoginRequiredMixin, D
     def get(self, _request: AuthenticatedHttpRequest, *_args, **_kwargs) -> StreamingHttpResponse:
         """Stream the CSV file response."""
         job = cast(ExtractionJob, self.get_object())
-        filename = self._build_filename(job)
-
-        response = StreamingHttpResponse(
-            self._stream_rows(job),
-            content_type="text/csv",
+        return stream_csv_response(
+            iter_extraction_result_rows(job),
+            self._build_filename(job),
+            f"extraction job {job.pk}",
         )
-        response["Content-Disposition"] = f'attachment; filename="{filename}"'
-        return response
-
-    def _stream_rows(self, job: ExtractionJob) -> Generator[str, None, None]:
-        """Yield serialized CSV rows for the response."""
-        pseudo_buffer = _Echo()
-        writer = csv.writer(pseudo_buffer)
-        yield "\ufeff"
-        for row in iter_extraction_result_rows(job):
-            yield writer.writerow(row)
 
     def _build_filename(self, job: ExtractionJob) -> str:
         """Generate a descriptive CSV filename for the extraction job."""
