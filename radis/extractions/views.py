@@ -10,6 +10,7 @@ from adit_radis_shared.common.mixins import (
     PageSizeSelectMixin,
 )
 from adit_radis_shared.common.types import AuthenticatedHttpRequest
+from asgiref.sync import sync_to_async
 from django.conf import settings
 from django.contrib.auth.decorators import login_required, permission_required
 from django.contrib.auth.mixins import (
@@ -483,7 +484,9 @@ async def extraction_query_generator_view(request: AuthenticatedHttpRequest) -> 
     (``aget``/``aset``) and ``request.auser()`` may be used in the body — a
     stray ``request.user``/sync session access would raise
     ``SynchronousOnlyOperation`` under ASGI (masked in tests by
-    ``DJANGO_ALLOW_ASYNC_UNSAFE``).
+    ``DJANGO_ALLOW_ASYNC_UNSAFE``). ``render`` is wrapped in ``sync_to_async``
+    because context processors run inside it and may access the sync ORM/user
+    APIs (e.g. the shared base_context_processor reads ``request.user``).
     """
     logger.debug("Query generation endpoint called")
 
@@ -513,7 +516,9 @@ async def extraction_query_generator_view(request: AuthenticatedHttpRequest) -> 
             "generated_query": "",
             "query_metadata": {},
         }
-        return render(request, "extractions/_query_generation_result.html", context)
+        return await sync_to_async(render)(
+            request, "extractions/_query_generation_result.html", context
+        )
 
     # Reconstruct OutputField objects from stored data with validation
     from .models import OutputField, OutputType
@@ -553,7 +558,9 @@ async def extraction_query_generator_view(request: AuthenticatedHttpRequest) -> 
             "generated_query": "",
             "query_metadata": {},
         }
-        return render(request, "extractions/_query_generation_result.html", context)
+        return await sync_to_async(render)(
+            request, "extractions/_query_generation_result.html", context
+        )
 
     # Generate query using async query generator
     from .utils.query_generator import AsyncQueryGenerator
@@ -592,7 +599,9 @@ async def extraction_query_generator_view(request: AuthenticatedHttpRequest) -> 
         wizard_data["extra_data"] = extra_data
         await request.session.aset(wizard_session_key, wizard_data)
 
-    return render(request, "extractions/_query_generation_result.html", context)
+    return await sync_to_async(render)(
+        request, "extractions/_query_generation_result.html", context
+    )
 
 
 class ExtractionJobRetryView(ExtractionsLockedMixin, AnalysisJobRetryView):
