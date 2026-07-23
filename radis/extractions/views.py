@@ -10,8 +10,8 @@ from adit_radis_shared.common.mixins import (
     PageSizeSelectMixin,
 )
 from adit_radis_shared.common.types import AuthenticatedHttpRequest
-from asgiref.sync import async_to_sync
 from django.conf import settings
+from django.contrib.auth.decorators import login_required, permission_required
 from django.contrib.auth.mixins import (
     LoginRequiredMixin,
     PermissionRequiredMixin,
@@ -21,10 +21,11 @@ from django.core.exceptions import SuspiciousOperation
 from django.db import transaction
 from django.db.models import QuerySet
 from django.forms import BaseInlineFormSet
-from django.http import QueryDict, StreamingHttpResponse
+from django.http import HttpResponse, QueryDict, StreamingHttpResponse
 from django.shortcuts import redirect, render
 from django.urls import reverse, reverse_lazy
 from django.utils.text import slugify
+from django.views.decorators.http import require_POST
 from django.views.generic import DetailView, View
 from django_tables2 import SingleTableMixin, tables
 from formtools.wizard.views import SessionWizardView
@@ -470,127 +471,128 @@ class ExtractionJobResumeView(ExtractionsLockedMixin, AnalysisJobResumeView):
     model = ExtractionJob
 
 
-class ExtractionQueryGeneratorView(LoginRequiredMixin, PermissionRequiredMixin, View):
-    """HTMX endpoint for async query generation from output fields."""
+@require_POST
+@login_required
+@permission_required("extractions.add_extractionjob", raise_exception=True)
+async def extraction_query_generator_view(request: AuthenticatedHttpRequest) -> HttpResponse:
+    """HTMX endpoint: generate a query via the LLM and save it to the wizard session.
 
-    permission_required = "extractions.add_extractionjob"
-    request: AuthenticatedHttpRequest
+    Async view: the multi-second LLM call must not occupy a worker thread. The
+    async-aware auth decorators resolve the user via ``request.auser()`` and
+    run the permission check in a threadpool; only the async session API
+    (``aget``/``aset``) and ``request.auser()`` may be used in the body — a
+    stray ``request.user``/sync session access would raise
+    ``SynchronousOnlyOperation`` under ASGI (masked in tests by
+    ``DJANGO_ALLOW_ASYNC_UNSAFE``).
+    """
+    logger.debug("Query generation endpoint called")
 
-    def post(self, request: AuthenticatedHttpRequest):
-        """Generate a query via the LLM and save it to the wizard session."""
-        import logging
+    # Access wizard session storage
+    # Django-formtools stores wizard data in a nested structure:
+    # session['wizard_extraction_job_wizard_view'] = {
+    #     'step': '1',
+    #     'step_data': {...},
+    #     'extra_data': {'output_fields_data': [...], ...}
+    # }
+    wizard_session_key = "wizard_extraction_job_wizard_view"
+    wizard_data = await request.session.aget(wizard_session_key, {})
 
-        logger = logging.getLogger(__name__)
-        logger.debug("Query generation endpoint called")
+    if not wizard_data:
+        logger.warning("No wizard session data found")
 
-        # Access wizard session storage
-        # Django-formtools stores wizard data in a nested structure:
-        # session['wizard_extraction_job_wizard_view'] = {
-        #     'step': '1',
-        #     'step_data': {...},
-        #     'extra_data': {'output_fields_data': [...], ...}
-        # }
-        wizard_session_key = "wizard_extraction_job_wizard_view"
-        wizard_data = request.session.get(wizard_session_key, {})
+    # Get extra_data from within the wizard data
+    extra_data = wizard_data.get("extra_data", {})
+    output_fields_data = extra_data.get("output_fields_data", [])
 
-        if not wizard_data:
-            logger.warning("No wizard session data found")
+    logger.debug(f"Wizard state: has_data={bool(wizard_data)}, has_extra={bool(extra_data)}")
+    logger.debug(f"Output fields count: {len(output_fields_data)}")
 
-        # Get extra_data from within the wizard data
-        extra_data = wizard_data.get("extra_data", {})
-        output_fields_data = extra_data.get("output_fields_data", [])
-
-        logger.debug(f"Wizard state: has_data={bool(wizard_data)}, has_extra={bool(extra_data)}")
-        logger.debug(f"Output fields count: {len(output_fields_data)}")
-
-        if not output_fields_data:
-            context = {
-                "error": "No output fields found. Please go back to step 1.",
-                "generated_query": "",
-                "query_metadata": {},
-            }
-            return render(request, "extractions/_query_generation_result.html", context)
-
-        # Reconstruct OutputField objects from stored data with validation
-        from .models import OutputField, OutputType
-
-        valid_output_types = {choice[0] for choice in OutputType.choices}
-        required_keys = {"name", "description", "output_type"}
-
-        temp_fields = []
-        for field_data in output_fields_data:
-            # Validate field_data is a dictionary with required keys
-            if not isinstance(field_data, dict):
-                logger.warning(f"Invalid field data type: {type(field_data)}")
-                continue
-
-            missing_keys = required_keys - field_data.keys()
-            if missing_keys:
-                logger.warning(f"Missing required keys in session data: {missing_keys}")
-                continue
-
-            # Validate output_type is a valid choice
-            output_type = field_data["output_type"]
-            if output_type not in valid_output_types:
-                logger.warning(f"Invalid output_type in session data: {output_type}")
-                continue
-
-            temp_fields.append(
-                OutputField(
-                    name=str(field_data["name"])[:30],  # Ensure string and max length
-                    description=str(field_data["description"])[:300],
-                    output_type=output_type,
-                )
-            )
-
-        if not temp_fields:
-            context = {
-                "error": "No valid output fields found. Please go back to step 1.",
-                "generated_query": "",
-                "query_metadata": {},
-            }
-            return render(request, "extractions/_query_generation_result.html", context)
-
-        # Generate query using async query generator
-        from .utils.query_generator import AsyncQueryGenerator
-
-        try:
-            generator = AsyncQueryGenerator()
-            generated_query, metadata = async_to_sync(generator.generate_from_fields)(temp_fields)
-
-            # Store in wizard session
-            extra_data["generated_query"] = generated_query or ""
-            extra_data["query_metadata"] = metadata
-            extra_data["query_generation_attempted"] = True
-
-            # Update wizard data and save back to session
-            wizard_data["extra_data"] = extra_data
-            request.session[wizard_session_key] = wizard_data
-            request.session.modified = True
-            logger.info("Saved query to wizard session")
-
-            context = {
-                "generated_query": generated_query,
-                "query_metadata": metadata,
-                "output_fields_count": len(temp_fields),
-                "error": None if metadata.get("success") else "Query generation failed",
-            }
-
-        except (RuntimeError, ValueError, LLMResponseError, RateLimited, openai.APIError) as e:
-            logger.error(f"Error during async query generation: {e}", exc_info=True)
-            context = {
-                "error": f"Error generating query: {str(e)}",
-                "generated_query": "",
-                "query_metadata": {"success": False, "error": str(e)},
-            }
-            extra_data["generated_query"] = ""
-            extra_data["query_metadata"] = context["query_metadata"]
-            extra_data["query_generation_attempted"] = True
-            wizard_data["extra_data"] = extra_data
-            request.session[wizard_session_key] = wizard_data
-            request.session.modified = True
-
+    if not output_fields_data:
+        context = {
+            "error": "No output fields found. Please go back to step 1.",
+            "generated_query": "",
+            "query_metadata": {},
+        }
         return render(request, "extractions/_query_generation_result.html", context)
+
+    # Reconstruct OutputField objects from stored data with validation
+    from .models import OutputField, OutputType
+
+    valid_output_types = {choice[0] for choice in OutputType.choices}
+    required_keys = {"name", "description", "output_type"}
+
+    temp_fields = []
+    for field_data in output_fields_data:
+        # Validate field_data is a dictionary with required keys
+        if not isinstance(field_data, dict):
+            logger.warning(f"Invalid field data type: {type(field_data)}")
+            continue
+
+        missing_keys = required_keys - field_data.keys()
+        if missing_keys:
+            logger.warning(f"Missing required keys in session data: {missing_keys}")
+            continue
+
+        # Validate output_type is a valid choice
+        output_type = field_data["output_type"]
+        if output_type not in valid_output_types:
+            logger.warning(f"Invalid output_type in session data: {output_type}")
+            continue
+
+        temp_fields.append(
+            OutputField(
+                name=str(field_data["name"])[:30],  # Ensure string and max length
+                description=str(field_data["description"])[:300],
+                output_type=output_type,
+            )
+        )
+
+    if not temp_fields:
+        context = {
+            "error": "No valid output fields found. Please go back to step 1.",
+            "generated_query": "",
+            "query_metadata": {},
+        }
+        return render(request, "extractions/_query_generation_result.html", context)
+
+    # Generate query using async query generator
+    from .utils.query_generator import AsyncQueryGenerator
+
+    try:
+        generator = AsyncQueryGenerator()
+        generated_query, metadata = await generator.generate_from_fields(temp_fields)
+
+        # Store in wizard session
+        extra_data["generated_query"] = generated_query or ""
+        extra_data["query_metadata"] = metadata
+        extra_data["query_generation_attempted"] = True
+
+        # Update wizard data and save back to session (aset marks it modified)
+        wizard_data["extra_data"] = extra_data
+        await request.session.aset(wizard_session_key, wizard_data)
+        logger.info("Saved query to wizard session")
+
+        context = {
+            "generated_query": generated_query,
+            "query_metadata": metadata,
+            "output_fields_count": len(temp_fields),
+            "error": None if metadata.get("success") else "Query generation failed",
+        }
+
+    except (RuntimeError, ValueError, LLMResponseError, RateLimited, openai.APIError) as e:
+        logger.error(f"Error during async query generation: {e}", exc_info=True)
+        context = {
+            "error": f"Error generating query: {str(e)}",
+            "generated_query": "",
+            "query_metadata": {"success": False, "error": str(e)},
+        }
+        extra_data["generated_query"] = ""
+        extra_data["query_metadata"] = context["query_metadata"]
+        extra_data["query_generation_attempted"] = True
+        wizard_data["extra_data"] = extra_data
+        await request.session.aset(wizard_session_key, wizard_data)
+
+    return render(request, "extractions/_query_generation_result.html", context)
 
 
 class ExtractionJobRetryView(ExtractionsLockedMixin, AnalysisJobRetryView):

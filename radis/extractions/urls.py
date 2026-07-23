@@ -12,7 +12,6 @@ from .views import (
     ExtractionJobRetryView,
     ExtractionJobVerifyView,
     ExtractionJobWizardView,
-    ExtractionQueryGeneratorView,
     ExtractionResultDownloadView,
     ExtractionResultListView,
     ExtractionSearchPreviewView,
@@ -20,6 +19,7 @@ from .views import (
     ExtractionTaskDetailView,
     ExtractionTaskResetView,
     ExtractionUpdatePreferencesView,
+    extraction_query_generator_view,
 )
 
 urlpatterns = [
@@ -49,7 +49,7 @@ urlpatterns = [
     ),
     path(
         "jobs/new/generate-query/",
-        ExtractionQueryGeneratorView.as_view(),
+        extraction_query_generator_view,
         name="extraction_generate_query",
     ),
     path(
