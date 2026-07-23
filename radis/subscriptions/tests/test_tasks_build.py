@@ -86,6 +86,10 @@ def test_last_refreshed_is_advanced(monkeypatch):
     assert job.subscription.last_refreshed > before
     # No documents -> no tasks created.
     assert job.tasks.count() == 0
+    # A task-less job must complete immediately; if it stayed PENDING the
+    # launcher would skip this subscription on every future refresh.
+    job.refresh_from_db()
+    assert job.status == SubscriptionJob.Status.SUCCESS
 
 
 @pytest.mark.django_db

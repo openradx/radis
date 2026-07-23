@@ -525,7 +525,7 @@ START_EXTRACTION_JOB_UNVERIFIED = False
 # Subscription
 SUBSCRIPTION_DEFAULT_PRIORITY = 3
 SUBSCRIPTION_URGENT_PRIORITY = 4
-SUBSCRIPTION_CRON = "0 * * * *"  # Run every hour
+SUBSCRIPTION_CRON = "* * * * *"  # Run every hour
 SUBSCRIPTION_REFRESH_TASK_BATCH_SIZE = 100
 
 # The priority for stalled jobs that are retried.

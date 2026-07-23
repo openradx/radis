@@ -80,16 +80,29 @@ def _build_subscription_job(job: SubscriptionJob) -> None:
     filter_provider = site.subscription_filter_provider
     new_document_ids = filter_provider.filter(filters)
 
+    tasks_created = 0
     for document_ids in batched(new_document_ids, settings.SUBSCRIPTION_REFRESH_TASK_BATCH_SIZE):
         logger.debug("Creating SubscriptionTask for document IDs: %s", document_ids)
         task = SubscriptionTask.objects.create(job=job, status=SubscriptionTask.Status.PENDING)
         for document_id in document_ids:
             task.reports.add(Report.objects.get(document_id=document_id))
+        tasks_created += 1
 
     logger.debug("Starting SubscriptionTasks done.")
 
     job.subscription.last_refreshed = refresh_time
     job.subscription.save()
+
+    if tasks_created == 0:
+        # A job with no tasks is never completed by task processing, so it
+        # would stay PENDING forever and the launcher would skip the
+        # subscription on every future tick. Complete it right away.
+        job.status = SubscriptionJob.Status.SUCCESS
+        job.message = "No new reports found."
+        job.queued_job_id = None
+        job.save()
+        logger.debug("No new reports for job %s - completed without tasks", job)
+        return
 
     job.status = SubscriptionJob.Status.PENDING
     job.queued_job_id = None
