@@ -270,3 +270,26 @@ def test_extraction_create_new_job_button(live_server: LiveServer, page: Page):
 
     expect(page).to_have_url(re.compile(r"/extractions/jobs/new/"))
     expect(page.get_by_text("Define Fields (Step 1 of 3)")).to_be_visible()
+
+
+@pytest.mark.acceptance
+@pytest.mark.order("last")
+@pytest.mark.django_db(transaction=True)
+def test_added_output_field_selection_button_enables(live_server: LiveServer, page: Page):
+    """The 'Enter a selection' button must enable on dynamically added formset rows."""
+    setup_extraction_user(page, live_server.url)
+
+    page.goto(live_server.url + "/extractions/jobs/new/")
+
+    # Sanity: works on the initial row
+    first_row = page.locator(".formset-form").nth(0)
+    first_row.locator("select").select_option(label="Selection")
+    expect(first_row.get_by_role("button", name="Enter a selection")).to_be_enabled()
+
+    # Add a second field row and switch it to Selection
+    page.get_by_role("button", name="Add Field").click()
+    second_row = page.locator(".formset-form").nth(1)
+    expect(second_row).to_be_visible()
+    second_row.locator("select").select_option(label="Selection")
+
+    expect(second_row.get_by_role("button", name="Enter a selection")).to_be_enabled()
