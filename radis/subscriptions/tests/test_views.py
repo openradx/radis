@@ -753,3 +753,19 @@ def test_subscription_inbox_visit_updates_last_viewed_at(client: Client):
 
     subscription.refresh_from_db()
     assert subscription.last_viewed_at is not None
+
+
+@pytest.mark.django_db
+def test_staff_inbox_visit_does_not_update_owners_last_viewed_at(client: Client):
+    """A staff member viewing another user's inbox must not clear the owner's
+    "new reports" indicator (which is driven by last_viewed_at)."""
+    owner = UserFactory.create(is_active=True)
+    staff_user = UserFactory.create(is_active=True, is_staff=True)
+    subscription = create_test_subscription(owner=owner)
+
+    client.force_login(staff_user)
+    response = client.get(f"/subscriptions/{subscription.pk}/inbox/")
+    assert response.status_code == 200
+
+    subscription.refresh_from_db()
+    assert subscription.last_viewed_at is None

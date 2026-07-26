@@ -46,3 +46,35 @@ def test_generate_output_fields_schema_wraps_literal_in_list_for_array_selection
     (inner_annotation,) = get_args(annotation)
     assert get_origin(inner_annotation) is Literal
     assert set(get_args(inner_annotation)) == {"High", "Low"}
+
+
+@pytest.mark.django_db
+def test_generate_output_fields_schema_nullable_accepts_null_values():
+    """With nullable=True every value (incl. Selection literals) validates as
+    None while the keys themselves stay required. The subscription extraction
+    prompt instructs the model to answer null for missing information; without
+    a nullable schema that instruction could never validate."""
+    job = ExtractionJobFactory.create()
+    OutputFieldFactory(job=job, name="finding", output_type=OutputType.TEXT)
+    selection = OutputFieldFactory(job=job, name="grade", output_type=OutputType.SELECTION)
+    selection.selection_options = ["Grade 1", "Grade 2"]
+    selection.save()
+
+    schema = generate_output_fields_schema(job.output_fields.all(), nullable=True)
+
+    instance = schema(finding=None, grade=None)
+    assert instance.finding is None  # type: ignore[attr-defined]
+    assert instance.grade is None  # type: ignore[attr-defined]
+
+    # Non-null values still validate...
+    instance = schema(finding="pneumothorax", grade="Grade 1")
+    assert instance.grade == "Grade 1"  # type: ignore[attr-defined]
+
+    # ...the keys themselves stay required...
+    with pytest.raises(ValueError):
+        schema(finding="pneumothorax")
+
+    # ...and the default (non-nullable) schema still rejects null.
+    strict_schema = generate_output_fields_schema(job.output_fields.all())
+    with pytest.raises(ValueError):
+        strict_schema(finding=None, grade="Grade 1")

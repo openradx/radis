@@ -222,8 +222,14 @@ class SubscriptionInboxView(
         return response
 
     def _update_last_viewed_at(self) -> None:
-        """Mark the subscription as viewed by updating last_viewed_at timestamp."""
+        """Mark the subscription as viewed by updating last_viewed_at timestamp.
+
+        Only the owner's visit counts: a staff member viewing another user's
+        inbox must not clear the owner's "new reports" indicator.
+        """
         subscription = cast(Subscription, self.object)
+        if subscription.owner_id != self.request.user.pk:
+            return
         subscription.last_viewed_at = timezone.now()
         subscription.save(update_fields=["last_viewed_at"])
 
@@ -289,13 +295,6 @@ class SubscriptionInboxView(
         context["current_order"] = order
 
         return context
-
-
-class _Echo:
-    """Lightweight write-only buffer for csv.writer."""
-
-    def write(self, value: str) -> str:
-        return value
 
 
 class SubscriptionInboxDownloadView(LoginRequiredMixin, RelatedFilterMixin, DetailView):

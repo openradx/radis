@@ -136,7 +136,10 @@ class SubscriptionTaskProcessor(AnalysisTaskProcessor):
                         "fields": generate_output_fields_prompt(output_fields),
                     }
                 )
-                extraction_schema = generate_output_fields_schema(output_fields)
+                # SUBSCRIPTION_EXTRACTION_PROMPT instructs the model to answer
+                # null for information the report does not contain, so the
+                # schema must accept null values (keys stay required).
+                extraction_schema = generate_output_fields_schema(output_fields, nullable=True)
 
                 extraction_response = self.client.extract_data(extraction_prompt, extraction_schema)
 
