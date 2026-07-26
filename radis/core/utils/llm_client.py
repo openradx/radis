@@ -37,7 +37,9 @@ def _get_base_url() -> str:
 
 
 class AsyncChatClient:
-    def __init__(self) -> None:
+    def __init__(self, *, timeout: float | None = None) -> None:
+        """`timeout` overrides the per-request HTTP timeout (interactive callers
+        may want a much shorter one than the worker default)."""
         base_url = _get_base_url()
         api_key = settings.EXTERNAL_LLM_PROVIDER_API_KEY
         # max_retries=0 so the gate fully owns backoff (no hidden SDK retries).
@@ -45,7 +47,7 @@ class AsyncChatClient:
             base_url=base_url,
             api_key=api_key,
             max_retries=0,
-            timeout=settings.LLM_REQUEST_TIMEOUT_SECONDS,
+            timeout=timeout if timeout is not None else settings.LLM_REQUEST_TIMEOUT_SECONDS,
         )
         self._model_name = settings.LLM_MODEL_NAME
 
@@ -58,16 +60,22 @@ class AsyncChatClient:
         messages: Iterable[ChatCompletionMessageParam],
         max_completion_tokens: int | None = None,
         max_wait: float | None = None,
+        transient_retry_attempts: int | None = None,
     ) -> str:
         if max_wait is None:
             max_wait = float(settings.LLM_RATE_LIMIT_INTERACTIVE_MAX_WAIT_SECONDS)
+        attempts: int = (
+            transient_retry_attempts
+            if transient_retry_attempts is not None
+            else settings.LLM_TRANSIENT_RETRY_ATTEMPTS
+        )
 
         return await run_through_gate_async(
             _LLM_GATE,
             max_wait,
             lambda: with_transient_retries_async(
                 lambda: self._chat(messages, max_completion_tokens),
-                settings.LLM_TRANSIENT_RETRY_ATTEMPTS,
+                attempts,
                 settings.LLM_TRANSIENT_RETRY_BASE_SECONDS,
             ),
         )

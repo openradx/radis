@@ -233,9 +233,7 @@ class BulkUpsertOnCommitTests(TestCase):
         viewsets.reports_updated_handlers = []
 
         with self.captureOnCommitCallbacks(execute=True) as callbacks:
-            created, _ = _bulk_upsert_reports(
-                [validated("commit-1", group=self.group)]
-            )
+            created, _ = _bulk_upsert_reports([validated("commit-1", group=self.group)])
             # Inside the block, before commit, the handler has not run yet.
             assert created == ["commit-1"]
             assert created_seen == []

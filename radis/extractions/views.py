@@ -1,4 +1,5 @@
 import logging
+from importlib import import_module
 from typing import Any, cast
 from urllib.parse import urlencode
 
@@ -122,17 +123,23 @@ class ExtractionJobWizardView(
                     "name": field_data["name"],
                     "description": field_data["description"],
                     "output_type": field_data["output_type"],
+                    "selection_options": field_data.get("selection_options") or [],
+                    "is_array": bool(field_data.get("is_array")),
                 }
                 for field_data in formset_data
                 if not field_data.get("DELETE", False)
             ]
 
+            # Only schedule a (re-)generation when the fields actually changed;
+            # an unchanged resubmit must not overwrite a query the user may
+            # have refined on the search step (nor cost another LLM call).
+            if output_fields_data != self.storage.extra_data.get("output_fields_data"):
+                self.storage.extra_data["query_generation_attempted"] = False
+                self.storage.extra_data["generated_query"] = ""
+                self.storage.extra_data["query_metadata"] = {}
+
             # Store serialized data for async generation - query will be generated via HTMX
             self.storage.extra_data["output_fields_data"] = output_fields_data
-            self.storage.extra_data["query_generation_attempted"] = False
-            # Clear any previous query to ensure fresh generation
-            self.storage.extra_data["generated_query"] = ""
-            self.storage.extra_data["query_metadata"] = {}
 
             return step_data
 
@@ -206,6 +213,14 @@ class ExtractionJobWizardView(
             # Second step - show generated query info and retrieval count
             context["generated_query"] = self.storage.extra_data.get("generated_query", "")
             context["query_metadata"] = self.storage.extra_data.get("query_metadata", {})
+            # Fire the HTMX auto-generation only while no attempt has been made
+            # for the current set of output fields; re-renders (validation
+            # errors, back navigation) must not regenerate and overwrite a
+            # query the user may have edited.
+            context["query_generation_needed"] = (
+                settings.ENABLE_AUTO_QUERY_GENERATION
+                and not self.storage.extra_data.get("query_generation_attempted", False)
+            )
 
             # Get output fields data to show context
             output_fields_data = self.get_cleaned_data_for_step(
@@ -503,6 +518,37 @@ async def extraction_query_generator_view(request: AuthenticatedHttpRequest) -> 
     if not wizard_data:
         logger.warning("No wizard session data found")
 
+    async def save_generation_result(generated_query: str, metadata: dict[str, Any]) -> None:
+        """Merge the generation outcome into the *current* wizard session state.
+
+        The wizard state must be re-read from the session backend after the
+        multi-second LLM await: the user may have submitted the search step or
+        navigated in the meantime, and writing back the pre-await snapshot
+        would discard those newer wizard writes (current step, step data).
+        ``request.session`` cannot be used for this — it caches the dict loaded
+        at request start — so a fresh ``SessionStore`` reads and saves the
+        backend state directly (this request never writes ``request.session``,
+        which would otherwise clobber the merge on response). A few-ms
+        read-merge-write window remains, instead of one spanning the LLM call.
+        """
+        session_key = request.session.session_key
+        if not session_key:
+            return
+        engine = import_module(settings.SESSION_ENGINE)
+        store = engine.SessionStore(session_key)
+        current_data = await store.aget(wizard_session_key, {})
+        if not current_data:
+            # The wizard was reset or completed while generating; don't
+            # resurrect stale wizard state just to store an unused query.
+            return
+        current_extra = current_data.get("extra_data", {})
+        current_extra["generated_query"] = generated_query
+        current_extra["query_metadata"] = metadata
+        current_extra["query_generation_attempted"] = True
+        current_data["extra_data"] = current_extra
+        await store.aset(wizard_session_key, current_data)
+        await store.asave()
+
     # Get extra_data from within the wizard data
     extra_data = wizard_data.get("extra_data", {})
     output_fields_data = extra_data.get("output_fields_data", [])
@@ -544,11 +590,20 @@ async def extraction_query_generator_view(request: AuthenticatedHttpRequest) -> 
             logger.warning(f"Invalid output_type in session data: {output_type}")
             continue
 
+        raw_options = field_data.get("selection_options")
+        selection_options = (
+            [str(opt) for opt in raw_options if isinstance(opt, str) and opt.strip()]
+            if isinstance(raw_options, list)
+            else []
+        )
+
         temp_fields.append(
             OutputField(
                 name=str(field_data["name"])[:30],  # Ensure string and max length
                 description=str(field_data["description"])[:300],
                 output_type=output_type,
+                selection_options=selection_options,
+                is_array=bool(field_data.get("is_array")),
             )
         )
 
@@ -569,14 +624,7 @@ async def extraction_query_generator_view(request: AuthenticatedHttpRequest) -> 
         generator = AsyncQueryGenerator()
         generated_query, metadata = await generator.generate_from_fields(temp_fields)
 
-        # Store in wizard session
-        extra_data["generated_query"] = generated_query or ""
-        extra_data["query_metadata"] = metadata
-        extra_data["query_generation_attempted"] = True
-
-        # Update wizard data and save back to session (aset marks it modified)
-        wizard_data["extra_data"] = extra_data
-        await request.session.aset(wizard_session_key, wizard_data)
+        await save_generation_result(generated_query or "", metadata)
         logger.info("Saved query to wizard session")
 
         context = {
@@ -588,16 +636,13 @@ async def extraction_query_generator_view(request: AuthenticatedHttpRequest) -> 
 
     except (RuntimeError, ValueError, LLMResponseError, RateLimited, openai.APIError) as e:
         logger.error(f"Error during async query generation: {e}", exc_info=True)
+        error_metadata = {"success": False, "error": str(e)}
         context = {
             "error": f"Error generating query: {str(e)}",
             "generated_query": "",
-            "query_metadata": {"success": False, "error": str(e)},
+            "query_metadata": error_metadata,
         }
-        extra_data["generated_query"] = ""
-        extra_data["query_metadata"] = context["query_metadata"]
-        extra_data["query_generation_attempted"] = True
-        wizard_data["extra_data"] = extra_data
-        await request.session.aset(wizard_session_key, wizard_data)
+        await save_generation_result("", error_metadata)
 
     return await sync_to_async(render)(
         request, "extractions/_query_generation_result.html", context

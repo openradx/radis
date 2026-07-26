@@ -473,3 +473,77 @@ def test_extraction_result_download_escapes_spreadsheet_formulas(client: Client)
     csv_text = _collect_csv(response)
     assert "'=HYPERLINK" in csv_text
     assert ',"=HYPERLINK' not in csv_text
+
+
+@override_settings(DEBUG_TOOLBAR_CONFIG={"SHOW_TOOLBAR_CALLBACK": _hide_toolbar})
+@pytest.mark.django_db
+def test_generate_query_merges_into_current_session_state(client: Client):
+    """Wizard writes that land while the LLM call is in flight must survive.
+
+    The generation endpoint reads the wizard session, awaits a multi-second
+    LLM call, and then persists its result. If it wrote back its pre-await
+    snapshot wholesale, a search-step submit that happened during the await
+    (current step, step data) would be discarded. It must instead merge only
+    the generation keys into the backend's current state.
+    """
+    from importlib import import_module
+    from unittest.mock import patch
+
+    from django.conf import settings as django_settings
+
+    user = UserFactory.create(is_active=True)
+    user.user_permissions.add(Permission.objects.get(codename="add_extractionjob"))
+    client.force_login(user)
+
+    wizard_key = "wizard_extraction_job_wizard_view"
+    session = client.session
+    session[wizard_key] = {
+        "step": "1",
+        "step_data": {"0": {"formset": "data"}},
+        "extra_data": {
+            "output_fields_data": [
+                {
+                    "name": "finding",
+                    "description": "main finding",
+                    "output_type": "T",
+                    "selection_options": [],
+                    "is_array": False,
+                }
+            ]
+        },
+    }
+    session.save()
+    session_key = session.session_key
+    engine = import_module(django_settings.SESSION_ENGINE)
+
+    async def fake_generate(self, fields):
+        # Simulate the user submitting the search step mid-generation: the
+        # backend now holds newer wizard state than the endpoint's snapshot.
+        store = engine.SessionStore(session_key)
+        data = await store.aget(wizard_key, {})
+        data["step"] = "2"
+        data["step_data"]["1"] = {"1-query": "user refined query"}
+        await store.aset(wizard_key, data)
+        await store.asave()
+        return "generated query", {
+            "field_count": 1,
+            "success": True,
+            "generation_method": "llm",
+            "error": None,
+        }
+
+    with patch(
+        "radis.extractions.utils.query_generator.AsyncQueryGenerator.generate_from_fields",
+        new=fake_generate,
+    ):
+        response = client.post("/extractions/jobs/new/generate-query/")
+
+    assert response.status_code == 200
+
+    data = engine.SessionStore(session_key).load()[wizard_key]
+    # The concurrent wizard write survived ...
+    assert data["step"] == "2"
+    assert data["step_data"]["1"] == {"1-query": "user refined query"}
+    # ... and the generation outcome was merged in.
+    assert data["extra_data"]["generated_query"] == "generated query"
+    assert data["extra_data"]["query_generation_attempted"] is True

@@ -109,9 +109,12 @@ class AsyncQueryGenerator:
             fields=fields_formatted
         )
 
-        client = AsyncChatClient()
+        client = AsyncChatClient(timeout=settings.QUERY_GENERATION_TIMEOUT)
         try:
-            response = await client.chat([{"role": "user", "content": prompt}])
+            response = await client.chat(
+                [{"role": "user", "content": prompt}],
+                transient_retry_attempts=settings.QUERY_GENERATION_MAX_RETRIES,
+            )
 
             if not response:
                 logger.warning("LLM returned empty response")
@@ -139,11 +142,17 @@ class AsyncQueryGenerator:
         """
         formatted_fields = []
         for field in fields:
-            field_dict = {
+            field_dict: dict[str, Any] = {
                 "name": field.name,
                 "description": field.description,
                 "type": field.get_output_type_display(),
             }
+            # For selection fields the options often carry the actual target
+            # concepts (e.g. diagnoses), so they matter for query generation.
+            if field.selection_options:
+                field_dict["allowed_values"] = list(field.selection_options)
+            if field.is_array:
+                field_dict["multiple_values"] = True
             formatted_fields.append(str(field_dict))
 
         return "\n".join(formatted_fields)

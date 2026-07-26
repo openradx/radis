@@ -95,7 +95,13 @@ function SelectionOptions(rootEl) {
         .map((opt) => (typeof opt === "string" ? opt.trim() : ""))
         .filter((opt) => opt !== "");
       hiddenInput.value = JSON.stringify(sanitized);
-      this.lastSelectionOptions = [...sanitized];
+      // Only remember options while Selection is active: this sync also runs
+      // (via x-effect) right after switching away from Selection has cleared
+      // `options`, and saving that empty list would make restoring on
+      // switch-back impossible.
+      if (this.supportsSelection) {
+        this.lastSelectionOptions = [...sanitized];
+      }
     },
     syncArray() {
       if (!arrayInput) {

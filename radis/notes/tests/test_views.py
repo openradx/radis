@@ -304,9 +304,7 @@ def test_note_edit_view_get_does_not_leak_other_users_note():
     response = client.get(reverse("note_edit", args=[report.pk]), HTTP_HX_REQUEST="true")
     assert response.status_code == 200
     form = response.context["form"]
-    assert form.initial.get("text") in (None, ""), (
-        "edit form leaked another user's note text"
-    )
+    assert form.initial.get("text") in (None, ""), "edit form leaked another user's note text"
 
 
 @pytest.mark.django_db

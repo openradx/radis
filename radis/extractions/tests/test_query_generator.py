@@ -171,3 +171,54 @@ async def test_invalid_generated_query_is_reported(mock_chat_client_class, gener
     assert query is None
     assert metadata["success"] is False
     assert metadata["error"] == "LLM generated invalid query"
+
+
+def test_format_fields_for_prompt_includes_selection_options_and_array(generator):
+    """Selection options and the array flag must reach the LLM prompt.
+
+    For a selection field the options often carry the actual target concepts
+    (e.g. the diagnoses to search for), so dropping them would produce
+    irrelevant queries.
+    """
+    fields = [
+        OutputField(
+            name="diagnosis",
+            description="main diagnosis",
+            output_type=OutputType.SELECTION,
+            selection_options=["pneumothorax", "pleural effusion"],
+            is_array=True,
+        )
+    ]
+
+    formatted = generator._format_fields_for_prompt(fields)
+
+    assert "pneumothorax" in formatted
+    assert "pleural effusion" in formatted
+    assert "multiple_values" in formatted
+
+
+@pytest.mark.asyncio
+@patch("radis.core.utils.llm_client.AsyncChatClient")
+async def test_llm_call_uses_query_generation_timeout_and_retries(
+    mock_chat_client_class, generator, settings
+):
+    """The QUERY_GENERATION_* settings must actually govern the LLM call."""
+    mock_client = AsyncMock()
+    mock_client.chat.return_value = "lung AND nodule"
+    mock_chat_client_class.return_value = mock_client
+
+    settings.ENABLE_AUTO_QUERY_GENERATION = True
+    settings.QUERY_GENERATION_TIMEOUT = 7
+    settings.QUERY_GENERATION_MAX_RETRIES = 1
+
+    fields = [
+        OutputField(
+            name="nodule_size",
+            description="size of lung nodule in millimeters",
+            output_type=OutputType.NUMERIC,
+        )
+    ]
+    await generator.generate_from_fields(fields)
+
+    mock_chat_client_class.assert_called_once_with(timeout=7)
+    assert mock_client.chat.call_args.kwargs["transient_retry_attempts"] == 1

@@ -1,21 +1,37 @@
 {% load bootstrap_icon from common_extras %}
-<div id="query-generation-section"
-     hx-post="{% url 'extraction_generate_query' %}"
-     hx-trigger="load"
-     hx-swap="innerHTML"
-     hx-on::after-swap="htmx.trigger('#search-preview', 'updatePreview')">
-    <!-- Loading state shown initially -->
-    <div class="alert alert-info mb-4">
-        <div class="d-flex align-items-center">
-            <span class="spinner-border spinner-border-sm me-3"
-                  role="status"
-                  aria-hidden="true"></span>
-            <div>
-                <h5 class="alert-heading mb-0">{% bootstrap_icon "magic" %} Generating Search Query...</h5>
-                <p class="mb-0 mt-2">
-                    <small>Using AI to create a search query from your extraction fields...</small>
-                </p>
+{% if query_generation_needed %}
+    <div id="query-generation-section"
+         hx-post="{% url 'extraction_generate_query' %}"
+         hx-trigger="load"
+         hx-swap="innerHTML"
+         hx-on::after-swap="htmx.trigger('#search-preview', 'updatePreview')">
+        <!-- Loading state shown initially -->
+        <div class="alert alert-info mb-4">
+            <div class="d-flex align-items-center">
+                <span class="spinner-border spinner-border-sm me-3"
+                      role="status"
+                      aria-hidden="true"></span>
+                <div>
+                    <h5 class="alert-heading mb-0">{% bootstrap_icon "magic" %} Generating Search Query...</h5>
+                    <p class="mb-0 mt-2">
+                        <small>Using AI to create a search query from your extraction fields...</small>
+                    </p>
+                </div>
             </div>
         </div>
     </div>
-</div>
+{% elif generated_query %}
+    {# Generation already ran for these fields (e.g. re-render after a #}
+    {# validation error or back navigation); show the result statically #}
+    {# instead of regenerating and overwriting the user's query. #}
+    <div id="query-generation-section">
+        <div class="alert alert-success mb-4" role="alert">
+            <h5 class="alert-heading">{% bootstrap_icon "check-circle" %} Query Generated Successfully</h5>
+            <p>We generated the following search query from your extraction fields:</p>
+            <code class="d-block bg-light p-2 mb-2">{{ generated_query }}</code>
+            <p class="mb-0">
+                <small>You can edit the query below to refine your search.</small>
+            </p>
+        </div>
+    </div>
+{% endif %}
