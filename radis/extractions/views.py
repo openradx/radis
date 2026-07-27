@@ -201,6 +201,22 @@ class ExtractionJobWizardView(
 
         return super().render(form, **kwargs)
 
+    @staticmethod
+    def _query_generation_needed(attempted: bool, succeeded: bool, current_query: str) -> bool:
+        """Decide whether the search step should auto-fire query generation.
+
+        Fire on the first render for a set of output fields; after that only
+        retry when the previous attempt failed and the query field is still
+        empty — such a retry can only fill a gap (e.g. after a transient LLM
+        error), never overwrite a query the user typed or an earlier
+        generation produced.
+        """
+        if not settings.ENABLE_AUTO_QUERY_GENERATION:
+            return False
+        if not attempted:
+            return True
+        return not succeeded and not current_query.strip()
+
     def get_context_data(self, form, **kwargs):
         context = super().get_context_data(form, **kwargs)
         context["auto_query_generation_enabled"] = settings.ENABLE_AUTO_QUERY_GENERATION
@@ -212,14 +228,19 @@ class ExtractionJobWizardView(
         elif self.steps.current == ExtractionJobWizardView.SEARCH_STEP:
             # Second step - show generated query info and retrieval count
             context["generated_query"] = self.storage.extra_data.get("generated_query", "")
-            context["query_metadata"] = self.storage.extra_data.get("query_metadata", {})
-            # Fire the HTMX auto-generation only while no attempt has been made
-            # for the current set of output fields; re-renders (validation
-            # errors, back navigation) must not regenerate and overwrite a
-            # query the user may have edited.
-            context["query_generation_needed"] = (
-                settings.ENABLE_AUTO_QUERY_GENERATION
-                and not self.storage.extra_data.get("query_generation_attempted", False)
+            query_metadata = self.storage.extra_data.get("query_metadata", {})
+            context["query_metadata"] = query_metadata
+
+            # The current query value: submitted data on a validation-error
+            # re-render, stored step data on back navigation (both bind the
+            # form), empty on the first arrival from step 1.
+            current_query = ""
+            if form is not None and form.is_bound:
+                current_query = form.data.get(form.add_prefix("query")) or ""
+            context["query_generation_needed"] = self._query_generation_needed(
+                attempted=self.storage.extra_data.get("query_generation_attempted", False),
+                succeeded=bool(query_metadata.get("success")),
+                current_query=current_query,
             )
 
             # Get output fields data to show context

@@ -455,6 +455,7 @@ def test_extraction_result_download_escapes_spreadsheet_formulas(client: Client)
     job = create_test_extraction_job(owner=user)
 
     OutputFieldFactory.create(job=job, name="finding")
+    OutputFieldFactory.create(job=job, name="note")
 
     task = create_test_extraction_task(job=job)
     language = LanguageFactory.create(code="en")
@@ -463,7 +464,12 @@ def test_extraction_result_download_escapes_spreadsheet_formulas(client: Client)
         task=task,
         report=report,
         is_processed=True,
-        output={"finding": '=HYPERLINK("http://evil")'},
+        output={
+            "finding": '=HYPERLINK("http://evil")',
+            # Some importers trim leading whitespace before evaluating a cell,
+            # so a space-cloaked formula must be escaped as well.
+            "note": ' =HYPERLINK("http://evil2")',
+        },
     )
 
     client.force_login(user)
@@ -473,6 +479,8 @@ def test_extraction_result_download_escapes_spreadsheet_formulas(client: Client)
     csv_text = _collect_csv(response)
     assert "'=HYPERLINK" in csv_text
     assert ',"=HYPERLINK' not in csv_text
+    assert "' =HYPERLINK" in csv_text
+    assert '," =HYPERLINK' not in csv_text
 
 
 @override_settings(DEBUG_TOOLBAR_CONFIG={"SHOW_TOOLBAR_CALLBACK": _hide_toolbar})
@@ -547,3 +555,44 @@ def test_generate_query_merges_into_current_session_state(client: Client):
     # ... and the generation outcome was merged in.
     assert data["extra_data"]["generated_query"] == "generated query"
     assert data["extra_data"]["query_generation_attempted"] is True
+
+
+@pytest.mark.parametrize(
+    ("attempted", "succeeded", "current_query", "expected"),
+    [
+        # First render for a set of output fields: always fire.
+        (False, False, "", True),
+        (False, False, "typed", True),
+        # Attempt succeeded: never re-fire (the static result box is shown).
+        (True, True, "", False),
+        (True, True, "generated query", False),
+        # Attempt failed and the field is still empty: retry (can only fill
+        # a gap, e.g. after a transient LLM error).
+        (True, False, "", True),
+        (True, False, "   ", True),
+        # Attempt failed but the user typed a query: leave it alone.
+        (True, False, "manual query", False),
+    ],
+)
+def test_query_generation_needed_matrix(settings, attempted, succeeded, current_query, expected):
+    from radis.extractions.views import ExtractionJobWizardView
+
+    settings.ENABLE_AUTO_QUERY_GENERATION = True
+    assert (
+        ExtractionJobWizardView._query_generation_needed(
+            attempted=attempted, succeeded=succeeded, current_query=current_query
+        )
+        is expected
+    )
+
+
+def test_query_generation_needed_respects_disabled_setting(settings):
+    from radis.extractions.views import ExtractionJobWizardView
+
+    settings.ENABLE_AUTO_QUERY_GENERATION = False
+    assert (
+        ExtractionJobWizardView._query_generation_needed(
+            attempted=False, succeeded=False, current_query=""
+        )
+        is False
+    )

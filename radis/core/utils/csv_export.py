@@ -25,9 +25,15 @@ def escape_formula(text: str) -> str:
     Exported content may be attacker-influenceable (report bodies, LLM
     output, user-defined field names); a leading ``=``/``+``/``-``/``@``/
     tab/CR makes Excel/LibreOffice interpret the cell as a formula, so such
-    cells are prefixed with a single quote.
+    cells are prefixed with a single quote. The formula markers are checked
+    on the first non-whitespace character because some importers trim leading
+    whitespace before evaluating a cell, so ``" =..."`` would otherwise slip
+    through.
     """
-    if text and text[0] in ("=", "+", "-", "@", "\t", "\r"):
+    if not text:
+        return text
+    stripped = text.lstrip()
+    if text[0] in ("\t", "\r") or (stripped and stripped[0] in ("=", "+", "-", "@")):
         return "'" + text
     return text
 
