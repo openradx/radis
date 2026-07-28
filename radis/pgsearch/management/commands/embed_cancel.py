@@ -1,0 +1,43 @@
+"""Cancel a running embedding backfill.
+
+Counterpart to `embed_pending`: cancels every embed_reports_task subjob
+still queued at backfill priority. Subjobs already being executed (at most
+the embeddings worker's --concurrency) finish their current chunk; live
+write-path embedding subjobs are untouched. Cancelled jobs are terminal:
+re-running `embed_pending` later covers the remaining work by enqueueing
+the still-NULL reports as fresh subjobs chunked at the then-current
+EMBEDDING_SUBJOB_SIZE (its `embedding IS NULL` filter skips everything
+already embedded).
+"""
+
+import logging
+
+from django.core.management.base import BaseCommand
+
+from radis.pgsearch.tasks import cancel_backfill_embeddings
+
+logger = logging.getLogger(__name__)
+
+
+class Command(BaseCommand):
+    help = (
+        "Cancel every queued embedding-backfill subjob (todo jobs at "
+        "backfill priority). Running subjobs finish their current chunk; "
+        "live write-path embedding is untouched."
+    )
+
+    def handle(self, *args, **opts) -> None:
+        cancelled = cancel_backfill_embeddings()
+        if cancelled == 0:
+            self.stdout.write("No queued backfill subjobs to cancel.")
+            return
+        self.stdout.write(self.style.SUCCESS(f"Cancelled {cancelled} queued backfill subjob(s)."))
+        self.stdout.write(
+            "Running subjobs (at most the worker's concurrency) will finish "
+            "their current chunk. To continue the backfill, re-run "
+            "`./manage.py embed_pending` — it enqueues the still-unembedded "
+            "reports as fresh subjobs chunked at the current "
+            "EMBEDDING_SUBJOB_SIZE; cancelled jobs are never revived. "
+            "(EMBEDDING_BATCH_SIZE and worker concurrency are read at "
+            "execution time and don't require re-enqueueing at all.)"
+        )

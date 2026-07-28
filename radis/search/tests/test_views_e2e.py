@@ -2,11 +2,11 @@
 
 The sibling ``test_views.py`` patches ``radis.search.views.search_provider`` with
 a stub, so it never touches Postgres full-text search. These tests instead insert
-real ``Report`` rows (whose ``ReportSearchVector`` is populated by the pgsearch
+real ``Report`` rows (whose ``ReportSearchIndex`` is populated by the pgsearch
 ``post_save`` signal) and drive the whole stack:
 
     HTTP GET /search/  ->  SearchForm  ->  QueryParser  ->  pgsearch.providers.search
-    ->  to_tsquery  ->  ReportSearchVector  ->  rendered results
+    ->  to_tsquery  ->  ReportSearchIndex  ->  rendered results
 
 so we assert the seeded report is actually found and that the form's hard
 filters (modality, patient sex, age, study date, study description) propagate
@@ -147,9 +147,7 @@ def test_boolean_query_through_full_stack():
 
     # language=en so the english-stemmed 'effus' lexeme in the document matches
     # the english-stemmed query term.
-    response = client.get(
-        "/search/", {"query": "pneumonia AND effusion", "language": "en"}
-    )
+    response = client.get("/search/", {"query": "pneumonia AND effusion", "language": "en"})
 
     ids = _doc_ids(response)
     assert both.document_id in ids
@@ -192,12 +190,8 @@ def test_modality_filter_propagates_into_query():
     """The ``modalities`` form filter must reach ``_build_filter_query`` and
     narrow results to reports carrying that modality."""
     client, group = _logged_in_client()
-    ct = _seed_report(
-        "pneumonia on CT", document_id="E2E-CT", modalities=["CT"], groups=[group]
-    )
-    mr = _seed_report(
-        "pneumonia on MR", document_id="E2E-MR", modalities=["MR"], groups=[group]
-    )
+    ct = _seed_report("pneumonia on CT", document_id="E2E-CT", modalities=["CT"], groups=[group])
+    mr = _seed_report("pneumonia on MR", document_id="E2E-MR", modalities=["MR"], groups=[group])
 
     response = client.get("/search/", {"query": "pneumonia", "modalities": ["CT"]})
 
@@ -247,9 +241,7 @@ def test_study_description_filter_propagates_into_query():
         groups=[group],
     )
 
-    response = client.get(
-        "/search/", {"query": "pneumonia", "study_description": "thorax"}
-    )
+    response = client.get("/search/", {"query": "pneumonia", "study_description": "thorax"})
 
     ids = _doc_ids(response)
     assert chest.document_id in ids  # icontains, case-insensitive
@@ -310,9 +302,7 @@ def test_age_filter_propagates_into_query():
     )
 
     # Age window 30..50 (multiples of 10, valid for the form) -> only the ~40yo.
-    response = client.get(
-        "/search/", {"query": "pneumonia", "age_from": 30, "age_till": 50}
-    )
+    response = client.get("/search/", {"query": "pneumonia", "age_from": 30, "age_till": 50})
 
     ids = _doc_ids(response)
     assert young.document_id in ids
@@ -346,9 +336,7 @@ def test_hostile_query_through_real_stack_does_not_500():
         groups=[group],
     )
 
-    response = client.get(
-        "/search/", {"query": "pneumonia; DROP TABLE reports;--"}
-    )
+    response = client.get("/search/", {"query": "pneumonia; DROP TABLE reports;--"})
 
     assert response.status_code == 200
     # The report still exists (no injection executed).

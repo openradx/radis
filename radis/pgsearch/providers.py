@@ -1,23 +1,33 @@
+import hashlib
 import logging
 import unicodedata
 from collections.abc import Iterator
-from typing import cast
+from typing import Literal, cast
 
+import openai
+from django.conf import settings
 from django.contrib.postgres.search import SearchHeadline, SearchQuery, SearchRank
+from django.core.cache import cache
 from django.db.models import F, Q
+from pgvector.django import CosineDistance
 
-from radis.search.site import Search, SearchFilters, SearchResult
+from radis.core.utils.rate_limit import RateLimited
+from radis.reports.models import Report
+from radis.search.site import ReportDocument, Search, SearchFilters, SearchResult
 from radis.search.utils.query_parser import (
     BinaryNode,
     ParensNode,
     QueryNode,
+    QueryParser,
     TermNode,
     UnaryNode,
     is_search_token_char,
 )
 
-from .models import ReportSearchVector
-from .utils.document_utils import AnnotatedReportSearchVector, document_from_pgsearch_response
+from .models import ReportSearchIndex
+from .utils.document_utils import AnnotatedReportSearchIndex, document_from_pgsearch_response
+from .utils.embedding_client import EmbeddingClient, EmbeddingClientError
+from .utils.fusion import rrf_fuse, summary_with_fallback
 from .utils.language_utils import code_to_language
 
 logger = logging.getLogger(__name__)
@@ -135,47 +145,162 @@ def _build_filter_query(filters: SearchFilters) -> Q:
     return fq
 
 
+# Typed SDK errors that signal misconfiguration (bad credentials, wrong model
+# name, malformed request), not load. Retrying or waiting won't fix them.
+_PERMANENT_EMBEDDING_ERRORS = (
+    openai.AuthenticationError,
+    openai.PermissionDeniedError,
+    openai.NotFoundError,
+    openai.BadRequestError,
+)
+
+
+def _embed_query_or_none(query_text: str, caller: str) -> list[float] | None:
+    """Embed the query text, or return None to signal FTS-only fallback.
+
+    Search must stay usable when the embedding service doesn't, so every
+    failure falls back — but at different log levels: transient conditions
+    (rate limiting, connection blips, 5xx) are expected under load and log a
+    WARNING, while permanent misconfiguration logs a full exception so it
+    reaches operators instead of hiding as a silently degraded search."""
+    try:
+        with EmbeddingClient() as ec:
+            return ec.embed_query(query_text)
+    except (EmbeddingClientError, *_PERMANENT_EMBEDDING_ERRORS):
+        logger.exception(
+            "%s falling back to FTS-only; embedding service looks misconfigured", caller
+        )
+        return None
+    except (RateLimited, openai.OpenAIError) as e:
+        logger.warning("%s falling back to FTS-only: %s", caller, e)
+        return None
+
+
+def _embed_query_cached(query_text: str, caller: str) -> list[float] | None:
+    """Cache wrapper around `_embed_query_or_none`.
+
+    Pagination re-runs the whole search for every page, so without this every
+    page load re-calls the embedding service for the same query text. The key
+    covers everything that determines the vector — model, instruction, dim,
+    query text — because a shared cache backend (production uses the database)
+    outlives process restarts and thus config changes. Failures are not
+    cached: a transient outage must not pin searches to FTS-only for the TTL.
+    """
+    fingerprint = "\x00".join(
+        [
+            settings.EMBEDDING_MODEL_NAME,
+            settings.EMBEDDING_QUERY_INSTRUCTION,
+            str(settings.EMBEDDING_DIM),
+            query_text,
+        ]
+    )
+    key = "pgsearch-query-embedding-" + hashlib.sha256(fingerprint.encode()).hexdigest()
+    vec = cache.get(key)
+    if vec is None:
+        vec = _embed_query_or_none(query_text, caller)
+        if vec is not None:
+            cache.set(key, vec, timeout=settings.EMBEDDING_QUERY_CACHE_TIMEOUT_SECONDS)
+    return vec
+
+
 def search(search: Search) -> SearchResult:
     query_str = _build_query_string(search.query)
     language = _resolve_language(search.filters)
-    query = SearchQuery(query_str, search_type="raw", config=language)
     filter_query = _build_filter_query(search.filters)
-    results = (
-        ReportSearchVector.objects.filter(filter_query)
-        .filter(search_vector=query)
-        .annotate(
-            rank=SearchRank(
-                F("search_vector"),
-                query,
-            )
+    tsquery = SearchQuery(query_str, search_type="raw", config=language)
+
+    # Vector side: strip NOT branches (see
+    # docs/superpowers/specs/2026-05-28-hybrid-search.md §7.8). If nothing is
+    # left, skip the embedding call entirely and fall through to FTS-only.
+    query_text = QueryParser.unparse_for_embedding(search.query)
+    query_vec: list[float] | None = None
+    if query_text.strip():
+        query_vec = _embed_query_cached(query_text, "Hybrid search")
+
+    vec_rank: dict[int, int] = {}
+    vec_distance: dict[int, float] = {}
+    if query_vec is not None:
+        vec_rows = list(
+            ReportSearchIndex.objects.filter(filter_query)
+            .distinct()
+            .exclude(embedding__isnull=True)
+            .annotate(distance=CosineDistance("embedding", query_vec))
+            .order_by("distance", "report_id")
+            .values_list("report_id", "distance")[: settings.HYBRID_VECTOR_TOP_K]
         )
+        for i, (rid, dist) in enumerate(vec_rows):
+            vec_rank[rid] = i + 1
+            vec_distance[rid] = float(dist)
+
+    # FTS side: bounded set, ts_rank only (no headline at this stage).
+    fts_rows = list(
+        ReportSearchIndex.objects.filter(filter_query)
+        .distinct()
+        .filter(search_vector=tsquery)
+        .annotate(rank=SearchRank(F("search_vector"), tsquery))
+        .order_by("-rank", "report_id")
+        .values("report_id", "rank")[: settings.HYBRID_FTS_MAX_RESULTS]
+    )
+    fts_rank = {row["report_id"]: i + 1 for i, row in enumerate(fts_rows)}
+
+    # Fusion.
+    ordered_pairs = rrf_fuse(vec_rank, fts_rank, k=settings.HYBRID_RRF_K)
+    rrf_score_by_id = dict(ordered_pairs)
+    ordered_ids = list(rrf_score_by_id)
+    total_count = len(ordered_ids)
+    total_relation: Literal["exact", "at_least", "approximately"] = (
+        "at_least"
+        if (
+            len(fts_rows) >= settings.HYBRID_FTS_MAX_RESULTS
+            or len(vec_rank) >= settings.HYBRID_VECTOR_TOP_K
+        )
+        else "exact"
+    )
+
+    if search.limit is None:
+        page_ids = ordered_ids[search.offset :]
+    else:
+        page_ids = ordered_ids[search.offset : search.offset + search.limit]
+
+    # Headline + hydration for the page slice only.
+    page_rows = (
+        ReportSearchIndex.objects.filter(report_id__in=page_ids)
         .annotate(
             summary=SearchHeadline(
                 "report__body",
-                query,
+                tsquery,
                 config=language,
                 start_sel="<em>",
                 stop_sel="</em>",
                 min_words=10,
                 max_words=20,
                 max_fragments=10,
-            )
+            ),
+            rank=SearchRank(F("search_vector"), tsquery),
         )
         .select_related("report")
-        .order_by("-rank")
     )
+    by_id = {r.report.pk: r for r in page_rows}
 
-    total_count = results.count()
-    if search.limit is None:
-        results = results[search.offset :]
-    else:
-        results = results[search.offset : search.offset + search.limit]
-    documents = [
-        document_from_pgsearch_response(cast(AnnotatedReportSearchVector, result))
-        for result in results
-    ]
+    documents: list[ReportDocument] = []
+    for rid in page_ids:
+        rsv = by_id.get(rid)
+        if rsv is None:
+            continue
+        rsv.summary = summary_with_fallback(  # type: ignore[attr-defined]
+            rsv.report.body,
+            rsv.summary or "",  # type: ignore[attr-defined]
+            max_words=30,
+        )
+        documents.append(
+            document_from_pgsearch_response(
+                cast(AnnotatedReportSearchIndex, rsv),
+                cosine_distance=vec_distance.get(rid),
+                rrf_score=rrf_score_by_id.get(rid, 0.0),
+            )
+        )
 
-    return SearchResult(total_count=total_count, total_relation="exact", documents=documents)
+    return SearchResult(total_count=total_count, total_relation=total_relation, documents=documents)
 
 
 def count(search: Search) -> int:
@@ -183,35 +308,57 @@ def count(search: Search) -> int:
     language = _resolve_language(search.filters)
     query = SearchQuery(query_str, search_type="raw", config=language)
     filter_query = _build_filter_query(search.filters)
-    results = ReportSearchVector.objects.filter(filter_query).filter(search_vector=query)
+    results = ReportSearchIndex.objects.filter(filter_query).filter(search_vector=query)
     return results.count()
 
 
 def retrieve(search: Search) -> Iterator[str]:
     query_str = _build_query_string(search.query)
     language = _resolve_language(search.filters)
-    query = SearchQuery(query_str, search_type="raw", config=language)
     filter_query = _build_filter_query(search.filters)
-    results = (
-        ReportSearchVector.objects.filter(filter_query)
-        .filter(search_vector=query)
-        .annotate(
-            rank=SearchRank(
-                F("search_vector"),
-                query,
-            )
-        )
-        .select_related("report")
-        .order_by("-rank")
-        .values_list("report__document_id", flat=True)
-    )
+    tsquery = SearchQuery(query_str, search_type="raw", config=language)
 
-    return results.iterator()
+    # Vector side: strip NOT branches (see
+    # docs/superpowers/specs/2026-05-28-hybrid-search.md §7.8). If nothing is
+    # left, skip the embedding call entirely and fall through to FTS-only.
+    query_text = QueryParser.unparse_for_embedding(search.query)
+    query_vec: list[float] | None = None
+    if query_text.strip():
+        query_vec = _embed_query_cached(query_text, "Hybrid retrieve")
+
+    vec_rank: dict[int, int] = {}
+    if query_vec is not None:
+        vec_ids = list(
+            ReportSearchIndex.objects.filter(filter_query)
+            .distinct()
+            .exclude(embedding__isnull=True)
+            .annotate(distance=CosineDistance("embedding", query_vec))
+            .order_by("distance", "report_id")
+            .values_list("report_id", flat=True)[: settings.HYBRID_VECTOR_TOP_K]
+        )
+        vec_rank = {rid: i + 1 for i, rid in enumerate(vec_ids)}
+
+    fts_rows = list(
+        ReportSearchIndex.objects.filter(filter_query)
+        .distinct()
+        .filter(search_vector=tsquery)
+        .annotate(rank=SearchRank(F("search_vector"), tsquery))
+        .order_by("-rank", "report_id")
+        .values("report_id", "rank")[: settings.HYBRID_FTS_MAX_RESULTS]
+    )
+    fts_rank = {row["report_id"]: i + 1 for i, row in enumerate(fts_rows)}
+
+    ordered_ids = [rid for rid, _ in rrf_fuse(vec_rank, fts_rank, k=settings.HYBRID_RRF_K)]
+    if not ordered_ids:
+        return iter([])
+
+    id_to_doc = dict(Report.objects.filter(pk__in=ordered_ids).values_list("pk", "document_id"))
+    return (id_to_doc[rid] for rid in ordered_ids if rid in id_to_doc)
 
 
 def filter(filter: SearchFilters) -> Iterator[str]:
     filter_query = _build_filter_query(filter)
-    results = ReportSearchVector.objects.filter(filter_query).values_list(
+    results = ReportSearchIndex.objects.filter(filter_query).values_list(
         "report__document_id", flat=True
     )
     return results.iterator()
