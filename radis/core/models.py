@@ -83,6 +83,11 @@ class AnalysisJob(models.Model):
             is a continuous job there could be added new tasks later on.
         """
 
+        # The caller may hold an instance loaded long before this call (a worker
+        # keeps the job in memory across a whole task run, during which the user
+        # may cancel). Decide on the current DB status, not the stale one.
+        self.refresh_from_db(fields=["status"])
+
         if not self.tasks.exists():
             self.status = AnalysisJob.Status.CANCELED
             self.message = "No tasks remaining."
@@ -130,7 +135,21 @@ class AnalysisJob(models.Model):
             raise AssertionError(f"Invalid task status of {self}.")
 
         self.ended_at = timezone.now()
-        self.save()
+        # Guarded write: the refresh above and this save are not atomic, so a
+        # cancel can still land in between. A final status must never replace
+        # a cancel; zero updated rows means a concurrent cancel won.
+        updated = (
+            type(self)
+            .objects.filter(pk=self.pk)
+            .exclude(status__in=[AnalysisJob.Status.CANCELING, AnalysisJob.Status.CANCELED])
+            .update(status=self.status, message=self.message, ended_at=self.ended_at)
+        )
+        if updated == 0:
+            type(self).objects.filter(pk=self.pk, status=AnalysisJob.Status.CANCELING).update(
+                status=AnalysisJob.Status.CANCELED, ended_at=self.ended_at
+            )
+            self.status = AnalysisJob.Status.CANCELED
+            return False
 
         if self.send_finished_mail:
             self._send_job_finished_mail()
