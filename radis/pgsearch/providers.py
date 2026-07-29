@@ -103,8 +103,11 @@ def _build_filter_query(filters: SearchFilters) -> Q:
     # ``groups`` M2M includes that group. This mirrors the report access model
     # used everywhere else (e.g. ``Report.objects.filter(groups=active_group)``
     # in radis.reports.views.ReportListView/ReportDetailView and the
-    # ``groups=active_group`` lookup in radis.chats.views). ``SearchView`` always
-    # supplies ``group=active_group.pk``, so this filter is unconditional; without
+    # ``groups=active_group`` lookup in radis.chats.views). ``SearchView``
+    # supplies ``group=active_group.pk``; the extraction search preview may pass
+    # ``group=None`` when the user has no active group, which is fail-closed:
+    # ``Q(report__groups=None)`` becomes ``groups__isnull=True`` and matches only
+    # reports assigned to no group at all. The filter stays unconditional; without
     # it the search would leak reports belonging only to other groups.
     fq = Q(report__groups=filters.group)
 
@@ -131,6 +134,8 @@ def _build_filter_query(filters: SearchFilters) -> Q:
         fq &= Q(report__created_at__gte=filters.created_after)
     if filters.created_before:
         fq &= Q(report__created_at__lte=filters.created_before)
+    if filters.updated_after:
+        fq &= Q(report__updated_at__gte=filters.updated_after)
 
     return fq
 

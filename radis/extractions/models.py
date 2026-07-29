@@ -75,6 +75,7 @@ class OutputType(models.TextChoices):
     TEXT = "T", "Text"
     NUMERIC = "N", "Numeric"
     BOOLEAN = "B", "Boolean"
+    SELECTION = "S", "Selection"
 
 
 class OutputField(models.Model):
@@ -84,7 +85,8 @@ class OutputField(models.Model):
         max_length=1, choices=OutputType.choices, default=OutputType.TEXT
     )
     get_output_type_display: Callable[[], str]
-    optional = models.BooleanField(default=False)
+    selection_options = models.JSONField(default=list, blank=True)
+    is_array = models.BooleanField(default=False)
     job = models.ForeignKey[ExtractionJob](
         ExtractionJob, on_delete=models.CASCADE, related_name="output_fields"
     )
@@ -99,6 +101,27 @@ class OutputField(models.Model):
 
     def __str__(self) -> str:
         return f'Output Field "{self.name}" [{self.pk}]'
+
+    def clean(self) -> None:
+        from django.core.exceptions import ValidationError
+
+        from radis.extractions.utils.validation import validate_selection_options
+
+        super().clean()
+
+        if self.output_type == OutputType.SELECTION:
+            if not self.selection_options:
+                raise ValidationError({"selection_options": "Add at least one selection option."})
+            try:
+                self.selection_options = validate_selection_options(self.selection_options)
+            except ValidationError as e:
+                raise ValidationError({"selection_options": e.message})
+        else:
+            if self.selection_options:
+                raise ValidationError(
+                    {"selection_options": "Selections are only allowed for the Selection type."}
+                )
+            self.selection_options = []
 
 
 class ExtractionTask(AnalysisTask):

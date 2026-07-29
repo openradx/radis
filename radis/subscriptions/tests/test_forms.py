@@ -9,8 +9,8 @@ AGE_STEP=10, MIN_AGE=0, MAX_AGE=120 (radis.search.forms). The form enforces:
 import pytest
 from adit_radis_shared.accounts.factories import GroupFactory, UserFactory
 
+from radis.core.constants import AGE_STEP
 from radis.reports.factories import LanguageFactory
-from radis.search.forms import AGE_STEP
 from radis.subscriptions.forms import SubscriptionForm
 
 
