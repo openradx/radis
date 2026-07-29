@@ -530,6 +530,43 @@ class TestAnalysisJob:
                 )
 
 
+@pytest.mark.django_db
+def test_cancel_job_cancels_pending_and_sets_canceled():
+    from radis.core.models import AnalysisTask
+    from radis.core.utils.model_utils import cancel_job
+    from radis.labels.factories import LabelingJobFactory, LabelingTaskFactory
+    from radis.labels.models import LabelingJob
+
+    job = LabelingJobFactory.create(status=LabelingJob.Status.PENDING)
+    task = LabelingTaskFactory.create(job=job, status=AnalysisTask.Status.PENDING)
+
+    cancel_job(job)
+
+    job.refresh_from_db()
+    task.refresh_from_db()
+    assert job.status == LabelingJob.Status.CANCELED
+    assert task.status == AnalysisTask.Status.CANCELED
+
+
+@pytest.mark.django_db
+def test_cancel_job_with_running_task_sets_canceling():
+    from radis.core.models import AnalysisTask
+    from radis.core.utils.model_utils import cancel_job
+    from radis.labels.factories import LabelingJobFactory, LabelingTaskFactory
+    from radis.labels.models import LabelingJob
+
+    job = LabelingJobFactory.create(status=LabelingJob.Status.IN_PROGRESS)
+    LabelingTaskFactory.create(job=job, status=AnalysisTask.Status.IN_PROGRESS)
+    pending = LabelingTaskFactory.create(job=job, status=AnalysisTask.Status.PENDING)
+
+    cancel_job(job)
+
+    job.refresh_from_db()
+    pending.refresh_from_db()
+    assert job.status == LabelingJob.Status.CANCELING
+    assert pending.status == AnalysisTask.Status.CANCELED
+
+
 class TestAnalysisTask:
     @pytest.mark.django_db
     def test_task_properties(self):
