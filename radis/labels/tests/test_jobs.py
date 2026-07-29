@@ -32,8 +32,8 @@ def test_scan_job_owner_may_be_null():
 @pytest.mark.django_db
 def test_finished_mail_is_a_noop_for_labeling_jobs():
     # Labeling jobs never send completion mail; neither an owner-less scan job nor an owned
-    # manual job with send_finished_mail=True may crash (the base would touch the undefined
-    # finished_mail_template attribute).
+    # manual job with send_finished_mail=True may crash (the base implementation would raise
+    # ValueError on the None finished_mail_template).
     from adit_radis_shared.accounts.factories import UserFactory
 
     scan_job = LabelingJob.objects.create(
@@ -168,3 +168,60 @@ def test_empty_scope_manual_job_finishes_instead_of_blocking_singleton(monkeypat
     assert job.status not in LabelingJob.ACTIVE_STATUSES  # singleton is freed
     # A fresh job can now be created (the index does not block it).
     LabelingJobFactory.create(status=LabelingJob.Status.PENDING)
+
+
+@pytest.mark.django_db
+def test_cancel_during_preparation_is_not_overwritten_by_pending_write(monkeypatch):
+    # An admin cancel landing mid-PREPARING must win: the late PENDING write must not
+    # resurrect the job (all-canceled tasks would wedge the singleton index forever).
+    from radis.core.models import AnalysisTask
+    from radis.core.utils.model_utils import cancel_job
+    from radis.labels import tasks
+    from radis.labels.factories import LabelFactory, LabelGroupFactory
+    from radis.labels.models import LabelingTask
+    from radis.reports.factories import ReportFactory
+
+    LabelFactory.create(group=LabelGroupFactory.create())
+    ReportFactory.create()
+    job = LabelingJobFactory.create(
+        trigger=LabelingJob.Trigger.MANUAL, status=LabelingJob.Status.PENDING
+    )
+    monkeypatch.setattr(LabelingTask, "delay", lambda self: None)
+
+    stream = tasks._create_labeling_tasks_streaming
+
+    def stream_then_cancel(j):
+        stream(j)
+        cancel_job(LabelingJob.objects.get(pk=j.pk))  # concurrent admin cancel mid-prep
+
+    monkeypatch.setattr(tasks, "_create_labeling_tasks_streaming", stream_then_cancel)
+    tasks.process_labeling_job(job.pk)
+
+    job.refresh_from_db()
+    assert job.status == LabelingJob.Status.CANCELED
+    assert not job.tasks.filter(status=AnalysisTask.Status.PENDING).exists()
+
+
+@pytest.mark.django_db
+def test_cancel_during_preparation_is_not_overwritten_by_empty_scope_success(monkeypatch):
+    # Same race on the empty-scope shortcut: cancel must not be overwritten by SUCCESS.
+    from radis.core.utils.model_utils import cancel_job
+    from radis.labels import tasks
+    from radis.labels.factories import LabelFactory, LabelGroupFactory
+
+    LabelFactory.create(group=LabelGroupFactory.create())  # active label, but no reports
+    job = LabelingJobFactory.create(
+        trigger=LabelingJob.Trigger.MANUAL, status=LabelingJob.Status.PENDING
+    )
+
+    stream = tasks._create_labeling_tasks_streaming
+
+    def stream_then_cancel(j):
+        stream(j)
+        cancel_job(LabelingJob.objects.get(pk=j.pk))  # concurrent admin cancel mid-prep
+
+    monkeypatch.setattr(tasks, "_create_labeling_tasks_streaming", stream_then_cancel)
+    tasks.process_labeling_job(job.pk)
+
+    job.refresh_from_db()
+    assert job.status == LabelingJob.Status.CANCELED

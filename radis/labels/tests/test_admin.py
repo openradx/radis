@@ -5,11 +5,8 @@ from django.urls import reverse
 
 from radis.labels.models import LabelingJob
 
-# When running with development settings (FORCE_DEBUG_TOOLBAR=true), the debug-toolbar
-# middleware calls render_toolbar() on every response.  That template resolves the
-# "djdt:render_panel" URL, which is only registered when the __debug__ URL block is
-# mounted (i.e. in the real dev server, not in the test client).  We disable the
-# toolbar for all tests in this module to prevent that NoReverseMatch.
+# Under FORCE_DEBUG_TOOLBAR=true the toolbar middleware resolves "djdt:render_panel", which
+# only the dev server's __debug__ URLs mount -> NoReverseMatch in the test client.
 _no_toolbar = override_settings(DEBUG_TOOLBAR_CONFIG={"SHOW_TOOLBAR_CALLBACK": lambda r: False})
 
 

@@ -477,9 +477,8 @@ SUBSCRIPTION_CRON = "* * * * *"
 SUBSCRIPTION_REFRESH_TASK_BATCH_SIZE = 100
 
 # Labeling (radis.labels)
-# Generic labeling system prompt. Carries NO label-specific text — each label is a field
-# in the dynamically generated schema and its name/description rides in that field's
-# description=. Only $report is substituted.
+# Generic prompt: label-specific text rides in each schema field's description; only $report
+# is substituted.
 _DEFAULT_LABELING_SYSTEM_PROMPT = """
 You are an AI medical assistant. The provided schema lists one field per label, each
 field's description defining the label. For every field, decide how strongly the report

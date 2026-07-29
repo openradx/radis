@@ -207,7 +207,8 @@ design, so comparing a flat result count to the active-label count would always 
 `LabelingTaskProcessor` (subclass of `AnalysisTaskProcessor`) calls `label_report(report_id)` for
 each report in the task under a `ThreadPoolExecutor(max_workers=LABELING_LLM_CONCURRENCY_LIMIT)`. A
 single report's exception is caught and logged with full traceback; it downgrades the task to
-`WARNING` rather than failing the batch. `db.close_old_connections()` is called per worker thread
+`WARNING` rather than failing the batch. If _every_ report in the task fails, the task escalates
+to `FAILURE` instead (treated as systemic — LLM outage or bug, not per-report data trouble). `db.close_old_connections()` is called per worker thread
 and at task end.
 
 ### Cancellation and resumability
@@ -290,7 +291,7 @@ group.
 ### Failure handling
 
 Per-report exceptions are caught inside `LabelingTaskProcessor`; one failure doesn't abort the
-batch (task → `WARNING`). A report that fails in a scan job is not retried by the next scan (the
+batch (task → `WARNING`; all reports failing escalates the task to `FAILURE`). A report that fails in a scan job is not retried by the next scan (the
 checkpoint advanced past its `created_at`); the next manual backfill catches it via the
 missing-results predicate. Procrastinate retries the task only on uncaught (infra) exceptions.
 
@@ -407,7 +408,7 @@ bucket meanings; the default gate prompt enumerates YES/NO. The labeling task re
   uniqueness; empty-scope job finishes `SUCCESS`.
 - **Engine (LLM mocked):** gate batching; NO-gate skips the group; five-bucket storage with only
   surfacing buckets visible; all decision-table transitions incl. atomic `YES→NO` flip; skip
-  conditions; per-report failure → task `WARNING`.
+  conditions; per-report failure → task `WARNING`; all-reports failure → task `FAILURE`.
 - **Scan:** first run, active-job guard, no-new-reports (checkpoint still advances), creates scan
   job, scope isolation, checkpoint singleton.
 - **Admin:** backfill creates a MANUAL job; conflict is a no-op when active; group search; read-only

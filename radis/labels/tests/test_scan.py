@@ -88,5 +88,4 @@ def test_no_active_labels_skips(monkeypatch):
     tasks.incremental_label_scan(_now_ts())
 
     assert not LabelingJob.objects.exists()
-    # Checkpoint must stay frozen (not advanced) when there are no active labels.
     assert LabelingScanCheckpoint.objects.get(pk=1).last_scanned_at == frozen

@@ -175,9 +175,7 @@ class LabelingJob(AnalysisJob):
         self.queued_job_id = queued_job_id
         self.save()
 
-    # Labeling jobs never send a completion email in v1 (scan jobs have no owner, and there is
-    # no labeling mail template). Defining this avoids the base class touching the undefined
-    # `finished_mail_template` attribute.
+    # No completion mail in v1 (scan jobs are owner-less; no labeling mail template exists).
     finished_mail_template = None
 
     def _send_job_finished_mail(self) -> None:

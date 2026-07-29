@@ -94,8 +94,8 @@ File: `radis/labels/processors.py`.
 
 - `LabelingTaskProcessor(AnalysisTaskProcessor)`: `ThreadPoolExecutor(max_workers=
   LABELING_LLM_CONCURRENCY_LIMIT)` over the task's reports; `_safe_label` catches/logs per-report
-  failures and downgrades the task to `WARNING`; `db.close_old_connections()` per thread and at
-  end.
+  failures and downgrades the task to `WARNING` (`FAILURE` when every report fails);
+  `db.close_old_connections()` per thread and at end.
 
 ## Task 5 — Admin + management command
 
@@ -136,7 +136,7 @@ Files: `radis/reports/models.py`, `radis/reports/templates/reports/report_detail
 no-wipe-on-refire, empty-scope SUCCESS, nullable owner, mail no-op, scope), `test_admin.py`
 (backfill button, conflict no-op, read-only admins, duplicate name), `test_labeling.py` (gate flow
 + decision table + atomic flip), `test_scope.py`, `test_scan.py`, `test_stale_detection.py`,
-`test_processor.py` (partial failure → WARNING), `test_surfacing.py`, `test_search_filter.py`,
+`test_processor.py` (partial failure → WARNING, total failure → FAILURE), `test_surfacing.py`, `test_search_filter.py`,
 `test_labels_status.py`, and `unit/{test_schemas,test_prompts}.py`. Search-side label cases in
 `radis/search/tests/{test_forms,test_views}.py`.
 

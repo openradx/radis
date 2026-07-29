@@ -69,6 +69,34 @@ def test_report_with_fresh_yes_gate_and_stale_result_needs_work():
 
 
 @pytest.mark.django_db
+def test_stale_result_not_masked_by_other_reports_fresh_result():
+    # After a label edit, a partially completed backfill leaves a mix of fresh and stale
+    # results. The freshness check must be per (report, label) row — a fresh result on
+    # another report must not hide this report's stale one from the next backfill.
+    from django.utils import timezone
+
+    group = LabelGroupFactory.create()
+    label = LabelFactory.create(group=group)
+    report_stale = ReportFactory.create()
+    report_fresh = ReportFactory.create()
+    GateAnswerFactory.create(report=report_stale, label_group=group, value=GateAnswer.Value.YES)
+    GateAnswerFactory.create(report=report_fresh, label_group=group, value=GateAnswer.Value.YES)
+    LabelResultFactory.create(report=report_stale, label=label, value=LabelResult.Value.PRESENT)
+    result_fresh = LabelResultFactory.create(
+        report=report_fresh, label=label, value=LabelResult.Value.PRESENT
+    )
+
+    label.description = "edited"  # -> every existing result is stale
+    label.save()
+    # A partial backfill refreshed only report_fresh (update() bypasses auto_now).
+    LabelResult.objects.filter(pk=result_fresh.pk).update(generated_at=timezone.now())
+
+    ids = _ids()
+    assert report_fresh.pk not in ids
+    assert report_stale.pk in ids
+
+
+@pytest.mark.django_db
 def test_report_with_only_absent_but_fresh_results_is_done():
     group = LabelGroupFactory.create()
     label = LabelFactory.create(group=group)

@@ -69,17 +69,31 @@ def process_labeling_job(job_id: int) -> None:
     # Finish the job immediately instead of leaving it stuck in PENDING — PENDING is an ACTIVE
     # status, so a stuck job would block the singleton index and prevent all future jobs.
     if not job.tasks.exists():
-        job.status = AnalysisJob.Status.SUCCESS
-        job.message = "No reports needed labeling."
-        job.queued_job_id = None
-        job.ended_at = timezone.now()
-        job.save()
+        # Conditional like the PENDING write below — don't overwrite a concurrent cancel.
+        LabelingJob.objects.filter(pk=job.pk, status=AnalysisJob.Status.PREPARING).update(
+            status=AnalysisJob.Status.SUCCESS,
+            message="No reports needed labeling.",
+            queued_job_id=None,
+            ended_at=timezone.now(),
+        )
         logger.info("Labeling job %s had nothing to do; marked SUCCESS.", job.pk)
         return
 
-    job.status = AnalysisJob.Status.PENDING
-    job.queued_job_id = None
-    job.save()
+    # Conditional write: a concurrent admin cancel may have moved the job out of PREPARING —
+    # an unconditional save() here would resurrect a CANCELED job to PENDING and wedge the
+    # singleton index (its tasks are all CANCELED, so nothing would ever finish it).
+    updated = LabelingJob.objects.filter(pk=job.pk, status=AnalysisJob.Status.PREPARING).update(
+        status=AnalysisJob.Status.PENDING, queued_job_id=None
+    )
+    if not updated:
+        # Cancel won the race; sweep any tasks created after cancel_job's own sweep.
+        job.tasks.filter(status=AnalysisTask.Status.PENDING).update(
+            status=AnalysisTask.Status.CANCELED
+        )
+        logger.warning(
+            "Labeling job %s left PREPARING during preparation; not enqueuing tasks.", job.pk
+        )
+        return
 
     # Only now (PENDING) may tasks be enqueued.
     for task in job.tasks.filter(status=AnalysisTask.Status.PENDING):
@@ -125,8 +139,8 @@ def incremental_label_scan(timestamp: int) -> None:
         return
 
     if not Label.objects.filter(active=True).exists():
-        # No labels to apply. Return WITHOUT advancing so the checkpoint stays frozen; when labels
-        # are (re)activated, the next tick's scan_from still covers everything ingested meanwhile.
+        # No active labels: leave the checkpoint frozen so a later (re)activation still covers
+        # everything ingested meanwhile.
         return
 
     if Report.objects.filter(created_at__gte=checkpoint.last_scanned_at).exists():

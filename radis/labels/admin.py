@@ -51,9 +51,8 @@ class LabelResultAdmin(_ReadOnlyAdmin):
     list_display = ("report", "label", "value", "is_stale", "generated_at")
     list_filter = ("value", "label")
     search_fields = ("report__document_id", "label__name")
-    # Inert while this admin is read-only (read-only fields never render as editable widgets),
-    # but kept as a safety net: if the read-only guard is ever loosened, these degrade to ID
-    # inputs instead of a <select> dropdown over the huge Report table.
+    # Inert while read-only, but if the guard is ever loosened these degrade to ID inputs
+    # instead of a <select> over the huge Report table.
     raw_id_fields = ("report", "label")
 
     @admin.display(boolean=True, description="Stale")
@@ -66,8 +65,7 @@ class GateAnswerAdmin(_ReadOnlyAdmin):
     list_display = ("report", "label_group", "value", "is_stale", "generated_at")
     list_filter = ("value", "label_group")
     search_fields = ("report__document_id", "label_group__name")
-    # See LabelResultAdmin: inert under read-only, kept so a future editable admin degrades to
-    # ID inputs instead of a dropdown over the huge Report table.
+    # Inert under read-only; see LabelResultAdmin.
     raw_id_fields = ("report", "label_group")
 
     @admin.display(boolean=True, description="Stale")
@@ -92,9 +90,7 @@ class LabelingScanCheckpointAdmin(admin.ModelAdmin):
 
 @admin.register(LabelingJob)
 class LabelingJobAdmin(admin.ModelAdmin):
-    # Uses a custom changelist template that adds a "Run backfill now" button so that
-    # the action does not require selecting a row (Django's built-in action mechanism
-    # enforces at least one selected object).
+    # Custom changelist adds a "Run backfill now" button (built-in actions need a selected row).
     change_list_template = "admin/labels/labelingjob/change_list.html"
     # Adds a "Cancel job" button to the read-only detail page when the job is cancelable.
     change_form_template = "admin/labels/labelingjob/change_form.html"
@@ -123,9 +119,8 @@ class LabelingJobAdmin(admin.ModelAdmin):
         return False
 
     def has_delete_permission(self, request: HttpRequest, obj: object = None) -> bool:
-        # Active jobs must be canceled (which revokes their queued work) before deletion;
-        # deleting a running job would orphan in-flight LLM calls. Finished jobs follow the
-        # normal Django delete-permission check.
+        # Active jobs must be canceled first (cancel revokes their queued work) — deleting a
+        # running job would orphan in-flight LLM calls.
         if isinstance(obj, LabelingJob) and obj.status in LabelingJob.ACTIVE_STATUSES:
             return False
         return super().has_delete_permission(request, obj)
@@ -194,15 +189,12 @@ class LabelingJobAdmin(admin.ModelAdmin):
 class LabelingTaskAdmin(_ReadOnlyAdmin):
     list_display = ("id", "job", "status", "message", "started_at", "ended_at")
     list_filter = ("status",)
-    # Inert under read-only; kept for consistency with the other label admins so a future
-    # editable admin degrades to an ID input rather than a full LabelingJob dropdown.
+    # Inert under read-only; see LabelResultAdmin.
     raw_id_fields = ("job",)
 
     def has_delete_permission(self, request: HttpRequest, obj: object = None) -> bool:
-        # Allow deletion so deleting a finished LabelingJob can cascade to its tasks, but never
-        # for a task whose job is still active — deleting a live task neither revokes its queued
-        # Procrastinate job nor updates job state, corrupting the run. Cascade still works
-        # because only non-active jobs are deletable, so their tasks pass this guard.
+        # Deletable only so a non-active job's delete can cascade to its tasks — deleting a
+        # live task neither revokes its queued Procrastinate job nor updates job state.
         if isinstance(obj, LabelingTask) and obj.job.status in LabelingJob.ACTIVE_STATUSES:
             return False
         return True
