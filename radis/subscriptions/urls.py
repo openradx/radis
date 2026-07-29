@@ -5,6 +5,7 @@ from .views import (
     SubscriptionCreateView,
     SubscriptionDeleteView,
     SubscriptionDetailView,
+    SubscriptionInboxDownloadView,
     SubscriptionInboxView,
     SubscriptionListView,
     SubscriptionUpdateView,
@@ -22,4 +23,9 @@ urlpatterns = [
         name="subscription_help",
     ),
     path("<int:pk>/inbox/", SubscriptionInboxView.as_view(), name="subscription_inbox"),
+    path(
+        "<int:pk>/inbox/download/",
+        SubscriptionInboxDownloadView.as_view(),
+        name="subscription_inbox_download",
+    ),
 ]
