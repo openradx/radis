@@ -83,15 +83,21 @@ def _build_subscription_job(job: SubscriptionJob) -> None:
     tasks_created = 0
     for document_ids in batched(new_document_ids, settings.SUBSCRIPTION_REFRESH_TASK_BATCH_SIZE):
         logger.debug("Creating SubscriptionTask for document IDs: %s", document_ids)
+        # Reports deleted since the filter-provider search are skipped instead
+        # of failing the whole job.
+        reports = list(Report.objects.filter(document_id__in=document_ids))
+        if not reports:
+            continue
         task = SubscriptionTask.objects.create(job=job, status=SubscriptionTask.Status.PENDING)
-        for document_id in document_ids:
-            task.reports.add(Report.objects.get(document_id=document_id))
+        task.reports.add(*reports)
         tasks_created += 1
 
     logger.debug("Starting SubscriptionTasks done.")
 
     job.subscription.last_refreshed = refresh_time
-    job.subscription.save()
+    # Don't write back the full object - the user may have edited the
+    # subscription while this refresh was running.
+    job.subscription.save(update_fields=["last_refreshed"])
 
     if tasks_created == 0:
         # A job with no tasks is never completed by task processing, so it

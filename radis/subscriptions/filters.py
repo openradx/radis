@@ -49,7 +49,7 @@ class SubscribedItemFilter(django_filters.FilterSet):
         widget=forms.DateInput(attrs={"type": "date"}),
     )
     modalities = django_filters.ModelMultipleChoiceFilter(
-        queryset=Modality.objects.order_by("code"),
+        queryset=Modality.objects.filter(filterable=True).order_by("code"),
         field_name="report__modalities__code",
         to_field_name="code",
     )
