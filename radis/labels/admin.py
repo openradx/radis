@@ -94,6 +94,10 @@ class LabelingJobAdmin(admin.ModelAdmin):
     change_list_template = "admin/labels/labelingjob/change_list.html"
     # Adds a "Cancel job" button to the read-only detail page when the job is cancelable.
     change_form_template = "admin/labels/labelingjob/change_form.html"
+    # get_absolute_url points back at this very admin page (it exists for job links
+    # elsewhere), so the "View on site" button would be a circular link — and the
+    # sites-framework redirect it goes through breaks when SITE_DOMAIN lacks the port.
+    view_on_site = False
 
     list_display = ("id", "trigger", "status", "owner", "created_at", "ended_at")
     list_filter = ("trigger", "status")

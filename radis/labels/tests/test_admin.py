@@ -268,3 +268,20 @@ def test_labeling_task_detail_shows_message_and_log(client):
     assert response.status_code == 200
     assert b"1 of 2 reports failed to label." in response.content
     assert b"Report 42: RuntimeError: LLM exploded" in response.content
+
+
+@_no_toolbar
+@pytest.mark.django_db
+def test_job_change_page_has_no_view_on_site_button(client):
+    from radis.labels.factories import LabelingJobFactory
+
+    admin_user = UserFactory.create(is_staff=True, is_superuser=True, is_active=True)
+    client.force_login(admin_user)
+
+    job = LabelingJobFactory.create(status=LabelingJob.Status.SUCCESS)
+    url = reverse("admin:labels_labelingjob_change", args=[job.pk])
+
+    content = client.get(url).content.decode()
+    # get_absolute_url points back at this very admin page (and the
+    # sites-framework redirect is broken in dev), so the button is useless.
+    assert "View on site" not in content
