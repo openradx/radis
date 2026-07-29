@@ -112,9 +112,7 @@ def test_to_internal_value_rejects_non_string_language():
 @pytest.mark.django_db
 def test_to_internal_value_rejects_non_dict_metadata():
     group = GroupFactory.create()
-    serializer = ReportSerializer(
-        data=wire_payload(group=group, metadata=[["k", "v"]])
-    )
+    serializer = ReportSerializer(data=wire_payload(group=group, metadata=[["k", "v"]]))
 
     with pytest.raises(ValidationError) as exc:
         serializer.is_valid(raise_exception=True)
@@ -124,9 +122,7 @@ def test_to_internal_value_rejects_non_dict_metadata():
 @pytest.mark.django_db
 def test_to_internal_value_rejects_non_list_modalities():
     group = GroupFactory.create()
-    serializer = ReportSerializer(
-        data=wire_payload(group=group, modalities={"code": "CT"})
-    )
+    serializer = ReportSerializer(data=wire_payload(group=group, modalities={"code": "CT"}))
 
     with pytest.raises(ValidationError) as exc:
         serializer.is_valid(raise_exception=True)
