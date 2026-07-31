@@ -5,7 +5,7 @@ from adit_radis_shared.accounts.factories import GroupFactory, UserFactory
 from django.test import Client
 
 from radis.reports.factories import LanguageFactory, ModalityFactory, ReportFactory
-from radis.search.site import ReportDocument, SearchProvider, SearchResult
+from radis.search.site import ReportDocument, Search, SearchProvider, SearchResult
 
 
 def create_test_user_with_active_group():
@@ -324,3 +324,29 @@ def test_search_view_form_validation_errors(client: Client):
         response = client.get("/search/", search_params)
         assert response.status_code == 200
         assert "form" in response.context
+
+
+@pytest.mark.django_db
+def test_search_view_threads_selected_labels_into_filters(client: Client) -> None:
+    """Selected labels from the form are passed through to SearchFilters."""
+    from radis.labels.factories import LabelFactory
+
+    LabelFactory.create(name="edema", active=True)
+    LabelFactory.create(name="pneumonia", active=True)
+
+    user = create_test_user_with_active_group()
+    client.force_login(user)
+
+    captured: dict[str, Search] = {}
+
+    def capturing_search(search: Search) -> SearchResult:
+        captured["search"] = search
+        return SearchResult(total_count=0, total_relation="exact", documents=[])
+
+    provider = SearchProvider(name="Capturing", search=capturing_search, max_results=1000)
+
+    with patch("radis.search.views.search_provider", provider):
+        response = client.get("/search/", {"query": "chest", "labels": ["edema", "pneumonia"]})
+
+    assert response.status_code == 200
+    assert captured["search"].filters.labels == ["edema", "pneumonia"]

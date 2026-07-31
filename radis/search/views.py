@@ -37,6 +37,7 @@ class SearchView(LoginRequiredMixin, UserPassesTestMixin, View):
         patient_sex = form.cleaned_data["patient_sex"]
         age_from = form.cleaned_data["age_from"]
         age_till = form.cleaned_data["age_till"]
+        labels = form.cleaned_data["labels"]
 
         if search_provider is None:
             raise ImproperlyConfigured("Search provider is not configured.")
@@ -74,6 +75,7 @@ class SearchView(LoginRequiredMixin, UserPassesTestMixin, View):
                     patient_sex=patient_sex,
                     patient_age_from=age_from,
                     patient_age_till=age_till,
+                    labels=labels,
                 ),
                 offset=offset,
                 limit=page_size,
