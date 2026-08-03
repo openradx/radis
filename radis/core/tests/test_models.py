@@ -636,3 +636,48 @@ class TestAnalysisTask:
         task.created_at = None
         with pytest.raises(Exception):
             task.save()
+
+
+@pytest.mark.django_db
+def test_update_job_state_on_stale_instance_respects_concurrent_cancel():
+    """A worker holds a job instance loaded before the user canceled (it kept it
+    in memory across a long task run). When the last task finishes and the worker
+    evaluates the final state, the CANCELING recorded in the DB must win: the job
+    ends CANCELED, never SUCCESS."""
+    user = UserFactory.create()
+    job = ExtractionJobFactory.create(owner=user, status=AnalysisJob.Status.IN_PROGRESS)
+    ExtractionTaskFactory.create(job=job, status=AnalysisTask.Status.SUCCESS)
+    ExtractionTaskFactory.create(job=job, status=AnalysisTask.Status.CANCELED)
+
+    # The cancel view writes CANCELING directly to the DB; the worker's `job`
+    # instance still holds IN_PROGRESS.
+    type(job).objects.filter(pk=job.pk).update(status=AnalysisJob.Status.CANCELING)
+
+    job.update_job_state()
+
+    job.refresh_from_db()
+    assert job.status == AnalysisJob.Status.CANCELED
+
+
+@pytest.mark.django_db
+def test_final_state_write_guarded_against_cancel_landing_after_refresh(monkeypatch):
+    """Even a cancel that lands in the sliver between the status refresh and the
+    final-state write must win over SUCCESS — the write has to be guarded, not
+    just preceded by a refresh."""
+    user = UserFactory.create()
+    job = ExtractionJobFactory.create(owner=user, status=AnalysisJob.Status.IN_PROGRESS)
+    ExtractionTaskFactory.create(job=job, status=AnalysisTask.Status.SUCCESS)
+
+    real_refresh = job.refresh_from_db
+
+    def refresh_then_cancel(*args, **kwargs):
+        real_refresh(*args, **kwargs)
+        # The cancel view writes CANCELING right after the worker refreshed.
+        type(job).objects.filter(pk=job.pk).update(status=AnalysisJob.Status.CANCELING)
+
+    monkeypatch.setattr(job, "refresh_from_db", refresh_then_cancel)
+
+    job.update_job_state()
+
+    db_status = type(job).objects.values_list("status", flat=True).get(pk=job.pk)
+    assert db_status == AnalysisJob.Status.CANCELED
