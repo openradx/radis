@@ -342,7 +342,7 @@ class QueryParser:
         embedding model.
 
         - Drops every ``UnaryNode("NOT", X)`` (embeddings are polarity-blind
-          for negation; see docs/superpowers/specs/2026-05-28-hybrid-search.md
+          for negation; see docs/superpowers/specs/hybrid-search.md
           §7.8).
         - Drops boolean operator tokens (``AND``/``OR``): they're query syntax,
           not content. The embedding model would otherwise see them as

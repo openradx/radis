@@ -38,9 +38,18 @@ def _build_http_client() -> httpx.Client:
 
 
 def _l2_normalize(vec: list[float]) -> list[float]:
+    """L2-normalize ``vec`` to a unit vector, rejecting values that can't be.
+
+    A zero vector has undefined cosine distance and is unusable by a
+    ``vector_cosine_ops`` HNSW index; non-finite components (NaN/inf) corrupt
+    both indexing and query distances. Both indicate malformed provider
+    output, so raise ``EmbeddingClientError`` rather than let them silently
+    reach pgvector."""
+    if not all(math.isfinite(x) for x in vec):
+        raise EmbeddingClientError("Embedding contains non-finite values (NaN or inf)")
     norm = math.sqrt(sum(x * x for x in vec))
     if norm == 0.0:
-        return vec
+        raise EmbeddingClientError("Embedding is a zero vector; cosine distance is undefined")
     return [x / norm for x in vec]
 
 

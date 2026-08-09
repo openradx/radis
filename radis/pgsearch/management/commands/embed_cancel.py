@@ -1,9 +1,12 @@
 """Cancel a running embedding backfill.
 
-Counterpart to `embed_pending`: cancels every embed_reports_task subjob
-still queued at backfill priority. Subjobs already being executed (at most
-the embeddings worker's --concurrency) finish their current chunk; live
-write-path embedding subjobs are untouched. Cancelled jobs are terminal:
+Counterpart to `embed_pending`: cancels every queued embed_reports_task
+subjob belonging to an active backfill run, identified by the run's `run_id`
+in the job args (not by priority — `retry_stalled_jobs` can reprioritize a
+stalled subjob, so a priority-based cancel would miss it). Subjobs already
+being executed (at most the embeddings worker's --concurrency) finish their
+current chunk; live write-path embedding subjobs carry no `run_id` and are
+untouched. Cancelled jobs are terminal:
 re-running `embed_pending` later covers the remaining work by enqueueing
 the still-NULL reports as fresh subjobs chunked at the then-current
 EMBEDDING_SUBJOB_SIZE (its `embedding IS NULL` filter skips everything
@@ -21,9 +24,9 @@ logger = logging.getLogger(__name__)
 
 class Command(BaseCommand):
     help = (
-        "Cancel every queued embedding-backfill subjob (todo jobs at "
-        "backfill priority). Running subjobs finish their current chunk; "
-        "live write-path embedding is untouched."
+        "Cancel every queued embedding-backfill subjob (todo jobs tagged "
+        "with an active run's run_id). Running subjobs finish their current "
+        "chunk; live write-path embedding is untouched."
     )
 
     def handle(self, *args, **opts) -> None:
