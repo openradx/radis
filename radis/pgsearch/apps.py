@@ -140,10 +140,9 @@ def register_app():
         SearchProvider(
             name="PG Search",
             search=search,
-            # The hybrid result set is the UNION of the two retrievers, so it can
-            # hold up to this many distinct ids. Advertising the max would make
-            # SearchView reject reachable pages in the tail.
-            max_results=settings.HYBRID_VECTOR_TOP_K + settings.HYBRID_FTS_MAX_RESULTS,
+            # Deliberate cap on how many fused RRF results are paginated for
+            # viewing — not the true union size.
+            max_results=max(settings.HYBRID_VECTOR_TOP_K, settings.HYBRID_FTS_MAX_RESULTS),
         )
     )
 

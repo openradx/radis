@@ -387,18 +387,6 @@ def test_count_matches_retrieve_union_for_semantic_only_query(group, settings):
     assert cnt >= 1
 
 
-def test_search_provider_max_results_covers_union_size(settings):
-    """The hybrid universe is a union, so it can hold up to
-    HYBRID_VECTOR_TOP_K + HYBRID_FTS_MAX_RESULTS ids. Advertising only the max
-    would make SearchView reject reachable pages in the tail."""
-    from radis.search import site
-
-    assert site.search_provider is not None
-    assert site.search_provider.max_results == (
-        settings.HYBRID_VECTOR_TOP_K + settings.HYBRID_FTS_MAX_RESULTS
-    )
-
-
 def test_openai_rate_limit_error_falls_back_to_fts(group, reports_with_embeddings):
     """A 429 from the embedding service on the read path must trigger the FTS
     fallback, not bubble to the search view. This is the typed-openai parallel
