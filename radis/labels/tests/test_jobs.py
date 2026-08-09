@@ -93,7 +93,10 @@ def test_scan_job_only_includes_reports_after_scan_from(monkeypatch):
 
     LabelFactory.create(group=LabelGroupFactory.create())
     old = ReportFactory.create()
-    Report.objects.filter(pk=old.pk).update(created_at=timezone.now() - timedelta(days=10))
+    Report.objects.filter(pk=old.pk).update(
+        created_at=timezone.now() - timedelta(days=10),
+        updated_at=timezone.now() - timedelta(days=10),
+    )
     cutoff = timezone.now() - timedelta(days=1)
     new = ReportFactory.create()
 
@@ -109,6 +112,36 @@ def test_scan_job_only_includes_reports_after_scan_from(monkeypatch):
         included.update(task.reports.values_list("pk", flat=True))
     assert new.pk in included
     assert old.pk not in included
+
+
+@pytest.mark.django_db
+def test_scan_job_includes_old_report_updated_after_scan_from(monkeypatch):
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    from radis.labels import tasks
+    from radis.labels.factories import LabelFactory, LabelGroupFactory
+    from radis.labels.models import LabelingTask
+    from radis.reports.factories import ReportFactory
+    from radis.reports.models import Report
+
+    LabelFactory.create(group=LabelGroupFactory.create())
+    report = ReportFactory.create()
+    # Created long before the cutoff, but updated after it (update() bypasses auto_now).
+    Report.objects.filter(pk=report.pk).update(created_at=timezone.now() - timedelta(days=10))
+    cutoff = timezone.now() - timedelta(days=1)
+
+    job = LabelingJobFactory.create(
+        trigger=LabelingJob.Trigger.SCAN, scan_from=cutoff, status=LabelingJob.Status.PENDING
+    )
+    monkeypatch.setattr(LabelingTask, "delay", lambda self: None)
+    tasks.process_labeling_job(job.pk)
+
+    included = set()
+    for task in job.tasks.all():
+        included.update(task.reports.values_list("pk", flat=True))
+    assert report.pk in included
 
 
 @pytest.mark.django_db
