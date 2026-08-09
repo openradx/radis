@@ -132,3 +132,36 @@ def test_report_with_one_fresh_gate_and_one_missing_gate_needs_work():
 
     assert _active_group_count() == 2
     assert report.pk in _ids()
+
+
+@pytest.mark.django_db
+def test_report_updated_after_gate_needs_work():
+    group = LabelGroupFactory.create()
+    LabelFactory.create(group=group)
+    report = ReportFactory.create()
+    GateAnswerFactory.create(report=report, label_group=group, value=GateAnswer.Value.NO)
+
+    report.body = "changed"
+    report.save()  # gate now predates report.updated_at -> stale
+
+    assert report.pk in _ids()
+
+
+@pytest.mark.django_db
+def test_report_updated_after_result_needs_work_even_with_refreshed_gate():
+    # Isolates the result-side predicate: the gate is re-freshened after the report edit,
+    # so only the stale LabelResult can pull the report back into scope.
+    from django.utils import timezone
+
+    group = LabelGroupFactory.create()
+    label = LabelFactory.create(group=group)
+    report = ReportFactory.create()
+    gate = GateAnswerFactory.create(report=report, label_group=group, value=GateAnswer.Value.YES)
+    LabelResultFactory.create(report=report, label=label, value=LabelResult.Value.PRESENT)
+
+    report.body = "changed"
+    report.save()
+    # Gate re-answered after the edit (update() bypasses auto_now); result still stale.
+    GateAnswer.objects.filter(pk=gate.pk).update(generated_at=timezone.now())
+
+    assert report.pk in _ids()
