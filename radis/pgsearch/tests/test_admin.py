@@ -22,6 +22,13 @@ from radis.reports.factories import ReportFactory
 pytestmark = pytest.mark.django_db(transaction=True)
 
 
+@pytest.fixture(autouse=True)
+def _embedding_url_configured(settings):
+    """The enqueue-pending admin action no-ops when no embedding provider is
+    configured, so default these tests to a configured provider."""
+    settings.EMBEDDING_PROVIDER_URL = "http://embedder.local/v1"
+
+
 @pytest.fixture
 def admin_client() -> Client:
     """Create an authenticated admin client for testing the admin interface."""

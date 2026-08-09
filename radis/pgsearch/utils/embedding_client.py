@@ -22,6 +22,18 @@ EMBEDDING_GATE = RateLimitGate(
 )
 
 
+# Typed SDK errors that mean the request reached the service but the config is
+# wrong (bad key/permission, wrong model or endpoint, malformed request).
+# Retrying won't fix them, so callers fail fast and (write path) log a clear
+# config error / (read path) fall back to FTS-only.
+PERMANENT_EMBEDDING_ERRORS = (
+    openai.AuthenticationError,
+    openai.PermissionDeniedError,
+    openai.NotFoundError,
+    openai.BadRequestError,
+)
+
+
 class EmbeddingClientError(Exception):
     """Raised when the embedding service returns a malformed response or when
     configuration is invalid. Typed `openai.OpenAIError` subclasses

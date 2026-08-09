@@ -48,6 +48,14 @@ def caplog_tasks(caplog):
 
 
 @pytest.fixture(autouse=True)
+def _embedding_url_configured(settings):
+    """Most tests here exercise the enqueue/embed path, which now no-ops when no
+    embedding provider is configured. Default the module to a configured
+    provider; the no-URL tests blank it explicitly."""
+    settings.EMBEDDING_PROVIDER_URL = "http://embedder.local/v1"
+
+
+@pytest.fixture(autouse=True)
 def _bypass_rate_limit_gate(monkeypatch):
     """These tests exercise embed_reports_task's business logic (retry,
     logging), not the rate-limit gate itself — that's covered in
@@ -105,6 +113,52 @@ def _mock_embedding_client(error: Exception | None = None):
         fake = _make_fake_client(_unit_vec(dj_settings.EMBEDDING_DIM))
     with patch("radis.pgsearch.tasks.EmbeddingClient", return_value=fake):
         yield fake
+
+
+def _auth_error() -> openai.AuthenticationError:
+    resp = httpx.Response(
+        401, request=httpx.Request("POST", "https://embedding.example/v1/embeddings")
+    )
+    return openai.AuthenticationError(message="invalid api key", response=resp, body=None)
+
+
+def test_enqueue_embed_reports_noop_when_url_not_configured(settings, db):
+    """No embedding provider configured -> no Procrastinate jobs are enqueued."""
+    from procrastinate.contrib.django.models import ProcrastinateJob
+
+    settings.EMBEDDING_PROVIDER_URL = ""
+    deferred = enqueue_embed_reports([1, 2, 3])
+    assert deferred == 0
+    assert not ProcrastinateJob.objects.filter(
+        task_name="radis.pgsearch.tasks.embed_reports_task"
+    ).exists()
+
+
+def test_enqueue_embed_reports_defers_when_url_configured(settings, db):
+    from procrastinate.contrib.django.models import ProcrastinateJob
+
+    settings.EMBEDDING_PROVIDER_URL = "http://embedder.local/v1"
+    deferred = enqueue_embed_reports([1, 2, 3], subjob_size=2)
+    assert deferred == 2
+    assert (
+        ProcrastinateJob.objects.filter(task_name="radis.pgsearch.tasks.embed_reports_task").count()
+        == 2
+    )
+
+
+def test_permanent_config_error_logs_and_raises(settings, caplog_tasks):
+    """A reachable-but-misconfigured embedder (auth/404/400) is a permanent
+    error: the task must log a clear config error and let it propagate (it is
+    excluded from the retry set, so it fails fast rather than retrying)."""
+    reports = [ReportFactory.create() for _ in range(2)]
+    pks = [r.pk for r in reports]
+
+    with _mock_embedding_client(error=_auth_error()):
+        with pytest.raises(openai.AuthenticationError):
+            embed_reports_task(report_ids=pks)
+
+    error_msgs = [r.getMessage() for r in caplog_tasks.records if r.levelname == "ERROR"]
+    assert any("config" in m.lower() for m in error_msgs)
 
 
 def test_empty_input_no_ops():

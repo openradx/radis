@@ -18,7 +18,12 @@ from radis.core.utils.rate_limit import (
 )
 
 from .models import EmbeddingBackfillRun, ReportSearchIndex
-from .utils.embedding_client import EMBEDDING_GATE, EmbeddingClient, EmbeddingClientError
+from .utils.embedding_client import (
+    EMBEDDING_GATE,
+    PERMANENT_EMBEDDING_ERRORS,
+    EmbeddingClient,
+    EmbeddingClientError,
+)
 from .utils.indexing import bulk_upsert_report_search_indexes
 
 logger = logging.getLogger(__name__)
@@ -155,6 +160,16 @@ def enqueue_embed_reports(
     write-path enqueues leave it None.
     """
     if not report_ids:
+        return 0
+    if not settings.EMBEDDING_PROVIDER_URL:
+        # FTS-only/unconfigured deployment: enqueuing embedding subjobs here would
+        # only create Procrastinate jobs doomed to fail at client construction.
+        # Skip them; search already falls back to FTS-only.
+        logger.info(
+            "enqueue_embed_reports: EMBEDDING_PROVIDER_URL not configured; "
+            "skipping embedding of %d report(s) (FTS-only deployment)",
+            len(report_ids),
+        )
         return 0
     size = subjob_size if subjob_size is not None else settings.EMBEDDING_SUBJOB_SIZE
     if priority is None:
@@ -294,6 +309,20 @@ def embed_reports_task(report_ids: list[int], run_id: int | None = None) -> None
                 for rsv, vec in zip(chunk, vectors, strict=True):
                     rsv.embedding = vec
                     embedded.append(rsv)
+    except PERMANENT_EMBEDDING_ERRORS as exc:
+        # Reachable but misconfigured (bad key/permission, wrong model or
+        # endpoint). Retrying won't help — it is excluded from the retry set, so
+        # this fails fast. Log clearly; the reports stay unembedded (FTS-only)
+        # until the config is fixed and embed_pending is re-run.
+        logger.error(
+            "embed_reports_task: embedding config looks wrong (%s: %s); reports left "
+            "unembedded (FTS-only). Check EMBEDDING_PROVIDER_URL, API key and model name. "
+            "report_ids=%s",
+            type(exc).__name__,
+            exc,
+            _truncate_ids(report_ids),
+        )
+        raise
     except EmbeddingClientError as exc:
         logger.error(
             "embed_reports_task: embedding client failure after retries; "

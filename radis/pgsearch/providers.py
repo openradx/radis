@@ -26,7 +26,11 @@ from radis.search.utils.query_parser import (
 
 from .models import ReportSearchIndex
 from .utils.document_utils import AnnotatedReportSearchIndex, document_from_pgsearch_response
-from .utils.embedding_client import EmbeddingClient, EmbeddingClientError
+from .utils.embedding_client import (
+    PERMANENT_EMBEDDING_ERRORS,
+    EmbeddingClient,
+    EmbeddingClientError,
+)
 from .utils.fusion import rrf_fuse, summary_with_fallback
 from .utils.language_utils import code_to_language
 
@@ -194,16 +198,6 @@ def _build_filter_query(filters: SearchFilters) -> Q:
     return fq
 
 
-# Typed SDK errors that signal misconfiguration (bad credentials, wrong model
-# name, malformed request), not load. Retrying or waiting won't fix them.
-_PERMANENT_EMBEDDING_ERRORS = (
-    openai.AuthenticationError,
-    openai.PermissionDeniedError,
-    openai.NotFoundError,
-    openai.BadRequestError,
-)
-
-
 def _embed_query_or_none(query_text: str, caller: str) -> list[float] | None:
     """Embed the query text, or return None to signal FTS-only fallback.
 
@@ -215,7 +209,7 @@ def _embed_query_or_none(query_text: str, caller: str) -> list[float] | None:
     try:
         with EmbeddingClient() as ec:
             return ec.embed_query(query_text)
-    except (EmbeddingClientError, *_PERMANENT_EMBEDDING_ERRORS):
+    except (EmbeddingClientError, *PERMANENT_EMBEDDING_ERRORS):
         logger.exception(
             "%s falling back to FTS-only; embedding service looks misconfigured", caller
         )

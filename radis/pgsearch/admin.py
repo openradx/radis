@@ -174,6 +174,15 @@ class ReportSearchIndexAdmin(admin.ModelAdmin):
             )
             return
 
+        if not settings.EMBEDDING_PROVIDER_URL:
+            self.message_user(
+                request,
+                "EMBEDDING_PROVIDER_URL is not configured; cannot enqueue embeddings. "
+                "Configure the embedding provider first.",
+                level=messages.WARNING,
+            )
+            return
+
         try:
             run = create_backfill_run(len(report_ids), triggered_by=request.user.get_username())
         except ActiveBackfillError as exc:

@@ -16,6 +16,21 @@ from radis.reports.factories import ReportFactory
 pytestmark = pytest.mark.django_db
 
 
+@pytest.fixture(autouse=True)
+def _embedding_configured(settings):
+    """The command refuses to run when no embedding provider is configured.
+    Default the whole module to a configured provider; the no-URL test blanks it."""
+    settings.EMBEDDING_PROVIDER_URL = "http://embedder.local/v1"
+
+
+def test_embed_pending_errors_when_url_not_configured(settings):
+    settings.EMBEDDING_PROVIDER_URL = ""
+    ReportFactory.create()
+    with pytest.raises(CommandError, match="EMBEDDING_PROVIDER_URL"):
+        call_command("embed_pending")
+    assert EmbeddingBackfillRun.objects.count() == 0
+
+
 def test_nothing_to_embed():
     out = StringIO()
     with patch("radis.pgsearch.management.commands.embed_pending.enqueue_embed_reports") as enqueue:

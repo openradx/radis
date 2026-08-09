@@ -68,6 +68,12 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **opts) -> None:
+        if not settings.EMBEDDING_PROVIDER_URL:
+            raise CommandError(
+                "EMBEDDING_PROVIDER_URL is not configured; cannot backfill embeddings. "
+                "Configure the embedding provider first, or leave it unset to run "
+                "FTS-only (reports are still fully searchable via full-text search)."
+            )
         subjob_size = opts["subjob_size"]
         logger.info(
             "embed_pending: command invoked; subjob_size=%d limit=%s",
