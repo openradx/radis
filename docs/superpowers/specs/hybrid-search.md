@@ -851,9 +851,23 @@ user asked for. The FTS half handles `NOT X` correctly (it returns docs
 without X), so when both halves are fused naively the vector half pollutes
 the candidate pool with anti-matches.
 
-The fix is upstream of embedding: strip negated branches from the query string
-before sending it to the embedding model. The FTS side still receives the
-full structured query, so its negation semantics are preserved.
+The fix has two parts, both upstream of fusion:
+
+1. **Strip negated branches from the embedding string** so the model never sees
+   a `NOT` it can't interpret. The FTS side still receives the full structured
+   query, so its negation semantics are preserved.
+2. **Enforce the negation on the vector candidates too.** Stripping alone is not
+   enough: because RRF *unions* the two candidate sets, a document that is
+   semantically near the positive concept but contains a negated term would
+   re-enter through the vector half even though the FTS half rejects it. So the
+   top-level ANDed `NOT` branches are also applied as an
+   `.exclude(search_vector=...)` filter on the vector queryset
+   (`providers._build_negative_query_string`). This mirrors how Elasticsearch
+   and Weaviate express negation as a `must_not` pre-filter constraining the kNN
+   candidates rather than the embedded vector. Negations nested under an `OR`
+   (`(A AND NOT B) OR C`) are branch-scoped and cannot be enforced as a single
+   global filter without dropping legitimate hits, so they remain a documented
+   residual (§11.5).
 
 A new static method on `QueryParser` walks the AST and emits a stripped
 string. The shape mirrors the existing `QueryParser.unparse` walker:
@@ -893,7 +907,7 @@ Outcomes:
 | User query | `unparse()` (FTS path) | `unparse_for_embedding()` (vector path) | Behavior |
 |---|---|---|---|
 | `pneumothorax` | `pneumothorax` | `pneumothorax` | Both halves agree; RRF amplifies. |
-| `A AND NOT B` | `A AND NOT B` | `A` | Vector embeds the positive concept; FTS enforces the exclusion. |
+| `A AND NOT B` | `A AND NOT B` | `A` | Vector embeds the positive concept; both halves enforce the exclusion (FTS via `!B`, vector via `.exclude(search_vector=B)`). |
 | `NOT X` | `NOT X` | `""` | Vector path skipped (see §7.2); FTS-only ranking. |
 | `(A AND NOT B) OR C` | `(A AND NOT B) OR C` | `(A) OR C` | Empty NOT branch collapses; surviving structure retained for vector. |
 
@@ -1075,7 +1089,7 @@ Practical consequences after the §7.8 NOT-stripping fix:
 - **Natural-phrase queries** (`pneumothorax`, `chest x-ray`, implicit-AND `cardiac arrest`) — both halves point the same direction. RRF amplifies the agreement. This is the workload hybrid search is best at.
 - **`A AND B`** — FTS strictly intersects; vector returns docs about a topic-mix of A and B. Docs matching both lexically *and* semantically rank highest, which is the desired outcome. Vector contributes useful expansion but not boolean precision.
 - **`A OR B`** — FTS unions; the vector half has no concept of disjunction and just produces a centroid-style embedding. Docs about either A or B that happen to be near the centroid still get retrieved, but a doc purely about A may not appear unless it's also close to the centroid. **Open trade-off.** Vector half degrades from "asset" to "noise" for OR-heavy queries; no fix in this spec.
-- **`NOT X` / `A AND NOT B`** — addressed by §7.8. Vector embeds only the positive branches; FTS enforces the negation; the halves are aligned.
+- **`NOT X` / `A AND NOT B`** — addressed by §7.8. The vector half embeds only the positive branches *and* filters its candidates by the top-level ANDed negations (`.exclude(search_vector=...)`), so a document containing a negated term cannot re-enter through the RRF union just because it is semantically near the positive concept. The one residual is a `NOT` nested under an `OR` (`(A AND NOT B) OR C`), which is branch-scoped and left unenforced on the vector half — the same global-`must_not` limitation Elasticsearch/Weaviate carry.
 
 The asymmetry is real and remains a quality consideration for OR-heavy queries. The §11.6 cross-encoder re-ranker, when added, can sharpen the head of results but cannot fix a polluted candidate pool — see the analysis at the end of this section for why upstream stripping (the §7.8 approach for `NOT`) is the architecturally correct order of operations.
 

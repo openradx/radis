@@ -291,6 +291,78 @@ def test_search_embeds_only_positive_branch_for_and_not(monkeypatch, group, sett
     assert embed_query_calls == ["pneumothorax"]
 
 
+def test_search_excludes_negated_term_from_vector_candidates(group, settings):
+    """`A AND NOT B`: a doc containing B must not leak in via the vector half.
+
+    The vector half embeds only the positive branch (`A`), so a B-containing
+    doc that is semantically near `A` would otherwise enter the RRF union even
+    though the FTS half excludes it via `!B`. The negation must be enforced on
+    the vector candidates too."""
+    dim = settings.EMBEDDING_DIM
+    # Contains BOTH pneumothorax and effusion; its embedding sits exactly on the
+    # query vector, so it is the nearest vector neighbour. `NOT effusion` must
+    # keep it out of the results entirely.
+    r_leak = ReportFactory.create(body="Findings: pneumothorax with a large pleural effusion.")
+    r_leak.groups.add(group)
+    ReportSearchIndex.objects.filter(report=r_leak).update(embedding=_unit_vec(0, dim))
+    # Legitimate hit: pneumothorax, no effusion.
+    r_good = ReportFactory.create(body="Findings: pneumothorax, otherwise unremarkable.")
+    r_good.groups.add(group)
+    ReportSearchIndex.objects.filter(report=r_good).update(embedding=_unit_vec(1, dim))
+
+    with patch("radis.pgsearch.providers.EmbeddingClient") as MockClient:
+        MockClient.return_value.__enter__.return_value = MockClient.return_value
+        MockClient.return_value.__exit__.return_value = None
+        MockClient.return_value.embed_query.return_value = _unit_vec(0, dim)
+        result = search(_make_search("pneumothorax AND NOT effusion", group.pk))
+
+    ids = [d.document_id for d in result.documents]
+    assert r_leak.document_id not in ids, "NOT effusion must exclude the doc from the vector half"
+    assert r_good.document_id in ids
+
+
+def test_retrieve_excludes_negated_term_from_vector_candidates(group, settings):
+    """`A AND NOT B` on the retrieve path: extraction/subscription consumers
+    must not receive a B-containing doc that leaked in via the vector half."""
+    dim = settings.EMBEDDING_DIM
+    r_leak = ReportFactory.create(body="Findings: pneumothorax with a large pleural effusion.")
+    r_leak.groups.add(group)
+    ReportSearchIndex.objects.filter(report=r_leak).update(embedding=_unit_vec(0, dim))
+    r_good = ReportFactory.create(body="Findings: pneumothorax, otherwise unremarkable.")
+    r_good.groups.add(group)
+    ReportSearchIndex.objects.filter(report=r_good).update(embedding=_unit_vec(1, dim))
+
+    with patch("radis.pgsearch.providers.EmbeddingClient") as MockClient:
+        MockClient.return_value.__enter__.return_value = MockClient.return_value
+        MockClient.return_value.__exit__.return_value = None
+        MockClient.return_value.embed_query.return_value = _unit_vec(0, dim)
+        doc_ids = list(retrieve(_make_search("pneumothorax AND NOT effusion", group.pk)))
+
+    assert r_leak.document_id not in doc_ids
+    assert r_good.document_id in doc_ids
+
+
+def test_or_nested_negation_is_not_excluded_globally(group, settings):
+    """`(A AND NOT B) OR C`: the `NOT B` is branch-scoped. A doc matching `C`
+    that also contains `B` is a legitimate hit and must NOT be dropped from the
+    vector half — only top-level ANDed negations are enforced globally."""
+    dim = settings.EMBEDDING_DIM
+    # Matches the `fracture` (C) branch but also contains `effusion` (B).
+    # It must survive because NOT effusion only applies to the pneumothorax branch.
+    r_or = ReportFactory.create(body="Findings: acute rib fracture with small effusion.")
+    r_or.groups.add(group)
+    ReportSearchIndex.objects.filter(report=r_or).update(embedding=_unit_vec(0, dim))
+
+    with patch("radis.pgsearch.providers.EmbeddingClient") as MockClient:
+        MockClient.return_value.__enter__.return_value = MockClient.return_value
+        MockClient.return_value.__exit__.return_value = None
+        MockClient.return_value.embed_query.return_value = _unit_vec(0, dim)
+        result = search(_make_search("(pneumothorax AND NOT effusion) OR fracture", group.pk))
+
+    ids = [d.document_id for d in result.documents]
+    assert r_or.document_id in ids
+
+
 def test_openai_rate_limit_error_falls_back_to_fts(group, reports_with_embeddings):
     """A 429 from the embedding service on the read path must trigger the FTS
     fallback, not bubble to the search view. This is the typed-openai parallel

@@ -108,6 +108,55 @@ def _build_query_string(node: QueryNode) -> str:
         raise ValueError(f"Unknown node type: {type(node)}")
 
 
+def _collect_and_negations(node: QueryNode) -> list[QueryNode]:
+    """Operands of every ``NOT`` reachable from the root through ``AND``/parens
+    only.
+
+    These negations constrain the whole result set, so they can be enforced on
+    the vector candidates as well as the FTS side. A ``NOT`` under an ``OR`` is
+    deliberately skipped: its exclusion is branch-scoped (in ``(A AND NOT B) OR
+    C`` a doc matching ``C`` may legitimately contain ``B``), so excluding it
+    globally would drop valid hits. That residual is the documented limitation
+    in docs/superpowers/specs/hybrid-search.md §7.8 / §11.5, and matches how
+    Elasticsearch/Weaviate apply a single global ``must_not`` filter."""
+    if isinstance(node, UnaryNode):
+        assert node.operator == "NOT"
+        return [node.operand]
+    if isinstance(node, ParensNode):
+        return _collect_and_negations(node.expression)
+    if isinstance(node, BinaryNode) and node.operator == "AND":
+        return _collect_and_negations(node.left) + _collect_and_negations(node.right)
+    return []
+
+
+def _build_negative_query_string(node: QueryNode) -> str:
+    """Raw-tsquery string matching any document the top-level ``NOT`` branches
+    exclude, or ``""`` when there are none.
+
+    The vector half embeds only the positive branches (§7.8 strips ``NOT``), so
+    without this a document that is semantically near the positive concept but
+    contains a negated term re-enters through the RRF union even though the FTS
+    half rejects it. Applying this as ``.exclude(search_vector=...)`` on the
+    vector queryset closes that leak. Only the negation is enforced — never the
+    positive branches — so the vector half keeps surfacing semantic matches
+    that don't lexically contain the query terms."""
+    parts = [_build_query_string(operand) for operand in _collect_and_negations(node)]
+    parts = [part for part in parts if part]
+    # A document matching ANY negated branch must be excluded.
+    return " | ".join(f"({part})" for part in parts)
+
+
+def _exclude_negations(queryset, node: QueryNode, language: str):
+    """Drop documents matching the query's top-level ``NOT`` branches from a
+    vector-candidate queryset, so the FTS half's exclusions also bind the
+    vector half. No-op when the query has no enforceable negation."""
+    negative_query_str = _build_negative_query_string(node)
+    if not negative_query_str:
+        return queryset
+    negative_tsquery = SearchQuery(negative_query_str, search_type="raw", config=language)
+    return queryset.exclude(search_vector=negative_tsquery)
+
+
 def _build_filter_query(filters: SearchFilters) -> Q:
     # Group-scoped access control: a report is only visible to a group when its
     # ``groups`` M2M includes that group. This mirrors the report access model
@@ -210,7 +259,7 @@ def search(search: Search) -> SearchResult:
     tsquery = SearchQuery(query_str, search_type="raw", config=language)
 
     # Vector side: strip NOT branches (see
-    # docs/superpowers/specs/2026-05-28-hybrid-search.md §7.8). If nothing is
+    # docs/superpowers/specs/hybrid-search.md §7.8). If nothing is
     # left, skip the embedding call entirely and fall through to FTS-only.
     query_text = QueryParser.unparse_for_embedding(search.query)
     query_vec: list[float] | None = None
@@ -220,9 +269,10 @@ def search(search: Search) -> SearchResult:
     vec_rank: dict[int, int] = {}
     vec_distance: dict[int, float] = {}
     if query_vec is not None:
+        vec_qs = ReportSearchIndex.objects.filter(filter_query)
+        vec_qs = _exclude_negations(vec_qs, search.query, language)
         vec_rows = list(
-            ReportSearchIndex.objects.filter(filter_query)
-            .distinct()
+            vec_qs.distinct()
             .exclude(embedding__isnull=True)
             .annotate(distance=CosineDistance("embedding", query_vec))
             .order_by("distance", "report_id")
@@ -319,7 +369,7 @@ def retrieve(search: Search) -> Iterator[str]:
     tsquery = SearchQuery(query_str, search_type="raw", config=language)
 
     # Vector side: strip NOT branches (see
-    # docs/superpowers/specs/2026-05-28-hybrid-search.md §7.8). If nothing is
+    # docs/superpowers/specs/hybrid-search.md §7.8). If nothing is
     # left, skip the embedding call entirely and fall through to FTS-only.
     query_text = QueryParser.unparse_for_embedding(search.query)
     query_vec: list[float] | None = None
@@ -328,9 +378,10 @@ def retrieve(search: Search) -> Iterator[str]:
 
     vec_rank: dict[int, int] = {}
     if query_vec is not None:
+        vec_qs = ReportSearchIndex.objects.filter(filter_query)
+        vec_qs = _exclude_negations(vec_qs, search.query, language)
         vec_ids = list(
-            ReportSearchIndex.objects.filter(filter_query)
-            .distinct()
+            vec_qs.distinct()
             .exclude(embedding__isnull=True)
             .annotate(distance=CosineDistance("embedding", query_vec))
             .order_by("distance", "report_id")
