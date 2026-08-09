@@ -161,6 +161,23 @@ def test_permanent_config_error_logs_and_raises(settings, caplog_tasks):
     assert any("config" in m.lower() for m in error_msgs)
 
 
+def test_cancelled_run_subjob_is_noop_on_retry(settings):
+    """A subjob whose run was cancelled must no-op instead of continuing the
+    backfill — covers the case where a `doing` job fails after cancellation and
+    Procrastinate requeues it as `todo` (invisible to future cancels)."""
+    run = EmbeddingBackfillRun.objects.create(total_reports=2, triggered_by="t")
+    run.cancelled_at = timezone.now()
+    run.save(update_fields=["cancelled_at"])
+    reports = [ReportFactory.create() for _ in range(2)]
+    pks = [r.pk for r in reports]
+
+    with patch("radis.pgsearch.tasks.EmbeddingClient") as client_cls:
+        embed_reports_task(report_ids=pks, run_id=run.pk)
+
+    client_cls.assert_not_called()
+    assert ReportSearchIndex.objects.filter(report_id__in=pks, embedding__isnull=True).count() == 2
+
+
 def test_empty_input_no_ops():
     with patch("radis.pgsearch.tasks.EmbeddingClient") as client_cls:
         embed_reports_task(report_ids=[])
@@ -675,8 +692,10 @@ def test_embed_reports_task_never_finishes_cancelled_run():
     with _mock_embedding_client():
         embed_reports_task([r.pk for r in reports], run_id=run.pk)
     run.refresh_from_db()
-    assert run.processed_reports == 2  # counter stays truthful
-    assert run.finished_at is None  # but a cancelled run never "finishes"
+    # A cancelled run's subjob no-ops: it does no embedding work, so the counter
+    # is untouched and the run never "finishes".
+    assert run.processed_reports == 0
+    assert run.finished_at is None
 
 
 def test_embed_reports_task_without_run_id_touches_no_run():

@@ -280,6 +280,22 @@ def embed_reports_task(report_ids: list[int], run_id: int | None = None) -> None
     if not report_ids:
         return
 
+    # If this subjob belongs to a cancelled run, no-op. A subjob that was already
+    # `doing` at cancel time isn't cancellable via cancel_job_by_id; if it then
+    # fails and Procrastinate requeues it, its run is no longer active so future
+    # cancels can't see it. Bailing here stops the cancelled backfill from
+    # silently continuing. Resuming means re-running embed_pending.
+    if run_id is not None:
+        run = EmbeddingBackfillRun.objects.filter(pk=run_id).first()
+        if run is not None and run.cancelled_at is not None:
+            logger.info(
+                "embed_reports_task: run %d is cancelled; skipping %d report(s) "
+                "(re-run embed_pending to resume the remaining work)",
+                run_id,
+                len(report_ids),
+            )
+            return
+
     logger.info("embed_reports_task: start; reports=%d", len(report_ids))
     start_t = time.perf_counter()
 
