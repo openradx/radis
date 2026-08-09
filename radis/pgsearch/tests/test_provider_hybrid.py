@@ -4,7 +4,7 @@ import pytest
 from django.contrib.auth.models import Group
 
 from radis.pgsearch.models import ReportSearchIndex
-from radis.pgsearch.providers import retrieve, search
+from radis.pgsearch.providers import count, retrieve, search
 from radis.pgsearch.utils.embedding_client import EmbeddingClientError
 from radis.reports.factories import ReportFactory
 from radis.search.site import Search, SearchFilters
@@ -361,6 +361,42 @@ def test_or_nested_negation_is_not_excluded_globally(group, settings):
 
     ids = [d.document_id for d in result.documents]
     assert r_or.document_id in ids
+
+
+def test_count_matches_retrieve_union_for_semantic_only_query(group, settings):
+    """count() must equal the size of retrieve()'s hybrid union. A vector-only
+    hit (no FTS match) would otherwise be counted as 0, letting the extraction
+    max-reports guard pass while retrieve() still yields the report."""
+    dim = settings.EMBEDDING_DIM
+    # Body does not lexically contain "pneumothorax" -> FTS misses it; the
+    # embedding sits on the query vector -> it is a vector hit.
+    r = ReportFactory.create(body="lungs are clear bilaterally")
+    r.groups.add(group)
+    ReportSearchIndex.objects.filter(report=r).update(embedding=_unit_vec(0, dim))
+
+    with patch("radis.pgsearch.providers.EmbeddingClient") as MockClient:
+        MockClient.return_value.__enter__.return_value = MockClient.return_value
+        MockClient.return_value.__exit__.return_value = None
+        MockClient.return_value.embed_query.return_value = _unit_vec(0, dim)
+        s = _make_search("pneumothorax", group.pk)
+        cnt = count(s)
+        ids = list(retrieve(s))
+
+    assert cnt == len(ids)
+    assert r.document_id in ids
+    assert cnt >= 1
+
+
+def test_search_provider_max_results_covers_union_size(settings):
+    """The hybrid universe is a union, so it can hold up to
+    HYBRID_VECTOR_TOP_K + HYBRID_FTS_MAX_RESULTS ids. Advertising only the max
+    would make SearchView reject reachable pages in the tail."""
+    from radis.search import site
+
+    assert site.search_provider is not None
+    assert site.search_provider.max_results == (
+        settings.HYBRID_VECTOR_TOP_K + settings.HYBRID_FTS_MAX_RESULTS
+    )
 
 
 def test_openai_rate_limit_error_falls_back_to_fts(group, reports_with_embeddings):

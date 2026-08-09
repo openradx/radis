@@ -2,7 +2,7 @@ import hashlib
 import logging
 import unicodedata
 from collections.abc import Iterator
-from typing import Literal, cast
+from typing import Literal, NamedTuple, cast
 
 import openai
 from django.conf import settings
@@ -252,7 +252,23 @@ def _embed_query_cached(query_text: str, caller: str) -> list[float] | None:
     return vec
 
 
-def search(search: Search) -> SearchResult:
+class _FusedHybrid(NamedTuple):
+    ordered_ids: list[int]
+    rrf_score_by_id: dict[int, float]
+    vec_distance: dict[int, float]
+    total_relation: Literal["exact", "at_least", "approximately"]
+    language: str
+    tsquery: SearchQuery
+
+
+def _fuse_hybrid(search: Search, caller: str) -> _FusedHybrid:
+    """Run both retrievers and fuse them with RRF.
+
+    Shared by search(), retrieve() and count() so all three describe the same
+    union. The vector half embeds only the positive branches (§7.8 strips
+    ``NOT``) and enforces the top-level negations on its candidates; the FTS
+    half consumes the full boolean tsquery. Returns the fused, ordered report
+    ids plus the per-id scores/distances and the query metadata callers reuse."""
     query_str = _build_query_string(search.query)
     language = _resolve_language(search.filters)
     filter_query = _build_filter_query(search.filters)
@@ -264,7 +280,7 @@ def search(search: Search) -> SearchResult:
     query_text = QueryParser.unparse_for_embedding(search.query)
     query_vec: list[float] | None = None
     if query_text.strip():
-        query_vec = _embed_query_cached(query_text, "Hybrid search")
+        query_vec = _embed_query_cached(query_text, caller)
 
     vec_rank: dict[int, int] = {}
     vec_distance: dict[int, float] = {}
@@ -297,7 +313,6 @@ def search(search: Search) -> SearchResult:
     ordered_pairs = rrf_fuse(vec_rank, fts_rank, k=settings.HYBRID_RRF_K)
     rrf_score_by_id = dict(ordered_pairs)
     ordered_ids = list(rrf_score_by_id)
-    total_count = len(ordered_ids)
     total_relation: Literal["exact", "at_least", "approximately"] = (
         "at_least"
         if (
@@ -306,6 +321,25 @@ def search(search: Search) -> SearchResult:
         )
         else "exact"
     )
+    return _FusedHybrid(
+        ordered_ids=ordered_ids,
+        rrf_score_by_id=rrf_score_by_id,
+        vec_distance=vec_distance,
+        total_relation=total_relation,
+        language=language,
+        tsquery=tsquery,
+    )
+
+
+def search(search: Search) -> SearchResult:
+    fused = _fuse_hybrid(search, "Hybrid search")
+    ordered_ids = fused.ordered_ids
+    tsquery = fused.tsquery
+    language = fused.language
+    vec_distance = fused.vec_distance
+    rrf_score_by_id = fused.rrf_score_by_id
+    total_count = len(ordered_ids)
+    total_relation = fused.total_relation
 
     if search.limit is None:
         page_ids = ordered_ids[search.offset :]
@@ -354,52 +388,15 @@ def search(search: Search) -> SearchResult:
 
 
 def count(search: Search) -> int:
-    query_str = _build_query_string(search.query)
-    language = _resolve_language(search.filters)
-    query = SearchQuery(query_str, search_type="raw", config=language)
-    filter_query = _build_filter_query(search.filters)
-    results = ReportSearchIndex.objects.filter(filter_query).filter(search_vector=query)
-    return results.count()
+    # Must describe the same set retrieve() yields: the extraction max-reports
+    # guard is computed from this and then retrieve() iterates the union. An
+    # FTS-only count would report 0 for a semantic-only query and let the guard
+    # be bypassed while retrieve() still creates extraction instances.
+    return len(_fuse_hybrid(search, "Hybrid count").ordered_ids)
 
 
 def retrieve(search: Search) -> Iterator[str]:
-    query_str = _build_query_string(search.query)
-    language = _resolve_language(search.filters)
-    filter_query = _build_filter_query(search.filters)
-    tsquery = SearchQuery(query_str, search_type="raw", config=language)
-
-    # Vector side: strip NOT branches (see
-    # docs/superpowers/specs/hybrid-search.md §7.8). If nothing is
-    # left, skip the embedding call entirely and fall through to FTS-only.
-    query_text = QueryParser.unparse_for_embedding(search.query)
-    query_vec: list[float] | None = None
-    if query_text.strip():
-        query_vec = _embed_query_cached(query_text, "Hybrid retrieve")
-
-    vec_rank: dict[int, int] = {}
-    if query_vec is not None:
-        vec_qs = ReportSearchIndex.objects.filter(filter_query)
-        vec_qs = _exclude_negations(vec_qs, search.query, language)
-        vec_ids = list(
-            vec_qs.distinct()
-            .exclude(embedding__isnull=True)
-            .annotate(distance=CosineDistance("embedding", query_vec))
-            .order_by("distance", "report_id")
-            .values_list("report_id", flat=True)[: settings.HYBRID_VECTOR_TOP_K]
-        )
-        vec_rank = {rid: i + 1 for i, rid in enumerate(vec_ids)}
-
-    fts_rows = list(
-        ReportSearchIndex.objects.filter(filter_query)
-        .distinct()
-        .filter(search_vector=tsquery)
-        .annotate(rank=SearchRank(F("search_vector"), tsquery))
-        .order_by("-rank", "report_id")
-        .values("report_id", "rank")[: settings.HYBRID_FTS_MAX_RESULTS]
-    )
-    fts_rank = {row["report_id"]: i + 1 for i, row in enumerate(fts_rows)}
-
-    ordered_ids = [rid for rid, _ in rrf_fuse(vec_rank, fts_rank, k=settings.HYBRID_RRF_K)]
+    ordered_ids = _fuse_hybrid(search, "Hybrid retrieve").ordered_ids
     if not ordered_ids:
         return iter([])
 
