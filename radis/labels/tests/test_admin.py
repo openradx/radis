@@ -285,3 +285,27 @@ def test_job_change_page_has_no_view_on_site_button(client):
     # get_absolute_url points back at this very admin page (and the
     # sites-framework redirect is broken in dev), so the button is useless.
     assert "View on site" not in content
+
+
+@pytest.mark.django_db
+def test_stale_columns_reflect_report_update():
+    from django.contrib import admin as django_admin
+
+    from radis.labels.admin import GateAnswerAdmin, LabelResultAdmin
+    from radis.labels.factories import GateAnswerFactory, LabelResultFactory
+    from radis.labels.models import GateAnswer, LabelResult
+
+    result = LabelResultFactory.create()
+    answer = GateAnswerFactory.create(report=result.report)
+    result_admin = LabelResultAdmin(LabelResult, django_admin.site)
+    gate_admin = GateAnswerAdmin(GateAnswer, django_admin.site)
+    assert not result_admin.is_stale(result)
+    assert not gate_admin.is_stale(answer)
+
+    result.report.body = "changed"
+    result.report.save()
+    result.refresh_from_db()
+    answer.refresh_from_db()
+
+    assert result_admin.is_stale(result)
+    assert gate_admin.is_stale(answer)

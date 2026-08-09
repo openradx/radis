@@ -57,7 +57,7 @@ class LabelResultAdmin(_ReadOnlyAdmin):
 
     @admin.display(boolean=True, description="Stale")
     def is_stale(self, obj: LabelResult) -> bool:
-        return obj.generated_at < obj.label.updated_at
+        return obj.is_stale
 
 
 @admin.register(GateAnswer)
@@ -70,7 +70,10 @@ class GateAnswerAdmin(_ReadOnlyAdmin):
 
     @admin.display(boolean=True, description="Stale")
     def is_stale(self, obj: GateAnswer) -> bool:
-        return obj.generated_at < obj.label_group.updated_at
+        return (
+            obj.generated_at < obj.label_group.updated_at
+            or obj.generated_at < obj.report.updated_at
+        )
 
 
 @admin.register(LabelingScanCheckpoint)
