@@ -178,6 +178,22 @@ def test_cancelled_run_subjob_is_noop_on_retry(settings):
     assert ReportSearchIndex.objects.filter(report_id__in=pks, embedding__isnull=True).count() == 2
 
 
+def test_progress_counter_idempotent_on_subjob_rerun(settings):
+    """At-least-once recovery can rerun a subjob that already wrote embeddings
+    and incremented the counter. The rerun must not double-count progress."""
+    run = EmbeddingBackfillRun.objects.create(total_reports=2, triggered_by="t")
+    reports = [ReportFactory.create() for _ in range(2)]
+    pks = [r.pk for r in reports]
+
+    with _mock_embedding_client():
+        embed_reports_task(pks, run_id=run.pk)  # first execution
+        embed_reports_task(pks, run_id=run.pk)  # at-least-once rerun
+
+    run.refresh_from_db()
+    assert run.processed_reports == 2  # not 4
+    assert run.finished_at is not None
+
+
 def test_empty_input_no_ops():
     with patch("radis.pgsearch.tasks.EmbeddingClient") as client_cls:
         embed_reports_task(report_ids=[])

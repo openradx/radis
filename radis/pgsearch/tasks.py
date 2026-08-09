@@ -349,19 +349,29 @@ def embed_reports_task(report_ids: list[int], run_id: int | None = None) -> None
         raise
 
     if embedded:
+        # Count genuine NULL->non-NULL transitions BEFORE the write so progress
+        # accounting is idempotent under at-least-once reruns: a rerun of this
+        # subjob finds the reports already embedded, counts 0, and does not
+        # double-increment the run (which could otherwise flip finished_at while
+        # distinct reports remain unembedded). Also dedupes overlap with any
+        # other subjob that embedded the same report.
+        newly_embedded = ReportSearchIndex.objects.filter(
+            report_id__in=[rsv.report.pk for rsv in embedded], embedding__isnull=True
+        ).count()
         ReportSearchIndex.objects.bulk_update(embedded, fields=["embedding"])
 
-    if run_id is not None and embedded:
-        EmbeddingBackfillRun.objects.filter(pk=run_id).update(
-            processed_reports=F("processed_reports") + len(embedded)
-        )
-        # Flip finished_at exactly once, and never on a cancelled run.
-        EmbeddingBackfillRun.objects.filter(
-            pk=run_id,
-            finished_at__isnull=True,
-            cancelled_at__isnull=True,
-            processed_reports__gte=F("total_reports"),
-        ).update(finished_at=Now())
+        if run_id is not None:
+            if newly_embedded:
+                EmbeddingBackfillRun.objects.filter(pk=run_id).update(
+                    processed_reports=F("processed_reports") + newly_embedded
+                )
+            # Flip finished_at exactly once, and never on a cancelled run.
+            EmbeddingBackfillRun.objects.filter(
+                pk=run_id,
+                finished_at__isnull=True,
+                cancelled_at__isnull=True,
+                processed_reports__gte=F("total_reports"),
+            ).update(finished_at=Now())
 
     duration_ms = int((time.perf_counter() - start_t) * 1000)
     logger.info(
