@@ -17,8 +17,11 @@ PostgreSQL text-search config is deterministic (``english``); the test image
 configs.
 """
 
+from datetime import timedelta
+
 import pytest
 from adit_radis_shared.accounts.factories import GroupFactory
+from django.utils import timezone
 
 from radis.pgsearch import providers
 from radis.pgsearch.models import ReportSearchIndex
@@ -380,3 +383,40 @@ def test_hostile_raw_termnode_reaches_db_without_crashing_when_benign():
     result = providers.search(_search(node))
 
     assert [doc.document_id for doc in result.documents] == [report.document_id]
+
+
+# ---------------------------------------------------------------------------
+# Incremental-refresh filter: ``updated_after``.
+# ---------------------------------------------------------------------------
+
+
+def test_updated_after_includes_boundary_and_excludes_older_reports():
+    """``updated_after`` drives subscription refreshes via
+    ``SearchFilters(updated_after=subscription.last_refreshed)``; an off-by-one
+    here would silently drop reports. A report updated exactly at the cutoff
+    must be included (``gte``), an older one excluded, a newer one included.
+    """
+    cutoff = timezone.now()
+    older = make_report("Findings show pneumonia in the older report.")
+    at_cutoff = make_report("Findings show pneumonia exactly at the cutoff.")
+    newer = make_report("Findings show pneumonia in the newer report.")
+
+    # ``updated_at`` is ``auto_now``; a queryset update bypasses it so the
+    # timestamps relative to the cutoff are exact.
+    Report.objects.filter(pk=older.pk).update(updated_at=cutoff - timedelta(seconds=1))
+    Report.objects.filter(pk=at_cutoff.pk).update(updated_at=cutoff)
+    Report.objects.filter(pk=newer.pk).update(updated_at=cutoff + timedelta(seconds=1))
+
+    node = parse("pneumonia")
+    assert node is not None
+    result = providers.search(
+        Search(
+            query=node,
+            filters=SearchFilters(group=_search_group().pk, language="en", updated_after=cutoff),
+            offset=0,
+            limit=10,
+        )
+    )
+
+    matched = {doc.document_id for doc in result.documents}
+    assert matched == {at_cutoff.document_id, newer.document_id}

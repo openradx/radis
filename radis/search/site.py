@@ -46,9 +46,15 @@ class SearchFilters:
         - patient_sex: Filter only reports that have the given sex
         - patient_age_from: Filter only reports where the patient is at least this age
         - patient_age_till: Filter only reports where the patient is at most this age
+        - labels: only reports having a surfacing-bucket (PRESENT/LIKELY/POSSIBLE) result for
+          ANY of the given label names
+        - group: Group whose reports may be searched (access control). ``None`` is
+          fail-closed: it only matches reports assigned to no group at all.
+        - updated_after: Filter only reports whose ``updated_at`` is at or after
+          this timestamp (used for incremental refreshes).
     """
 
-    group: int  # TODO: Rename to group_id
+    group: int | None = None  # TODO: Rename to group_id
     language: str = ""  # TODO: Rename to language_code
     modalities: list[str] = field(default_factory=list)
     study_date_from: date | None = None
@@ -60,6 +66,8 @@ class SearchFilters:
     patient_id: str | None = None
     created_after: datetime | None = None
     created_before: datetime | None = None
+    labels: list[str] = field(default_factory=list)
+    updated_after: datetime | None = None
 
 
 class Search(NamedTuple):

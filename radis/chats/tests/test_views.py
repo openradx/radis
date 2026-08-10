@@ -172,9 +172,7 @@ async def test_create_chat_post_without_htmx_is_rejected():
     openai_mock, _ = make_capturing_async_openai_mock("a", "t")
     with patch("openai.AsyncOpenAI", return_value=openai_mock):
         # No HX header -> SuspiciousOperation -> 400.
-        resp = await client.post(
-            reverse("chat_create"), data={"prompt": "hi", "report_id": ""}
-        )
+        resp = await client.post(reverse("chat_create"), data={"prompt": "hi", "report_id": ""})
 
     assert resp.status_code == 400
     assert await database_sync_to_async(Chat.objects.count)() == 0

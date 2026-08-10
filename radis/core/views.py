@@ -25,9 +25,8 @@ from django.views.generic.detail import SingleObjectMixin
 from django_filters.filterset import FilterSet
 from django_filters.views import FilterView
 from django_tables2 import SingleTableMixin, Table
-from procrastinate.contrib.django import app
 
-from radis.core.utils.model_utils import reset_tasks
+from radis.core.utils.model_utils import cancel_job, reset_tasks
 
 from .models import AnalysisJob, AnalysisTask
 
@@ -195,18 +194,7 @@ class AnalysisJobCancelView(LoginRequiredMixin, SingleObjectMixin, View):
                 f"Job with ID {job.pk} and status {job.get_status_display()} is not cancelable."
             )
 
-        tasks = job.tasks.filter(status=AnalysisTask.Status.PENDING)
-        for task in tasks.only("queued_job_id"):
-            queued_job_id = task.queued_job_id
-            if queued_job_id is not None:
-                app.job_manager.cancel_job_by_id(queued_job_id, delete_job=True)
-        tasks.update(status=AnalysisTask.Status.CANCELED)
-
-        if job.tasks.filter(status=AnalysisTask.Status.IN_PROGRESS).exists():
-            job.status = AnalysisJob.Status.CANCELING
-        else:
-            job.status = AnalysisJob.Status.CANCELED
-        job.save()
+        cancel_job(job)
 
         messages.success(request, self.success_message % job.__dict__)
         return redirect(job)
