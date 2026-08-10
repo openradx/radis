@@ -15,11 +15,6 @@
   of rows.
 - Add `EmbeddingBackfillRun`, the run-history row behind the admin's
   pipeline badge and the single-active-backfill guard.
-
-Squashed from the intermediate branch migrations (schema, partial index,
-index rename, backfill-run model) so hybrid search ships as one coherent
-migration rather than several states no operator will ever see in
-isolation.
 """
 
 import django.db.models.deletion
