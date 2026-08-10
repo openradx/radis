@@ -115,23 +115,32 @@ class AnalysisJob(models.Model):
         has_success = self.tasks.filter(status=AnalysisTask.Status.SUCCESS).exists()
         has_warning = self.tasks.filter(status=AnalysisTask.Status.WARNING).exists()
         has_failure = self.tasks.filter(status=AnalysisTask.Status.FAILURE).exists()
+        has_canceled = self.tasks.filter(status=AnalysisTask.Status.CANCELED).exists()
 
+        # An "All tasks ..." message would be untrue when some tasks were canceled instead.
         if has_failure:
             self.status = AnalysisJob.Status.FAILURE
             self.message = (
-                "Some tasks failed." if (has_success or has_warning) else "All tasks failed."
+                "Some tasks failed."
+                if (has_success or has_warning or has_canceled)
+                else "All tasks failed."
             )
 
         elif has_warning:
             self.status = AnalysisJob.Status.WARNING
             self.message = (
-                "Some tasks have warnings." if has_success else "All tasks have warnings."
+                "Some tasks have warnings."
+                if (has_success or has_canceled)
+                else "All tasks have warnings."
             )
         elif has_success:
             self.status = AnalysisJob.Status.SUCCESS
-            self.message = "All tasks succeeded."
+            self.message = "Some tasks were canceled." if has_canceled else "All tasks succeeded."
+        elif has_canceled:
+            self.status = AnalysisJob.Status.CANCELED
+            self.message = "All tasks were canceled."
         else:
-            # at least one of success, warnings or failures must be > 0
+            # at least one of success, warnings, failures or cancellations must be > 0
             raise AssertionError(f"Invalid task status of {self}.")
 
         self.ended_at = timezone.now()

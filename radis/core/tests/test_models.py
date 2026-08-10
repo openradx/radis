@@ -63,6 +63,67 @@ class TestAnalysisJob:
         assert job.ended_at is not None
 
     @pytest.mark.django_db
+    def test_job_update_job_state_all_tasks_canceled(self):
+        # Status is PENDING, not CANCELING, so this reaches the final evaluation, where
+        # an all-canceled job raised AssertionError before the canceled branch existed.
+        user = UserFactory.create()
+        job = ExtractionJobFactory.create(owner=user, status=AnalysisJob.Status.PENDING)
+
+        ExtractionTaskFactory.create(job=job, status=AnalysisTask.Status.CANCELED)
+        ExtractionTaskFactory.create(job=job, status=AnalysisTask.Status.CANCELED)
+
+        result = job.update_job_state()
+        job.refresh_from_db()
+
+        assert result is True
+        assert job.status == AnalysisJob.Status.CANCELED
+        assert job.message == "All tasks were canceled."
+        assert job.ended_at is not None
+
+    @pytest.mark.django_db
+    def test_job_update_job_state_canceled_task_does_not_mask_failure(self):
+        # The canceled branch is last in the chain, so it must not shadow a failure.
+        user = UserFactory.create()
+        job = ExtractionJobFactory.create(owner=user, status=AnalysisJob.Status.PENDING)
+
+        ExtractionTaskFactory.create(job=job, status=AnalysisTask.Status.CANCELED)
+        ExtractionTaskFactory.create(job=job, status=AnalysisTask.Status.FAILURE)
+
+        job.update_job_state()
+        job.refresh_from_db()
+
+        assert job.status == AnalysisJob.Status.FAILURE
+        assert job.message == "Some tasks failed."
+
+    @pytest.mark.django_db
+    def test_job_update_job_state_success_and_canceled_does_not_claim_all_succeeded(self):
+        user = UserFactory.create()
+        job = ExtractionJobFactory.create(owner=user, status=AnalysisJob.Status.PENDING)
+
+        ExtractionTaskFactory.create(job=job, status=AnalysisTask.Status.SUCCESS)
+        ExtractionTaskFactory.create(job=job, status=AnalysisTask.Status.CANCELED)
+
+        job.update_job_state()
+        job.refresh_from_db()
+
+        assert job.status == AnalysisJob.Status.SUCCESS
+        assert job.message == "Some tasks were canceled."
+
+    @pytest.mark.django_db
+    def test_job_update_job_state_warning_and_canceled_does_not_claim_all_warned(self):
+        user = UserFactory.create()
+        job = ExtractionJobFactory.create(owner=user, status=AnalysisJob.Status.PENDING)
+
+        ExtractionTaskFactory.create(job=job, status=AnalysisTask.Status.WARNING)
+        ExtractionTaskFactory.create(job=job, status=AnalysisTask.Status.CANCELED)
+
+        job.update_job_state()
+        job.refresh_from_db()
+
+        assert job.status == AnalysisJob.Status.WARNING
+        assert job.message == "Some tasks have warnings."
+
+    @pytest.mark.django_db
     def test_job_update_job_state_tasks_still_pending(self):
         user = UserFactory.create()
         job = ExtractionJobFactory.create(owner=user, status=AnalysisJob.Status.PENDING)
@@ -380,16 +441,6 @@ class TestAnalysisJob:
         job = ExtractionJobFactory.create(owner=user)
         context = job.get_mail_context()
         assert context == {}  # Default implementation returns empty dict
-
-    @pytest.mark.django_db
-    def test_job_update_job_state_with_only_canceled_tasks(self):
-        user = UserFactory.create()
-        job = ExtractionJobFactory.create(owner=user, status=AnalysisJob.Status.PENDING)
-        ExtractionTaskFactory.create(job=job, status=AnalysisTask.Status.CANCELED)
-        ExtractionTaskFactory.create(job=job, status=AnalysisTask.Status.CANCELED)
-
-        with pytest.raises(AssertionError, match="Invalid task status"):
-            job.update_job_state()
 
     @pytest.mark.django_db
     def test_job_update_job_state_consecutive_calls(self):
