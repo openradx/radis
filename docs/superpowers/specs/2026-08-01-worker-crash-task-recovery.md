@@ -52,7 +52,8 @@ regardless.
 
 ## Design
 
-One repair rule, applied at two entry points.
+One repair rule, applied at two sweep entry points. Repair authority lives only in the sweep; the
+processor claims and executes work, but never repairs.
 
 ### The rule
 
@@ -80,9 +81,10 @@ Resuming costs the user nothing but time, and for labels it is nearly free: `lab
 (`radis/labels/labeling.py`) skips reports that already have fresh results and writes via
 `update_or_create`, so a resumed batch only pays for the reports it had not finished.
 
-`IN_PROGRESS` must keep meaning "a worker is on this right now". We therefore normalise a stale task
-back to `PENDING` before any work starts, rather than widening the guard to accept `IN_PROGRESS` as
-ADIT does (`adit/core/tasks.py:72`), which makes the status mean two things at once.
+`IN_PROGRESS` must keep meaning "a worker is on this right now". The sweep therefore normalises a
+stale task back to `PENDING`, and the processor only ever enters execution from `PENDING` — rather
+than widening the guard to accept `IN_PROGRESS` as ADIT does (`adit/core/tasks.py:72`), which makes
+the status mean two things at once.
 
 ### Entry point A — startup sweep
 
@@ -94,15 +96,65 @@ The sweep is **not queue-scoped** — it reads our task tables directly and scan
 `AnalysisTask` subclass. This is deliberate: a `default_worker` restart can then repair a labeling
 task whose own `llm_worker` is dead and not coming back.
 
-### Entry point B — the processor
+### Entry point B — the periodic sweep
 
-After a supervised restart, the sweep runs too early to help: Swarm restarts within seconds, so the
-dead worker's heartbeat is only seconds old and the sweep correctly declines. The sweep gets one look
-per container boot, so it never sees the task again.
+After a supervised restart, the startup sweep runs too early to help: Swarm restarts within
+seconds, so the dead worker's heartbeat is only seconds old and the sweep correctly declines. The
+startup sweep gets one look per container boot, so it never sees the task again.
 
-`retry_stalled_jobs` notices at 30 s and re-queues the row within 10 minutes; a live worker then
-calls `process_*_task(task_id)`, which calls `AnalysisTaskProcessor.start()`. That is where the same
-rule is applied, replacing today's assert.
+The same `sweep_stale_analysis_state()` therefore also runs periodically, as a `@app.periodic`
+Procrastinate task in a new `radis/core/tasks.py`, mirroring `retry_stalled_jobs` in
+`adit-radis-shared`:
+
+```python
+@app.periodic(cron=settings.ANALYSIS_SWEEP_CRON)
+@app.task(queueing_lock="sweep_stale_tasks")
+def sweep_stale_tasks_periodic(timestamp: int):
+    sweep_stale_analysis_state()
+```
+
+Default cadence is every minute. The sweep is one cheap indexed query per task model, normally
+matching zero rows, and the fast cadence means it usually repairs a crashed task *before*
+`retry_stalled_jobs` (every 10 min) re-queues its row — the row then fires into a `PENDING` task
+and runs immediately, so worst-case recovery stays near the `retry_stalled_jobs` cadence.
+
+Unlike the startup command (which must always exit 0 so the worker boots), the periodic task may
+raise freely: a failed tick just logs, and the `queueing_lock` prevents pileup.
+
+Known limitation: the periodic task runs on the `default` queue. If `default_worker` itself is
+dead and stays dead, ticks stop and repair waits for the next container boot (startup sweep) —
+part of why both entry points are kept.
+
+The processor repairs nothing. It replaces today's assert with an atomic claim (change 5): it
+executes a task only if it can flip it `PENDING → IN_PROGRESS` in a single conditional `UPDATE`,
+and otherwise consumes its queue row as a logged no-op. A stale `IN_PROGRESS` task left by a
+killed worker is deliberately left untouched there; the next sweep tick finds it as an orphan
+(`queued_job` NULL after `--delete-jobs=always`) and repairs and re-queues it.
+
+### Why every ordering converges
+
+The sweep and the processor run concurrently, so neither may decide from a read made earlier —
+both write task status only through atomic conditional `UPDATE`s:
+
+- **The processor's claim** makes "only PENDING tasks execute" a database-enforced rule. A queue
+  row can only be consumed without running when the task truly was not `PENDING` at that instant —
+  leaving it either terminal (nothing to do) or stale `IN_PROGRESS` (an orphan the next sweep tick
+  repairs). A `PENDING` task can never have its row wasted, because a claim against `PENDING`
+  succeeds and runs.
+- **The sweep's resolve UPDATE re-checks the owner-gone conditions in its WHERE clause**, not just
+  `status=IN_PROGRESS`, so a late UPDATE cannot flip a task a live worker legitimately claimed a
+  moment earlier.
+- **The sweep decides whether to `task.delay()` from a fresh read made after winning its UPDATE**,
+  never from the candidate-selection snapshot.
+
+The last rule closes the one interleaving that would otherwise lose a task forever: the sweep
+SELECTs a candidate whose re-queued row still exists (snapshot says "row exists → don't
+re-queue"); while the sweep is still iterating its candidate list, that row fires, fails its
+claim, and is consumed and deleted; the sweep's UPDATE then lands and leaves the task `PENDING`
+with no queue row — a state no future sweep selects (candidates are `IN_PROGRESS` only). The
+window is the sweep's whole SELECT→UPDATE gap, and it is widest exactly when recovery matters: a
+crashed worker leaves many candidates (long iteration) and a backlogged queue leaves re-queued
+rows sitting `todo` for minutes.
 
 ## Changes
 
@@ -158,28 +210,39 @@ rule is applied, replacing today's assert.
   `Status.ABORTING` is documented as legacy and unused, so it is deliberately absent; a row in any
   status other than `doing` is not being run by anyone.
 
-- Resolve each with a **single conditional update**, because both worker containers sweep
-  concurrently at deploy time:
+- Resolve each with a **single conditional update that re-checks both the status and the
+  owner-gone conditions at execution time** (Django compiles the joined conditions into the one
+  `UPDATE` statement), because both worker containers sweep concurrently at deploy time, the
+  periodic sweep ticks every minute, and a live worker may claim the task at any moment:
 
   ```python
-  updated = Model.objects.filter(pk=task.pk, status=Model.Status.IN_PROGRESS).update(
-      status=new_status,
-      message="The worker processing this task was terminated.",
-      ended_at=timezone.now(),
-      queued_job_id=None,
+  stale_job_id = task.queued_job_id  # capture before the update nulls it
+
+  updated = (
+      Model.objects.filter(pk=task.pk, status=Model.Status.IN_PROGRESS)
+      .filter(owner_gone)
+      .update(
+          status=new_status,
+          message="The worker processing this task was terminated.",
+          ended_at=timezone.now(),
+          queued_job_id=None,
+      )
   )
   if not updated:
-      continue  # another container won the race
+      continue  # another sweep won the race, or a live worker claimed the task meanwhile
   ```
 
-  Only the container whose update changed a row proceeds. `new_status` is `CANCELED` when
+  Only the sweep whose update changed a row proceeds. `new_status` is `CANCELED` when
   `task.job.status` is `CANCELING`/`CANCELED`, else `PENDING`. For `PENDING`, clear `ended_at`
   instead of setting it — the task has not ended.
 
-- **Re-queue only when there is no row.** If the task had `queued_job_id IS NULL` or a terminal row,
-  call `task.delay()` after the winning update so a `PENDING` task is not left with nothing to run
-  it. If the row exists (`todo`, or `doing` with a dead worker), do **not** call `delay()` —
-  `retry_stalled_jobs` re-queues that same row, and a second row would run the task twice.
+- **Re-queue from a fresh read, only when there is no live row.** After a winning update whose
+  outcome is `PENDING`, query the captured `stale_job_id` again: if that row no longer exists or
+  is terminal, call `task.delay()`; if a live row (`todo` or `doing`) remains, do **not** — that
+  row will fire and the processor's claim will find the task `PENDING`. Never decide from the
+  candidate-selection snapshot: the row can fire, fail its claim, and be deleted while the sweep
+  is still iterating, and a `PENDING` task with no row is invisible to every future sweep (see
+  "Why every ordering converges").
 - Collect affected jobs (deduped) and call `job.update_job_state()` on each non-terminal one.
 - Never write to Procrastinate's own rows. They are exposed to Django as read-only models
   (`ProcrastinateReadOnlyModelMixin`) and are driven by Procrastinate's SQL state machine, so editing
@@ -209,10 +272,11 @@ Next to `STALLED_JOBS_RETRY_PRIORITY` (~line 568):
 
 ```python
 ANALYSIS_STALLED_WORKER_GRACE_SECONDS = env.int("ANALYSIS_STALLED_WORKER_GRACE_SECONDS", default=30)
+ANALYSIS_SWEEP_CRON = env.str("ANALYSIS_SWEEP_CRON", default="* * * * *")
 ```
 
-Document in `example.env` and the env-var section of `AGENTS.md` (`CLAUDE.md` is a symlink to it),
-including the constraint that it must not be set below 30.
+Document both in `example.env` and the env-var section of `AGENTS.md` (`CLAUDE.md` is a symlink to
+it), including the constraint that the grace must not be set below 30.
 
 ### 4. Compose — worker start commands
 
@@ -234,39 +298,35 @@ start mid-migration. It also makes ordering deterministic — `retry_stalled_job
 
 ### 5. Processor — `radis/core/processors.py`
 
-Replace `assert task.status == task.Status.PENDING` (line 37). The existing cancel branch at lines
-25-35 already handles `CANCELING`/`CANCELED` jobs and stays first, so by this point the job is live
-and only `task.status` needs to be examined:
+Replace `assert task.status == task.Status.PENDING` (line 37) **and** the unconditional
+`IN_PROGRESS` save (lines 49-51) with a single atomic claim. The existing cancel branch at lines
+25-35 already handles `CANCELING`/`CANCELED` jobs and stays first:
 
 ```python
-if task.status == AnalysisTask.Status.IN_PROGRESS:
-    # The worker processing this task was killed; retry_stalled_jobs re-queued the row
-    # after 30s without a heartbeat. Reset the status and run the task again.
-    logger.warning("Task %s was left IN_PROGRESS by a terminated worker, restarting it.", task)
-    task.status = AnalysisTask.Status.PENDING
-    task.save(update_fields=["status"])
-elif task.status != AnalysisTask.Status.PENDING:
-    # Already resolved, most likely by the startup sweep before this row fired.
-    logger.warning("Task %s arrived with status %s, nothing to do.", task, task.status)
+now = timezone.now()
+claimed = type(task).objects.filter(pk=task.pk, status=AnalysisTask.Status.PENDING).update(
+    status=AnalysisTask.Status.IN_PROGRESS, started_at=now
+)
+if not claimed:
+    # Stale IN_PROGRESS left by a killed worker (the periodic sweep will repair and
+    # re-queue it), or already resolved by a sweep before this row fired. Not ours to run.
+    logger.warning("Task %s was not PENDING, skipping.", task)
     return
+task.status = AnalysisTask.Status.IN_PROGRESS
+task.started_at = now
 ```
 
-- `IN_PROGRESS` is unambiguous here. A task is only set `IN_PROGRESS` _after_ a worker takes its
-  queue row to `doing`, and a `doing` row only returns to `todo` via `retry_stalled_jobs`, which
-  requires 30 s of heartbeat silence. So it can only mean the previous worker was killed.
-- The task is reset to `PENDING` and then **processed normally in the same call** — execution falls
-  through to the existing lines 41-51, which move the job to `IN_PROGRESS`, set the task to
-  `IN_PROGRESS` and stamp a fresh `started_at`. This is genuinely a new run, so resetting
-  `started_at` is correct and no extra handling is needed.
-  Setting `PENDING` and returning instead would consume the queue row and leave a `PENDING` task
-  with nothing to run it.
-- The intermediate `save()` is deliberate though the next save is imminent: it makes the reset
-  durable, so a sweep running on the other worker container in that window sees `PENDING` rather
-  than a stale `IN_PROGRESS` it would try to repair.
-- The processor cannot verify the dead worker itself — by the time it runs, the queue row's
-  `worker_id` has been overwritten to point at the current worker and the old worker row may already
-  be pruned. It relies on `retry_stalled_jobs` having verified the 30 s of silence before
-  re-queueing.
+- The claim is one `UPDATE … WHERE id = %s AND status = 'PE'` — check and set are indivisible, so
+  the processor can never execute a task it did not just flip from `PENDING`, and the sweep
+  (which only ever writes onto `IN_PROGRESS` rows) can never yank back a task a worker holds.
+  Read-then-branch here (an assert, or a status `if`) would race the sweep: it decides on an
+  in-memory copy that the sweep may have already overwritten.
+- The processor repairs nothing. When the claim fails on a stale `IN_PROGRESS` task, the queue
+  row is consumed as a no-op and deleted; the next sweep tick sees the orphan and re-queues it.
+  Repair authority lives in exactly one place — the sweep.
+- The in-memory fields are set after the claim so the `finally` block's full `save()` writes the
+  same values the claim wrote.
+- The job-level transition (lines 41-46) is unchanged and runs after the claim.
 
 Leave `assert job.status == job.Status.IN_PROGRESS` (line 46) untouched.
 
@@ -318,14 +378,12 @@ This makes the sweep's `queued_job_id IS NULL` branch reliable.
 ### 10. Docs
 
 Rewrite `KNOWLEDGE.md:55-72` ("Recovering a job stuck in CANCELING"): recovery is now automatic at
-worker startup and on the next re-fire; demote the shell snippet to immediate manual recovery. Add
-`ANALYSIS_STALLED_WORKER_GRACE_SECONDS` to the env-var list in `AGENTS.md` and `example.env`.
+worker startup and within about a minute in steady state (periodic sweep); demote the shell snippet
+to immediate manual recovery. Add `ANALYSIS_STALLED_WORKER_GRACE_SECONDS` and `ANALYSIS_SWEEP_CRON`
+to the env-var list in `AGENTS.md` and `example.env`.
 
 ## Out of scope
 
-- **A periodic sweep.** With both entry points, the only uncovered case is a worker that never
-  returns _and_ no deploy happening — a state that already needs a human, whose redeploy runs the
-  sweep. Adding it later is the same function on a cron and changes nothing else.
 - **`restart_policy.window` in `docker-compose.prod.yml:11-15`.** Unrelated crashes months apart may
   accumulate toward `max_attempts`. Behaves identically before and after this change.
 - **A lock around `update_job_state()`.** Two tasks of one job finishing simultaneously already race
@@ -340,6 +398,13 @@ worker startup and on the next re-fire; demote the shell snippet to immediate ma
 - **A per-task attempt cap.** See below.
 
 ## Accepted risk
+
+**A stale `IN_PROGRESS` is visible in the UI for up to ~90 s.** Death is only detectable after
+30 s of heartbeat silence, so a window where the UI shows `IN_PROGRESS` with no worker on the task
+is inherent to any design; with the 1-minute sweep it lasts roughly 30–90 s, after which the task
+honestly shows `PENDING` until re-run. It is unbounded only if `default_worker` itself stays dead
+(no periodic ticks), where repair waits for the next container boot — a state that needs a human
+anyway. Today the same stale status lasts forever.
 
 A task whose own content kills the worker (a batch large enough to exhaust container memory) is
 resumed, crashes again, and repeats about every 10 minutes. Swarm's `max_attempts` bounds this
@@ -375,33 +440,42 @@ factory pattern from `radis/core/tests/test_processors.py`.
 9. Concurrency: run the resolve step twice against the same task; the second changes nothing and
    does not create a second queue row.
 10. The command wrapper returns exit code 0 when `sweep_stale_analysis_state` raises.
+11. Race — fresh-read re-queue: candidate selected while its `todo` row exists; delete the row
+    before the resolve step runs → resolve sets `PENDING` **and** calls `task.delay()` (snapshot
+    would have said "row exists, don't re-queue").
+12. Race — owner-gone re-check: task `IN_PROGRESS` whose row is `doing` under a fresh heartbeat by
+    the time the resolve step executes → the conditional update matches nothing, task untouched.
+13. Periodic wiring: `sweep_stale_tasks_periodic` calls `sweep_stale_analysis_state` and is
+    registered with `settings.ANALYSIS_SWEEP_CRON`.
 
 **`radis/core/tests/test_processors.py`:**
 
-11. Re-fired task with `status=IN_PROGRESS` under a live job → `process_task` is called, the task
-    ends `SUCCESS`, and `started_at` is stamped with the new run's time.
-12. Re-fired task with `status=IN_PROGRESS` under a `CANCELING` job → `CANCELED` via the existing
+14. `PENDING` task → claim succeeds, `process_task` is called, the task ends `SUCCESS`, and
+    `started_at` is stamped.
+15. Re-fired task with `status=IN_PROGRESS` under a live job → claim fails, `process_task` is
+    **not** called, the task row is untouched (repair belongs to the sweep), no exception.
+16. Re-fired task with `status=IN_PROGRESS` under a `CANCELING` job → `CANCELED` via the existing
     cancel branch, `process_task` never called.
-13. Re-fired task already `SUCCESS` → no-op, no exception. Update
+17. Re-fired task already `SUCCESS` → claim fails, no-op, no exception. Update
     `test_start_assertion_error_on_invalid_task_status` (lines 253-262), which currently expects
     `AssertionError`. `test_start_assertion_error_on_invalid_job_status` still passes unchanged.
 
 **`radis/core/tests/test_models.py`:**
 
-14. `update_job_state()` with all tasks `CANCELED` and job not `CANCELING` → job `CANCELED`, no
+18. `update_job_state()` with all tasks `CANCELED` and job not `CANCELING` → job `CANCELED`, no
     exception, no mail sent.
 
 **Per-app:**
 
-15. Extractions: a task with some instances already `is_processed` re-runs without raising and does
+19. Extractions: a task with some instances already `is_processed` re-runs without raising and does
     not reprocess them.
-16. Subscriptions: running the same task twice creates one `SubscribedItem`, not two.
-17. Subscriptions: re-fired prep job does not duplicate tasks.
-18. Extractions: re-fired prep job in `PREPARING` does not raise.
+20. Subscriptions: running the same task twice creates one `SubscribedItem`, not two.
+21. Subscriptions: re-fired prep job does not duplicate tasks.
+22. Extractions: re-fired prep job in `PREPARING` does not raise.
 
 **Labels end-to-end** (extend `radis/labels/tests/test_jobs.py`):
 
-19. `LabelingJob` in `CANCELING` with a stale `IN_PROGRESS` task → run the sweep → job `CANCELED`
+23. `LabelingJob` in `CANCELING` with a stale `IN_PROGRESS` task → run the sweep → job `CANCELED`
     and a new `LabelingJob` can be created (singleton index unblocked).
 
 ## Verification
@@ -415,14 +489,16 @@ factory pattern from `radis/core/tests/test_processors.py`.
    parks at `CANCELING`), restart the worker. The job must reach `CANCELED` unaided and a new
    labeling job must be startable, with no shell recovery.
 5. Manual — resume: repeat without cancelling. Once with a restart delayed past 30 s (exercises the
-   startup sweep), once with an immediate restart (exercises the processor path). The task must run
-   again and the job complete in both.
+   startup sweep), once with an immediate restart (exercises the periodic sweep: either it repairs
+   the task before the re-queued row fires, or the row no-ops on a failed claim and the next tick
+   repairs the orphan). The task must run again and the job complete in both.
 
 ## Key files
 
 - `radis/core/utils/recovery.py` (new) — sweep logic
 - `radis/core/management/commands/sweep_stale_tasks.py` (new) — command, never exits non-zero
-- `radis/core/processors.py:25-46` — cancel branch, then the replaced assert
+- `radis/core/tasks.py` (new) — periodic sweep task (`ANALYSIS_SWEEP_CRON`)
+- `radis/core/processors.py:25-51` — cancel branch, then the atomic claim replacing the assert
 - `radis/core/models.py:92-130` — `update_job_state()`, incl. the all-canceled branch
 - `radis/extractions/processors.py:29,51`, `radis/subscriptions/processors.py:66` — resume safety
 - `radis/extractions/tasks.py:35`, `radis/subscriptions/tasks.py:38` — prep guards
