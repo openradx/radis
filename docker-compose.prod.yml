@@ -59,6 +59,8 @@ services:
     command: >
       bash -c "
         wait-for-it -s postgres.local:5432 -t ${WAIT_POSTGRES_TIMEOUT:-180} &&
+        wait-for-it -s init.local:8000 -t 300 &&
+        ./manage.py sweep_stale_tasks &&
         ./manage.py bg_worker -q default
       "
     deploy:
@@ -69,6 +71,8 @@ services:
     command: >
       bash -c "
         wait-for-it -s postgres.local:5432 -t ${WAIT_POSTGRES_TIMEOUT:-180} &&
+        wait-for-it -s init.local:8000 -t 300 &&
+        ./manage.py sweep_stale_tasks &&
         ./manage.py bg_worker -q llm
       "
     deploy:
