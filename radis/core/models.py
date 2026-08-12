@@ -126,8 +126,12 @@ class AnalysisJob(models.Model):
             self.status = AnalysisJob.Status.SUCCESS
             self.message = "All tasks succeeded."
         else:
-            # at least one of success, warnings or failures must be > 0
-            raise AssertionError(f"Invalid task status of {self}.")
+            # Every task is CANCELED — reachable when a task of an already CANCELED
+            # job re-fires and is canceled again. Settle the job instead of raising.
+            self.status = AnalysisJob.Status.CANCELED
+            self.message = "All tasks canceled."
+            self.save()
+            return False
 
         self.ended_at = timezone.now()
         self.save()

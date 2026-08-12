@@ -388,8 +388,12 @@ class TestAnalysisJob:
         ExtractionTaskFactory.create(job=job, status=AnalysisTask.Status.CANCELED)
         ExtractionTaskFactory.create(job=job, status=AnalysisTask.Status.CANCELED)
 
-        with pytest.raises(AssertionError, match="Invalid task status"):
-            job.update_job_state()
+        result = job.update_job_state()
+        job.refresh_from_db()
+
+        assert result is False
+        assert job.status == AnalysisJob.Status.CANCELED
+        assert job.message == "All tasks canceled."
 
     @pytest.mark.django_db
     def test_job_update_job_state_consecutive_calls(self):
@@ -528,6 +532,23 @@ class TestAnalysisJob:
                     f"For status {status}, property {prop_name} should be {expected_value} "
                     f"but was {actual_value}"
                 )
+
+    @pytest.mark.django_db
+    def test_update_job_state_all_tasks_canceled_without_canceling_job(self):
+        user = UserFactory.create()
+        job = ExtractionJobFactory.create(
+            owner=user, status=AnalysisJob.Status.IN_PROGRESS, send_finished_mail=True
+        )
+        ExtractionTaskFactory.create(job=job, status=AnalysisTask.Status.CANCELED)
+
+        with patch.object(type(job), "_send_job_finished_mail") as mock_mail:
+            result = job.update_job_state()
+
+        job.refresh_from_db()
+        assert result is False
+        assert job.status == AnalysisJob.Status.CANCELED
+        assert job.message == "All tasks canceled."
+        mock_mail.assert_not_called()
 
 
 @pytest.mark.django_db
