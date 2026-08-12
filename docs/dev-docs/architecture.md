@@ -49,21 +49,19 @@ RADIS uses [Procrastinate](https://procrastinate.readthedocs.io/en/stable/), a P
 
 **Default Worker Container (`radis-default_worker-1`)**: Processes background tasks in the default queue (e.g., extraction job preparation, subscription job preparation, periodic subscription launcher, disk space checks, database backups).
 
-**LLM Worker Container (`radis-llm_worker-1`)**: Executes AI-intensive tasks from the llm queue (extraction tasks, subscription tasks). Uses ChatClient to communicate with LLM service.
-
-**LLM Service Container (`radis-llm_gpu-1`)**: Runs llama.cpp server with local LLM models for AI-powered features. Llama.cpp provides OpenAI-compatible API endpoints for chat completions and structured output via JSON schema (using `response_format` parameter). Uses GPU acceleration when available (CUDA support). Accessible at http://llm.local:8080/v1. Stores model cache in Docker volume. Configured with context size of 8192 tokens, 2 parallel slots, and 99 GPU layers for maximum GPU utilization.
+**LLM Worker Container (`radis-llm_worker-1`)**: Executes AI-intensive tasks from the llm queue (extraction tasks, subscription tasks). Uses ChatClient to communicate with the configured LLM endpoint.
 
 ### LLM Configuration
 
-**Model-Agnostic Architecture**: RADIS is model-agnostic and works with any LLM that provides an OpenAI-compatible API, supporting both local and external providers.
+**Model-Agnostic Architecture**: RADIS is model-agnostic and works with any LLM that provides an OpenAI-compatible API and supports structured outputs — extractions, subscriptions and labeling send a JSON schema as `response_format`, so an endpoint offering chat completions alone is not enough. It runs no inference server of its own — all inference is sent to an external endpoint configured through `LLM_BASE_URL` and `LLM_API_KEY`. That endpoint can be a commercial API (OpenAI, Azure OpenAI, …) or a server you run yourself (Ollama, vLLM, SGLang, llama.cpp).
 
-**Development**: Uses **llama.cpp** server with GGUF-formatted models. Default model: `SmolLM2-135M-Instruct` (lightweight for testing). Supports CPU and GPU modes. Models automatically downloaded from HuggingFace and cached in Docker volume.
+**Per-Feature Models**: `LLM_DEFAULT_MODEL` sets the model every feature uses, and `LLM_CHATS_MODEL`, `LLM_QUERY_GENERATION_MODEL`, `LLM_EXTRACTIONS_MODEL`, `LLM_SUBSCRIPTIONS_MODEL` and `LLM_LABELING_MODEL` override it where a feature deserves a stronger or cheaper model. Each takes the form `model[?param=value&...]`, and those parameters are merged into the request body — so standard OpenAI fields (`temperature`, `top_p`, `seed`) and provider extensions (`reasoning_effort`) are configured alongside the model rather than globally. Values are read as JSON where possible, so `temperature=0` sends a number while `reasoning_effort=none` sends the string providers expect; a dotted key nests, giving vLLM and SGLang their `chat_template_kwargs.enable_thinking=false`. Specs are parsed at startup, so a malformed one is a boot error rather than a failure on the first request.
 
-**Production**: Uses **SGLang** server for optimized inference with better batching and throughput.
+**Development**: The app containers talk to a provider running on the Docker host (`http://host.docker.internal:11434/v1` for Ollama); the compose services set `extra_hosts: host.docker.internal:host-gateway` so this also resolves on plain Linux Docker. The stack itself contains no inference service — see `docs/dev-docs/contributing.md` for running Ollama natively or as a standalone container.
 
-**Structured Output**: Uses OpenAI's `beta.chat.completions.parse` API with Pydantic schemas as `response_format` parameter, ensuring LLM returns valid JSON matching defined schemas. Applied in extractions (custom field extraction) and subscriptions (yes/no question filtering).
+**Production**: Points at whatever endpoint the deployment provides. No GPU is required on the RADIS nodes themselves.
 
-**External Providers**: Optionally use external APIs (OpenAI GPT-4, Claude, Azure OpenAI, local Ollama) by configuring `EXTERNAL_LLM_PROVIDER_URL` and `EXTERNAL_LLM_PROVIDER_API_KEY` environment variables.
+**Structured Output**: Uses OpenAI's `beta.chat.completions.parse` API with Pydantic schemas as `response_format` parameter, ensuring LLM returns valid JSON matching defined schemas. Applied in extractions (custom field extraction), subscriptions (yes/no question filtering) and labeling.
 
 ## Search Architecture
 

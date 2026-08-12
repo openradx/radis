@@ -13,7 +13,10 @@ https://docs.djangoproject.com/en/3.0/ref/settings/
 from pathlib import Path
 
 from adit_radis_shared.telemetry import add_otel_logging_handler, is_telemetry_active
+from django.core.exceptions import ImproperlyConfigured
 from environs import env
+
+from radis.core.utils.model_spec import ModelSpec, ModelSpecError, parse_model_spec
 
 # During development and calling `manage.py` from the host we have to load the .env file manually.
 # Some env variables will still need a default value, as those are only set in the compose file.
@@ -335,17 +338,69 @@ BACKUP_CRON = env.str("BACKUP_CRON", default="0 3 * * *")
 FILTERS_EMPTY_CHOICE_LABEL = "Show All"
 
 # LLM configuration
-LLM_MODEL_NAME = env.str("LLM_MODEL_NAME")
-EXTERNAL_LLM_PROVIDER_URL = env.str("EXTERNAL_LLM_PROVIDER_URL", default="")
-EXTERNAL_LLM_PROVIDER_API_KEY = env.str("EXTERNAL_LLM_PROVIDER_API_KEY", default="")
-LLM_SERVICE_DEV_PORT = env.int("LLM_SERVICE_DEV_PORT", default=8080)
-LLM_SERVICE_URL = env.str("LLM_SERVICE_URL", default=f"http://localhost:{LLM_SERVICE_DEV_PORT}/v1")
+# The OpenAI-compatible endpoint all inference is sent to. Required, as RADIS ships no
+# inference server of its own. An empty value is rejected as well, so a misconfigured
+# deployment fails at startup instead of on the first LLM call.
+LLM_BASE_URL = env.str("LLM_BASE_URL").strip()
+if not LLM_BASE_URL:
+    raise ImproperlyConfigured(
+        "LLM_BASE_URL must point to an OpenAI-compatible endpoint, e.g. "
+        "http://host.docker.internal:11434/v1 for a provider running on the Docker host."
+    )
+# Many self-hosted providers ignore the key, but the OpenAI client requires it to be set.
+LLM_API_KEY = env.str("LLM_API_KEY", default="")
+
+
+def _optional_env(name: str, parse, default):
+    """Read an optional setting, treating a blank value as unset.
+
+    A blank is what an `.env` line like `LLM_EXTRA_SETTING=` produces, and it means the
+    same as leaving the line out. A value that will not parse is reported with the name
+    of the variable at fault, which a bare ValueError from deep in this module would not
+    give the reader.
+    """
+    raw = env.str(name, default="").strip()
+    if not raw:
+        return default
+    try:
+        return parse(raw)
+    except Exception as err:
+        # Name the variable: a bare "could not convert string to float" from deep inside
+        # the settings module leaves the admin guessing which one is at fault.
+        raise ImproperlyConfigured(f"Invalid {name}={raw!r}: {err}") from err
+
+
 # How long a single LLM HTTP request may take before the client aborts it.
-LLM_REQUEST_TIMEOUT_SECONDS = env.float("LLM_REQUEST_TIMEOUT_SECONDS", default=60.0)
-# Provider quirks (e.g. Qwen's enable_thinking flag) sent with each extract_data call.
-LLM_EXTRA_BODY = env.json(
-    "LLM_EXTRA_BODY", default={"chat_template_kwargs": {"enable_thinking": False}}
-)
+LLM_REQUEST_TIMEOUT_SECONDS = _optional_env("LLM_REQUEST_TIMEOUT_SECONDS", float, 60.0)
+
+# The model each feature talks to, as 'model[?param=value&...]'. The parameters are merged
+# into the request body, so both standard OpenAI fields (temperature) and provider
+# extensions (reasoning_effort, or vLLM's chat_template_kwargs.enable_thinking) can be set
+# per model. Every feature falls back to LLM_DEFAULT_MODEL when its own is not configured.
+LLM_FEATURES = ("chats", "query_generation", "extractions", "subscriptions", "labeling")
+
+
+def _resolve_llm_models() -> dict[str, ModelSpec]:
+    try:
+        default = parse_model_spec(env.str("LLM_DEFAULT_MODEL"))
+    except ModelSpecError as err:
+        raise ImproperlyConfigured(f"Invalid LLM_DEFAULT_MODEL: {err}") from err
+
+    models = {}
+    for feature in LLM_FEATURES:
+        name = f"LLM_{feature.upper()}_MODEL"
+        raw = env.str(name, default="").strip()
+        if not raw:
+            models[feature] = default
+            continue
+        try:
+            models[feature] = parse_model_spec(raw)
+        except ModelSpecError as err:
+            raise ImproperlyConfigured(f"Invalid {name}: {err}") from err
+    return models
+
+
+LLM_MODELS = _resolve_llm_models()
 
 # Rate-limit gate: one per-process backoff window shared by every LLM client. On a 429
 # it closes the gate so all callers back off together instead of hammering the provider.
@@ -467,7 +522,10 @@ $fields
 
 # Query Generation from Extraction Fields
 ENABLE_AUTO_QUERY_GENERATION = env.bool("ENABLE_AUTO_QUERY_GENERATION", default=True)
-QUERY_GENERATION_TIMEOUT = env.int("QUERY_GENERATION_TIMEOUT", default=10)
+# A user waits on this one, so it is much shorter than the worker timeout. It replaces
+# LLM_REQUEST_TIMEOUT_SECONDS rather than capping it, so a slow endpoint needs this raised
+# as well — see https://github.com/openradx/radis/issues/266.
+QUERY_GENERATION_TIMEOUT = _optional_env("QUERY_GENERATION_TIMEOUT", int, 10)
 QUERY_GENERATION_MAX_RETRIES = env.int("QUERY_GENERATION_MAX_RETRIES", default=2)
 
 QUERY_GENERATION_SYSTEM_PROMPT = """You are an AI assistant specialized in medical informatics and
@@ -516,9 +574,8 @@ EXTRACTION_TASK_BATCH_SIZE = 100
 
 # The number of parallel requests the LLM can handle. This limit is enforced within each task. When
 # having multiple workers that uses the LLM, the total number of parallel requests is
-# EXTRACTION_LLM_CONCURRENCY_LIMIT * number of workers. Either the number of HTTP Threads and
-# number of parallel computing slots of the llama.cpp should be set to match this number or the
-# continuous batching capability of the LLM or a combination of both should be used.
+# EXTRACTION_LLM_CONCURRENCY_LIMIT * number of workers. Keep this within whatever concurrency the
+# configured provider allows, otherwise the surplus requests just get rate limited.
 EXTRACTION_LLM_CONCURRENCY_LIMIT = 6
 
 START_EXTRACTION_JOB_UNVERIFIED = False
