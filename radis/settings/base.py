@@ -580,3 +580,10 @@ LABELING_SCAN_CRON = env.str("LABELING_SCAN_CRON", default="0 2 * * *")
 
 # The priority for stalled jobs that are retried.
 STALLED_JOBS_RETRY_PRIORITY = 10
+
+# Heartbeat silence before a worker counts as dead when repairing stale analysis tasks.
+# Never set below 30 — Procrastinate itself declares workers stalled at 30 s.
+ANALYSIS_STALLED_WORKER_GRACE_SECONDS = env.int("ANALYSIS_STALLED_WORKER_GRACE_SECONDS", default=30)
+
+# Cron for the periodic sweep that repairs tasks left IN_PROGRESS by killed workers.
+ANALYSIS_SWEEP_CRON = env.str("ANALYSIS_SWEEP_CRON", default="* * * * *")
