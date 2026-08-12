@@ -75,6 +75,8 @@ nav:
   - User Documentation:
       - Admin Guide: user-docs/admin-guide.md
       - User Guide: user-docs/user-guide.md
+      - Backups: backups.md
+      - Maintenance: maintenance.md
   - Developer Documentation:
       - Contributing: dev-docs/contributing.md
       - Architecture: dev-docs/architecture.md

@@ -44,3 +44,11 @@ def make_connection_error() -> openai.APIConnectionError:
     """Build a real openai.APIConnectionError (a transient, non-429 error)."""
     request = httpx.Request("POST", "http://testserver/v1/chat/completions")
     return openai.APIConnectionError(message="connection failed", request=request)
+
+
+def make_bad_request_error(message: str = "unknown parameter") -> openai.BadRequestError:
+    """Build a real openai.BadRequestError, as a provider raises when it rejects a
+    request parameter such as an unsupported reasoning_effort."""
+    request = httpx.Request("POST", "http://testserver/v1/chat/completions")
+    response = httpx.Response(400, request=request)
+    return openai.BadRequestError(message, response=response, body=None)

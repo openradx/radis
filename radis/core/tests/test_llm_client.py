@@ -15,6 +15,7 @@ from radis.core.utils.llm_client import (
     LLMClient,
     LLMResponseError,
 )
+from radis.core.utils.model_spec import ModelSpec
 from radis.core.utils.rate_limit import RateLimited
 
 
@@ -29,24 +30,71 @@ def reset_gate():
     _LLM_GATE.reset()
 
 
-def test_llm_client_sets_max_retries_and_timeout(settings):
+def test_llm_client_sets_endpoint_max_retries_and_timeout(settings):
+    settings.LLM_BASE_URL = "https://provider.example/v1"
+    settings.LLM_API_KEY = "the-key"
     settings.LLM_REQUEST_TIMEOUT_SECONDS = 42.0
     with patch("openai.OpenAI") as openai_cls:
-        LLMClient()
+        LLMClient("extractions")
     kwargs = openai_cls.call_args.kwargs
+    assert kwargs["base_url"] == "https://provider.example/v1"
+    assert kwargs["api_key"] == "the-key"
     assert kwargs["max_retries"] == 0
     assert kwargs["timeout"] == 42.0
 
 
-def test_extract_data_uses_user_message_and_extra_body(settings):
-    settings.LLM_EXTRA_BODY = {"foo": "bar"}
+def test_async_chat_client_sets_endpoint_and_timeout_override(settings):
+    settings.LLM_BASE_URL = "https://provider.example/v1"
+    settings.LLM_API_KEY = "the-key"
+    settings.LLM_REQUEST_TIMEOUT_SECONDS = 42.0
+    with patch("openai.AsyncOpenAI") as openai_cls:
+        AsyncChatClient("chats", timeout=5.0)
+    kwargs = openai_cls.call_args.kwargs
+    assert kwargs["base_url"] == "https://provider.example/v1"
+    assert kwargs["api_key"] == "the-key"
+    assert kwargs["max_retries"] == 0
+    assert kwargs["timeout"] == 5.0
+
+
+def test_extract_data_uses_user_message_and_the_features_model(settings):
+    settings.LLM_MODELS = {"extractions": ModelSpec("extraction-model", {"foo": "bar"})}
     mock = cast(MagicMock, create_openai_client_mock(_Schema(value="hi")))
     with patch("openai.OpenAI", return_value=mock):
-        result = LLMClient().extract_data("the prompt", _Schema)
+        result = LLMClient("extractions").extract_data("the prompt", _Schema)
     assert isinstance(result, _Schema)
     call = mock.beta.chat.completions.parse.call_args.kwargs
     assert call["messages"] == [{"role": "user", "content": "the prompt"}]
+    assert call["model"] == "extraction-model"
     assert call["extra_body"] == {"foo": "bar"}
+
+
+@pytest.mark.asyncio
+async def test_chat_sends_the_features_model_and_params(settings):
+    # Chat must send the configured request parameters too, or a reasoning model keeps
+    # thinking whatever the deployment asks for.
+    settings.LLM_MODELS = {"chats": ModelSpec("chat-model", {"reasoning_effort": "none"})}
+    mock = cast(MagicMock, create_async_openai_client_mock("the answer"))
+    with patch("openai.AsyncOpenAI", return_value=mock):
+        await AsyncChatClient("chats").chat([{"role": "user", "content": "hi"}])
+    call = mock.chat.completions.create.call_args.kwargs
+    assert call["model"] == "chat-model"
+    assert call["extra_body"] == {"reasoning_effort": "none"}
+
+
+def test_each_feature_gets_its_own_model(settings):
+    settings.LLM_MODELS = {
+        "extractions": ModelSpec("small-model"),
+        "labeling": ModelSpec("big-model"),
+    }
+    with patch("openai.OpenAI"):
+        assert LLMClient("extractions")._llm_model_name == "small-model"
+        assert LLMClient("labeling")._llm_model_name == "big-model"
+
+
+def test_unknown_feature_is_rejected(settings):
+    settings.LLM_MODELS = {"chats": ModelSpec("a-model")}
+    with patch("openai.OpenAI"), pytest.raises(ValueError, match="Unknown LLM feature"):
+        LLMClient("nope")
 
 
 def test_extract_data_recovers_after_one_rate_limit():
@@ -64,7 +112,7 @@ def test_extract_data_recovers_after_one_rate_limit():
 
     mock.beta.chat.completions.parse.side_effect = flaky
     with patch("openai.OpenAI", return_value=mock):
-        result = LLMClient().extract_data("p", _Schema)
+        result = LLMClient("extractions").extract_data("p", _Schema)
     assert isinstance(result, _Schema)
     assert result.value == "ok"
     assert calls["n"] == 2
@@ -79,14 +127,14 @@ def test_extract_data_defers_when_rate_limit_exceeds_budget():
     mock.beta.chat.completions.parse.side_effect = always_429
     with patch("openai.OpenAI", return_value=mock):
         with pytest.raises(RateLimited):
-            LLMClient().extract_data("p", _Schema, max_wait=300.0)
+            LLMClient("extractions").extract_data("p", _Schema, max_wait=300.0)
 
 
 @pytest.mark.asyncio
 async def test_chat_returns_content():
     mock = create_async_openai_client_mock("the answer")
     with patch("openai.AsyncOpenAI", return_value=mock):
-        answer = await AsyncChatClient().chat([{"role": "user", "content": "hi"}])
+        answer = await AsyncChatClient("chats").chat([{"role": "user", "content": "hi"}])
     assert answer == "the answer"
 
 
@@ -100,7 +148,7 @@ async def test_chat_defers_when_rate_limit_exceeds_budget():
     mock.chat.completions.create.side_effect = always_429
     with patch("openai.AsyncOpenAI", return_value=mock):
         with pytest.raises(RateLimited):
-            await AsyncChatClient().chat([{"role": "user", "content": "hi"}], max_wait=20.0)
+            await AsyncChatClient("chats").chat([{"role": "user", "content": "hi"}], max_wait=20.0)
 
 
 @pytest.mark.asyncio
@@ -110,11 +158,11 @@ async def test_chat_raises_when_content_is_none():
     mock = create_async_openai_client_mock(None)
     with patch("openai.AsyncOpenAI", return_value=mock):
         with pytest.raises(LLMResponseError):
-            await AsyncChatClient().chat([{"role": "user", "content": "hi"}])
+            await AsyncChatClient("chats").chat([{"role": "user", "content": "hi"}])
 
 
 def test_extract_data_raises_when_parsed_is_none():
     mock = create_openai_client_mock(None)
     with patch("openai.OpenAI", return_value=mock):
         with pytest.raises(LLMResponseError):
-            LLMClient().extract_data("p", _Schema)
+            LLMClient("extractions").extract_data("p", _Schema)

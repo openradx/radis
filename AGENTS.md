@@ -45,7 +45,7 @@ uv run cli db-backup                 # Backup database
 - **Search**: pg_vector (semantic), pg_search (full-text), hybrid ranking
 - **Async**: Daphne (ASGI), Django Channels, Procrastinate (task queue)
 - **Frontend**: Django templates, Cotton components, HTMX, Alpine.js, Bootstrap 5
-- **LLM**: OpenAI-compatible API or local Llama.cpp server
+- **LLM**: External OpenAI-compatible API endpoint
 - **API**: Django REST Framework with async support (ADRF)
 
 ### Django Apps
@@ -87,11 +87,9 @@ Analysis operations follow a Job -> Task pattern (similar to ADIT):
 - **llm_worker**: LLM-specific task processor (Procrastinate queue: `llm`)
 - **postgres**: PostgreSQL 17 with pg_vector and pg_search extensions (port 5432)
 
-### Docker Compose Profiles
+### LLM Endpoint
 
-- **No profile**: Uses external LLM via API (configure `OPENAI_API_BASE_URL`)
-- **cpu**: Local LLM on CPU using Llama.cpp
-- **gpu**: Local LLM with CUDA acceleration using Llama.cpp
+App services talk to the endpoint in `LLM_BASE_URL`; the stack contains no inference service. In development that is by default a provider on the Docker host (`http://host.docker.internal:11434/v1`), and the dev compose file sets `extra_hosts: host.docker.internal:host-gateway` so the name resolves on plain Linux Docker too. See `docs/dev-docs/contributing.md` for running Ollama locally, natively or as a standalone container.
 
 ## Environment Variables
 
@@ -101,9 +99,10 @@ Key variables in `.env` (see `example.env`):
 - `DJANGO_SECRET_KEY`: Cryptographic signing key
 - `POSTGRES_PASSWORD`: Database password
 - `DJANGO_ALLOWED_HOSTS`: Comma-separated allowed hosts
-- `OPENAI_API_KEY`: API key for OpenAI-compatible LLM service
-- `OPENAI_API_BASE_URL`: Base URL for LLM API (for local or alternative providers)
-- `LLM_MODEL_NAME`: Model to use for LLM operations
+- `LLM_BASE_URL`: Base URL of the OpenAI-compatible LLM endpoint (required, no default)
+- `LLM_API_KEY`: API key for that endpoint (many self-hosted providers ignore it)
+- `LLM_DEFAULT_MODEL`: Model every feature uses unless overridden (required). Takes the form `model[?param=value&...]`; the params are merged into the request body, values are read as JSON where possible (`temperature=0` → number, `reasoning_effort=none` → string), and dotted keys nest (`chat_template_kwargs.enable_thinking=false`)
+- `LLM_CHATS_MODEL`, `LLM_QUERY_GENERATION_MODEL`, `LLM_EXTRACTIONS_MODEL`, `LLM_SUBSCRIPTIONS_MODEL`, `LLM_LABELING_MODEL`: Per-feature overrides, same form. Blank means use `LLM_DEFAULT_MODEL`
 - `SITE_NAME`, `SITE_DOMAIN`: Site framework settings
 - `ADMIN_USERNAME`, `ADMIN_EMAIL`, `ADMIN_PASSWORD`: Initial superuser
 
@@ -196,10 +195,16 @@ reports = response.json()
 
 ### LLM Operations Failing
 
-- Verify `OPENAI_API_KEY` and `OPENAI_API_BASE_URL` are set
+- Verify `LLM_BASE_URL`, `LLM_API_KEY` and `LLM_DEFAULT_MODEL` are set
 - Check llm_worker is running: `docker compose logs llm_worker`
-- For local LLM, ensure llama.cpp service is healthy
-- Review model compatibility (see KNOWLEDGE.md for recommendations)
+- Ensure the endpoint is reachable from inside the containers, not just from the host.
+  Note the single quotes, so `$LLM_BASE_URL` is expanded in the container and not by your shell:
+  `docker compose exec web sh -c 'curl -sf "$LLM_BASE_URL/models"'`
+- If the endpoint runs on the host, it must listen on more than loopback: Ollama needs
+  `OLLAMA_HOST=0.0.0.0`, otherwise containers get "connection refused" even though the name resolves
+- If the provider rejects requests with a 400, check the `?param=value` part of the model setting for parameters it doesn't support
+- Confirm the endpoint serves the configured model and supports structured outputs
+- If one feature misbehaves, check whether it has its own `LLM_<FEATURE>_MODEL` override
 
 ### Worker Not Processing Tasks
 
