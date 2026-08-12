@@ -34,7 +34,16 @@ def process_extraction_job(job_id: int) -> None:
     job = ExtractionJob.objects.get(id=job_id)
 
     logger.info("Start preparing job %s", job)
-    assert job.status == ExtractionJob.Status.PENDING
+
+    # PENDING is the fresh-defer state; PREPARING means a worker crashed mid-preparation
+    # and the row was re-fired. Anything else has nothing to prepare.
+    if job.status not in (ExtractionJob.Status.PENDING, ExtractionJob.Status.PREPARING):
+        logger.warning(
+            "process_extraction_job called for job %s in status %s, ignoring.",
+            job.pk,
+            job.get_status_display(),
+        )
+        return
 
     # Important invariant:
     # While a job is in PREPARING we must not enqueue tasks. Otherwise a worker can pick up a task
@@ -44,6 +53,11 @@ def process_extraction_job(job_id: int) -> None:
     # If tasks already exist, this is a resume/retry path. We keep the job in PENDING and just
     # (re-)enqueue any pending tasks that are currently not queued.
     if job.tasks.exists():
+        # Resume path (re-fire after a crash). A crash mid-preparation leaves the job
+        # PREPARING; restore PENDING first — tasks must never run under a PREPARING job.
+        if job.status == ExtractionJob.Status.PREPARING:
+            job.status = ExtractionJob.Status.PENDING
+            job.save()
         tasks_to_enqueue = job.tasks.filter(status=ExtractionTask.Status.PENDING)
     else:
         job.status = ExtractionJob.Status.PREPARING
