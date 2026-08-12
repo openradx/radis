@@ -3,6 +3,7 @@ from unittest.mock import patch
 
 import pytest
 from adit_radis_shared.accounts.factories import UserFactory
+from django.core.management import call_command
 from django.db import connection
 from django.utils import timezone
 from procrastinate.contrib.django.models import ProcrastinateJob, ProcrastinateWorker
@@ -209,3 +210,13 @@ def test_resolve_declines_when_row_is_doing_under_fresh_worker():
     task.refresh_from_db()
     assert task.status == AnalysisTask.Status.IN_PROGRESS
     mock_delay.assert_not_called()
+
+
+@pytest.mark.django_db
+def test_sweep_command_exits_zero_when_sweep_raises():
+    # The command gates worker boot via `&&`; a failed repair must never stop the worker.
+    with patch(
+        "radis.core.management.commands.sweep_stale_tasks.sweep_stale_analysis_state",
+        side_effect=RuntimeError("boom"),
+    ):
+        call_command("sweep_stale_tasks")  # must not raise
