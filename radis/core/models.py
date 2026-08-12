@@ -79,14 +79,15 @@ class AnalysisJob(models.Model):
 
         Should be called whenever task are updated or manipulated.
 
+        Evaluates ``self`` as given — it does not re-read the instance. A caller that
+        holds a job across a long operation (e.g. a worker running a task) must refetch
+        its status first, so a cancel the user issued meanwhile is not decided against a
+        stale status. The final write is guarded regardless, so a cancel landing between
+        that refetch and the write still cannot be overwritten by a computed final status.
+
         Returns: True if the job (for now) has no more pending tasks left. If it
             is a continuous job there could be added new tasks later on.
         """
-
-        # The caller may hold an instance loaded long before this call (a worker
-        # keeps the job in memory across a whole task run, during which the user
-        # may cancel). Decide on the current DB status, not the stale one.
-        self.refresh_from_db(fields=["status"])
 
         if not self.tasks.exists():
             self.status = AnalysisJob.Status.CANCELED
@@ -144,7 +145,7 @@ class AnalysisJob(models.Model):
             raise AssertionError(f"Invalid task status of {self}.")
 
         self.ended_at = timezone.now()
-        # Guarded write: the refresh above and this save are not atomic, so a
+        # Guarded write: the caller's refetch and this write are not atomic, so a
         # cancel can still land in between. A final status must never replace
         # a cancel; zero updated rows means a concurrent cancel won.
         updated = (

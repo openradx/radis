@@ -711,22 +711,28 @@ def test_update_job_state_on_stale_instance_respects_concurrent_cancel():
 
 
 @pytest.mark.django_db
-def test_final_state_write_guarded_against_cancel_landing_after_refresh(monkeypatch):
-    """Even a cancel that lands in the sliver between the status refresh and the
-    final-state write must win over SUCCESS — the write has to be guarded, not
-    just preceded by a refresh."""
+def test_update_job_state_guards_final_write_against_late_cancel(monkeypatch):
+    """The final-state write must be guarded, not merely preceded by a fresh read: a
+    cancel landing in the sliver between the last read and the write still has to win
+    over a computed SUCCESS. Inject the cancel at the moment ``ended_at`` is stamped,
+    the line immediately before the guarded write."""
+    from radis.core import models as core_models
+
     user = UserFactory.create()
     job = ExtractionJobFactory.create(owner=user, status=AnalysisJob.Status.IN_PROGRESS)
     ExtractionTaskFactory.create(job=job, status=AnalysisTask.Status.SUCCESS)
 
-    real_refresh = job.refresh_from_db
+    real_now = core_models.timezone.now
+    fired = {"done": False}
 
-    def refresh_then_cancel(*args, **kwargs):
-        real_refresh(*args, **kwargs)
-        # The cancel view writes CANCELING right after the worker refreshed.
-        type(job).objects.filter(pk=job.pk).update(status=AnalysisJob.Status.CANCELING)
+    def now_then_cancel():
+        if not fired["done"]:
+            fired["done"] = True
+            # The cancel view writes CANCELING just before the guarded write runs.
+            type(job).objects.filter(pk=job.pk).update(status=AnalysisJob.Status.CANCELING)
+        return real_now()
 
-    monkeypatch.setattr(job, "refresh_from_db", refresh_then_cancel)
+    monkeypatch.setattr(core_models.timezone, "now", now_then_cancel)
 
     job.update_job_state()
 
