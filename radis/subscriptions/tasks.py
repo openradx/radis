@@ -35,7 +35,16 @@ def process_subscription_job(job_id: int) -> None:
     job = SubscriptionJob.objects.get(id=job_id)
 
     logger.info("Start processing job %s", job)
-    assert job.status == SubscriptionJob.Status.PREPARING
+
+    # PREPARING is the only valid entry state (the launcher creates jobs PREPARING; a
+    # crash mid-preparation re-fires still PREPARING). Anything else has nothing to do.
+    if job.status != SubscriptionJob.Status.PREPARING:
+        logger.warning(
+            "process_subscription_job called for job %s in status %s, ignoring.",
+            job.pk,
+            job.get_status_display(),
+        )
+        return
 
     try:
         _build_subscription_job(job)
@@ -52,6 +61,11 @@ def process_subscription_job(job_id: int) -> None:
 def _build_subscription_job(job: SubscriptionJob) -> None:
 
     logger.debug("Collecting tasks for job %s", job)
+
+    # Wipe partial tasks from a prior crashed preparation attempt (idempotent, mirroring
+    # radis/labels/tasks.py). Safe: tasks are only enqueued after the switch to PENDING,
+    # so none of these can be queued or running.
+    job.tasks.all().delete()
 
     # Capture the refresh timestamp before querying for new reports so that
     # any reports arriving during task creation are picked up in the next cycle.

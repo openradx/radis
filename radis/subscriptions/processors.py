@@ -148,12 +148,16 @@ class SubscriptionTaskProcessor(AnalysisTaskProcessor):
                         extraction_response, get_output_field_name(field), None
                     )
 
-            SubscribedItem.objects.create(
-                subscription=task.job.subscription,
-                job=task.job,
+            # get_or_create + the (subscription, report) unique constraint make a resumed
+            # task idempotent even when two runs race past the exists() check above.
+            SubscribedItem.objects.get_or_create(
+                subscription=subscription,
                 report=report,
-                filter_results=filter_results or None,
-                extraction_results=extraction_results or None,
+                defaults={
+                    "job": task.job,
+                    "filter_results": filter_results or None,
+                    "extraction_results": extraction_results or None,
+                },
             )
             logger.debug(f"Report {report.pk} was accepted by subscription {subscription.pk}")
         finally:

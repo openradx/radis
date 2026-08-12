@@ -136,3 +136,38 @@ def test_subscription_launcher_skips_subscription_with_active_job(monkeypatch):
 
     # No second job while one is still active.
     assert subscription.jobs.count() == 1
+
+
+@pytest.mark.django_db
+def test_refired_prep_job_does_not_duplicate_tasks(monkeypatch):
+    job = _preparing_job()
+    ReportFactory.create(document_id="S-REFIRE-1")
+
+    monkeypatch.setattr(
+        subscription_site,
+        "subscription_filter_provider",
+        SubscriptionFilterProvider(name="f", filter=lambda _f: ["S-REFIRE-1"]),
+    )
+    monkeypatch.setattr(SubscriptionTask, "delay", lambda self: None, raising=True)
+
+    process_subscription_job(int(job.pk))
+    assert job.tasks.count() == 1
+
+    # Simulate a crash after task creation but before the PENDING switch, then re-fire.
+    SubscriptionJob.objects.filter(pk=job.pk).update(status=SubscriptionJob.Status.PREPARING)
+    process_subscription_job(int(job.pk))
+
+    job.refresh_from_db()
+    assert job.tasks.count() == 1  # wiped and recreated, not duplicated
+
+
+@pytest.mark.django_db
+def test_prep_job_in_unexpected_status_is_ignored(monkeypatch):
+    job = _preparing_job()
+    SubscriptionJob.objects.filter(pk=job.pk).update(status=SubscriptionJob.Status.SUCCESS)
+
+    process_subscription_job(int(job.pk))  # must not raise
+
+    job.refresh_from_db()
+    assert job.status == SubscriptionJob.Status.SUCCESS
+    assert job.tasks.count() == 0
