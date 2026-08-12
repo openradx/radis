@@ -68,7 +68,7 @@ Shared utilities come from `adit-radis-shared` package (accounts, token auth, co
 Analysis operations follow a Job -> Task pattern (similar to ADIT):
 
 - An **AnalysisJob** contains multiple **AnalysisTasks**
-- Status flow: `UNVERIFIED` -> `PREPARING` -> `PENDING` -> `IN_PROGRESS` -> `SUCCESS`/`WARNING`/`FAILURE`
+- Status flow: `UNVERIFIED` -> `PREPARING` -> `PENDING` -> `IN_PROGRESS` -> `SUCCESS`/`WARNING`/`FAILURE`/`CANCELED`
 - Jobs automatically update state based on task completion
 - Email notifications sent on job completion
 - Background workers (Procrastinate) process tasks from `default` and `llm` queues
