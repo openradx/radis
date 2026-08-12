@@ -102,3 +102,30 @@ def test_scan_checkpoint_is_singleton():
     second.save()  # save() forces pk=1, so this updates row 1 rather than inserting a second
 
     assert LabelingScanCheckpoint.objects.count() == 1
+
+
+@pytest.mark.django_db
+def test_raw_queue_row_delete_nulls_labeling_task_fk(settings):
+    settings.PROCRASTINATE_READONLY_MODELS = False
+    from django.db import connection
+    from procrastinate.contrib.django.models import ProcrastinateJob
+
+    from radis.labels.factories import LabelingJobFactory, LabelingTaskFactory
+
+    row = ProcrastinateJob.objects.create(
+        queue_name="llm",
+        task_name="radis.labels.tasks.process_labeling_task",
+        priority=0,
+        args={},
+        status="todo",
+        attempts=0,
+        abort_requested=False,
+    )
+    task = LabelingTaskFactory.create(job=LabelingJobFactory.create(), queued_job=row)
+
+    # Procrastinate deletes rows via raw SQL, bypassing Django's SET_NULL.
+    with connection.cursor() as cursor:
+        cursor.execute("DELETE FROM procrastinate_jobs WHERE id = %s", [row.pk])
+
+    task.refresh_from_db()
+    assert task.queued_job_id is None
