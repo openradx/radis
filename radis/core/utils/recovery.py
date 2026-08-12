@@ -68,8 +68,9 @@ def _resolve_stale_task(task: AnalysisTask, owner_gone: Q) -> str | None:
 
     stale_job_id = task.queued_job_id  # capture before the update nulls it
 
-    # Conditional UPDATE re-checks status AND owner-gone at execution time: the other
-    # container sweeps concurrently, and a live worker may claim the task at any moment.
+    # Conditional UPDATE re-checks status AND owner-gone at execution time, closing the
+    # common orderings of concurrent sweeps and live-worker claims. A residual sub-ms EPQ
+    # window can still yield a duplicate queue row; the processor's PENDING claim discards it.
     updated = (
         model.objects.filter(pk=task.pk, status=AnalysisTask.Status.IN_PROGRESS)
         .filter(owner_gone)
