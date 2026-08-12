@@ -687,3 +687,54 @@ class TestAnalysisTask:
         task.created_at = None
         with pytest.raises(Exception):
             task.save()
+
+
+@pytest.mark.django_db
+def test_update_job_state_on_stale_instance_respects_concurrent_cancel():
+    """A worker holds a job instance loaded before the user canceled (it kept it
+    in memory across a long task run). When the last task finishes and the worker
+    evaluates the final state, the CANCELING recorded in the DB must win: the job
+    ends CANCELED, never SUCCESS."""
+    user = UserFactory.create()
+    job = ExtractionJobFactory.create(owner=user, status=AnalysisJob.Status.IN_PROGRESS)
+    ExtractionTaskFactory.create(job=job, status=AnalysisTask.Status.SUCCESS)
+    ExtractionTaskFactory.create(job=job, status=AnalysisTask.Status.CANCELED)
+
+    # The cancel view writes CANCELING directly to the DB; the worker's `job`
+    # instance still holds IN_PROGRESS.
+    type(job).objects.filter(pk=job.pk).update(status=AnalysisJob.Status.CANCELING)
+
+    job.update_job_state()
+
+    job.refresh_from_db()
+    assert job.status == AnalysisJob.Status.CANCELED
+
+
+@pytest.mark.django_db
+def test_update_job_state_guards_final_write_against_late_cancel(monkeypatch):
+    """The final-state write must be guarded, not merely preceded by a fresh read: a
+    cancel landing in the sliver between the last read and the write still has to win
+    over a computed SUCCESS. Inject the cancel at the moment ``ended_at`` is stamped,
+    the line immediately before the guarded write."""
+    from radis.core import models as core_models
+
+    user = UserFactory.create()
+    job = ExtractionJobFactory.create(owner=user, status=AnalysisJob.Status.IN_PROGRESS)
+    ExtractionTaskFactory.create(job=job, status=AnalysisTask.Status.SUCCESS)
+
+    real_now = core_models.timezone.now
+    fired = {"done": False}
+
+    def now_then_cancel():
+        if not fired["done"]:
+            fired["done"] = True
+            # The cancel view writes CANCELING just before the guarded write runs.
+            type(job).objects.filter(pk=job.pk).update(status=AnalysisJob.Status.CANCELING)
+        return real_now()
+
+    monkeypatch.setattr(core_models.timezone, "now", now_then_cancel)
+
+    job.update_job_state()
+
+    db_status = type(job).objects.values_list("status", flat=True).get(pk=job.pk)
+    assert db_status == AnalysisJob.Status.CANCELED
