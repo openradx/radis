@@ -69,6 +69,11 @@ def _assign(params: dict, dotted_key: str, value) -> None:
                 f"Cannot nest '{dotted_key}': '{parent}' is already set to a plain value"
             )
         target = existing
+
+    if isinstance(target.get(leaf), dict):
+        raise ModelSpecError(
+            f"Cannot set '{dotted_key}' to a plain value: it already holds nested parameters"
+        )
     target[leaf] = value
 
 

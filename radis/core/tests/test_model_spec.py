@@ -77,6 +77,13 @@ def test_nesting_under_a_plain_value_is_rejected():
         parse_model_spec("m?a=1&a.b=2")
 
 
+def test_overwriting_nested_parameters_with_a_plain_value_is_rejected():
+    # The mirror image of the case above. Accepting it would drop 'a.b' silently, and a
+    # dropped parameter is exactly what the startup parse is meant to catch.
+    with pytest.raises(ModelSpecError, match="already holds nested parameters"):
+        parse_model_spec("m?a.b=1&a=2")
+
+
 # A parameter the provider rejects fails every single request, so these have to be caught
 # at startup rather than becoming a 400 on each call.
 @pytest.mark.parametrize(

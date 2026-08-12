@@ -195,11 +195,11 @@ reports = response.json()
 
 ### LLM Operations Failing
 
-- Verify `LLM_BASE_URL`, `LLM_API_KEY` and `LLM_DEFAULT_MODEL` are set
-- Check llm_worker is running: `docker compose logs llm_worker`
+- Verify `LLM_BASE_URL` and `LLM_DEFAULT_MODEL` are set (`LLM_API_KEY` is optional; many self-hosted providers ignore it)
+- Check the right logs for the failing path: chat and query generation run in `web` (`docker compose logs web`), while extraction, subscription and labeling tasks run in `llm_worker` (`docker compose logs llm_worker`)
 - Ensure the endpoint is reachable from inside the containers, not just from the host.
-  Note the single quotes, so `$LLM_BASE_URL` is expanded in the container and not by your shell:
-  `docker compose exec web sh -c 'curl -sf "$LLM_BASE_URL/models"'`
+  Note the single quotes, so the variables are expanded in the container and not by your shell:
+  `docker compose exec web sh -c 'curl -sf -H "Authorization: Bearer $LLM_API_KEY" "$LLM_BASE_URL/models"'`
 - If the endpoint runs on the host, it must listen on more than loopback: Ollama needs
   `OLLAMA_HOST=0.0.0.0`, otherwise containers get "connection refused" even though the name resolves
 - If the provider rejects requests with a 400, check the `?param=value` part of the model setting for parameters it doesn't support

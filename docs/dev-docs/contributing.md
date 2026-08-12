@@ -30,9 +30,9 @@ File changes will be automatically detected and the servers will be restarted. W
 ### LLM Setup
 
 RADIS runs no inference server. Everything AI-powered (chat, extractions, subscriptions, labeling)
-goes to the OpenAI-compatible endpoint configured by `LLM_BASE_URL`, `LLM_API_KEY` and
-`LLM_DEFAULT_MODEL`, and the app refuses to start without them. Any endpoint that supports the
-OpenAI client and structured outputs will do — a commercial API, a server your group already runs,
+goes to the OpenAI-compatible endpoint configured by `LLM_BASE_URL` and `LLM_DEFAULT_MODEL`,
+without which the app refuses to start. `LLM_API_KEY` is optional — self-hosted providers such as
+Ollama ignore it. Any endpoint that supports the OpenAI client and structured outputs will do — a commercial API, a server your group already runs,
 or Ollama on your own machine. `example.env` assumes the last of those.
 
 #### Ollama on your machine
@@ -73,15 +73,27 @@ OLLAMA_HOST=0.0.0.0 ollama serve
 ```
 
 For a systemd install set `Environment="OLLAMA_HOST=0.0.0.0"` in the unit; on Windows set
-`OLLAMA_HOST` as a system environment variable and restart Ollama. The container recipe above
-needs none of this, as it publishes the port itself.
+`OLLAMA_HOST` as a system environment variable and restart Ollama.
+
+Note what that costs you: Ollama has no authentication, so binding it to every interface offers
+your models, and anything you send them, to the whole network you are on. Restrict it to the
+Docker bridge rather than the world — `OLLAMA_HOST=172.17.0.1` for the default `docker0`, or
+whatever `ip addr show docker0` reports — or leave it on `0.0.0.0` and block port 11434 at the
+host firewall. Plain loopback is the one option that does not work, because containers reach the
+host through the bridge gateway rather than through `127.0.0.1`.
+
+The same applies to the container recipe: `-p 11434:11434` publishes on every interface. Use
+`-p 172.17.0.1:11434:11434` to keep it on the bridge. On Docker Desktop and OrbStack the default
+loopback bind is already reachable from containers, so neither adjustment is needed there.
 
 Verify from inside a container — note the single quotes, so the variable is expanded there rather
 than by your own shell:
 
 ```terminal
-docker compose exec web sh -c 'curl -sf "$LLM_BASE_URL/models"'
+docker compose exec web sh -c 'curl -sf -H "Authorization: Bearer $LLM_API_KEY" "$LLM_BASE_URL/models"'
 ```
+
+The header is harmless against providers that ignore the key, and required by those that do not.
 
 `uv run cli get-host-ip` prints the host address if `host.docker.internal` does not resolve for you.
 
@@ -96,9 +108,9 @@ the quality matters.
 the money or the wait — `LLM_CHATS_MODEL`, `LLM_QUERY_GENERATION_MODEL`, `LLM_EXTRACTIONS_MODEL`,
 `LLM_SUBSCRIPTIONS_MODEL` and `LLM_LABELING_MODEL`. A blank one falls back to the default.
 
-Request parameters are configured with the model, as a query string:
+Request parameters are configured with the model, as a query string. In `.env`:
 
-```terminal
+```dotenv
 LLM_DEFAULT_MODEL=qwen3.5:0.8b?reasoning_effort=none
 LLM_LABELING_MODEL=gpt-oss:20b?reasoning_effort=low&temperature=0
 ```
@@ -109,7 +121,7 @@ as JSON where that works, so `temperature=0` sends a number while `reasoning_eff
 string providers expect. A dotted key becomes a nested object, which is how vLLM and SGLang take
 theirs:
 
-```terminal
+```dotenv
 LLM_DEFAULT_MODEL=qwen3:8b?chat_template_kwargs.enable_thinking=false
 ```
 
