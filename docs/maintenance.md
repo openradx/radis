@@ -24,18 +24,31 @@ RADIS sends all inference to the endpoint in `LLM_BASE_URL` and runs no inferenc
 its own. Docker keeps containers and Swarm services that the compose files do not define,
 so a deployment that still runs one needs it cleaned up by hand.
 
-**Production (Docker Swarm)**: `stack-deploy` does not pass `--prune`. Check for an
-inference service and remove it, along with the model cache it holds:
+**Development**: pass `--remove-orphans`, which removes containers of this project that
+the compose files no longer define:
+
+```terminal
+uv run cli compose-down -- --remove-orphans
+```
+
+A model cache volume outlives them and can be reclaimed with
+`docker volume rm radis_dev_models_data`.
+
+**Production (Docker Swarm)**: pass `--prune`, which removes services the deployment no
+longer declares. Only do so when deploying the complete set of compose files, since Swarm
+removes every service the deployment does not mention:
+
+```terminal
+uv run cli stack-deploy -- --prune
+```
+
+To look first, or to clean up without redeploying:
 
 ```terminal
 docker service ls | grep llm          # e.g. radis_llm_gpu
 docker service rm radis_llm_gpu       # use your stack name if it is not 'radis'
 docker volume rm radis_models_data    # on each node that holds model files
 ```
-
-**Development**: `uv run cli compose-down` passes `--remove-orphans` and clears such
-containers out. A model cache volume outlives them and can be reclaimed with
-`docker volume rm radis_dev_models_data`.
 
 ## Search language configs
 
