@@ -105,6 +105,9 @@ Key variables in `.env` (see `example.env`):
 - `LLM_DEFAULT_MODEL`: Model every feature uses unless overridden (required). Takes the form `model[?param=value&...]`; the params are merged into the request body, values are read as JSON where possible (`temperature=0` → number, `reasoning_effort=none` → string), and dotted keys nest (`chat_template_kwargs.enable_thinking=false`)
 - `LLM_CHATS_MODEL`, `LLM_QUERY_GENERATION_MODEL`, `LLM_EXTRACTIONS_MODEL`, `LLM_SUBSCRIPTIONS_MODEL`, `LLM_LABELING_MODEL`: Per-feature overrides, same form. Blank means use `LLM_DEFAULT_MODEL`
 
+- `SITE_NAME`, `SITE_DOMAIN`: Site framework settings
+- `ADMIN_USERNAME`, `ADMIN_EMAIL`, `ADMIN_PASSWORD`: Initial superuser
+
 Hybrid search embeddings (`radis.pgsearch`):
 
 - `EMBEDDINGS_MODEL`: Embedding model, same `model[?param=value&...]` form as the LLM
@@ -120,11 +123,11 @@ Hybrid search embeddings (`radis.pgsearch`):
 - `EMBEDDINGS_REQUEST_TIMEOUT_SECONDS`: Defaults to `LLM_REQUEST_TIMEOUT_SECONDS` (itself
   60s by default), not to a fixed value — raising the LLM timeout raises this one too
   unless set here explicitly
+- `EMBEDDINGS_QUERY_CACHE_TIMEOUT_SECONDS`: How long a search query's embedding stays in
+  the Django cache (default `900`s). The knob to reach for right after a model/provider
+  swap — cached query vectors otherwise keep serving stale results for up to this long
 - `EMBEDDINGS_BATCH_SIZE`, `EMBEDDINGS_SUBJOB_SIZE`, `EMBEDDINGS_WORKER_CONCURRENCY`:
   Throughput tuning
-
-- `SITE_NAME`, `SITE_DOMAIN`: Site framework settings
-- `ADMIN_USERNAME`, `ADMIN_EMAIL`, `ADMIN_PASSWORD`: Initial superuser
 
 Auto-labeling (`radis.labels`):
 
@@ -237,13 +240,22 @@ reports = response.json()
 - Verify the endpoint serves the model: `docker compose exec web sh -c 'curl -sf -H
   "Authorization: Bearer ${EMBEDDINGS_API_KEY:-$LLM_API_KEY}"
   "${EMBEDDINGS_BASE_URL:-$LLM_BASE_URL}/models"'`
+- Leaving `EMBEDDINGS_BASE_URL` unset (now the normal case, since it inherits
+  `LLM_BASE_URL`) can point embeddings at an endpoint that serves chat but not
+  `/v1/embeddings` — a gateway route that only forwards chat, or an Ollama where the
+  embedding model was never `ollama pull`ed. This surfaces as `openai.NotFoundError` or
+  `openai.BadRequestError` with a full traceback on **every** search request
+  (`docker compose logs web`) or embedding subjob (`docker compose logs
+  embeddings_worker`) — it is not throttled, so the same traceback repeats per request.
+  Fix by pulling/serving the embedding model on that endpoint, or by setting
+  `EMBEDDINGS_BASE_URL` explicitly to an endpoint that does serve `/v1/embeddings`.
 
 ### Worker Not Processing Tasks
 
 - Check worker logs: `docker compose logs default_worker`
 - Verify Procrastinate is running: `docker compose ps`
 - Check PostgreSQL connection
-- Ensure task is in correct queue (`default` vs `llm`)
+- Ensure task is in correct queue (`default` vs `llm` vs `embeddings`)
 
 ### Report Import Issues
 

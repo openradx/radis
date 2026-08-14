@@ -1,6 +1,6 @@
 # Hybrid Search Design (FTS + Dense Vector via Qwen3-Embedding-4B)
 
-**Status:** Implemented on `feat/hybrid-search` — living document, last synced to code 2026-07-16.
+**Status:** Implemented on `feat/hybrid-search` — living document, last synced to code 2026-08-14.
 **Author:** RADIS team (Samuel Kwong)
 **Date:** 2026-05-28
 **History:** Single consolidated spec for hybrid search. The per-increment design docs it absorbed (initial 2026-05-15 design; embedding client OpenAI-SDK migration; pipeline logging; rate-limit gate; rate-limit generalization research; backfill cancel + throughput knobs; shared 429 backoff; admin badge subjob report counts) were removed 2026-07-14 and remain in git history. The consolidated implementation history lives in `docs/superpowers/plans/hybrid-search.md`.
@@ -24,7 +24,7 @@ The public `SearchProvider` API (`radis.search.site`) is unchanged. Callers — 
 - Index embeddings asynchronously without blocking report ingest.
 - Keep embedding load isolated from chat/extraction/subscription LLM tasks.
 - Degrade gracefully when the embedding service is unavailable (search continues as FTS-only).
-- Talk to any OpenAI-compatible embeddings endpoint (`EMBEDDING_PROVIDER_URL` ending in `/v1`) so Ollama's `/v1` compatibility layer works in dev and a vLLM/gateway-served Qwen3 endpoint works in prod with the same code path.
+- Talk to any OpenAI-compatible embeddings endpoint (`EMBEDDINGS_BASE_URL` ending in `/v1`, inherited from `LLM_BASE_URL` when unset) so Ollama's `/v1` compatibility layer works in dev and a vLLM/gateway-served Qwen3 endpoint works in prod with the same code path.
 
 ### Non-goals
 
@@ -116,8 +116,7 @@ Both ingest paths — single-create (`POST /api/reports/`, `PUT /api/reports/{id
 
 | File | Purpose |
 |---|---|
-| `utils/embedding_client.py` | `EmbeddingClient` used by both the query path and `embed_reports_task` on the worker. Sync client over the `openai` SDK against a single OpenAI-compatible endpoint (`EMBEDDING_PROVIDER_URL` ending in `/v1`); SDK retries disabled (`max_retries=0`) so the rate-limit gate and transient-retry helper own all retry policy. Also hosts the process-global `EMBEDDING_GATE`. |
-| `apps.py` (modified) | `register_app()` now also registers `_index_reports` on both `reports_created_handlers` and `reports_updated_handlers`. In sync FTS mode the handler upserts inline then calls `enqueue_embed_reports`; in deferred FTS mode it enqueues `bulk_index_reports`, which chains the embed subjobs at the end of its own run. Also home of the `pgsearch.E001`/`E002` system checks (§4.6). This is the only place pgsearch wires itself into the reports app. |
+| `apps.py` (modified) | `register_app()` now also registers `_index_reports` on both `reports_created_handlers` and `reports_updated_handlers`. In sync FTS mode the handler upserts inline then calls `enqueue_embed_reports`; in deferred FTS mode it enqueues `bulk_index_reports`, which chains the embed subjobs at the end of its own run. Also home of the `pgsearch.E001`/`E002` (§4.6) and `E003` (§9) system checks. This is the only place pgsearch wires itself into the reports app. |
 | `tasks.py` (embedding entries) | `enqueue_embed_reports(report_ids)` — the single chunking point that defers one `embed_reports_task` per `EMBEDDINGS_SUBJOB_SIZE` chunk, at live or backfill priority. `embed_reports_task(report_ids)` on the `embeddings` queue loads RSIs by `report_id`, embeds through `_embed_chunk_with_retry` (gate + transient retries, §6.2), then `bulk_update`s. Failures propagate so `EMBEDDING_TASK_RETRY_STRATEGY` applies. |
 | `admin.py` | Registers `ReportSearchIndex` with a `has_embedding` list display, an `embedding` `IsNull` filter, the embedding-pipeline badge on the changelist (report-centric with subjob detail secondary, §6.8), and two actions: `enqueue_pending_embeddings` (defers embed subjobs for selected NULL rows at backfill priority) and `clear_embeddings` (NULLs embeddings, e.g. before a same-dim model swap). A separate cancel-backfill view cancels still-queued backfill subjobs (also available as the `embed_cancel` management command). Mirrors `embed_pending` for operators who prefer the UI. Also registers a read-only `EmbeddingBackfillRun` listing (run history, §6.8). |
 | `migrations/0002_hybrid_search.py` | Single squashed schema migration: renames `ReportSearchVector` → `ReportSearchIndex`, `CREATE EXTENSION vector`, adds the `embedding vector(1024)` column, the HNSW index, and a partial index on `embedding IS NULL` rows (backs the admin's pending-embedding count) |
@@ -132,9 +131,10 @@ Both ingest paths — single-create (`POST /api/reports/`, `PUT /api/reports/{id
 | File | Change |
 |---|---|
 | `pyproject.toml` | Add `pgvector>=0.3` dependency |
+| `radis/core/utils/embedding_client.py` | `EmbeddingClient` used by both the query path and `embed_reports_task` on the worker. Sync client over the `openai` SDK against a single OpenAI-compatible endpoint (`EMBEDDINGS_BASE_URL` ending in `/v1`, inherited from `LLM_BASE_URL` when unset); SDK retries disabled (`max_retries=0`) so the rate-limit gate and transient-retry helper own all retry policy. Also hosts the process-global `EMBEDDING_GATE`. Lives next to `radis.core.utils.llm_client` rather than inside `radis.pgsearch` — both are external-provider plumbing over the `openai` SDK, and a future reranker (§11.6) would need this client from outside pgsearch too. |
 | `radis/settings/base.py` | New env-driven + constant settings (§8) |
-| `radis/settings/test.py` | Override `EMBEDDING_PROVIDER_URL=""` so any incidental construction of `EmbeddingClient` fast-fails into `EmbeddingClientError` in CI (no live embedding service). Tests that exercise embedding patch the client explicitly. |
-| `example.env` | Documents the `EMBEDDING_*` env vars (provider URL with OpenAI/Ollama `/v1` examples, API key, model, dim, optional batch/subjob/timeout overrides) and `EMBEDDINGS_WORKER_CONCURRENCY` |
+| `radis/settings/test.py` | Sets `EMBEDDINGS_MODEL = None` so any incidental construction of `EmbeddingClient` fast-fails into `EmbeddingClientError` in CI (no live embedding service) — `EMBEDDINGS_BASE_URL`/`EMBEDDINGS_API_KEY` always resolve to *something* now (they inherit the LLM settings), so only the model can signal "unconfigured". Tests that exercise embedding patch the client explicitly. |
+| `example.env` | Documents the `EMBEDDINGS_*` env vars (base URL and API key, both defaulting to their `LLM_*` counterparts; model spec with OpenAI/Ollama examples; dim; query instruction with a quoting caveat; optional timeout/batch/subjob/query-cache-timeout overrides) and `EMBEDDINGS_WORKER_CONCURRENCY` |
 | `radis/reports/api/viewsets.py` | **Unchanged from main** in shape. It already dispatches `reports_created_handlers` / `reports_updated_handlers` from `on_commit`; pgsearch hooks in via that registry. Nothing in `viewsets.py` imports from `radis.pgsearch`. |
 
 ## 4. Schema and migrations
@@ -303,11 +303,18 @@ Alternatives considered and rejected:
 if a later migration drops and recreates the column at a different dim, the
 check stays correct without any code change to `apps.py`.
 
+A third check, `pgsearch.E003`, guards a related but distinct drift: the
+`dimensions` request parameter inside `EMBEDDINGS_MODEL` (e.g.
+`text-embedding-3-large?dimensions=1024`) disagreeing with `EMBEDDINGS_DIM`
+itself. It needs no `MigrationLoader` call — both sides are settings — so it
+lives in `apps.py` alongside E001/E002 but is documented with the rest of the
+error-handling table in §9, not here.
+
 ## 5. Embedding client
 
 ### 5.1 Module layout
 
-`radis/pgsearch/utils/embedding_client.py` exposes:
+`radis/core/utils/embedding_client.py` exposes (moved out of `radis.pgsearch` to sit next to `radis.core.utils.llm_client`, since both are external-provider plumbing over the `openai` SDK — see the infrastructure table in §3):
 
 - `EMBEDDING_GATE: RateLimitGate` — process-global 429 backoff window shared by every embedding caller in the worker/web process. Deliberately separate from the LLM gate in `core.utils.llm_client`: the embedding gateway is a different provider, so a 429 from one must not pause the other.
 - `class EmbeddingClientError(Exception)` — malformed responses (count/dim mismatch) and invalid configuration. Typed `openai.OpenAIError` subclasses (`RateLimitError`, `BadRequestError`, `InternalServerError`, …) are *not* wrapped in this class; callers that discriminate (the transient retry layer, the rate-limit gate) match on the SDK types directly.
@@ -318,16 +325,26 @@ check stays correct without any code change to `apps.py`.
 ```python
 class EmbeddingClient:
     def __init__(self) -> None:
-        # Raises EmbeddingClientError if EMBEDDING_PROVIDER_URL is unset.
+        # Raises EmbeddingClientError if EMBEDDINGS_MODEL is unset — the model, not
+        # the URL, is the feature switch (§5.3): EMBEDDINGS_BASE_URL always resolves
+        # to something now that it inherits LLM_BASE_URL.
+        spec = settings.EMBEDDINGS_MODEL
+        if spec is None:
+            raise EmbeddingClientError(
+                "EMBEDDINGS_MODEL is not configured; hybrid search is disabled"
+            )
         # "unused" is the documented api_key placeholder for self-hosted
         # endpoints that ignore auth (Ollama, vLLM).
+        api_key = settings.EMBEDDINGS_API_KEY or "unused"
         self._client = openai.OpenAI(
-            base_url=settings.EMBEDDING_PROVIDER_URL,
-            api_key=settings.EMBEDDING_PROVIDER_API_KEY or "unused",
+            base_url=settings.EMBEDDINGS_BASE_URL,
+            api_key=api_key,
             http_client=_build_http_client(),  # test seam for httpx.MockTransport
             max_retries=0,  # 429s belong to the rate-limit gate, not the SDK
-            timeout=settings.EMBEDDING_REQUEST_TIMEOUT,
+            timeout=settings.EMBEDDINGS_REQUEST_TIMEOUT_SECONDS,
         )
+        self._model = spec.model
+        self._extra_body = spec.params  # e.g. OpenAI's `dimensions`, merged into the request body
 
     def embed_documents(self, texts: list[str]) -> list[list[float]]:
         """One POST {base}/embeddings call (encoding_format="float"). Returns
@@ -371,9 +388,9 @@ the input text, so carrying it in the spec would send a field no provider accept
 - **Dev recipe (Ollama):**
   ```bash
   ollama pull dengcao/Qwen3-Embedding-4B:Q5_K_M
-  # in .env (Ollama's OpenAI-compat layer):
-  EMBEDDING_PROVIDER_URL=http://host.docker.internal:11434/v1
-  EMBEDDING_MODEL_NAME=dengcao/Qwen3-Embedding-4B:Q5_K_M
+  # in .env — EMBEDDINGS_BASE_URL is left unset and inherits LLM_BASE_URL, since
+  # Ollama's /v1 compat layer already serves both chat and embedding models there:
+  EMBEDDINGS_MODEL=dengcao/Qwen3-Embedding-4B:Q5_K_M
   EMBEDDINGS_DIM=1024   # model's native 2560 is Matryoshka-truncated client-side
   ```
   GGUF-quantized embedding models produce slightly different vectors than the bf16 reference, so dev embeddings are not interchangeable with prod embeddings. After swapping the model between dev/prod, clear the column (`ReportSearchIndex.objects.update(embedding=None)`) and run `./manage.py embed_pending`.
@@ -537,7 +554,8 @@ Procrastinate handles transient failures automatically; `embed_pending` (§6.5) 
 | **Wrong-dim vector returned by backend** | `EmbeddingClientError` raised → retries → all fail the same way → task ends `failed`. Operator inspects, fixes config (or the `pgsearch.E001` system check catches it at deploy time). |
 | **Worker offline / crashed** | Tasks pile up in `procrastinate_jobs.todo`. When a worker starts, it picks them up via `SELECT ... FOR UPDATE SKIP LOCKED`. No data loss. Write path unaffected. |
 | **Embedding written and report immediately deleted** | `bulk_update` updates zero rows for the deleted RSI row; rest of the batch is unaffected. Benign. |
-| **`EMBEDDING_PROVIDER_URL` empty / misconfigured** | `EmbeddingClient.__init__` raises `EmbeddingClientError` at task start → retries fail → task ends `failed`. Operator fixes settings, runs `embed_pending`. |
+| **`EMBEDDINGS_MODEL` unset** | `enqueue_embed_reports` no-ops before deferring anything — no Procrastinate job is ever created, so there is no task to fail. This is the documented FTS-only mode, not a failure (§9). |
+| **`EMBEDDINGS_MODEL` set but `EMBEDDINGS_BASE_URL`/`EMBEDDINGS_API_KEY` misconfigured** (wrong endpoint, bad key, endpoint doesn't serve that model) | The embedding call reaches the service but fails with a typed permanent SDK error (`AuthenticationError`, `PermissionDeniedError`, `NotFoundError`, `BadRequestError`). Excluded from the retry set, so it fails fast: `embed_reports_task` logs an ERROR naming `EMBEDDINGS_BASE_URL`/`EMBEDDINGS_API_KEY`/`EMBEDDINGS_MODEL` and re-raises → task ends `failed`. Operator fixes settings, runs `embed_pending`. |
 | **`settings.EMBEDDINGS_DIM` ≠ migration dim** | `pgsearch.E001` system check blocks startup; this is caught at deploy time, not runtime. |
 
 The **write path never fails because of embedding**. Reports are saved, FTS indexed sync, vector indexing best-effort with retries + recovery.
@@ -930,21 +948,28 @@ mode for radiology queries.
 
 ```python
 # radis/settings/base.py
-EMBEDDING_PROVIDER_URL     = env.str("EMBEDDING_PROVIDER_URL", default="")
-EMBEDDING_PROVIDER_API_KEY = env.str("EMBEDDING_PROVIDER_API_KEY", default="")
-EMBEDDING_MODEL_NAME       = env.str("EMBEDDING_MODEL_NAME", default="Qwen/Qwen3-Embedding-4B")
-EMBEDDINGS_DIM              = env.int("EMBEDDINGS_DIM", default=1024)
+EMBEDDINGS_BASE_URL = _inherit_env("EMBEDDINGS_BASE_URL", LLM_BASE_URL)
+EMBEDDINGS_API_KEY  = _inherit_env("EMBEDDINGS_API_KEY", LLM_API_KEY)
+EMBEDDINGS_REQUEST_TIMEOUT_SECONDS = _optional_env(
+    "EMBEDDINGS_REQUEST_TIMEOUT_SECONDS", float, LLM_REQUEST_TIMEOUT_SECONDS
+)
 
-EMBEDDING_REQUEST_TIMEOUT  = env.int("EMBEDDING_REQUEST_TIMEOUT", default=30)  # seconds
-EMBEDDINGS_BATCH_SIZE       = env.int("EMBEDDINGS_BATCH_SIZE", default=200)      # texts per HTTP call
-EMBEDDINGS_SUBJOB_SIZE      = env.int("EMBEDDINGS_SUBJOB_SIZE", default=1000)    # reports per subjob
+EMBEDDINGS_MODEL = _resolve_embeddings_model()  # ModelSpec | None; see §5.3 -- the feature switch
+EMBEDDINGS_DIM   = env.int("EMBEDDINGS_DIM", default=1024)
+
 EMBEDDINGS_QUERY_INSTRUCTION = env.str(
     "EMBEDDINGS_QUERY_INSTRUCTION",
     default="Instruct: Given a radiology search query, retrieve relevant radiology reports.\nQuery: ",
 )
+
+EMBEDDINGS_BATCH_SIZE  = env.int("EMBEDDINGS_BATCH_SIZE", default=200)    # texts per HTTP call
+EMBEDDINGS_SUBJOB_SIZE = env.int("EMBEDDINGS_SUBJOB_SIZE", default=1000)  # reports per subjob
+EMBEDDINGS_QUERY_CACHE_TIMEOUT_SECONDS = env.int(
+    "EMBEDDINGS_QUERY_CACHE_TIMEOUT_SECONDS", default=900
+)
 ```
 
-These vary across deployments and are operator-controlled. `EMBEDDINGS_DIM` is intentionally an env decision because it is schema-coupled (see §4.5 and the `pgsearch.E001` check). Timeout, batch size, and subjob size are env because they track the deployed provider's capacity (a self-hosted vLLM box and a rate-limited gateway want very different values). `EMBEDDINGS_QUERY_INSTRUCTION` is env too: it's model-specific (Qwen3-Embedding wants a prefix, `text-embedding-3` wants none), and the model itself is already an env choice, so a knob that has to track it can't require editing Python. There is no `EMBEDDING_BACKEND` / `EMBEDDING_PROVIDER_PATH` — since the openai-SDK rewrite there is exactly one wire shape, an OpenAI-compatible `/v1` endpoint (§5.3). Worker concurrency is set in the compose command line: hardcoded `--concurrency 4` in dev, `${EMBEDDINGS_WORKER_CONCURRENCY:-2}` in prod.
+These vary across deployments and are operator-controlled. `EMBEDDINGS_BASE_URL` and `EMBEDDINGS_API_KEY` inherit `LLM_BASE_URL`/`LLM_API_KEY` when unset (blank counts as unset — see `_inherit_env` in §5.3), so a deployment where one provider serves both chat and embeddings configures one endpoint, not two. `EMBEDDINGS_REQUEST_TIMEOUT_SECONDS` inherits `LLM_REQUEST_TIMEOUT_SECONDS` the same way. `EMBEDDINGS_MODEL` is parsed at startup into a `ModelSpec | None` (`model[?param=value&...]`, same grammar as the LLM models) — unset is the feature switch: no embedding jobs are queued and the query path never calls the service. `EMBEDDINGS_DIM` is intentionally an env decision because it is schema-coupled (see §4.5 and the `pgsearch.E001` check). Batch size and subjob size are env because they track the deployed provider's capacity (a self-hosted vLLM box and a rate-limited gateway want very different values). `EMBEDDINGS_QUERY_CACHE_TIMEOUT_SECONDS` is env because how long a stale query vector is tolerable is an operational judgment call, not a code constant. `EMBEDDINGS_QUERY_INSTRUCTION` is env too: it's model-specific (Qwen3-Embedding wants a prefix, `text-embedding-3` wants none), and the model itself is already an env choice, so a knob that has to track it can't require editing Python. There is no `EMBEDDING_BACKEND` / `EMBEDDING_PROVIDER_PATH` — since the openai-SDK rewrite there is exactly one wire shape, an OpenAI-compatible `/v1` endpoint (§5.3). Worker concurrency is set in the compose command line: hardcoded `--concurrency 4` in dev, `${EMBEDDINGS_WORKER_CONCURRENCY:-2}` in prod.
 
 ### 8.2 Code constants (tuning knobs, in `base.py`)
 
@@ -977,13 +1002,23 @@ These are tuning constants. Changing them is a code change with a PR diff. This 
 
 ### 8.3 `example.env`
 
-Documents the `EMBEDDING_PROVIDER_URL` / `EMBEDDING_PROVIDER_API_KEY` / `EMBEDDING_MODEL_NAME` / `EMBEDDINGS_DIM` keys with an Ollama dev recipe (`http://host.docker.internal:11434/v1`, api key unused) as commentary — one OpenAI-compatible shape, no backend switch.
+Documents the `EMBEDDINGS_*` keys: `EMBEDDINGS_BASE_URL` / `EMBEDDINGS_API_KEY` (commented
+out — they inherit `LLM_BASE_URL` / `LLM_API_KEY`, set only when embeddings are served
+separately), `EMBEDDINGS_MODEL` (blank by default, i.e. FTS-only, with an Ollama example
+and an OpenAI `?dimensions=` example), `EMBEDDINGS_DIM`, `EMBEDDINGS_QUERY_INSTRUCTION`
+(commented, with a note that its default contains a literal newline and reproducing that
+in `.env` needs double quotes for escape processing), and the throughput knobs
+(`EMBEDDINGS_REQUEST_TIMEOUT_SECONDS`, `EMBEDDINGS_BATCH_SIZE`, `EMBEDDINGS_SUBJOB_SIZE`,
+`EMBEDDINGS_QUERY_CACHE_TIMEOUT_SECONDS`, `EMBEDDINGS_WORKER_CONCURRENCY`), all commented
+out with their inherited/default values noted as commentary.
 
 ### 8.4 Compose
 
 `docker-compose.base.yml`:
 
-- The `EMBEDDING_PROVIDER_URL`, `EMBEDDING_PROVIDER_API_KEY`, `EMBEDDING_MODEL_NAME`, `EMBEDDINGS_DIM`, `EMBEDDING_REQUEST_TIMEOUT`, `EMBEDDINGS_BATCH_SIZE`, `EMBEDDINGS_SUBJOB_SIZE` env keys are visible to all services via the shared env plumbing.
+- No per-variable plumbing: the `x-app` anchor's `env_file: .env` (line 6) passes the
+  whole file through to every service as-is, `EMBEDDINGS_*` included alongside everything
+  else. There is no enumerated list of individual env keys to keep in sync.
 - New service `embeddings_worker` inheriting `*default-app` runs `./manage.py bg_worker -q embeddings` (see §6.3).
 
 `docker-compose.dev.yml` / `docker-compose.prod.yml`:
@@ -1022,22 +1057,27 @@ Both add an `embeddings_worker.command` block. Dev uses `-l debug --autoreload -
 
 ### 10.1 Unit-ish tests (mock transport, minimal DB)
 
-All tests live in `radis/pgsearch/tests/` (the project has no separate `tests/unit` tree). Shared helpers for the gate and retry stack are covered in `radis/core/tests/test_rate_limit.py`.
+Most tests live in `radis/pgsearch/tests/` (the project has no separate `tests/unit`
+tree). `EmbeddingClient` and the `EMBEDDINGS_*` settings module live in
+`radis/core/tests/` instead, alongside the shared gate/retry-stack tests in
+`test_rate_limit.py` — the client sits next to `core.utils.llm_client`, not inside
+`radis.pgsearch` (§3).
 
 | File | Coverage |
 |---|---|
-| `test_embedding_client.py` | Request/response round-trip over `httpx.MockTransport`, instruction prefix on `embed_query`, L2 normalization, dim validation (too-small raises, larger truncated via Matryoshka), count mismatch, missing URL, typed SDK errors passing through unwrapped |
+| `radis/core/tests/test_embedding_client.py` | Request/response round-trip over `httpx.MockTransport`, instruction prefix on `embed_query`, L2 normalization, dim validation (too-small raises, larger truncated via Matryoshka), count mismatch, `EMBEDDINGS_MODEL` unset, typed SDK errors passing through unwrapped |
+| `radis/core/tests/test_embeddings_settings.py` | `EMBEDDINGS_BASE_URL` / `EMBEDDINGS_API_KEY` / `EMBEDDINGS_REQUEST_TIMEOUT_SECONDS` each inheriting their `LLM_*` counterpart when unset (and a configured value overriding it); `EMBEDDINGS_MODEL` spec parsing, blank-counts-as-unset, a malformed spec naming the setting at fault; `EMBEDDINGS_QUERY_INSTRUCTION` read from the environment vs. its default |
 | `test_fusion.py` | `rrf_fuse(vec_rank, fts_rank, k)` pure-Python helper: disjoint, overlapping, FTS-only, vector-only, both-empty, tiebreak by report_id; `summary_with_fallback` |
-| `test_embed_reports_task.py` | Loads RSI rows by report_id, calls `embed_documents`, bulk-updates vectors; internal batching by `EMBEDDINGS_BATCH_SIZE`; retry stack (transient-then-success retried locally, `EmbeddingClientError` retried, 429 goes to the gate not the local retries, `RateLimited` propagates to Procrastinate); `enqueue_embed_reports` chunking + priorities; `bulk_index_reports` chaining; `cancel_backfill_embeddings` |
-| `test_apps_checks.py` | `pgsearch.E001` / `pgsearch.E002` system checks |
-| `test_embed_pending_command.py` | `embed_pending` selects NULL-embedding rows, honours `--subjob-size` / `--limit`, enqueues at backfill priority |
-| `test_admin.py` | Admin actions (`enqueue_pending_embeddings`, `clear_embeddings`), cancel-backfill view, pipeline stats |
+| `test_embed_reports_task.py` | Loads RSI rows by report_id, calls `embed_documents`, bulk-updates vectors; internal batching by `EMBEDDINGS_BATCH_SIZE`; retry stack (transient-then-success retried locally, `EmbeddingClientError` retried, 429 goes to the gate not the local retries, `RateLimited` propagates to Procrastinate); `enqueue_embed_reports` chunking + priorities + no-op when `EMBEDDINGS_MODEL` is unset; `bulk_index_reports` chaining; `cancel_backfill_embeddings` |
+| `test_apps_checks.py` | `pgsearch.E001` / `pgsearch.E002` / `pgsearch.E003` system checks |
+| `test_embed_pending_command.py` | `embed_pending` selects NULL-embedding rows, honours `--subjob-size` / `--limit`, enqueues at backfill priority, errors naming `EMBEDDINGS_MODEL` when it is unset |
+| `test_admin.py` | Admin actions (`enqueue_pending_embeddings`, `clear_embeddings`), cancel-backfill view, pipeline stats, `enqueue_pending_embeddings` no-ops with a warning naming `EMBEDDINGS_MODEL` when it is unset |
 
 ### 10.2 Integration tests (real Postgres + pgvector)
 
 | File | Coverage |
 |---|---|
-| `test_provider_hybrid.py` | FTS-only hit, vector-only hit, both-sides-ranks-first, embedding-failure fallback (typed 429, `RateLimited`, generic), NULL-embedding rows still returned via FTS, empty-summary fallback, `retrieve()` ordering + fallback, `cosine_distance`/`rrf_score` on documents, M2M filter dedup, §7.8 NOT-stripping (skip embed on pure-NOT, embed positive branch only) |
+| `test_provider_hybrid.py` | FTS-only hit, vector-only hit, both-sides-ranks-first, embedding-failure fallback (typed 429, `RateLimited`, generic), no embedding call (and no log) when `EMBEDDINGS_MODEL` is unset, NULL-embedding rows still returned via FTS, empty-summary fallback, `retrieve()` ordering + fallback, `cosine_distance`/`rrf_score` on documents, M2M filter dedup, §7.8 NOT-stripping (skip embed on pure-NOT, embed positive branch only) |
 | `test_providers.py`, `test_indexing.py`, `test_language_utils.py` | Pre-hybrid FTS provider behavior, RSI upsert path, language resolution — retained and passing against the renamed model |
 
 The squashed `0002_hybrid_search` migration (extension, rename, vector column, HNSW, partial index) is exercised implicitly by the test database build; there is no dedicated `django-test-migrations` suite.
@@ -1046,7 +1086,7 @@ Fixtures: tests create reports via `ReportFactory` (signals create the RSI rows)
 
 ### 10.3 View-level smoke
 
-`radis/search/tests/test_views.py`: `test_search_view_returns_200_when_embedding_provider_unset` — SearchView returns 200 via the FTS-only fallback when `EMBEDDING_PROVIDER_URL` is unset. Hybrid ranking itself is covered at the provider layer (§10.2), not through the view.
+`radis/search/tests/test_views.py`: `test_search_view_returns_200_when_embedding_model_unset` — SearchView returns 200 via the FTS-only fallback when `EMBEDDINGS_MODEL` is unset. Hybrid ranking itself is covered at the provider layer (§10.2), not through the view.
 
 ### 10.4 Acceptance
 
