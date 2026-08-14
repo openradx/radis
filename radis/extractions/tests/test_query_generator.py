@@ -220,5 +220,5 @@ async def test_llm_call_uses_query_generation_timeout_and_retries(
     ]
     await generator.generate_from_fields(fields)
 
-    mock_chat_client_class.assert_called_once_with(timeout=7)
+    mock_chat_client_class.assert_called_once_with("query_generation", timeout=7)
     assert mock_client.chat.call_args.kwargs["transient_retry_attempts"] == 1

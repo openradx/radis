@@ -109,7 +109,7 @@ class AsyncQueryGenerator:
             fields=fields_formatted
         )
 
-        client = AsyncChatClient(timeout=settings.QUERY_GENERATION_TIMEOUT)
+        client = AsyncChatClient("query_generation", timeout=settings.QUERY_GENERATION_TIMEOUT)
         try:
             response = await client.chat(
                 [{"role": "user", "content": prompt}],

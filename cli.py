@@ -28,6 +28,9 @@ app = typer.Typer(
 
 app.command()(commands.init_workspace)
 app.command()(commands.randomize_env_secrets)
+app.command()(commands.compose_build)
+app.command()(commands.compose_up)
+app.command()(commands.compose_down)
 app.command()(commands.compose_pull)
 app.command()(commands.stack_deploy)
 app.command()(commands.stack_rm)
@@ -45,89 +48,6 @@ app.command()(commands.generate_certificate_chain)
 app.command()(commands.generate_certificate_files)
 app.command()(commands.upgrade_postgres_volume)
 app.command()(commands.try_github_actions)
-
-
-@app.command()
-def compose_build(
-    profile: Annotated[
-        list[str] | None, typer.Option(help="Docker compose profile(s) to use")
-    ] = None,
-    extra_args: Annotated[
-        list[str] | None, typer.Argument(help="Extra arguments (after '--')")
-    ] = None,
-):
-    """Build the base images with docker compose"""
-
-    profile = profile or []
-    extra_args = extra_args or []
-
-    helper = cli_helper.CommandHelper()
-
-    config = helper.load_config_from_env_file()
-    use_external_llm = bool(config.get("EXTERNAL_LLM_PROVIDER_URL", ""))
-    use_gpu = str(config.get("LLAMACPP_USE_GPU", "")).lower() in ["yes", "true", "1"]
-
-    if use_external_llm:
-        profiles = profile
-    else:
-        if use_gpu:
-            profiles = profile + ["llamacpp_gpu"]
-        else:
-            profiles = profile + ["llamacpp_cpu"]
-
-    commands.compose_build(profile=profiles, extra_args=extra_args)
-
-
-@app.command()
-def compose_up(
-    profile: Annotated[
-        list[str] | None, typer.Option(help="Docker compose profile(s) to use")
-    ] = None,
-    extra_args: Annotated[
-        list[str] | None, typer.Argument(help="Extra arguments (after '--')")
-    ] = None,
-):
-    """Start stack with docker compose"""
-
-    profile = profile or []
-    extra_args = extra_args or []
-
-    helper = cli_helper.CommandHelper()
-
-    config = helper.load_config_from_env_file()
-    use_external_llm = bool(config.get("EXTERNAL_LLM_PROVIDER_URL", ""))
-    use_gpu = str(config.get("LLAMACPP_USE_GPU", "")).lower() in ["yes", "true", "1"]
-
-    if use_external_llm:
-        profiles = profile
-    else:
-        if use_gpu:
-            profiles = profile + ["gpu"]
-        else:
-            profiles = profile + ["cpu"]
-
-    print(f"Using profiles: {profiles}")
-
-    commands.compose_up(profile=profiles, extra_args=extra_args)
-
-
-@app.command()
-def compose_down(
-    profile: Annotated[
-        list[str] | None, typer.Option(help="Docker compose profile(s) to use")
-    ] = None,
-    extra_args: Annotated[
-        list[str] | None, typer.Argument(help="Extra arguments (after '--')")
-    ] = None,
-):
-    """Stop stack with docker compose"""
-
-    profile = profile or []
-    extra_args = extra_args or []
-
-    profiles = [*profile, "gpu", "cpu"]
-
-    commands.compose_down(profile=profiles, extra_args=extra_args)
 
 
 @app.command()

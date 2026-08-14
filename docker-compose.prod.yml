@@ -91,39 +91,5 @@ services:
     deploy:
       <<: *deploy
 
-  llm_gpu:
-    image: lmsysorg/sglang:latest
-    hostname: llm.local
-    environment:
-      HF_TOKEN: ${HF_TOKEN:-}
-      HTTP_PROXY: ${HTTP_PROXY:-}
-      HTTPS_PROXY: ${HTTPS_PROXY:-}
-      NO_PROXY: ${NO_PROXY:-}
-    volumes:
-      - models_data:/root/.cache/huggingface
-    network_mode: host
-    privileged: true
-    entrypoint: python3 -m sglang.launch_server
-    command: >
-      --model-path ${LLM_MODEL_NAME:?}
-      --host 0.0.0.0
-      --port 8080
-    ulimits:
-      memlock: -1
-      stack: 67108864
-    ipc: host
-    healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8080/health || exit 1"]
-    deploy:
-      <<: *deploy
-      resources:
-        reservations:
-          # https://gist.github.com/medihack/6a6d24dc6376939e1919f32409c2119f
-          generic_resources:
-            - discrete_resource_spec:
-                kind: gpu
-                value: 1
-
 volumes:
   web_data:
-  models_data:
