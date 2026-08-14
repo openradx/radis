@@ -291,12 +291,12 @@ def _fuse_hybrid(search: Search, caller: str) -> _FusedHybrid:
     filter_query = _build_filter_query(search.filters)
     tsquery = SearchQuery(query_str, search_type="raw", config=language)
 
-    # Vector side: strip NOT branches (see
-    # docs/superpowers/specs/hybrid-search.md §7.8). If nothing is
-    # left, skip the embedding call entirely and fall through to FTS-only.
+    # Vector side: skipped entirely when no embedding model is configured (FTS-only
+    # deployment), and when stripping NOT branches leaves nothing to embed (see
+    # docs/superpowers/specs/hybrid-search.md §7.8).
     query_text = QueryParser.unparse_for_embedding(search.query)
     query_vec: list[float] | None = None
-    if query_text.strip():
+    if settings.EMBEDDINGS_MODEL is not None and query_text.strip():
         query_vec = _embed_query_cached(query_text, caller)
 
     vec_rank: dict[int, int] = {}

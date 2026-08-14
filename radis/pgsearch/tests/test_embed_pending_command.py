@@ -10,6 +10,7 @@ from django.conf import settings
 from django.core.management import CommandError, call_command
 from django.db import connection
 
+from radis.core.utils.model_spec import parse_model_spec
 from radis.pgsearch.models import EmbeddingBackfillRun
 from radis.reports.factories import ReportFactory
 
@@ -18,15 +19,15 @@ pytestmark = pytest.mark.django_db
 
 @pytest.fixture(autouse=True)
 def _embedding_configured(settings):
-    """The command refuses to run when no embedding provider is configured.
-    Default the whole module to a configured provider; the no-URL test blanks it."""
-    settings.EMBEDDING_PROVIDER_URL = "http://embedder.local/v1"
+    """The command refuses to run when no embedding model is configured.
+    Default the whole module to a configured model; the no-model test blanks it."""
+    settings.EMBEDDINGS_MODEL = parse_model_spec("qwen3")
 
 
 def test_embed_pending_errors_when_url_not_configured(settings):
-    settings.EMBEDDING_PROVIDER_URL = ""
+    settings.EMBEDDINGS_MODEL = None
     ReportFactory.create()
-    with pytest.raises(CommandError, match="EMBEDDING_PROVIDER_URL"):
+    with pytest.raises(CommandError, match="EMBEDDINGS_MODEL"):
         call_command("embed_pending")
     assert EmbeddingBackfillRun.objects.count() == 0
 

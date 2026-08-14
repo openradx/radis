@@ -161,12 +161,12 @@ def enqueue_embed_reports(
     """
     if not report_ids:
         return 0
-    if not settings.EMBEDDING_PROVIDER_URL:
+    if settings.EMBEDDINGS_MODEL is None:
         # FTS-only/unconfigured deployment: enqueuing embedding subjobs here would
         # only create Procrastinate jobs doomed to fail at client construction.
-        # Skip them; search already falls back to FTS-only.
+        # Skip them; search already runs FTS-only.
         logger.info(
-            "enqueue_embed_reports: EMBEDDING_PROVIDER_URL not configured; "
+            "enqueue_embed_reports: EMBEDDINGS_MODEL not configured; "
             "skipping embedding of %d report(s) (FTS-only deployment)",
             len(report_ids),
         )

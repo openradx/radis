@@ -10,6 +10,7 @@ import openai
 import pytest
 from django.utils import timezone
 
+from radis.core.utils.model_spec import parse_model_spec
 from radis.pgsearch.models import EmbeddingBackfillRun, ReportSearchIndex
 from radis.pgsearch.tasks import (
     bulk_index_reports,
@@ -50,9 +51,9 @@ def caplog_tasks(caplog):
 @pytest.fixture(autouse=True)
 def _embedding_url_configured(settings):
     """Most tests here exercise the enqueue/embed path, which now no-ops when no
-    embedding provider is configured. Default the module to a configured
-    provider; the no-URL tests blank it explicitly."""
-    settings.EMBEDDING_PROVIDER_URL = "http://embedder.local/v1"
+    embedding model is configured. Default the module to a configured
+    model; the no-model tests blank it explicitly."""
+    settings.EMBEDDINGS_MODEL = parse_model_spec("qwen3")
 
 
 @pytest.fixture(autouse=True)
@@ -126,7 +127,7 @@ def test_enqueue_embed_reports_noop_when_url_not_configured(settings, db):
     """No embedding provider configured -> no Procrastinate jobs are enqueued."""
     from procrastinate.contrib.django.models import ProcrastinateJob
 
-    settings.EMBEDDING_PROVIDER_URL = ""
+    settings.EMBEDDINGS_MODEL = None
     deferred = enqueue_embed_reports([1, 2, 3])
     assert deferred == 0
     assert not ProcrastinateJob.objects.filter(
@@ -137,7 +138,7 @@ def test_enqueue_embed_reports_noop_when_url_not_configured(settings, db):
 def test_enqueue_embed_reports_defers_when_url_configured(settings, db):
     from procrastinate.contrib.django.models import ProcrastinateJob
 
-    settings.EMBEDDING_PROVIDER_URL = "http://embedder.local/v1"
+    settings.EMBEDDINGS_MODEL = parse_model_spec("qwen3")
     deferred = enqueue_embed_reports([1, 2, 3], subjob_size=2)
     assert deferred == 2
     assert (

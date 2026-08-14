@@ -15,6 +15,7 @@ from django.urls import reverse
 from django.utils import timezone
 from procrastinate.contrib.django.models import ProcrastinateJob
 
+from radis.core.utils.model_spec import parse_model_spec
 from radis.pgsearch.admin import ReportSearchIndexAdmin
 from radis.pgsearch.models import EmbeddingBackfillRun, ReportSearchIndex
 from radis.reports.factories import ReportFactory
@@ -24,9 +25,9 @@ pytestmark = pytest.mark.django_db(transaction=True)
 
 @pytest.fixture(autouse=True)
 def _embedding_url_configured(settings):
-    """The enqueue-pending admin action no-ops when no embedding provider is
-    configured, so default these tests to a configured provider."""
-    settings.EMBEDDING_PROVIDER_URL = "http://embedder.local/v1"
+    """The enqueue-pending admin action no-ops when no embedding model is
+    configured, so default these tests to a configured model."""
+    settings.EMBEDDINGS_MODEL = parse_model_spec("qwen3")
 
 
 @pytest.fixture

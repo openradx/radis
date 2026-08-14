@@ -174,11 +174,11 @@ class ReportSearchIndexAdmin(admin.ModelAdmin):
             )
             return
 
-        if not settings.EMBEDDING_PROVIDER_URL:
+        if settings.EMBEDDINGS_MODEL is None:
             self.message_user(
                 request,
-                "EMBEDDING_PROVIDER_URL is not configured; cannot enqueue embeddings. "
-                "Configure the embedding provider first.",
+                "EMBEDDINGS_MODEL is not configured; cannot enqueue embeddings. "
+                "Configure the embedding model first.",
                 level=messages.WARNING,
             )
             return

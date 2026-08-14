@@ -68,10 +68,10 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **opts) -> None:
-        if not settings.EMBEDDING_PROVIDER_URL:
+        if settings.EMBEDDINGS_MODEL is None:
             raise CommandError(
-                "EMBEDDING_PROVIDER_URL is not configured; cannot backfill embeddings. "
-                "Configure the embedding provider first, or leave it unset to run "
+                "EMBEDDINGS_MODEL is not configured; cannot backfill embeddings. "
+                "Configure the embedding model first, or leave it unset to run "
                 "FTS-only (reports are still fully searchable via full-text search)."
             )
         subjob_size = opts["subjob_size"]

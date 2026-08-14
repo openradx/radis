@@ -1,7 +1,9 @@
+import logging
 from unittest.mock import patch
 
 import pytest
 from django.contrib.auth.models import Group
+from django.test import override_settings
 
 from radis.core.utils.model_spec import parse_model_spec
 from radis.pgsearch.models import ReportSearchIndex
@@ -121,6 +123,29 @@ def test_embedding_failure_falls_back_to_fts(group, reports_with_embeddings):
     ids = [d.document_id for d in result.documents]
     # Both FTS-matching reports come back, no vector-only ones.
     assert set(ids) == {r0.document_id, r2.document_id}
+
+
+@override_settings(EMBEDDINGS_MODEL=None)
+def test_search_without_a_configured_model_makes_no_embedding_call(
+    group, reports_with_embeddings, caplog, monkeypatch
+):
+    """An FTS-only deployment must not pay for, or log, a failed embedding attempt.
+
+    Constructing the client raises when no model is configured, and the search path
+    catches that into logger.exception — a full traceback on every single query.
+    """
+    from radis.pgsearch import providers
+
+    calls = []
+    monkeypatch.setattr(providers, "_embed_query_cached", lambda text, caller: calls.append(text))
+
+    with caplog.at_level(logging.ERROR, logger="radis.pgsearch.providers"):
+        result = search(_make_search("pneumothorax", group.pk))
+
+    assert calls == []
+    assert caplog.records == []
+    # FTS still works: r0 and r2 both mention pneumothorax.
+    assert result.total_count == 2
 
 
 def test_reports_with_null_embedding_still_returned_via_fts(group, settings):
