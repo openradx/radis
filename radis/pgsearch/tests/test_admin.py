@@ -24,7 +24,7 @@ pytestmark = pytest.mark.django_db(transaction=True)
 
 
 @pytest.fixture(autouse=True)
-def _embedding_url_configured(settings):
+def _embedding_model_configured(settings):
     """The enqueue-pending admin action no-ops when no embedding model is
     configured, so default these tests to a configured model."""
     settings.EMBEDDINGS_MODEL = parse_model_spec("qwen3")
@@ -465,4 +465,28 @@ def test_enqueue_pending_embeddings_warns_while_backfill_active():
     assert EmbeddingBackfillRun.objects.count() == 1  # no new run
     call = admin_instance.message_user.call_args
     assert "already active" in call.args[1]
+    assert call.kwargs.get("level") == messages.WARNING
+
+
+def test_enqueue_pending_embeddings_warns_when_model_not_configured(settings):
+    """The other three EMBEDDINGS_MODEL-is-None guards are covered at
+    test_embed_pending_command.py, test_embed_reports_task.py, and
+    test_provider_hybrid.py — this is the admin action's own no-model path:
+    it must not create a run or enqueue any subjob, and must surface a
+    warning naming the setting the operator needs to set."""
+    settings.EMBEDDINGS_MODEL = None
+    target = ReportFactory.create()
+    selected = ReportSearchIndex.objects.filter(report_id=target.pk)
+    admin_instance = ReportSearchIndexAdmin(ReportSearchIndex, AdminSite())
+    admin_instance.message_user = MagicMock()
+    request = MagicMock()
+    request.user.get_username.return_value = "alice"
+
+    with patch("radis.pgsearch.admin.enqueue_embed_reports") as enqueue:
+        admin_instance.enqueue_pending_embeddings(request, selected)
+
+    enqueue.assert_not_called()
+    assert EmbeddingBackfillRun.objects.count() == 0
+    call = admin_instance.message_user.call_args
+    assert "EMBEDDINGS_MODEL" in call.args[1]
     assert call.kwargs.get("level") == messages.WARNING

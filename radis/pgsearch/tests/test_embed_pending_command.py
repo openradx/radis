@@ -24,7 +24,7 @@ def _embedding_configured(settings):
     settings.EMBEDDINGS_MODEL = parse_model_spec("qwen3")
 
 
-def test_embed_pending_errors_when_url_not_configured(settings):
+def test_embed_pending_errors_when_model_not_configured(settings):
     settings.EMBEDDINGS_MODEL = None
     ReportFactory.create()
     with pytest.raises(CommandError, match="EMBEDDINGS_MODEL"):

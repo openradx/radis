@@ -49,7 +49,7 @@ def caplog_tasks(caplog):
 
 
 @pytest.fixture(autouse=True)
-def _embedding_url_configured(settings):
+def _embedding_model_configured(settings):
     """Most tests here exercise the enqueue/embed path, which now no-ops when no
     embedding model is configured. Default the module to a configured
     model; the no-model tests blank it explicitly."""
@@ -123,7 +123,7 @@ def _auth_error() -> openai.AuthenticationError:
     return openai.AuthenticationError(message="invalid api key", response=resp, body=None)
 
 
-def test_enqueue_embed_reports_noop_when_url_not_configured(settings, db):
+def test_enqueue_embed_reports_noop_when_model_not_configured(settings, db):
     """No embedding provider configured -> no Procrastinate jobs are enqueued."""
     from procrastinate.contrib.django.models import ProcrastinateJob
 
@@ -135,7 +135,7 @@ def test_enqueue_embed_reports_noop_when_url_not_configured(settings, db):
     ).exists()
 
 
-def test_enqueue_embed_reports_defers_when_url_configured(settings, db):
+def test_enqueue_embed_reports_defers_when_model_configured(settings, db):
     from procrastinate.contrib.django.models import ProcrastinateJob
 
     settings.EMBEDDINGS_MODEL = parse_model_spec("qwen3")

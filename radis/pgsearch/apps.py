@@ -98,8 +98,9 @@ def check_embeddings_dimensions_param(app_configs, **kwargs):
             f"embedding column cannot store.",
             id="pgsearch.E003",
             hint=(
-                "Drop the 'dimensions' parameter to let the client truncate to "
-                "EMBEDDINGS_DIM, or set the two to the same value."
+                "Drop the 'dimensions' parameter from EMBEDDINGS_MODEL in your .env to "
+                "let the client truncate to EMBEDDINGS_DIM, or set EMBEDDINGS_DIM to "
+                "match the 'dimensions' value."
             ),
         )
     ]

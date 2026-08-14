@@ -78,13 +78,20 @@ def _restore_base_settings_after_reload():
     only recomputes `radis.settings.base`'s own namespace — `django.conf.settings` already
     took its one-time snapshot at Django startup, so this can't corrupt the live app config
     for other tests. Still reload back to the real environment afterwards so this test's
-    patch doesn't leak into the module object for whatever runs next in this process."""
+    patch doesn't leak into the module object for whatever runs next in this process.
+
+    Requested BEFORE `monkeypatch` in test signatures on purpose: pytest tears
+    function-scoped fixtures down in reverse setup order, so requesting this one first
+    means it is torn down LAST — its `importlib.reload` below runs only after
+    `monkeypatch` has already undone the env change, so the reload actually restores the
+    module to the real environment rather than re-baking the test's patched value into
+    it. Swap the argument order back and this docstring's claim goes false again."""
     yield
     importlib.reload(settings_base)
 
 
 def test_embeddings_query_instruction_is_read_from_the_environment(
-    monkeypatch, _restore_base_settings_after_reload
+    _restore_base_settings_after_reload, monkeypatch
 ):
     monkeypatch.setenv("EMBEDDINGS_QUERY_INSTRUCTION", "Represent this radiology search query: ")
 
@@ -94,7 +101,7 @@ def test_embeddings_query_instruction_is_read_from_the_environment(
 
 
 def test_embeddings_query_instruction_default_survives_when_unset(
-    monkeypatch, _restore_base_settings_after_reload
+    _restore_base_settings_after_reload, monkeypatch
 ):
     monkeypatch.delenv("EMBEDDINGS_QUERY_INSTRUCTION", raising=False)
 
@@ -103,12 +110,20 @@ def test_embeddings_query_instruction_default_survives_when_unset(
     assert reloaded.EMBEDDINGS_QUERY_INSTRUCTION == DEFAULT_QUERY_INSTRUCTION
 
 
-def test_the_base_url_defaults_to_the_llm_endpoint():
+@pytest.mark.parametrize(
+    ("embeddings_name", "llm_name"),
+    [
+        ("EMBEDDINGS_BASE_URL", "LLM_BASE_URL"),
+        ("EMBEDDINGS_API_KEY", "LLM_API_KEY"),
+        ("EMBEDDINGS_REQUEST_TIMEOUT_SECONDS", "LLM_REQUEST_TIMEOUT_SECONDS"),
+    ],
+)
+def test_the_setting_defaults_to_its_llm_counterpart(embeddings_name: str, llm_name: str):
     # Only the fallback is under test; a value configured for this environment is a
     # deployment choice, not a regression.
     import os
 
-    if os.environ.get("EMBEDDINGS_BASE_URL", "").strip():
-        pytest.skip("EMBEDDINGS_BASE_URL is set in the environment, so its default is not in play")
+    if os.environ.get(embeddings_name, "").strip():
+        pytest.skip(f"{embeddings_name} is set in the environment, so its default is not in play")
 
-    assert dj_settings.EMBEDDINGS_BASE_URL == dj_settings.LLM_BASE_URL
+    assert getattr(dj_settings, embeddings_name) == getattr(dj_settings, llm_name)

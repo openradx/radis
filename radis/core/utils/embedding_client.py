@@ -121,7 +121,16 @@ class EmbeddingClient:
         """Low-level call to the embedding backend, with no 429 handling of
         its own — `embed_query` (below) and `_embed_chunk_with_retry` in
         `radis/pgsearch/tasks.py` run it through `EMBEDDING_GATE`. HTTP
-        errors (400, 429, 5xx, ...) propagate as typed SDK exceptions."""
+        errors (400, 429, 5xx, ...) propagate as typed SDK exceptions.
+
+        WARNING: this call passes both `encoding_format="float"` and
+        `extra_body=self._extra_body` (the EMBEDDINGS_MODEL spec's params) to the
+        SDK. If a spec sets its own `encoding_format` (e.g.
+        `qwen3?encoding_format=base64`), `extra_body` wins the SDK's body merge and
+        silently overrides the literal above — the backend then returns base64
+        strings instead of float lists, which `_normalize_response` does not
+        expect and will misbehave on. Do not put `encoding_format` in a model
+        spec's params."""
         # encoding_format="float" requests JSON-float vectors. Without this
         # the SDK defaults to base64, which would require a decode step
         # back to floats — extra work and a less debuggable wire format.
