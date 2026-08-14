@@ -117,8 +117,11 @@ Hybrid search embeddings (`radis.pgsearch`):
   at startup (`pgsearch.E001`, `pgsearch.E003`)
 - `EMBEDDINGS_QUERY_INSTRUCTION`: Instruction prefix prepended to search queries.
   Model-specific; not a request parameter, so it is not part of the model spec
-- `EMBEDDINGS_BATCH_SIZE`, `EMBEDDINGS_SUBJOB_SIZE`, `EMBEDDINGS_WORKER_CONCURRENCY`,
-  `EMBEDDINGS_REQUEST_TIMEOUT_SECONDS`: Throughput tuning
+- `EMBEDDINGS_REQUEST_TIMEOUT_SECONDS`: Defaults to `LLM_REQUEST_TIMEOUT_SECONDS` (itself
+  60s by default), not to a fixed value — raising the LLM timeout raises this one too
+  unless set here explicitly
+- `EMBEDDINGS_BATCH_SIZE`, `EMBEDDINGS_SUBJOB_SIZE`, `EMBEDDINGS_WORKER_CONCURRENCY`:
+  Throughput tuning
 
 - `SITE_NAME`, `SITE_DOMAIN`: Site framework settings
 - `ADMIN_USERNAME`, `ADMIN_EMAIL`, `ADMIN_PASSWORD`: Initial superuser

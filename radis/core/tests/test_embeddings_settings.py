@@ -1,8 +1,15 @@
+import importlib
+
 import pytest
 from django.conf import settings as dj_settings
 from django.core.exceptions import ImproperlyConfigured
 
+from radis.settings import base as settings_base
 from radis.settings.base import _inherit_env, _resolve_embeddings_model
+
+DEFAULT_QUERY_INSTRUCTION = (
+    "Instruct: Given a radiology search query, retrieve relevant radiology reports.\nQuery: "
+)
 
 
 @pytest.fixture
@@ -61,6 +68,39 @@ def test_a_malformed_model_names_the_setting_at_fault(clean_embeddings_env):
 
     with pytest.raises(ImproperlyConfigured, match="EMBEDDINGS_MODEL"):
         _resolve_embeddings_model()
+
+
+@pytest.fixture
+def _restore_base_settings_after_reload():
+    """`EMBEDDINGS_QUERY_INSTRUCTION` is a bare module-level assignment (like its
+    `EMBEDDINGS_DIM`/`EMBEDDINGS_BATCH_SIZE` neighbours), not a function, so the only way
+    to observe it re-read a monkeypatched env var is to reload the settings module. That
+    only recomputes `radis.settings.base`'s own namespace — `django.conf.settings` already
+    took its one-time snapshot at Django startup, so this can't corrupt the live app config
+    for other tests. Still reload back to the real environment afterwards so this test's
+    patch doesn't leak into the module object for whatever runs next in this process."""
+    yield
+    importlib.reload(settings_base)
+
+
+def test_embeddings_query_instruction_is_read_from_the_environment(
+    monkeypatch, _restore_base_settings_after_reload
+):
+    monkeypatch.setenv("EMBEDDINGS_QUERY_INSTRUCTION", "Represent this radiology search query: ")
+
+    reloaded = importlib.reload(settings_base)
+
+    assert reloaded.EMBEDDINGS_QUERY_INSTRUCTION == "Represent this radiology search query: "
+
+
+def test_embeddings_query_instruction_default_survives_when_unset(
+    monkeypatch, _restore_base_settings_after_reload
+):
+    monkeypatch.delenv("EMBEDDINGS_QUERY_INSTRUCTION", raising=False)
+
+    reloaded = importlib.reload(settings_base)
+
+    assert reloaded.EMBEDDINGS_QUERY_INSTRUCTION == DEFAULT_QUERY_INSTRUCTION
 
 
 def test_the_base_url_defaults_to_the_llm_endpoint():

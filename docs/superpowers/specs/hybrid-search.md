@@ -362,7 +362,7 @@ the input text, so carrying it in the spec would send a field no provider accept
 
 ### 5.4 Behavior details
 
-- **Query instruction:** the model card for Qwen3-Embedding recommends a task-specific instruction prefix on the query side only. `embed_query` prepends `EMBEDDINGS_QUERY_INSTRUCTION` (a Python constant in `base.py`); `embed_documents` does not.
+- **Query instruction:** the model card for Qwen3-Embedding recommends a task-specific instruction prefix on the query side only. `embed_query` prepends `EMBEDDINGS_QUERY_INSTRUCTION` (env-driven, §8.1 — model-specific, so it has to be settable without a code change); `embed_documents` does not.
 - **Overlength inputs:** the client does *not* truncate input text. The model's context window is the authoritative limit; the backend rejects overlength input with an HTTP 4xx that surfaces as a typed SDK error (usually `openai.BadRequestError`). There is no special-case detection or per-report isolation (the earlier `EmbeddingPayloadTooLargeError` + chunk-bisect design was removed 2026-07-02 — see §6.2): on the worker, `BadRequestError` is in no retry set, so the subjob fails permanently; on the query path it falls back to FTS-only for that request.
 - **Normalization:** every returned vector is L2-normalized client-side, unconditionally. With unit vectors, cosine distance is monotonic in dot product, which makes the HNSW `vector_cosine_ops` operator effectively a fast inner-product search. Whether the upstream server normalizes is irrelevant.
 - **Dimension validation & Matryoshka truncation:** vectors shorter than `EMBEDDINGS_DIM` raise `EmbeddingClientError`; longer vectors are truncated to the first `EMBEDDINGS_DIM` components and renormalized (Qwen3-Embedding is trained to retain quality at truncated dims). Exact-length vectors are still normalized, since providers can't be assumed to return unit vectors.
@@ -938,17 +938,17 @@ EMBEDDINGS_DIM              = env.int("EMBEDDINGS_DIM", default=1024)
 EMBEDDING_REQUEST_TIMEOUT  = env.int("EMBEDDING_REQUEST_TIMEOUT", default=30)  # seconds
 EMBEDDINGS_BATCH_SIZE       = env.int("EMBEDDINGS_BATCH_SIZE", default=200)      # texts per HTTP call
 EMBEDDINGS_SUBJOB_SIZE      = env.int("EMBEDDINGS_SUBJOB_SIZE", default=1000)    # reports per subjob
+EMBEDDINGS_QUERY_INSTRUCTION = env.str(
+    "EMBEDDINGS_QUERY_INSTRUCTION",
+    default="Instruct: Given a radiology search query, retrieve relevant radiology reports.\nQuery: ",
+)
 ```
 
-These vary across deployments and are operator-controlled. `EMBEDDINGS_DIM` is intentionally an env decision because it is schema-coupled (see §4.5 and the `pgsearch.E001` check). Timeout, batch size, and subjob size are env because they track the deployed provider's capacity (a self-hosted vLLM box and a rate-limited gateway want very different values). There is no `EMBEDDING_BACKEND` / `EMBEDDING_PROVIDER_PATH` — since the openai-SDK rewrite there is exactly one wire shape, an OpenAI-compatible `/v1` endpoint (§5.3). Worker concurrency is set in the compose command line: hardcoded `--concurrency 4` in dev, `${EMBEDDINGS_WORKER_CONCURRENCY:-2}` in prod.
+These vary across deployments and are operator-controlled. `EMBEDDINGS_DIM` is intentionally an env decision because it is schema-coupled (see §4.5 and the `pgsearch.E001` check). Timeout, batch size, and subjob size are env because they track the deployed provider's capacity (a self-hosted vLLM box and a rate-limited gateway want very different values). `EMBEDDINGS_QUERY_INSTRUCTION` is env too: it's model-specific (Qwen3-Embedding wants a prefix, `text-embedding-3` wants none), and the model itself is already an env choice, so a knob that has to track it can't require editing Python. There is no `EMBEDDING_BACKEND` / `EMBEDDING_PROVIDER_PATH` — since the openai-SDK rewrite there is exactly one wire shape, an OpenAI-compatible `/v1` endpoint (§5.3). Worker concurrency is set in the compose command line: hardcoded `--concurrency 4` in dev, `${EMBEDDINGS_WORKER_CONCURRENCY:-2}` in prod.
 
 ### 8.2 Code constants (tuning knobs, in `base.py`)
 
 ```python
-EMBEDDINGS_QUERY_INSTRUCTION = (
-    "Instruct: Given a radiology search query, retrieve relevant radiology reports.\nQuery: "
-)
-
 # Procrastinate priorities on the `embeddings` queue: live writes outrank backfill.
 EMBEDDINGS_LIVE_PRIORITY = 1
 EMBEDDINGS_BACKFILL_PRIORITY = 0

@@ -479,10 +479,14 @@ EMBEDDINGS_MODEL = _resolve_embeddings_model()
 
 EMBEDDINGS_DIM = env.int("EMBEDDINGS_DIM", default=1024)
 
-# Embedding tuning constants
-EMBEDDINGS_QUERY_INSTRUCTION = (
-    "Instruct: Given a radiology search query, retrieve relevant radiology reports.\nQuery: "
+EMBEDDINGS_QUERY_INSTRUCTION = env.str(
+    "EMBEDDINGS_QUERY_INSTRUCTION",
+    default=(
+        "Instruct: Given a radiology search query, retrieve relevant radiology reports.\nQuery: "
+    ),
 )
+
+# Embedding tuning constants
 # Texts per HTTP call. A 429'd or timed-out call wastes its whole payload
 # and retries every text in it, so smaller batches bound the waste and
 # consume the gateway's sliding window in smoother increments.
