@@ -404,7 +404,11 @@ the key. In `radis/pgsearch/providers.py`, replace the fingerprint in `_embed_qu
 
 ```python
     spec = settings.EMBEDDINGS_MODEL
-    assert spec is not None  # callers guard on EMBEDDINGS_MODEL before reaching here
+    if spec is None:
+        # Nothing to embed against. Task 3 adds the caller-side guard so this helper is
+        # not even reached in an FTS-only deployment; returning None keeps it correct on
+        # its own in the meantime, and afterwards for any future caller.
+        return None
     fingerprint = "\x00".join(
         [
             spec.model,
@@ -483,7 +487,7 @@ duplicated but wrong. All four now ask `settings.EMBEDDINGS_MODEL is None`.
 
 **Interfaces:**
 - Consumes: `settings.EMBEDDINGS_MODEL` from Task 2.
-- Produces: no new symbols; the invariant that `_embed_query_cached` is only reached when `EMBEDDINGS_MODEL is not None` (relied on by the `assert` added in Task 2, Step 11).
+- Produces: no new symbols; the invariant that `_embed_query_cached` is not reached at all when `EMBEDDINGS_MODEL is None` (its own early return from Task 2, Step 11 stays as defence in depth).
 
 - [ ] **Step 1: Write the failing search-path test**
 
@@ -1030,7 +1034,8 @@ excluded unless the maintainer asks:
 **Type consistency.** `EMBEDDINGS_MODEL` is `ModelSpec | None` everywhere: produced in
 Task 2, consumed as `spec.model` / `spec.params` by the client (Task 2) and the cache
 fingerprint (Task 2), tested for `is None` in Task 3, and read for `params["dimensions"]`
-in Task 4. Tests construct it with `parse_model_spec("…")` rather than a bare string —
+in Task 4. Every reader that can run before Task 3's caller guard exists handles `None`
+itself, so no intermediate commit leaves the suite red. Tests construct it with `parse_model_spec("…")` rather than a bare string —
 `override_settings(EMBEDDINGS_MODEL="qwen3")` would pass a `str` where the code expects a
 `ModelSpec` and fail with `AttributeError` on `.model`.
 
