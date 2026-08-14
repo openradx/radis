@@ -429,14 +429,57 @@ LLM_RATE_LIMIT_HEADER_CEILING_SECONDS = env.float(
     "LLM_RATE_LIMIT_HEADER_CEILING_SECONDS", default=1800.0
 )
 
+
 # Embedding service (per-deployment)
-EMBEDDING_PROVIDER_URL = env.str("EMBEDDING_PROVIDER_URL", default="")
-EMBEDDING_PROVIDER_API_KEY = env.str("EMBEDDING_PROVIDER_API_KEY", default="")
-EMBEDDING_MODEL_NAME = env.str("EMBEDDING_MODEL_NAME", default="Qwen/Qwen3-Embedding-4B")
+#
+# Embeddings are inference too, but a different model class. One endpoint serves both
+# only when the provider multiplexes models (OpenAI, Ollama, an LLM gateway); a
+# self-hosted vLLM or SGLang serves one model per process, so there the embedding
+# endpoint is a second URL. Inherit the LLM endpoint and override only where they
+# actually diverge, so the common deployment configures one URL rather than two.
+def _inherit_env(name: str, fallback: str) -> str:
+    """An embedding setting that falls back to its LLM counterpart when unset.
+
+    A blank is what an `.env` line like `EMBEDDINGS_BASE_URL=` produces, and it means
+    the same as leaving the line out.
+    """
+    return env.str(name, default="").strip() or fallback
+
+
+EMBEDDINGS_BASE_URL = _inherit_env("EMBEDDINGS_BASE_URL", LLM_BASE_URL)
+EMBEDDINGS_API_KEY = _inherit_env("EMBEDDINGS_API_KEY", LLM_API_KEY)
+EMBEDDINGS_REQUEST_TIMEOUT_SECONDS = _optional_env(
+    "EMBEDDINGS_REQUEST_TIMEOUT_SECONDS", float, LLM_REQUEST_TIMEOUT_SECONDS
+)
+
+
+def _resolve_embeddings_model() -> ModelSpec | None:
+    """The embedding model, or None when hybrid search is not configured.
+
+    Unlike the LLM models this one is optional: without it RADIS serves full-text
+    search only, which is a complete product rather than a broken one. That makes the
+    model the feature switch — every embedding code path asks this one question
+    instead of inferring configuredness from a URL that now has a fallback anyway.
+
+    Same 'model[?param=value&...]' grammar as the LLM models, so request-body
+    parameters (OpenAI's `dimensions`, a provider's `truncate`) are configured
+    alongside the model. Parsed here so a malformed spec is a boot error naming the
+    setting at fault, not a 400 on the first search.
+    """
+    raw = env.str("EMBEDDINGS_MODEL", default="").strip()
+    if not raw:
+        return None
+    try:
+        return parse_model_spec(raw)
+    except ModelSpecError as err:
+        raise ImproperlyConfigured(f"Invalid EMBEDDINGS_MODEL: {err}") from err
+
+
+EMBEDDINGS_MODEL = _resolve_embeddings_model()
+
 EMBEDDINGS_DIM = env.int("EMBEDDINGS_DIM", default=1024)
 
 # Embedding tuning constants
-EMBEDDING_REQUEST_TIMEOUT = env.int("EMBEDDING_REQUEST_TIMEOUT", default=30)
 EMBEDDINGS_QUERY_INSTRUCTION = (
     "Instruct: Given a radiology search query, retrieve relevant radiology reports.\nQuery: "
 )

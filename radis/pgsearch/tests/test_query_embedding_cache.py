@@ -2,7 +2,10 @@ from unittest.mock import patch
 
 import pytest
 from django.contrib.auth.models import Group
+from django.test import override_settings
 
+from radis.core.utils.model_spec import parse_model_spec
+from radis.pgsearch import providers
 from radis.pgsearch.models import ReportSearchIndex
 from radis.pgsearch.providers import retrieve, search
 from radis.pgsearch.utils.embedding_client import EmbeddingClientError
@@ -11,6 +14,14 @@ from radis.search.site import Search, SearchFilters
 from radis.search.utils.query_parser import QueryParser
 
 pytestmark = pytest.mark.django_db
+
+
+@pytest.fixture(autouse=True)
+def _embeddings_model_configured(settings):
+    """These tests exercise the cache wrapper around a configured embedding model.
+    Test settings default EMBEDDINGS_MODEL to None (FTS-only), so default it here;
+    tests proving the model/params participate in the key override it explicitly."""
+    settings.EMBEDDINGS_MODEL = parse_model_spec("qwen3")
 
 
 def _unit_vec(idx: int, dim: int) -> list[float]:
@@ -109,3 +120,21 @@ def test_retrieve_shares_cache_with_search(group, vector_only_report, settings):
 
     assert embed_query.call_count == 1
     assert vector_only_report.document_id in doc_ids
+
+
+def test_differing_spec_parameters_do_not_share_a_cache_entry(monkeypatch):
+    # dimensions=2 and dimensions=4 are different vectors for the same model text.
+    calls = []
+
+    def fake_embed(text, caller):
+        calls.append(text)
+        return [1.0, 0.0]
+
+    monkeypatch.setattr(providers, "_embed_query_or_none", fake_embed)
+
+    with override_settings(EMBEDDINGS_MODEL=parse_model_spec("qwen3?dimensions=2")):
+        providers._embed_query_cached("pneumonia", "test")
+    with override_settings(EMBEDDINGS_MODEL=parse_model_spec("qwen3?dimensions=4")):
+        providers._embed_query_cached("pneumonia", "test")
+
+    assert len(calls) == 2

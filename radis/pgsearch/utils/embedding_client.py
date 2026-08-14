@@ -45,7 +45,7 @@ class EmbeddingClientError(Exception):
 def _build_http_client() -> httpx.Client:
     """Indirection so tests can swap in an httpx.MockTransport. The returned
     client is passed to openai.OpenAI(http_client=...); the SDK applies
-    EMBEDDING_REQUEST_TIMEOUT per request, so no timeout is set here."""
+    EMBEDDINGS_REQUEST_TIMEOUT_SECONDS per request, so no timeout is set here."""
     return httpx.Client()
 
 
@@ -91,25 +91,29 @@ def _normalize_response(
 
 class EmbeddingClient:
     """Sync embedding client over the openai SDK. Single OpenAI-compatible
-    endpoint (set EMBEDDING_PROVIDER_URL to end in /v1). Same shape for OpenAI,
+    endpoint (set EMBEDDINGS_BASE_URL to end in /v1). Same shape for OpenAI,
     Azure, vLLM, an LLM gateway, or Ollama's /v1 compatibility layer."""
 
     def __init__(self) -> None:
-        base_url = settings.EMBEDDING_PROVIDER_URL
-        if not base_url:
-            raise EmbeddingClientError("EMBEDDING_PROVIDER_URL is not configured")
-        # SDK rejects empty api_key at construction; "unused" is the documented
+        spec = settings.EMBEDDINGS_MODEL
+        if spec is None:
+            raise EmbeddingClientError(
+                "EMBEDDINGS_MODEL is not configured; hybrid search is disabled"
+            )
+        # SDK rejects an empty api_key at construction; "unused" is the documented
         # placeholder for self-hosted endpoints that ignore auth (Ollama, vLLM).
-        api_key = settings.EMBEDDING_PROVIDER_API_KEY or "unused"
+        api_key = settings.EMBEDDINGS_API_KEY or "unused"
         self._http = _build_http_client()
         self._client = openai.OpenAI(
-            base_url=base_url,
+            base_url=settings.EMBEDDINGS_BASE_URL,
             api_key=api_key,
             http_client=self._http,
             max_retries=0,  # 429s are handled by the rate-limit gate, not the SDK
-            timeout=settings.EMBEDDING_REQUEST_TIMEOUT,
+            timeout=settings.EMBEDDINGS_REQUEST_TIMEOUT_SECONDS,
         )
-        self._model = settings.EMBEDDING_MODEL_NAME
+        self._model = spec.model
+        # Request parameters configured with the model, e.g. OpenAI's `dimensions`.
+        self._extra_body = spec.params
         self._dim = settings.EMBEDDINGS_DIM
         self._instruction = settings.EMBEDDINGS_QUERY_INSTRUCTION
 
@@ -122,7 +126,10 @@ class EmbeddingClient:
         # the SDK defaults to base64, which would require a decode step
         # back to floats — extra work and a less debuggable wire format.
         response = self._client.embeddings.create(
-            model=self._model, input=texts, encoding_format="float"
+            model=self._model,
+            input=texts,
+            encoding_format="float",
+            extra_body=self._extra_body,
         )
         raw = [list(item.embedding) for item in response.data]
         return _normalize_response(raw, len(texts), self._dim)

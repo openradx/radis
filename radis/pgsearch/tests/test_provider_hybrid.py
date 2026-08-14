@@ -3,6 +3,7 @@ from unittest.mock import patch
 import pytest
 from django.contrib.auth.models import Group
 
+from radis.core.utils.model_spec import parse_model_spec
 from radis.pgsearch.models import ReportSearchIndex
 from radis.pgsearch.providers import count, retrieve, search
 from radis.pgsearch.utils.embedding_client import EmbeddingClientError
@@ -11,6 +12,14 @@ from radis.search.site import Search, SearchFilters
 from radis.search.utils.query_parser import QueryParser
 
 pytestmark = pytest.mark.django_db
+
+
+@pytest.fixture(autouse=True)
+def _embeddings_model_configured(settings):
+    """These tests exercise the vector side of hybrid search with EmbeddingClient
+    mocked out; test settings default EMBEDDINGS_MODEL to None (FTS-only), which
+    would make _embed_query_cached short-circuit before the mock is ever reached."""
+    settings.EMBEDDINGS_MODEL = parse_model_spec("qwen3")
 
 
 def _unit_vec(idx: int, dim: int) -> list[float]:

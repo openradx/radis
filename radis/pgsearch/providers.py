@@ -1,4 +1,5 @@
 import hashlib
+import json
 import logging
 import unicodedata
 from collections.abc import Iterator
@@ -238,14 +239,22 @@ def _embed_query_cached(query_text: str, caller: str) -> list[float] | None:
 
     Pagination re-runs the whole search for every page, so without this every
     page load re-calls the embedding service for the same query text. The key
-    covers everything that determines the vector — model, instruction, dim,
-    query text — because a shared cache backend (production uses the database)
-    outlives process restarts and thus config changes. Failures are not
-    cached: a transient outage must not pin searches to FTS-only for the TTL.
+    covers everything that determines the vector — model, spec parameters,
+    instruction, dim, query text — because a shared cache backend (production
+    uses the database) outlives process restarts and thus config changes.
+    Failures are not cached: a transient outage must not pin searches to
+    FTS-only for the TTL.
     """
+    spec = settings.EMBEDDINGS_MODEL
+    if spec is None:
+        # Nothing to embed against. Task 3 adds the caller-side guard so this helper is
+        # not even reached in an FTS-only deployment; returning None keeps it correct on
+        # its own in the meantime, and afterwards for any future caller.
+        return None
     fingerprint = "\x00".join(
         [
-            settings.EMBEDDING_MODEL_NAME,
+            spec.model,
+            json.dumps(spec.params, sort_keys=True),
             settings.EMBEDDINGS_QUERY_INSTRUCTION,
             str(settings.EMBEDDINGS_DIM),
             query_text,

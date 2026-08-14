@@ -4,16 +4,18 @@ import httpx
 import pytest
 from django.test import override_settings
 
+from radis.core.utils.model_spec import parse_model_spec
+
 
 def _patched_settings():
     """Decorator factory: a single override_settings with the minimal
     config the SDK-based client reads."""
     return override_settings(
-        EMBEDDING_PROVIDER_URL="http://embed.example/v1",
-        EMBEDDING_PROVIDER_API_KEY="secret",
-        EMBEDDING_MODEL_NAME="qwen3",
+        EMBEDDINGS_BASE_URL="http://embed.example/v1",
+        EMBEDDINGS_API_KEY="secret",
+        EMBEDDINGS_MODEL=parse_model_spec("qwen3"),
         EMBEDDINGS_DIM=4,
-        EMBEDDING_REQUEST_TIMEOUT=10,
+        EMBEDDINGS_REQUEST_TIMEOUT_SECONDS=10.0,
         EMBEDDINGS_QUERY_INSTRUCTION="INST: ",
     )
 
@@ -76,11 +78,11 @@ def test_embed_documents_posts_payload_and_normalizes(monkeypatch):
 
 
 @override_settings(
-    EMBEDDING_PROVIDER_URL="http://embed.example/v1",
-    EMBEDDING_PROVIDER_API_KEY="",
-    EMBEDDING_MODEL_NAME="qwen3",
+    EMBEDDINGS_BASE_URL="http://embed.example/v1",
+    EMBEDDINGS_API_KEY="",
+    EMBEDDINGS_MODEL=parse_model_spec("qwen3"),
     EMBEDDINGS_DIM=2,
-    EMBEDDING_REQUEST_TIMEOUT=10,
+    EMBEDDINGS_REQUEST_TIMEOUT_SECONDS=10.0,
     EMBEDDINGS_QUERY_INSTRUCTION="INST: ",
 )
 def test_embed_query_prepends_instruction(monkeypatch):
@@ -106,11 +108,11 @@ def test_embed_query_prepends_instruction(monkeypatch):
 
 
 @override_settings(
-    EMBEDDING_PROVIDER_URL="http://embed.example/v1",
-    EMBEDDING_PROVIDER_API_KEY="",
-    EMBEDDING_MODEL_NAME="qwen3",
+    EMBEDDINGS_BASE_URL="http://embed.example/v1",
+    EMBEDDINGS_API_KEY="",
+    EMBEDDINGS_MODEL=parse_model_spec("qwen3"),
     EMBEDDINGS_DIM=2,
-    EMBEDDING_REQUEST_TIMEOUT=10,
+    EMBEDDINGS_REQUEST_TIMEOUT_SECONDS=10.0,
     EMBEDDINGS_QUERY_INSTRUCTION="",
 )
 def test_dim_too_small_raises(monkeypatch):
@@ -133,11 +135,11 @@ def test_dim_too_small_raises(monkeypatch):
 
 
 @override_settings(
-    EMBEDDING_PROVIDER_URL="http://embed.example/v1",
-    EMBEDDING_PROVIDER_API_KEY="",
-    EMBEDDING_MODEL_NAME="qwen3",
+    EMBEDDINGS_BASE_URL="http://embed.example/v1",
+    EMBEDDINGS_API_KEY="",
+    EMBEDDINGS_MODEL=parse_model_spec("qwen3"),
     EMBEDDINGS_DIM=2,
-    EMBEDDING_REQUEST_TIMEOUT=10,
+    EMBEDDINGS_REQUEST_TIMEOUT_SECONDS=10.0,
     EMBEDDINGS_QUERY_INSTRUCTION="",
 )
 def test_oversized_embedding_truncates_and_renormalizes(monkeypatch):
@@ -160,11 +162,11 @@ def test_oversized_embedding_truncates_and_renormalizes(monkeypatch):
 
 
 @override_settings(
-    EMBEDDING_PROVIDER_URL="http://embed.example/v1",
-    EMBEDDING_PROVIDER_API_KEY="",
-    EMBEDDING_MODEL_NAME="qwen3",
+    EMBEDDINGS_BASE_URL="http://embed.example/v1",
+    EMBEDDINGS_API_KEY="",
+    EMBEDDINGS_MODEL=parse_model_spec("qwen3"),
     EMBEDDINGS_DIM=2,
-    EMBEDDING_REQUEST_TIMEOUT=10,
+    EMBEDDINGS_REQUEST_TIMEOUT_SECONDS=10.0,
     EMBEDDINGS_QUERY_INSTRUCTION="",
 )
 def test_5xx_propagates_as_typed_openai_error(monkeypatch):
@@ -183,11 +185,11 @@ def test_5xx_propagates_as_typed_openai_error(monkeypatch):
 
 
 @override_settings(
-    EMBEDDING_PROVIDER_URL="http://embed.example/v1",
-    EMBEDDING_PROVIDER_API_KEY="",
-    EMBEDDING_MODEL_NAME="qwen3",
+    EMBEDDINGS_BASE_URL="http://embed.example/v1",
+    EMBEDDINGS_API_KEY="",
+    EMBEDDINGS_MODEL=parse_model_spec("qwen3"),
     EMBEDDINGS_DIM=2,
-    EMBEDDING_REQUEST_TIMEOUT=10,
+    EMBEDDINGS_REQUEST_TIMEOUT_SECONDS=10.0,
     EMBEDDINGS_QUERY_INSTRUCTION="",
 )
 def test_429_propagates_as_typed_rate_limit_error(monkeypatch):
@@ -206,11 +208,11 @@ def test_429_propagates_as_typed_rate_limit_error(monkeypatch):
 
 
 @override_settings(
-    EMBEDDING_PROVIDER_URL="http://embed.example/v1",
-    EMBEDDING_PROVIDER_API_KEY="",
-    EMBEDDING_MODEL_NAME="qwen3",
+    EMBEDDINGS_BASE_URL="http://embed.example/v1",
+    EMBEDDINGS_API_KEY="",
+    EMBEDDINGS_MODEL=parse_model_spec("qwen3"),
     EMBEDDINGS_DIM=2,
-    EMBEDDING_REQUEST_TIMEOUT=10,
+    EMBEDDINGS_REQUEST_TIMEOUT_SECONDS=10.0,
     EMBEDDINGS_QUERY_INSTRUCTION="",
 )
 def test_400_propagates_as_typed_bad_request_error(monkeypatch):
@@ -261,11 +263,11 @@ def test_embed_query_runs_through_gate_with_query_budget(monkeypatch):
 
 
 @override_settings(
-    EMBEDDING_PROVIDER_URL="http://embed.example/v1",
-    EMBEDDING_PROVIDER_API_KEY="",
-    EMBEDDING_MODEL_NAME="qwen3",
+    EMBEDDINGS_BASE_URL="http://embed.example/v1",
+    EMBEDDINGS_API_KEY="",
+    EMBEDDINGS_MODEL=parse_model_spec("qwen3"),
     EMBEDDINGS_DIM=2,
-    EMBEDDING_REQUEST_TIMEOUT=10,
+    EMBEDDINGS_REQUEST_TIMEOUT_SECONDS=10.0,
     EMBEDDINGS_QUERY_INSTRUCTION="",
     EMBEDDINGS_RATE_LIMIT_QUERY_MAX_WAIT_SECONDS=0.0,
 )
@@ -298,27 +300,20 @@ def test_429_through_real_gate_raises_rate_limited_and_arms_gate(monkeypatch):
     assert ec.EMBEDDING_GATE.wait_until_open(deadline=time.monotonic()) is False
 
 
-@override_settings(
-    EMBEDDING_PROVIDER_URL="",
-    EMBEDDING_PROVIDER_API_KEY="",
-    EMBEDDING_MODEL_NAME="qwen3",
-    EMBEDDINGS_DIM=2,
-    EMBEDDING_REQUEST_TIMEOUT=10,
-    EMBEDDINGS_QUERY_INSTRUCTION="",
-)
-def test_missing_url_raises_at_construction():
+@override_settings(EMBEDDINGS_MODEL=None)
+def test_construction_fails_fast_when_no_model_is_configured():
     from radis.pgsearch.utils import embedding_client as ec
 
-    with pytest.raises(ec.EmbeddingClientError, match="EMBEDDING_PROVIDER_URL"):
+    with pytest.raises(ec.EmbeddingClientError, match="EMBEDDINGS_MODEL"):
         ec.EmbeddingClient()
 
 
 @override_settings(
-    EMBEDDING_PROVIDER_URL="http://embed.example/v1",
-    EMBEDDING_PROVIDER_API_KEY="",
-    EMBEDDING_MODEL_NAME="qwen3",
+    EMBEDDINGS_BASE_URL="http://embed.example/v1",
+    EMBEDDINGS_API_KEY="",
+    EMBEDDINGS_MODEL=parse_model_spec("qwen3"),
     EMBEDDINGS_DIM=2,
-    EMBEDDING_REQUEST_TIMEOUT=10,
+    EMBEDDINGS_REQUEST_TIMEOUT_SECONDS=10.0,
     EMBEDDINGS_QUERY_INSTRUCTION="",
 )
 def test_context_manager_closes_underlying_http_client(monkeypatch):
@@ -350,3 +345,37 @@ def test_context_manager_closes_underlying_http_client(monkeypatch):
     with ec.EmbeddingClient():
         pass
     assert closed["value"] is True
+
+
+@override_settings(
+    EMBEDDINGS_BASE_URL="http://embed.example/v1",
+    EMBEDDINGS_API_KEY="",
+    EMBEDDINGS_MODEL=parse_model_spec("text-embedding-3-large?dimensions=2"),
+    EMBEDDINGS_DIM=2,
+    EMBEDDINGS_REQUEST_TIMEOUT_SECONDS=10.0,
+    EMBEDDINGS_QUERY_INSTRUCTION="",
+)
+def test_model_spec_parameters_reach_the_request_body(monkeypatch):
+    from radis.pgsearch.utils import embedding_client as ec
+
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["body"] = json.loads(request.content)
+        return httpx.Response(
+            200,
+            json={
+                "object": "list",
+                "data": [{"object": "embedding", "index": 0, "embedding": [1.0, 0.0]}],
+                "model": "text-embedding-3-large",
+                "usage": {"prompt_tokens": 1, "total_tokens": 1},
+            },
+        )
+
+    _install_transport(monkeypatch, handler)
+    ec.EmbeddingClient().embed_documents(["hello"])
+
+    assert seen["body"]["model"] == "text-embedding-3-large"
+    # `dimensions` is a real OpenAI request field: asking the provider for the width we
+    # store beats truncating a larger vector client-side.
+    assert seen["body"]["dimensions"] == 2
