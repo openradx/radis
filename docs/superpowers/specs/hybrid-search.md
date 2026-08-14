@@ -348,9 +348,17 @@ The client is a context manager (`close()` releases the underlying `httpx.Client
 
 ### 5.3 Wire protocol
 
-One protocol: the OpenAI embeddings API. `EMBEDDING_PROVIDER_URL` is an OpenAI-compatible base URL ending in `/v1`; the SDK posts to `{base}/embeddings` with `{"model": M, "input": [t, ...], "encoding_format": "float"}` and reads `{"data": [{"embedding": [...]}, ...]}`. The same shape covers OpenAI, Azure, vLLM, an LLM gateway, and Ollama's `/v1` compatibility layer — swapping providers is a URL change, not a code path. (`encoding_format="float"` opts out of the SDK's base64 default: no decode step, and a debuggable wire format.)
+One protocol: the OpenAI embeddings API. `EMBEDDINGS_BASE_URL` is an OpenAI-compatible base URL ending in `/v1`; the SDK posts to `{base}/embeddings` with `{"model": M, "input": [t, ...], "encoding_format": "float"}` and reads `{"data": [{"embedding": [...]}, ...]}`. The same shape covers OpenAI, Azure, vLLM, an LLM gateway, and Ollama's `/v1` compatibility layer — swapping providers is a URL change, not a code path. (`encoding_format="float"` opts out of the SDK's base64 default: no decode step, and a debuggable wire format.)
 
 An earlier iteration had pluggable request/response backends (`openai` vs. Ollama's native `/api/embed` plus an `EMBEDDING_PROVIDER_PATH` override); that was dropped when the client moved onto the `openai` SDK, since every targeted provider speaks the `/v1` shape.
+
+Configuration follows the LLM settings introduced in #267 rather than paralleling them:
+`EMBEDDINGS_BASE_URL` and `EMBEDDINGS_API_KEY` fall back to `LLM_BASE_URL` and
+`LLM_API_KEY`, and `EMBEDDINGS_MODEL` uses the same `model[?param=value&...]` spec,
+parsed at startup. The model — not the URL — is the feature switch, because the URL now
+always has a value. The query instruction prefix stays a separate setting: spec
+parameters are merged into the request body, and the prefix is applied client-side to
+the input text, so carrying it in the spec would send a field no provider accepts.
 
 ### 5.4 Behavior details
 
@@ -994,8 +1002,9 @@ Both add an `embeddings_worker.command` block. Dev uses `-l debug --autoreload -
 | Report body exceeds embedding model's context window | Backend returns 400 → `openai.BadRequestError`. In no retry set (deterministic), so the whole subjob fails permanently; blast radius is one subjob. No per-report bisect/skip since 2026-07-02 (§6.2). Operator fixes the report or the model's context window, then `embed_pending`. | ERROR from Procrastinate with the ids in the job row |
 | Report deleted between enqueue and execution | RSI row is CASCADE-deleted with the report; the task logs the missing ids and embeds the rest of the subjob | WARNING with truncated id list |
 | Wrong-dim vector returned by backend | Client-side validation in `_normalize_response`: too-small raises `EmbeddingClientError` (retried, then subjob fails); too-large is Matryoshka-truncated to `EMBEDDINGS_DIM` and renormalized (§5.4) | ERROR on failure path |
-| `EMBEDDING_PROVIDER_URL` empty | `EmbeddingClient.__init__` raises `EmbeddingClientError` at the call site. Query path falls back to FTS-only per request; embed subjobs burn their retries and fail. `embed_pending` after fixing settings. | ERROR with traceback per query; ERROR on task failure |
+| `EMBEDDINGS_MODEL` unset | Feature switch is off, not a failure: the write path skips enqueuing embedding subjobs and the query path skips the embed call, so search runs FTS-only. `EMBEDDINGS_BASE_URL`/`EMBEDDINGS_API_KEY` always have a value (they inherit `LLM_BASE_URL`/`LLM_API_KEY`), so the model is the only thing that can be "unconfigured" | INFO on the skipped enqueue; nothing on the query path |
 | `EMBEDDINGS_DIM` ≠ migration dim | `pgsearch.E001` system check blocks startup — caught at deploy time, not runtime | system check output |
+| `EMBEDDINGS_MODEL`'s `dimensions` param ≠ `EMBEDDINGS_DIM` | `pgsearch.E003` system check blocks startup — caught at deploy time, not runtime | system check output |
 
 **Deliberate non-policies:**
 
