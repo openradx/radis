@@ -4,11 +4,11 @@ import pytest
 from django.contrib.auth.models import Group
 from django.test import override_settings
 
+from radis.core.utils.embedding_client import EmbeddingClientError
 from radis.core.utils.model_spec import parse_model_spec
 from radis.pgsearch import providers
 from radis.pgsearch.models import ReportSearchIndex
 from radis.pgsearch.providers import retrieve, search
-from radis.pgsearch.utils.embedding_client import EmbeddingClientError
 from radis.reports.factories import ReportFactory
 from radis.search.site import Search, SearchFilters
 from radis.search.utils.query_parser import QueryParser

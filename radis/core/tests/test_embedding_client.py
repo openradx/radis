@@ -23,7 +23,7 @@ def _patched_settings():
 def _install_transport(monkeypatch, handler):
     """Swap in an httpx.MockTransport via the module's _build_http_client seam.
     The returned client gets passed to openai.OpenAI(http_client=...)."""
-    from radis.pgsearch.utils import embedding_client as ec
+    from radis.core.utils import embedding_client as ec
 
     monkeypatch.setattr(
         ec,
@@ -39,7 +39,7 @@ def _bypass_rate_limit_gate(monkeypatch):
     Patch the gate runner to a passthrough so a stray 429 in a test double
     can't trigger real sleeps, and reset the process-global gate so a 429
     armed by one test can't leak a closed window into another."""
-    from radis.pgsearch.utils import embedding_client as ec
+    from radis.core.utils import embedding_client as ec
 
     ec.EMBEDDING_GATE.reset()
     monkeypatch.setattr(ec, "run_through_gate", lambda gate, budget, fn: fn())
@@ -47,7 +47,7 @@ def _bypass_rate_limit_gate(monkeypatch):
 
 @_patched_settings()
 def test_embed_documents_posts_payload_and_normalizes(monkeypatch):
-    from radis.pgsearch.utils import embedding_client as ec
+    from radis.core.utils import embedding_client as ec
 
     seen = {}
 
@@ -86,7 +86,7 @@ def test_embed_documents_posts_payload_and_normalizes(monkeypatch):
     EMBEDDINGS_QUERY_INSTRUCTION="INST: ",
 )
 def test_embed_query_prepends_instruction(monkeypatch):
-    from radis.pgsearch.utils import embedding_client as ec
+    from radis.core.utils import embedding_client as ec
 
     seen = {}
 
@@ -116,7 +116,7 @@ def test_embed_query_prepends_instruction(monkeypatch):
     EMBEDDINGS_QUERY_INSTRUCTION="",
 )
 def test_dim_too_small_raises(monkeypatch):
-    from radis.pgsearch.utils import embedding_client as ec
+    from radis.core.utils import embedding_client as ec
 
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(
@@ -143,7 +143,7 @@ def test_dim_too_small_raises(monkeypatch):
     EMBEDDINGS_QUERY_INSTRUCTION="",
 )
 def test_oversized_embedding_truncates_and_renormalizes(monkeypatch):
-    from radis.pgsearch.utils import embedding_client as ec
+    from radis.core.utils import embedding_client as ec
 
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(
@@ -174,7 +174,7 @@ def test_5xx_propagates_as_typed_openai_error(monkeypatch):
     transient retry layer in tasks.py can match on the typed class."""
     import openai
 
-    from radis.pgsearch.utils import embedding_client as ec
+    from radis.core.utils import embedding_client as ec
 
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(503, text="service unavailable")
@@ -197,7 +197,7 @@ def test_429_propagates_as_typed_rate_limit_error(monkeypatch):
     rate-limit gate can intercept it."""
     import openai
 
-    from radis.pgsearch.utils import embedding_client as ec
+    from radis.core.utils import embedding_client as ec
 
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(429, json={"error": {"message": "slow down"}})
@@ -220,7 +220,7 @@ def test_400_propagates_as_typed_bad_request_error(monkeypatch):
     they escape the transient retry layer and fail the subjob fast."""
     import openai
 
-    from radis.pgsearch.utils import embedding_client as ec
+    from radis.core.utils import embedding_client as ec
 
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(
@@ -237,7 +237,7 @@ def test_400_propagates_as_typed_bad_request_error(monkeypatch):
 def test_embed_query_runs_through_gate_with_query_budget(monkeypatch):
     from django.conf import settings
 
-    from radis.pgsearch.utils import embedding_client as ec
+    from radis.core.utils import embedding_client as ec
 
     seen = {}
 
@@ -278,8 +278,8 @@ def test_429_through_real_gate_raises_rate_limited_and_arms_gate(monkeypatch):
     instead of sleeping out the 30s Retry-After."""
     import time
 
+    from radis.core.utils import embedding_client as ec
     from radis.core.utils.rate_limit import RateLimited, run_through_gate
-    from radis.pgsearch.utils import embedding_client as ec
 
     # Undo the autouse passthrough: this test exercises the real gate wiring.
     monkeypatch.setattr(ec, "run_through_gate", run_through_gate)
@@ -302,7 +302,7 @@ def test_429_through_real_gate_raises_rate_limited_and_arms_gate(monkeypatch):
 
 @override_settings(EMBEDDINGS_MODEL=None)
 def test_construction_fails_fast_when_no_model_is_configured():
-    from radis.pgsearch.utils import embedding_client as ec
+    from radis.core.utils import embedding_client as ec
 
     with pytest.raises(ec.EmbeddingClientError, match="EMBEDDINGS_MODEL"):
         ec.EmbeddingClient()
@@ -317,7 +317,7 @@ def test_construction_fails_fast_when_no_model_is_configured():
     EMBEDDINGS_QUERY_INSTRUCTION="",
 )
 def test_context_manager_closes_underlying_http_client(monkeypatch):
-    from radis.pgsearch.utils import embedding_client as ec
+    from radis.core.utils import embedding_client as ec
 
     closed = {"value": False}
 
@@ -356,7 +356,7 @@ def test_context_manager_closes_underlying_http_client(monkeypatch):
     EMBEDDINGS_QUERY_INSTRUCTION="",
 )
 def test_model_spec_parameters_reach_the_request_body(monkeypatch):
-    from radis.pgsearch.utils import embedding_client as ec
+    from radis.core.utils import embedding_client as ec
 
     seen = {}
 

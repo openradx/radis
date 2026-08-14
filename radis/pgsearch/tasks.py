@@ -10,6 +10,12 @@ from procrastinate.contrib.django import app
 from procrastinate.contrib.django.models import ProcrastinateJob
 from procrastinate.types import JSONValue
 
+from radis.core.utils.embedding_client import (
+    EMBEDDING_GATE,
+    PERMANENT_EMBEDDING_ERRORS,
+    EmbeddingClient,
+    EmbeddingClientError,
+)
 from radis.core.utils.rate_limit import (
     TRANSIENT_ERRORS,
     RateLimited,
@@ -18,12 +24,6 @@ from radis.core.utils.rate_limit import (
 )
 
 from .models import EmbeddingBackfillRun, ReportSearchIndex
-from .utils.embedding_client import (
-    EMBEDDING_GATE,
-    PERMANENT_EMBEDDING_ERRORS,
-    EmbeddingClient,
-    EmbeddingClientError,
-)
 from .utils.indexing import bulk_upsert_report_search_indexes
 
 logger = logging.getLogger(__name__)

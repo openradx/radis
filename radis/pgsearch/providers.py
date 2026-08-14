@@ -12,6 +12,11 @@ from django.core.cache import cache
 from django.db.models import F, Q
 from pgvector.django import CosineDistance
 
+from radis.core.utils.embedding_client import (
+    PERMANENT_EMBEDDING_ERRORS,
+    EmbeddingClient,
+    EmbeddingClientError,
+)
 from radis.core.utils.rate_limit import RateLimited
 from radis.reports.models import Report
 from radis.search.site import ReportDocument, Search, SearchFilters, SearchResult
@@ -27,11 +32,6 @@ from radis.search.utils.query_parser import (
 
 from .models import ReportSearchIndex
 from .utils.document_utils import AnnotatedReportSearchIndex, document_from_pgsearch_response
-from .utils.embedding_client import (
-    PERMANENT_EMBEDDING_ERRORS,
-    EmbeddingClient,
-    EmbeddingClientError,
-)
 from .utils.fusion import rrf_fuse, summary_with_fallback
 from .utils.language_utils import code_to_language
 

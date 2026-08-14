@@ -10,6 +10,7 @@ import openai
 import pytest
 from django.utils import timezone
 
+from radis.core.utils.embedding_client import EmbeddingClientError
 from radis.core.utils.model_spec import parse_model_spec
 from radis.pgsearch.models import EmbeddingBackfillRun, ReportSearchIndex
 from radis.pgsearch.tasks import (
@@ -17,7 +18,6 @@ from radis.pgsearch.tasks import (
     embed_reports_task,
     enqueue_embed_reports,
 )
-from radis.pgsearch.utils.embedding_client import EmbeddingClientError
 from radis.reports.factories import ReportFactory
 
 
@@ -64,8 +64,8 @@ def _bypass_rate_limit_gate(monkeypatch):
     passthrough so a stray 429 in a test double can't trigger real sleeps,
     and reset the process-global gate so a 429 armed by one test can't
     leak a closed window into another."""
+    from radis.core.utils.embedding_client import EMBEDDING_GATE
     from radis.pgsearch import tasks as tasks_module
-    from radis.pgsearch.utils.embedding_client import EMBEDDING_GATE
 
     EMBEDDING_GATE.reset()
     monkeypatch.setattr(tasks_module, "run_through_gate", lambda gate, budget, fn: fn())
@@ -242,8 +242,8 @@ def test_embeds_in_internal_batches(settings):
 def test_embed_chunk_with_retry_runs_through_gate_with_batch_budget(monkeypatch):
     from django.conf import settings
 
+    from radis.core.utils.embedding_client import EMBEDDING_GATE
     from radis.pgsearch import tasks as tasks_module
-    from radis.pgsearch.utils.embedding_client import EMBEDDING_GATE
 
     seen = {}
 
