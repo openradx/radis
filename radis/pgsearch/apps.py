@@ -75,6 +75,36 @@ def check_embedding_dim_matches_migration(app_configs, **kwargs):
     return []
 
 
+@register()
+def check_embeddings_dimensions_param(app_configs, **kwargs):
+    """Fail loudly when the model spec's `dimensions` disagrees with EMBEDDINGS_DIM.
+
+    Both describe the width of the stored vector: `dimensions` asks the provider for
+    it, EMBEDDINGS_DIM is what the column was migrated to. Disagreement surfaces as an
+    opaque pgvector dimension error on the first write, long after the deploy.
+    """
+    spec = settings.EMBEDDINGS_MODEL
+    if spec is None:
+        return []
+
+    requested = spec.params.get("dimensions")
+    if requested is None or requested == settings.EMBEDDINGS_DIM:
+        return []
+
+    return [
+        Error(
+            f"EMBEDDINGS_MODEL requests dimensions={requested} but EMBEDDINGS_DIM is "
+            f"{settings.EMBEDDINGS_DIM}. The provider would return vectors the "
+            f"embedding column cannot store.",
+            id="pgsearch.E003",
+            hint=(
+                "Drop the 'dimensions' parameter to let the client truncate to "
+                "EMBEDDINGS_DIM, or set the two to the same value."
+            ),
+        )
+    ]
+
+
 def _index_reports(reports):
     """pgsearch's subscriber on reports_created_handlers / reports_updated_handlers.
 

@@ -5,9 +5,11 @@ from unittest.mock import MagicMock, patch
 
 from django.test import override_settings
 
+from radis.core.utils.model_spec import parse_model_spec
 from radis.pgsearch.apps import (
     _migration_embedding_dim,
     check_embedding_dim_matches_migration,
+    check_embeddings_dimensions_param,
 )
 
 
@@ -60,3 +62,27 @@ def test_index_reports_logs_info_with_mode_and_count(settings, caplog):
     assert any(
         "pgsearch.index_reports: handler invoked; reports=3 mode=async" in m for m in info_msgs
     )
+
+
+@override_settings(EMBEDDINGS_MODEL=None, EMBEDDINGS_DIM=1024)
+def test_no_model_configured_is_not_a_dimensions_error():
+    assert check_embeddings_dimensions_param(None) == []
+
+
+@override_settings(EMBEDDINGS_MODEL=parse_model_spec("qwen3"), EMBEDDINGS_DIM=1024)
+def test_a_spec_without_dimensions_is_not_an_error():
+    # Client-side Matryoshka truncation covers providers that ignore the field.
+    assert check_embeddings_dimensions_param(None) == []
+
+
+@override_settings(EMBEDDINGS_MODEL=parse_model_spec("qwen3?dimensions=1024"), EMBEDDINGS_DIM=1024)
+def test_agreeing_dimensions_are_not_an_error():
+    assert check_embeddings_dimensions_param(None) == []
+
+
+@override_settings(EMBEDDINGS_MODEL=parse_model_spec("qwen3?dimensions=512"), EMBEDDINGS_DIM=1024)
+def test_disagreeing_dimensions_are_reported():
+    errors = check_embeddings_dimensions_param(None)
+
+    assert [error.id for error in errors] == ["pgsearch.E003"]
+    assert "512" in errors[0].msg and "1024" in errors[0].msg
