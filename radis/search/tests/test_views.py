@@ -327,11 +327,11 @@ def test_search_view_form_validation_errors(client: Client):
 
 
 @pytest.mark.django_db
-def test_search_view_returns_200_when_embedding_provider_unset(client: Client, settings):
-    """SearchView returns 200 via FTS-only fallback when EMBEDDING_PROVIDER_URL is unset."""
+def test_search_view_returns_200_when_embedding_model_unset(client: Client, settings):
+    """SearchView returns 200 via FTS-only fallback when EMBEDDINGS_MODEL is unset."""
     from django.conf import settings as django_settings
 
-    settings.EMBEDDING_PROVIDER_URL = ""
+    settings.EMBEDDINGS_MODEL = None
     settings.MIDDLEWARE = [
         m for m in django_settings.MIDDLEWARE if "debug_toolbar" not in m.lower()
     ]

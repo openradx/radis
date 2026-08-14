@@ -332,8 +332,8 @@ def embed_reports_task(report_ids: list[int], run_id: int | None = None) -> None
         # until the config is fixed and embed_pending is re-run.
         logger.error(
             "embed_reports_task: embedding config looks wrong (%s: %s); reports left "
-            "unembedded (FTS-only). Check EMBEDDING_PROVIDER_URL, API key and model name. "
-            "report_ids=%s",
+            "unembedded (FTS-only). Check EMBEDDINGS_BASE_URL, EMBEDDINGS_API_KEY and "
+            "EMBEDDINGS_MODEL. report_ids=%s",
             type(exc).__name__,
             exc,
             _truncate_ids(report_ids),
