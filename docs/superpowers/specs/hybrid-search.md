@@ -32,7 +32,7 @@ The public `SearchProvider` API (`radis.search.site`) is unchanged. Callers — 
 - No per-query UI toggle for semantic vs. lexical. Hybrid is the new default.
 - No Vespa, Elasticsearch, or OpenSearch adapter.
 - No solution for negation/polarity (§11 documents this as known future work).
-- No automated re-embedding when `EMBEDDING_DIM` changes. That is a manual operator procedure: drop column, re-migrate, re-PUT affected reports (see §4.5).
+- No automated re-embedding when `EMBEDDINGS_DIM` changes. That is a manual operator procedure: drop column, re-migrate, re-PUT affected reports (see §4.5).
 - No on-disk vector quantization. Float32 storage from day one; revisit if RAM pressure appears.
 
 ## 3. Architecture
@@ -118,7 +118,7 @@ Both ingest paths — single-create (`POST /api/reports/`, `PUT /api/reports/{id
 |---|---|
 | `utils/embedding_client.py` | `EmbeddingClient` used by both the query path and `embed_reports_task` on the worker. Sync client over the `openai` SDK against a single OpenAI-compatible endpoint (`EMBEDDING_PROVIDER_URL` ending in `/v1`); SDK retries disabled (`max_retries=0`) so the rate-limit gate and transient-retry helper own all retry policy. Also hosts the process-global `EMBEDDING_GATE`. |
 | `apps.py` (modified) | `register_app()` now also registers `_index_reports` on both `reports_created_handlers` and `reports_updated_handlers`. In sync FTS mode the handler upserts inline then calls `enqueue_embed_reports`; in deferred FTS mode it enqueues `bulk_index_reports`, which chains the embed subjobs at the end of its own run. Also home of the `pgsearch.E001`/`E002` system checks (§4.6). This is the only place pgsearch wires itself into the reports app. |
-| `tasks.py` (embedding entries) | `enqueue_embed_reports(report_ids)` — the single chunking point that defers one `embed_reports_task` per `EMBEDDING_SUBJOB_SIZE` chunk, at live or backfill priority. `embed_reports_task(report_ids)` on the `embeddings` queue loads RSIs by `report_id`, embeds through `_embed_chunk_with_retry` (gate + transient retries, §6.2), then `bulk_update`s. Failures propagate so `EMBEDDING_TASK_RETRY_STRATEGY` applies. |
+| `tasks.py` (embedding entries) | `enqueue_embed_reports(report_ids)` — the single chunking point that defers one `embed_reports_task` per `EMBEDDINGS_SUBJOB_SIZE` chunk, at live or backfill priority. `embed_reports_task(report_ids)` on the `embeddings` queue loads RSIs by `report_id`, embeds through `_embed_chunk_with_retry` (gate + transient retries, §6.2), then `bulk_update`s. Failures propagate so `EMBEDDING_TASK_RETRY_STRATEGY` applies. |
 | `admin.py` | Registers `ReportSearchIndex` with a `has_embedding` list display, an `embedding` `IsNull` filter, the embedding-pipeline badge on the changelist (report-centric with subjob detail secondary, §6.8), and two actions: `enqueue_pending_embeddings` (defers embed subjobs for selected NULL rows at backfill priority) and `clear_embeddings` (NULLs embeddings, e.g. before a same-dim model swap). A separate cancel-backfill view cancels still-queued backfill subjobs (also available as the `embed_cancel` management command). Mirrors `embed_pending` for operators who prefer the UI. Also registers a read-only `EmbeddingBackfillRun` listing (run history, §6.8). |
 | `migrations/0002_hybrid_search.py` | Single squashed schema migration: renames `ReportSearchVector` → `ReportSearchIndex`, `CREATE EXTENSION vector`, adds the `embedding vector(1024)` column, the HNSW index, and a partial index on `embedding IS NULL` rows (backs the admin's pending-embedding count) |
 | `models.py` (modified) | `ReportSearchVector` renamed to `ReportSearchIndex`; adds the `embedding` field, `HnswIndex`, and the `pgsearch_pending_embedding_idx` partial index. Also `EmbeddingBackfillRun` (per-backfill progress state, §6.8). No Job/Task models. |
@@ -164,7 +164,7 @@ isolation. Operations:
    single field), including the reverse accessor on `Report`
    (`search_vector` → `search_index`).
 3. `AddField` `embedding` on `ReportSearchIndex`:
-   `pgvector.django.vector.VectorField(dimensions=settings.EMBEDDING_DIM, null=True)`
+   `pgvector.django.vector.VectorField(dimensions=settings.EMBEDDINGS_DIM, null=True)`
    (captured as `vector(1024)`).
 4. `AddIndex` HNSW on `embedding`: `m=16`, `ef_construction=64`,
    `opclasses=["vector_cosine_ops"]`, `name="pgsearch_embedding_hnsw"`.
@@ -188,7 +188,7 @@ from pgvector.django import HnswIndex, VectorField
 class ReportSearchIndex(models.Model):
     report = models.OneToOneField(Report, on_delete=models.CASCADE, related_name="search_index")
     search_vector = SearchVectorField(null=True)
-    embedding = VectorField(dimensions=settings.EMBEDDING_DIM, null=True)
+    embedding = VectorField(dimensions=settings.EMBEDDINGS_DIM, null=True)
 
     class Meta:
         indexes = [
@@ -213,12 +213,12 @@ class ReportSearchIndex(models.Model):
 
 `save()` on `ReportSearchIndex` retains its current behavior of recomputing `search_vector` from `report.body`. The embedding column is written **only** by `embed_reports_task` via `bulk_update()`, never by `save()`, to avoid triggering the FTS signal recursively and to keep the two indexing paths independent.
 
-### 4.5 Operational note on `EMBEDDING_DIM`
+### 4.5 Operational note on `EMBEDDINGS_DIM`
 
-pgvector columns and HNSW indexes are bound to a fixed dimension at create time, and HNSW has a 2000-dim ceiling (so `EMBEDDING_DIM ≤ 2000`; Qwen3-Embedding-4B's native 2560 is Matryoshka-truncated client-side). Changing `EMBEDDING_DIM` after deploy requires a manual operator procedure:
+pgvector columns and HNSW indexes are bound to a fixed dimension at create time, and HNSW has a 2000-dim ceiling (so `EMBEDDINGS_DIM ≤ 2000`; Qwen3-Embedding-4B's native 2560 is Matryoshka-truncated client-side). Changing `EMBEDDINGS_DIM` after deploy requires a manual operator procedure:
 
 1. Drop the HNSW index and the `embedding` column.
-2. Re-run `0002_hybrid_search` with the new `EMBEDDING_DIM`. This re-creates
+2. Re-run `0002_hybrid_search` with the new `EMBEDDINGS_DIM`. This re-creates
    the column at the new dim plus the HNSW index.
 3. Run `./manage.py embed_pending` to enqueue an `embed_reports_task` for
    every row that's now NULL. The command is idempotent and resumable; the
@@ -231,7 +231,7 @@ This is documented as a deployment-time decision and intentionally not automated
 ### 4.6 Startup safety check for env/migration drift
 
 Two Django system checks guard against the failure mode where
-`settings.EMBEDDING_DIM` no longer matches what the squashed
+`settings.EMBEDDINGS_DIM` no longer matches what the squashed
 `0002_hybrid_search` migration describes. Without these the divergence would
 surface later as an opaque pgvector dimension error on the first write or
 query.
@@ -240,7 +240,7 @@ The migration-side dim is *not* stored in a hand-edited constant. Instead it
 is derived at check time from Django's `MigrationLoader` project state —
 built from the migration files on disk without a database connection — so
 there is exactly one source of truth (the `dimensions=...` literal that
-`makemigrations` itself generated from `settings.EMBEDDING_DIM` when
+`makemigrations` itself generated from `settings.EMBEDDINGS_DIM` when
 `0002_hybrid_search` was first written).
 
 ```python
@@ -272,11 +272,11 @@ def check_embedding_dim_matches_migration(app_configs, **kwargs):
             hint="Verify that radis/pgsearch/migrations/ contains a migration "
                  "that adds `embedding` to `ReportSearchIndex`.",
         )]
-    if settings.EMBEDDING_DIM != migration_dim:
+    if settings.EMBEDDINGS_DIM != migration_dim:
         return [Error(
-            f"EMBEDDING_DIM={settings.EMBEDDING_DIM} does not match the dim "
+            f"EMBEDDINGS_DIM={settings.EMBEDDINGS_DIM} does not match the dim "
             f"baked into the pgsearch migrations (vector({migration_dim})). "
-            f"Either set EMBEDDING_DIM={migration_dim}, or run "
+            f"Either set EMBEDDINGS_DIM={migration_dim}, or run "
             f"`makemigrations pgsearch` to capture the new dim and follow §4.5.",
             id="pgsearch.E001",
         )]
@@ -287,7 +287,7 @@ Check IDs:
 
 | ID | When it fires |
 |---|---|
-| `pgsearch.E001` | `settings.EMBEDDING_DIM != migration_dim`. The familiar drift case. |
+| `pgsearch.E001` | `settings.EMBEDDINGS_DIM != migration_dim`. The familiar drift case. |
 | `pgsearch.E002` | `_migration_embedding_dim()` returns `None`. Indicates the migration tree is missing the `embedding` field — either it was deleted without replacement, or the model was renamed. Surfaces what would otherwise be a silent NoneType crash. |
 
 Alternatives considered and rejected:
@@ -331,15 +331,15 @@ class EmbeddingClient:
 
     def embed_documents(self, texts: list[str]) -> list[list[float]]:
         """One POST {base}/embeddings call (encoding_format="float"). Returns
-        L2-normalized vectors of length EMBEDDING_DIM (Matryoshka-truncating
+        L2-normalized vectors of length EMBEDDINGS_DIM (Matryoshka-truncating
         longer vectors, §5.4). No 429/transient handling of its own — the
         callers own that (embed_query below; _embed_chunk_with_retry in
         tasks.py). HTTP errors propagate as typed SDK exceptions."""
 
     def embed_query(self, text: str) -> list[float]:
-        """Prepend EMBEDDING_QUERY_INSTRUCTION, then embed through
+        """Prepend EMBEDDINGS_QUERY_INSTRUCTION, then embed through
         EMBEDDING_GATE with the short query budget
-        (EMBEDDING_RATE_LIMIT_QUERY_MAX_WAIT_SECONDS): a user is waiting, so
+        (EMBEDDINGS_RATE_LIMIT_QUERY_MAX_WAIT_SECONDS): a user is waiting, so
         a gate closed beyond that budget raises RateLimited and the provider
         falls back to FTS-only."""
 ```
@@ -354,11 +354,11 @@ An earlier iteration had pluggable request/response backends (`openai` vs. Ollam
 
 ### 5.4 Behavior details
 
-- **Query instruction:** the model card for Qwen3-Embedding recommends a task-specific instruction prefix on the query side only. `embed_query` prepends `EMBEDDING_QUERY_INSTRUCTION` (a Python constant in `base.py`); `embed_documents` does not.
+- **Query instruction:** the model card for Qwen3-Embedding recommends a task-specific instruction prefix on the query side only. `embed_query` prepends `EMBEDDINGS_QUERY_INSTRUCTION` (a Python constant in `base.py`); `embed_documents` does not.
 - **Overlength inputs:** the client does *not* truncate input text. The model's context window is the authoritative limit; the backend rejects overlength input with an HTTP 4xx that surfaces as a typed SDK error (usually `openai.BadRequestError`). There is no special-case detection or per-report isolation (the earlier `EmbeddingPayloadTooLargeError` + chunk-bisect design was removed 2026-07-02 — see §6.2): on the worker, `BadRequestError` is in no retry set, so the subjob fails permanently; on the query path it falls back to FTS-only for that request.
 - **Normalization:** every returned vector is L2-normalized client-side, unconditionally. With unit vectors, cosine distance is monotonic in dot product, which makes the HNSW `vector_cosine_ops` operator effectively a fast inner-product search. Whether the upstream server normalizes is irrelevant.
-- **Dimension validation & Matryoshka truncation:** vectors shorter than `EMBEDDING_DIM` raise `EmbeddingClientError`; longer vectors are truncated to the first `EMBEDDING_DIM` components and renormalized (Qwen3-Embedding is trained to retain quality at truncated dims). Exact-length vectors are still normalized, since providers can't be assumed to return unit vectors.
-- **Batching:** `embed_documents` sends a single HTTP call per invocation. The write path and `embed_pending` both go through `enqueue_embed_reports(report_ids)` (defined in `tasks.py`), which chunks the input by `EMBEDDING_SUBJOB_SIZE` and defers one `embed_reports_task` per subjob. Inside each task, `EMBEDDING_BATCH_SIZE` controls the per-HTTP-call size. See §6.3 for the three-layer batching model.
+- **Dimension validation & Matryoshka truncation:** vectors shorter than `EMBEDDINGS_DIM` raise `EmbeddingClientError`; longer vectors are truncated to the first `EMBEDDINGS_DIM` components and renormalized (Qwen3-Embedding is trained to retain quality at truncated dims). Exact-length vectors are still normalized, since providers can't be assumed to return unit vectors.
+- **Batching:** `embed_documents` sends a single HTTP call per invocation. The write path and `embed_pending` both go through `enqueue_embed_reports(report_ids)` (defined in `tasks.py`), which chunks the input by `EMBEDDINGS_SUBJOB_SIZE` and defers one `embed_reports_task` per subjob. Inside each task, `EMBEDDINGS_BATCH_SIZE` controls the per-HTTP-call size. See §6.3 for the three-layer batching model.
 - **Errors:** malformed responses (count mismatch, short vectors) and missing configuration raise `EmbeddingClientError`; HTTP-level failures (429, 4xx, 5xx, timeouts) propagate as typed `openai` SDK exceptions so the retry layers can discriminate. The client never falls back internally — fallback policy is owned by the caller.
 - **Dev recipe (Ollama):**
   ```bash
@@ -366,7 +366,7 @@ An earlier iteration had pluggable request/response backends (`openai` vs. Ollam
   # in .env (Ollama's OpenAI-compat layer):
   EMBEDDING_PROVIDER_URL=http://host.docker.internal:11434/v1
   EMBEDDING_MODEL_NAME=dengcao/Qwen3-Embedding-4B:Q5_K_M
-  EMBEDDING_DIM=1024   # model's native 2560 is Matryoshka-truncated client-side
+  EMBEDDINGS_DIM=1024   # model's native 2560 is Matryoshka-truncated client-side
   ```
   GGUF-quantized embedding models produce slightly different vectors than the bf16 reference, so dev embeddings are not interchangeable with prod embeddings. After swapping the model between dev/prod, clear the column (`ReportSearchIndex.objects.update(embedding=None)`) and run `./manage.py embed_pending`.
 
@@ -433,7 +433,7 @@ def embed_reports_task(report_ids: list[int]) -> None:
         if not rsvs:
             return
 
-    batch_size = settings.EMBEDDING_BATCH_SIZE
+    batch_size = settings.EMBEDDINGS_BATCH_SIZE
     embedded: list[ReportSearchIndex] = []
     try:
         with EmbeddingClient() as client:
@@ -455,9 +455,9 @@ def embed_reports_task(report_ids: list[int]) -> None:
 
 **Sync, not async**: each task issues batches sequentially (one HTTP round-trip at a time, waiting for the response before launching the next), so asyncio inside a single task wouldn't add concurrency. Worker concurrency comes from Procrastinate's `--concurrency K` flag, which gives K independent task slots regardless of whether the task body is `def` or `async def`. A sync task keeps the call graph readable — direct ORM, direct `httpx.Client`, no `database_sync_to_async` shims.
 
-**Internal batching**: chunking happens at *enqueue* time, not inside the task. `enqueue_embed_reports(report_ids)` splits any input into subjobs of `EMBEDDING_SUBJOB_SIZE` (env, default 1000) and defers one `embed_reports_task` per subjob. Inside each task, the subjob is further chunked into HTTP calls of `EMBEDDING_BATCH_SIZE` reports each (env, default 200). This decouples the *subjob size* (Procrastinate-task granularity: retry blast radius, parallel drain) from the *embedding service call size* (always bounded by `EMBEDDING_BATCH_SIZE`). The endpoint sees a steady stream of equally-sized batches rather than occasional spike requests. Enqueues also carry a priority: `EMBEDDING_LIVE_PRIORITY` (1) for write-path work, `EMBEDDING_BACKFILL_PRIORITY` (0) for `embed_pending` / the admin backfill action, so a million-row backfill cannot park itself ahead of live ingest.
+**Internal batching**: chunking happens at *enqueue* time, not inside the task. `enqueue_embed_reports(report_ids)` splits any input into subjobs of `EMBEDDINGS_SUBJOB_SIZE` (env, default 1000) and defers one `embed_reports_task` per subjob. Inside each task, the subjob is further chunked into HTTP calls of `EMBEDDINGS_BATCH_SIZE` reports each (env, default 200). This decouples the *subjob size* (Procrastinate-task granularity: retry blast radius, parallel drain) from the *embedding service call size* (always bounded by `EMBEDDINGS_BATCH_SIZE`). The endpoint sees a steady stream of equally-sized batches rather than occasional spike requests. Enqueues also carry a priority: `EMBEDDINGS_LIVE_PRIORITY` (1) for write-path work, `EMBEDDINGS_BACKFILL_PRIORITY` (0) for `embed_pending` / the admin backfill action, so a million-row backfill cannot park itself ahead of live ingest.
 
-**No per-report isolation for overlength inputs** (changed 2026-07-02): an earlier design detected payload-too-large responses via a typed `EmbeddingPayloadTooLargeError` and recursively bisected the failing chunk to isolate and skip the offending report. That machinery was removed together with the proactive rate limiter — the loose substring matching used to classify "too large" errors was brittle across providers. Today an overlength input surfaces as `openai.BadRequestError` from the SDK. It is in no retry set (deterministic failure), so the whole subjob fails permanently in `procrastinate_jobs` with the `report_ids` named in the job row. The affected reports' embeddings stay NULL; the operator fixes the upstream report (or raises the model's context window) and re-runs `embed_pending`, which re-enqueues only the still-NULL rows. The blast radius is one subjob (`EMBEDDING_SUBJOB_SIZE` reports), not the whole backfill.
+**No per-report isolation for overlength inputs** (changed 2026-07-02): an earlier design detected payload-too-large responses via a typed `EmbeddingPayloadTooLargeError` and recursively bisected the failing chunk to isolate and skip the offending report. That machinery was removed together with the proactive rate limiter — the loose substring matching used to classify "too large" errors was brittle across providers. Today an overlength input surfaces as `openai.BadRequestError` from the SDK. It is in no retry set (deterministic failure), so the whole subjob fails permanently in `procrastinate_jobs` with the `report_ids` named in the job row. The affected reports' embeddings stay NULL; the operator fixes the upstream report (or raises the model's context window) and re-runs `embed_pending`, which re-enqueues only the still-NULL rows. The blast radius is one subjob (`EMBEDDINGS_SUBJOB_SIZE` reports), not the whole backfill.
 
 **Three layers of failure handling for the embed call**: `_embed_chunk_with_retry` composes the shared helpers from `radis.core.utils.rate_limit` — the same stack the LLM client uses — with Procrastinate's task-level retry above:
 
@@ -465,19 +465,19 @@ def embed_reports_task(report_ids: list[int]) -> None:
 def _embed_chunk_with_retry(client: EmbeddingClient, texts: list[str]) -> list[list[float]]:
     return run_through_gate(
         EMBEDDING_GATE,
-        settings.EMBEDDING_RATE_LIMIT_MAX_WAIT_SECONDS,
+        settings.EMBEDDINGS_RATE_LIMIT_MAX_WAIT_SECONDS,
         lambda: with_transient_retries(
             lambda: client.embed_documents(texts),
-            settings.EMBEDDING_TRANSIENT_RETRY_ATTEMPTS,
-            settings.EMBEDDING_TRANSIENT_RETRY_BASE_SECONDS,
+            settings.EMBEDDINGS_TRANSIENT_RETRY_ATTEMPTS,
+            settings.EMBEDDINGS_TRANSIENT_RETRY_BASE_SECONDS,
             retryable=(*TRANSIENT_ERRORS, EmbeddingClientError),
         ),
     )
 ```
 
-- **`with_transient_retries` (innermost, per-call):** `EMBEDDING_TRANSIENT_RETRY_ATTEMPTS` (default 2) retries after the first call — 3 total calls — with exponential backoff `base * 2**attempt` (0.5 s, 1 s). Handles brief blips: connection errors, timeouts (`APITimeoutError` subclasses `APIConnectionError`), 5xx, and malformed responses surfaced as `EmbeddingClientError`. `RateLimitError` (429) is deliberately *not* in the retryable tuple, so it passes straight through to the gate. Each retry logs a WARNING.
-- **`run_through_gate` / `EMBEDDING_GATE` (middle, 429s):** a per-process gate shared by every embedding caller in the worker/web process. On a 429 it pauses all of them together, honouring the server's `Retry-After` (or an exponential ladder), within a single `EMBEDDING_RATE_LIMIT_MAX_WAIT_SECONDS` (300 s) budget computed once per call. If the budget is exceeded, it raises `RateLimited`.
-- **Procrastinate (outermost, per-task):** `RateLimited` and exhausted transient errors escape the task, and `EMBEDDING_TASK_RETRY_STRATEGY` retries the whole subjob with exponential spacing (6 s, 36 s, ~4 min, ~22 min across `EMBEDDING_TASK_MAX_ATTEMPTS = 5`). Handles extended outages where the embedding service is down for minutes-to-hours. Retry is scoped to `{RateLimited, EmbeddingClientError, *TRANSIENT_ERRORS}` so deterministic misconfiguration (bad credentials, wrong model name) fails the subjob immediately instead of burning retries. On retry the entire batch loop reruns (idempotent: `bulk_update` overwrites identical vectors with no change).
+- **`with_transient_retries` (innermost, per-call):** `EMBEDDINGS_TRANSIENT_RETRY_ATTEMPTS` (default 2) retries after the first call — 3 total calls — with exponential backoff `base * 2**attempt` (0.5 s, 1 s). Handles brief blips: connection errors, timeouts (`APITimeoutError` subclasses `APIConnectionError`), 5xx, and malformed responses surfaced as `EmbeddingClientError`. `RateLimitError` (429) is deliberately *not* in the retryable tuple, so it passes straight through to the gate. Each retry logs a WARNING.
+- **`run_through_gate` / `EMBEDDING_GATE` (middle, 429s):** a per-process gate shared by every embedding caller in the worker/web process. On a 429 it pauses all of them together, honouring the server's `Retry-After` (or an exponential ladder), within a single `EMBEDDINGS_RATE_LIMIT_MAX_WAIT_SECONDS` (300 s) budget computed once per call. If the budget is exceeded, it raises `RateLimited`.
+- **Procrastinate (outermost, per-task):** `RateLimited` and exhausted transient errors escape the task, and `EMBEDDING_TASK_RETRY_STRATEGY` retries the whole subjob with exponential spacing (6 s, 36 s, ~4 min, ~22 min across `EMBEDDINGS_TASK_MAX_ATTEMPTS = 5`). Handles extended outages where the embedding service is down for minutes-to-hours. Retry is scoped to `{RateLimited, EmbeddingClientError, *TRANSIENT_ERRORS}` so deterministic misconfiguration (bad credentials, wrong model name) fails the subjob immediately instead of burning retries. On retry the entire batch loop reruns (idempotent: `bulk_update` overwrites identical vectors with no change).
 - **Why three layers and not one:** local retries absorb the common case of "the service blipped once" without the operator-visible noise of a Procrastinate retry event, and without re-doing the task bookkeeping. The gate turns provider rate limiting into coordinated waiting instead of a retry storm across concurrent callers. Procrastinate above the task covers the long-tail outage the local layers are not budgeted for.
 
 For tests, `with_transient_retries` resolves its default sleep (`time.sleep`) at call time, so tests monkeypatch `time.sleep` in `radis.core.utils.rate_limit` and exercise retry behaviour without real waits.
@@ -507,8 +507,8 @@ Three explicit choices:
 
 | Layer | Knob | What it controls |
 |---|---|---|
-| Per-Procrastinate-task size | `EMBEDDING_SUBJOB_SIZE` (env; default 1000) | How many report ids one `embed_reports_task` instance carries. The single chunking point for *every* enqueue — write-path handler, FTS chain tail, `embed_pending`, admin action — via `enqueue_embed_reports(report_ids)`. |
-| Per-HTTP-call size | `EMBEDDING_BATCH_SIZE` (env; default 200) | How many report bodies are sent in one `embed_documents` call *inside* one task. One subjob of 1000 → 5 HTTP calls of 200. |
+| Per-Procrastinate-task size | `EMBEDDINGS_SUBJOB_SIZE` (env; default 1000) | How many report ids one `embed_reports_task` instance carries. The single chunking point for *every* enqueue — write-path handler, FTS chain tail, `embed_pending`, admin action — via `enqueue_embed_reports(report_ids)`. |
+| Per-HTTP-call size | `EMBEDDINGS_BATCH_SIZE` (env; default 200) | How many report bodies are sent in one `embed_documents` call *inside* one task. One subjob of 1000 → 5 HTTP calls of 200. |
 | Concurrent task slots per worker | `--concurrency K` (compose flag; dev 4, prod default 2) | How many `embed_reports_task` instances run in parallel on a single worker. |
 | Concurrent HTTP calls across all workers | `worker_count × --concurrency K` | The system's actual load ceiling on the embedding service. |
 
@@ -530,7 +530,7 @@ Procrastinate handles transient failures automatically; `embed_pending` (§6.5) 
 | **Worker offline / crashed** | Tasks pile up in `procrastinate_jobs.todo`. When a worker starts, it picks them up via `SELECT ... FOR UPDATE SKIP LOCKED`. No data loss. Write path unaffected. |
 | **Embedding written and report immediately deleted** | `bulk_update` updates zero rows for the deleted RSI row; rest of the batch is unaffected. Benign. |
 | **`EMBEDDING_PROVIDER_URL` empty / misconfigured** | `EmbeddingClient.__init__` raises `EmbeddingClientError` at task start → retries fail → task ends `failed`. Operator fixes settings, runs `embed_pending`. |
-| **`settings.EMBEDDING_DIM` ≠ migration dim** | `pgsearch.E001` system check blocks startup; this is caught at deploy time, not runtime. |
+| **`settings.EMBEDDINGS_DIM` ≠ migration dim** | `pgsearch.E001` system check blocks startup; this is caught at deploy time, not runtime. |
 
 The **write path never fails because of embedding**. Reports are saved, FTS indexed sync, vector indexing best-effort with retries + recovery.
 
@@ -541,12 +541,12 @@ The `./manage.py embed_pending` command **enqueues `embed_reports_task` subjobs*
 ```python
 subjob_count = enqueue_embed_reports(
     ids,
-    subjob_size=opts["subjob_size"],  # default settings.EMBEDDING_SUBJOB_SIZE
-    priority=settings.EMBEDDING_BACKFILL_PRIORITY,
+    subjob_size=opts["subjob_size"],  # default settings.EMBEDDINGS_SUBJOB_SIZE
+    priority=settings.EMBEDDINGS_BACKFILL_PRIORITY,
 )
 ```
 
-`--subjob-size` overrides the Procrastinate-task granularity per run; `--limit N` stops after enqueuing N reports (useful for a canary batch). Backfill priority keeps the enqueued subjobs behind live write-path work. A running backfill can be cancelled with `cancel_backfill_embeddings()` (exposed as the admin "cancel backfill" view), which cancels every still-`todo` subjob carrying an active run's `run_id` in its task args — run-scoped, not priority-scoped — and stamps `cancelled_at` on active `EmbeddingBackfillRun` rows (§6.8); continuing later means simply re-running `embed_pending`. `./manage.py retry_stalled_jobs` (run at stack start by both compose files) requeues stalled `doing` jobs at its own fixed priority, which can promote a backfill subjob above `EMBEDDING_BACKFILL_PRIORITY` — a known upstream trade-off — but cancellation is unaffected because it keys on `run_id`, not priority.
+`--subjob-size` overrides the Procrastinate-task granularity per run; `--limit N` stops after enqueuing N reports (useful for a canary batch). Backfill priority keeps the enqueued subjobs behind live write-path work. A running backfill can be cancelled with `cancel_backfill_embeddings()` (exposed as the admin "cancel backfill" view), which cancels every still-`todo` subjob carrying an active run's `run_id` in its task args — run-scoped, not priority-scoped — and stamps `cancelled_at` on active `EmbeddingBackfillRun` rows (§6.8); continuing later means simply re-running `embed_pending`. `./manage.py retry_stalled_jobs` (run at stack start by both compose files) requeues stalled `doing` jobs at its own fixed priority, which can promote a backfill subjob above `EMBEDDINGS_BACKFILL_PRIORITY` — a known upstream trade-off — but cancellation is unaffected because it keys on `run_id`, not priority.
 
 Each invocation (and each use of the admin `enqueue_pending_embeddings` action) also creates an `EmbeddingBackfillRun` row recording the enqueued baseline, so the admin badge can show per-backfill progress. At most one backfill is active at a time — a second invocation refuses while one is running (abandoned runs are auto-closed, §6.8).
 
@@ -663,7 +663,7 @@ timestamps are NULL. Migration `0003_embeddingbackfillrun`.
   read-only `EmbeddingBackfillRun` admin listing.
 - **Terminology:** with the run as the explicit parent, *subjob* keeps its
   meaning (a sub-unit of the backfill, mirroring core's `AnalysisJob` →
-  `AnalysisTask` shape); `EMBEDDING_SUBJOB_SIZE`, `--subjob-size`, and all
+  `AnalysisTask` shape); `EMBEDDINGS_SUBJOB_SIZE`, `--subjob-size`, and all
   operator messages keep their names.
 
 **Secondary line.** Subjob counts by status plus the queue name, rendered only
@@ -925,40 +925,40 @@ mode for radiology queries.
 EMBEDDING_PROVIDER_URL     = env.str("EMBEDDING_PROVIDER_URL", default="")
 EMBEDDING_PROVIDER_API_KEY = env.str("EMBEDDING_PROVIDER_API_KEY", default="")
 EMBEDDING_MODEL_NAME       = env.str("EMBEDDING_MODEL_NAME", default="Qwen/Qwen3-Embedding-4B")
-EMBEDDING_DIM              = env.int("EMBEDDING_DIM", default=1024)
+EMBEDDINGS_DIM              = env.int("EMBEDDINGS_DIM", default=1024)
 
 EMBEDDING_REQUEST_TIMEOUT  = env.int("EMBEDDING_REQUEST_TIMEOUT", default=30)  # seconds
-EMBEDDING_BATCH_SIZE       = env.int("EMBEDDING_BATCH_SIZE", default=200)      # texts per HTTP call
-EMBEDDING_SUBJOB_SIZE      = env.int("EMBEDDING_SUBJOB_SIZE", default=1000)    # reports per subjob
+EMBEDDINGS_BATCH_SIZE       = env.int("EMBEDDINGS_BATCH_SIZE", default=200)      # texts per HTTP call
+EMBEDDINGS_SUBJOB_SIZE      = env.int("EMBEDDINGS_SUBJOB_SIZE", default=1000)    # reports per subjob
 ```
 
-These vary across deployments and are operator-controlled. `EMBEDDING_DIM` is intentionally an env decision because it is schema-coupled (see §4.5 and the `pgsearch.E001` check). Timeout, batch size, and subjob size are env because they track the deployed provider's capacity (a self-hosted vLLM box and a rate-limited gateway want very different values). There is no `EMBEDDING_BACKEND` / `EMBEDDING_PROVIDER_PATH` — since the openai-SDK rewrite there is exactly one wire shape, an OpenAI-compatible `/v1` endpoint (§5.3). Worker concurrency is set in the compose command line: hardcoded `--concurrency 4` in dev, `${EMBEDDINGS_WORKER_CONCURRENCY:-2}` in prod.
+These vary across deployments and are operator-controlled. `EMBEDDINGS_DIM` is intentionally an env decision because it is schema-coupled (see §4.5 and the `pgsearch.E001` check). Timeout, batch size, and subjob size are env because they track the deployed provider's capacity (a self-hosted vLLM box and a rate-limited gateway want very different values). There is no `EMBEDDING_BACKEND` / `EMBEDDING_PROVIDER_PATH` — since the openai-SDK rewrite there is exactly one wire shape, an OpenAI-compatible `/v1` endpoint (§5.3). Worker concurrency is set in the compose command line: hardcoded `--concurrency 4` in dev, `${EMBEDDINGS_WORKER_CONCURRENCY:-2}` in prod.
 
 ### 8.2 Code constants (tuning knobs, in `base.py`)
 
 ```python
-EMBEDDING_QUERY_INSTRUCTION = (
+EMBEDDINGS_QUERY_INSTRUCTION = (
     "Instruct: Given a radiology search query, retrieve relevant radiology reports.\nQuery: "
 )
 
 # Procrastinate priorities on the `embeddings` queue: live writes outrank backfill.
-EMBEDDING_LIVE_PRIORITY = 1
-EMBEDDING_BACKFILL_PRIORITY = 0
+EMBEDDINGS_LIVE_PRIORITY = 1
+EMBEDDINGS_BACKFILL_PRIORITY = 0
 
 # Rate-limit gate (mirrors the LLM_RATE_LIMIT_* semantics; separate provider, separate gate)
-EMBEDDING_RATE_LIMIT_BACKOFF_BASE_SECONDS = 2.0
-EMBEDDING_RATE_LIMIT_BACKOFF_MAX_SECONDS = 120.0
-EMBEDDING_RATE_LIMIT_HEADER_CEILING_SECONDS = 1800.0
-EMBEDDING_RATE_LIMIT_MAX_WAIT_SECONDS = 300.0        # batch budget
-EMBEDDING_RATE_LIMIT_QUERY_MAX_WAIT_SECONDS = 10.0   # query budget (user is waiting)
+EMBEDDINGS_RATE_LIMIT_BACKOFF_BASE_SECONDS = 2.0
+EMBEDDINGS_RATE_LIMIT_BACKOFF_MAX_SECONDS = 120.0
+EMBEDDINGS_RATE_LIMIT_HEADER_CEILING_SECONDS = 1800.0
+EMBEDDINGS_RATE_LIMIT_MAX_WAIT_SECONDS = 300.0        # batch budget
+EMBEDDINGS_RATE_LIMIT_QUERY_MAX_WAIT_SECONDS = 10.0   # query budget (user is waiting)
 
 # Local transient retries (non-429): N retries after the first call, backoff 0.5s, 1s
-EMBEDDING_TRANSIENT_RETRY_ATTEMPTS = 2
-EMBEDDING_TRANSIENT_RETRY_BASE_SECONDS = 0.5
+EMBEDDINGS_TRANSIENT_RETRY_ATTEMPTS = 2
+EMBEDDINGS_TRANSIENT_RETRY_BASE_SECONDS = 0.5
 
 # Procrastinate subjob retry: waits 6s, 36s, ~4min, ~22min
-EMBEDDING_TASK_MAX_ATTEMPTS = 5
-EMBEDDING_TASK_EXPONENTIAL_WAIT_SECONDS = 6
+EMBEDDINGS_TASK_MAX_ATTEMPTS = 5
+EMBEDDINGS_TASK_EXPONENTIAL_WAIT_SECONDS = 6
 
 HYBRID_VECTOR_TOP_K = 100
 HYBRID_FTS_MAX_RESULTS = 10_000
@@ -969,13 +969,13 @@ These are tuning constants. Changing them is a code change with a PR diff. This 
 
 ### 8.3 `example.env`
 
-Documents the `EMBEDDING_PROVIDER_URL` / `EMBEDDING_PROVIDER_API_KEY` / `EMBEDDING_MODEL_NAME` / `EMBEDDING_DIM` keys with an Ollama dev recipe (`http://host.docker.internal:11434/v1`, api key unused) as commentary — one OpenAI-compatible shape, no backend switch.
+Documents the `EMBEDDING_PROVIDER_URL` / `EMBEDDING_PROVIDER_API_KEY` / `EMBEDDING_MODEL_NAME` / `EMBEDDINGS_DIM` keys with an Ollama dev recipe (`http://host.docker.internal:11434/v1`, api key unused) as commentary — one OpenAI-compatible shape, no backend switch.
 
 ### 8.4 Compose
 
 `docker-compose.base.yml`:
 
-- The `EMBEDDING_PROVIDER_URL`, `EMBEDDING_PROVIDER_API_KEY`, `EMBEDDING_MODEL_NAME`, `EMBEDDING_DIM`, `EMBEDDING_REQUEST_TIMEOUT`, `EMBEDDING_BATCH_SIZE`, `EMBEDDING_SUBJOB_SIZE` env keys are visible to all services via the shared env plumbing.
+- The `EMBEDDING_PROVIDER_URL`, `EMBEDDING_PROVIDER_API_KEY`, `EMBEDDING_MODEL_NAME`, `EMBEDDINGS_DIM`, `EMBEDDING_REQUEST_TIMEOUT`, `EMBEDDINGS_BATCH_SIZE`, `EMBEDDINGS_SUBJOB_SIZE` env keys are visible to all services via the shared env plumbing.
 - New service `embeddings_worker` inheriting `*default-app` runs `./manage.py bg_worker -q embeddings` (see §6.3).
 
 `docker-compose.dev.yml` / `docker-compose.prod.yml`:
@@ -993,9 +993,9 @@ Both add an `embeddings_worker.command` block. Dev uses `-l debug --autoreload -
 | Subjob fails after Procrastinate retries exhausted | Job row ends `failed` in `procrastinate_jobs` with `report_ids` in its payload. Embeddings stay NULL; hybrid search silently returns those reports via FTS only. Operator runs `embed_pending` after fixing the cause. | ERROR on final failure; Procrastinate admin shows the failed job |
 | Report body exceeds embedding model's context window | Backend returns 400 → `openai.BadRequestError`. In no retry set (deterministic), so the whole subjob fails permanently; blast radius is one subjob. No per-report bisect/skip since 2026-07-02 (§6.2). Operator fixes the report or the model's context window, then `embed_pending`. | ERROR from Procrastinate with the ids in the job row |
 | Report deleted between enqueue and execution | RSI row is CASCADE-deleted with the report; the task logs the missing ids and embeds the rest of the subjob | WARNING with truncated id list |
-| Wrong-dim vector returned by backend | Client-side validation in `_normalize_response`: too-small raises `EmbeddingClientError` (retried, then subjob fails); too-large is Matryoshka-truncated to `EMBEDDING_DIM` and renormalized (§5.4) | ERROR on failure path |
+| Wrong-dim vector returned by backend | Client-side validation in `_normalize_response`: too-small raises `EmbeddingClientError` (retried, then subjob fails); too-large is Matryoshka-truncated to `EMBEDDINGS_DIM` and renormalized (§5.4) | ERROR on failure path |
 | `EMBEDDING_PROVIDER_URL` empty | `EmbeddingClient.__init__` raises `EmbeddingClientError` at the call site. Query path falls back to FTS-only per request; embed subjobs burn their retries and fail. `embed_pending` after fixing settings. | ERROR with traceback per query; ERROR on task failure |
-| `EMBEDDING_DIM` ≠ migration dim | `pgsearch.E001` system check blocks startup — caught at deploy time, not runtime | system check output |
+| `EMBEDDINGS_DIM` ≠ migration dim | `pgsearch.E001` system check blocks startup — caught at deploy time, not runtime | system check output |
 
 **Deliberate non-policies:**
 
@@ -1019,7 +1019,7 @@ All tests live in `radis/pgsearch/tests/` (the project has no separate `tests/un
 |---|---|
 | `test_embedding_client.py` | Request/response round-trip over `httpx.MockTransport`, instruction prefix on `embed_query`, L2 normalization, dim validation (too-small raises, larger truncated via Matryoshka), count mismatch, missing URL, typed SDK errors passing through unwrapped |
 | `test_fusion.py` | `rrf_fuse(vec_rank, fts_rank, k)` pure-Python helper: disjoint, overlapping, FTS-only, vector-only, both-empty, tiebreak by report_id; `summary_with_fallback` |
-| `test_embed_reports_task.py` | Loads RSI rows by report_id, calls `embed_documents`, bulk-updates vectors; internal batching by `EMBEDDING_BATCH_SIZE`; retry stack (transient-then-success retried locally, `EmbeddingClientError` retried, 429 goes to the gate not the local retries, `RateLimited` propagates to Procrastinate); `enqueue_embed_reports` chunking + priorities; `bulk_index_reports` chaining; `cancel_backfill_embeddings` |
+| `test_embed_reports_task.py` | Loads RSI rows by report_id, calls `embed_documents`, bulk-updates vectors; internal batching by `EMBEDDINGS_BATCH_SIZE`; retry stack (transient-then-success retried locally, `EmbeddingClientError` retried, 429 goes to the gate not the local retries, `RateLimited` propagates to Procrastinate); `enqueue_embed_reports` chunking + priorities; `bulk_index_reports` chaining; `cancel_backfill_embeddings` |
 | `test_apps_checks.py` | `pgsearch.E001` / `pgsearch.E002` system checks |
 | `test_embed_pending_command.py` | `embed_pending` selects NULL-embedding rows, honours `--subjob-size` / `--limit`, enqueues at backfill priority |
 | `test_admin.py` | Admin actions (`enqueue_pending_embeddings`, `clear_embeddings`), cancel-backfill view, pipeline stats |

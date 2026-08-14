@@ -110,7 +110,7 @@ def _mock_embedding_client(error: Exception | None = None):
         fake.__exit__ = MagicMock(return_value=None)
         fake.embed_documents = MagicMock(side_effect=error)
     else:
-        fake = _make_fake_client(_unit_vec(dj_settings.EMBEDDING_DIM))
+        fake = _make_fake_client(_unit_vec(dj_settings.EMBEDDINGS_DIM))
     with patch("radis.pgsearch.tasks.EmbeddingClient", return_value=fake):
         yield fake
 
@@ -211,7 +211,7 @@ def test_no_matching_rsvs_no_ops():
 def test_logs_info_start_with_report_count(settings, caplog_tasks):
     reports = [ReportFactory.create() for _ in range(2)]
     pks = [r.pk for r in reports]
-    vec = _unit_vec(settings.EMBEDDING_DIM)
+    vec = _unit_vec(settings.EMBEDDINGS_DIM)
     fake = _make_fake_client(vec)
 
     with patch("radis.pgsearch.tasks.EmbeddingClient", return_value=fake):
@@ -222,10 +222,10 @@ def test_logs_info_start_with_report_count(settings, caplog_tasks):
 
 
 def test_embeds_in_internal_batches(settings):
-    settings.EMBEDDING_BATCH_SIZE = 2
+    settings.EMBEDDINGS_BATCH_SIZE = 2
     reports = [ReportFactory.create() for _ in range(5)]
     pks = [r.pk for r in reports]
-    vec = _unit_vec(settings.EMBEDDING_DIM)
+    vec = _unit_vec(settings.EMBEDDINGS_DIM)
     fake = _make_fake_client(vec)
 
     with patch("radis.pgsearch.tasks.EmbeddingClient", return_value=fake):
@@ -260,7 +260,7 @@ def test_embed_chunk_with_retry_runs_through_gate_with_batch_budget(monkeypatch)
 
     assert result == [[0.1, 0.2]]
     assert seen["gate"] is EMBEDDING_GATE, "task embedding must use the shared embedding gate"
-    assert seen["budget"] == settings.EMBEDDING_RATE_LIMIT_MAX_WAIT_SECONDS, (
+    assert seen["budget"] == settings.EMBEDDINGS_RATE_LIMIT_MAX_WAIT_SECONDS, (
         "background batches get the long batch budget, not the query budget"
     )
     fake_client.embed_documents.assert_called_once_with(["hello"])
@@ -293,7 +293,7 @@ def test_bulk_index_reports_chains_into_embed_reports_task(settings):
     `enqueue_embed_reports`. The chain is the ordering guarantee: the
     embeddings worker only ever sees report ids whose RSI rows are already
     committed."""
-    settings.EMBEDDING_SUBJOB_SIZE = 100
+    settings.EMBEDDINGS_SUBJOB_SIZE = 100
     reports = [ReportFactory.create() for _ in range(3)]
     pks = [r.pk for r in reports]
     ReportSearchIndex.objects.filter(report_id__in=pks).delete()
@@ -308,10 +308,10 @@ def test_bulk_index_reports_chains_into_embed_reports_task(settings):
 
 
 def test_bulk_index_reports_splits_into_subjobs_when_exceeding_subjob_size(settings):
-    """A bulk-upsert larger than `EMBEDDING_SUBJOB_SIZE` must defer multiple
+    """A bulk-upsert larger than `EMBEDDINGS_SUBJOB_SIZE` must defer multiple
     embed subjobs so the embeddings worker can drain them in parallel and
     retries/failures have bounded blast radius."""
-    settings.EMBEDDING_SUBJOB_SIZE = 4
+    settings.EMBEDDINGS_SUBJOB_SIZE = 4
     reports = [ReportFactory.create() for _ in range(10)]
     pks = [r.pk for r in reports]
 
@@ -329,7 +329,7 @@ def test_enqueue_embed_reports_helper_chunks_by_subjob_size(settings):
     """The shared `enqueue_embed_reports` helper is the single chunking
     point. A 1M-row backfill becomes ~10k subjobs (no single huge task);
     a single create with one id becomes one subjob (no overhead)."""
-    settings.EMBEDDING_SUBJOB_SIZE = 3
+    settings.EMBEDDINGS_SUBJOB_SIZE = 3
 
     with patch("radis.pgsearch.tasks.app.configure_task") as cfg:
         count = enqueue_embed_reports([1, 2, 3, 4, 5, 6, 7])
@@ -352,7 +352,7 @@ def test_enqueue_embed_reports_helper_empty_input_is_noop():
 def test_enqueue_embed_reports_helper_explicit_subjob_size_overrides_setting(settings):
     """Operators (e.g., `embed_pending --subjob-size=…`) can pass a
     one-off override without mutating the global setting."""
-    settings.EMBEDDING_SUBJOB_SIZE = 100
+    settings.EMBEDDINGS_SUBJOB_SIZE = 100
 
     with patch("radis.pgsearch.tasks.app.configure_task") as cfg:
         count = enqueue_embed_reports([1, 2, 3, 4, 5], subjob_size=2)
@@ -368,8 +368,8 @@ def test_enqueue_embed_reports_helper_explicit_subjob_size_overrides_setting(set
 def test_enqueue_embed_reports_defaults_to_live_priority(settings):
     """Write-path enqueues (no explicit priority) use LIVE so they preempt
     any backfill subjobs already sitting in the embeddings queue."""
-    settings.EMBEDDING_LIVE_PRIORITY = 7
-    settings.EMBEDDING_BACKFILL_PRIORITY = 0
+    settings.EMBEDDINGS_LIVE_PRIORITY = 7
+    settings.EMBEDDINGS_BACKFILL_PRIORITY = 0
 
     with patch("radis.pgsearch.tasks.app.configure_task") as cfg:
         enqueue_embed_reports([1])
@@ -384,11 +384,11 @@ def test_enqueue_embed_reports_defaults_to_live_priority(settings):
 def test_enqueue_embed_reports_explicit_backfill_priority(settings):
     """`embed_pending` and the admin backfill action pass
     BACKFILL_PRIORITY so they don't starve subsequent live writes."""
-    settings.EMBEDDING_LIVE_PRIORITY = 7
-    settings.EMBEDDING_BACKFILL_PRIORITY = 0
+    settings.EMBEDDINGS_LIVE_PRIORITY = 7
+    settings.EMBEDDINGS_BACKFILL_PRIORITY = 0
 
     with patch("radis.pgsearch.tasks.app.configure_task") as cfg:
-        enqueue_embed_reports([1], priority=settings.EMBEDDING_BACKFILL_PRIORITY)
+        enqueue_embed_reports([1], priority=settings.EMBEDDINGS_BACKFILL_PRIORITY)
 
     cfg.assert_called_once_with(
         "radis.pgsearch.tasks.embed_reports_task",
@@ -400,8 +400,8 @@ def test_enqueue_embed_reports_explicit_backfill_priority(settings):
 def test_timeout_propagates_after_retries(settings, no_retry_sleep):
     """A chunk that surfaces `openai.APITimeoutError` past the transient
     retry budget propagates so Procrastinate retries the whole subjob:
-    1 initial call + EMBEDDING_TRANSIENT_RETRY_ATTEMPTS retries."""
-    settings.EMBEDDING_BATCH_SIZE = 2
+    1 initial call + EMBEDDINGS_TRANSIENT_RETRY_ATTEMPTS retries."""
+    settings.EMBEDDINGS_BATCH_SIZE = 2
     reports = [ReportFactory.create() for _ in range(2)]
     pks = [r.pk for r in reports]
 
@@ -414,7 +414,7 @@ def test_timeout_propagates_after_retries(settings, no_retry_sleep):
         with pytest.raises(openai.APITimeoutError):
             embed_reports_task(report_ids=pks)
 
-    assert fake.embed_documents.call_count == 1 + settings.EMBEDDING_TRANSIENT_RETRY_ATTEMPTS
+    assert fake.embed_documents.call_count == 1 + settings.EMBEDDINGS_TRANSIENT_RETRY_ATTEMPTS
     assert ReportSearchIndex.objects.filter(embedding__isnull=True).count() == 2
 
 
@@ -422,10 +422,10 @@ def test_transient_retries_then_succeeds(settings, no_retry_sleep):
     """Transient EmbeddingClientError is retried locally: an embed call that
     fails the first two attempts and succeeds on the third returns vectors
     without escalating to Procrastinate's task-level retry."""
-    settings.EMBEDDING_BATCH_SIZE = 4
+    settings.EMBEDDINGS_BATCH_SIZE = 4
     reports = [ReportFactory.create() for _ in range(3)]
     pks = [r.pk for r in reports]
-    vec = _unit_vec(settings.EMBEDDING_DIM)
+    vec = _unit_vec(settings.EMBEDDINGS_DIM)
 
     fake = MagicMock()
     fake.__enter__ = MagicMock(return_value=fake)
@@ -466,7 +466,7 @@ def test_logs_error_on_client_failure_and_reraises(caplog_tasks):
 
 
 def test_enqueue_embed_reports_logs_info_with_counts_and_priority(settings, caplog_tasks):
-    settings.EMBEDDING_SUBJOB_SIZE = 3
+    settings.EMBEDDINGS_SUBJOB_SIZE = 3
     with patch("radis.pgsearch.tasks.app.configure_task"):
         enqueue_embed_reports([1, 2, 3, 4, 5, 6, 7], priority=5)
 
@@ -480,7 +480,7 @@ def test_enqueue_embed_reports_logs_info_with_counts_and_priority(settings, capl
 def test_logs_info_finish_with_counts_and_duration(settings, caplog_tasks):
     reports = [ReportFactory.create() for _ in range(2)]
     pks = [r.pk for r in reports]
-    vec = _unit_vec(settings.EMBEDDING_DIM)
+    vec = _unit_vec(settings.EMBEDDINGS_DIM)
     fake = _make_fake_client(vec)
 
     with patch("radis.pgsearch.tasks.EmbeddingClient", return_value=fake):
@@ -497,10 +497,10 @@ def test_transient_retry_emits_warning_log(settings, no_retry_sleep, caplog):
     """A retried transient blip must surface as a WARNING from the shared
     retry helper so operators see flakiness that never escalates to a
     task failure."""
-    settings.EMBEDDING_BATCH_SIZE = 4
+    settings.EMBEDDINGS_BATCH_SIZE = 4
     reports = [ReportFactory.create() for _ in range(2)]
     pks = [r.pk for r in reports]
-    vec = _unit_vec(settings.EMBEDDING_DIM)
+    vec = _unit_vec(settings.EMBEDDINGS_DIM)
 
     fake = MagicMock()
     fake.__enter__ = MagicMock(return_value=fake)
@@ -598,10 +598,10 @@ def test_cancel_backfill_embeddings_cancels_only_run_scoped_jobs(settings):
     tasks_module.enqueue_embed_reports(
         [1, 2, 3],
         subjob_size=1,
-        priority=settings.EMBEDDING_BACKFILL_PRIORITY,
+        priority=settings.EMBEDDINGS_BACKFILL_PRIORITY,
         run_id=run.pk,
     )
-    tasks_module.enqueue_embed_reports([4], priority=settings.EMBEDDING_LIVE_PRIORITY)
+    tasks_module.enqueue_embed_reports([4], priority=settings.EMBEDDINGS_LIVE_PRIORITY)
 
     cancelled = tasks_module.cancel_backfill_embeddings()
 
@@ -621,7 +621,7 @@ def test_cancel_backfill_embeddings_cancels_only_run_scoped_jobs(settings):
 def test_cancel_backfill_embeddings_cancels_reprioritized_run_scoped_job():
     """`./manage.py retry_stalled_jobs` (run at stack start) requeues
     stalled `doing` jobs at its own fixed priority, which can promote a
-    backfill subjob above EMBEDDING_BACKFILL_PRIORITY. Because cancel keys
+    backfill subjob above EMBEDDINGS_BACKFILL_PRIORITY. Because cancel keys
     on run_id rather than priority, the re-prioritized subjob is still
     caught."""
     from radis.pgsearch import tasks as tasks_module
@@ -649,7 +649,7 @@ def test_embed_cancel_command_reports_count(settings):
 
     run = EmbeddingBackfillRun.objects.create(total_reports=2, triggered_by="test")
     tasks_module.enqueue_embed_reports(
-        [1, 2], subjob_size=1, priority=settings.EMBEDDING_BACKFILL_PRIORITY, run_id=run.pk
+        [1, 2], subjob_size=1, priority=settings.EMBEDDINGS_BACKFILL_PRIORITY, run_id=run.pk
     )
 
     out = StringIO()

@@ -42,7 +42,7 @@ def vector_only_report(group, settings):
     r = ReportFactory.create(body="Lungs are clear bilaterally.")
     r.groups.add(group)
     ReportSearchIndex.objects.filter(report=r).update(
-        embedding=_unit_vec(0, settings.EMBEDDING_DIM)
+        embedding=_unit_vec(0, settings.EMBEDDINGS_DIM)
     )
     return r
 
@@ -57,7 +57,7 @@ def _mock_embedding_client(dim: int):
 
 
 def test_paginated_search_embeds_query_only_once(group, vector_only_report, settings):
-    patcher, embed_query = _mock_embedding_client(settings.EMBEDDING_DIM)
+    patcher, embed_query = _mock_embedding_client(settings.EMBEDDINGS_DIM)
     try:
         first = search(_make_search("pneumothorax", group.pk, offset=0))
         second = search(_make_search("pneumothorax", group.pk, offset=0))
@@ -72,10 +72,10 @@ def test_paginated_search_embeds_query_only_once(group, vector_only_report, sett
 
 def test_embedding_failure_is_not_cached(group, vector_only_report, settings):
     """A transient embedding outage must not pin later searches to FTS-only."""
-    patcher, embed_query = _mock_embedding_client(settings.EMBEDDING_DIM)
+    patcher, embed_query = _mock_embedding_client(settings.EMBEDDINGS_DIM)
     embed_query.side_effect = [
         EmbeddingClientError("down"),
-        _unit_vec(0, settings.EMBEDDING_DIM),
+        _unit_vec(0, settings.EMBEDDINGS_DIM),
     ]
     try:
         first = search(_make_search("pneumothorax", group.pk))
@@ -89,7 +89,7 @@ def test_embedding_failure_is_not_cached(group, vector_only_report, settings):
 
 
 def test_different_queries_embed_separately(group, settings):
-    patcher, embed_query = _mock_embedding_client(settings.EMBEDDING_DIM)
+    patcher, embed_query = _mock_embedding_client(settings.EMBEDDINGS_DIM)
     try:
         search(_make_search("pneumothorax", group.pk))
         search(_make_search("pleural effusion", group.pk))
@@ -100,7 +100,7 @@ def test_different_queries_embed_separately(group, settings):
 
 
 def test_retrieve_shares_cache_with_search(group, vector_only_report, settings):
-    patcher, embed_query = _mock_embedding_client(settings.EMBEDDING_DIM)
+    patcher, embed_query = _mock_embedding_client(settings.EMBEDDINGS_DIM)
     try:
         search(_make_search("pneumothorax", group.pk))
         doc_ids = list(retrieve(_make_search("pneumothorax", group.pk)))

@@ -9,7 +9,7 @@ current chunk; live write-path embedding subjobs carry no `run_id` and are
 untouched. Cancelled jobs are terminal:
 re-running `embed_pending` later covers the remaining work by enqueueing
 the still-NULL reports as fresh subjobs chunked at the then-current
-EMBEDDING_SUBJOB_SIZE (its `embedding IS NULL` filter skips everything
+EMBEDDINGS_SUBJOB_SIZE (its `embedding IS NULL` filter skips everything
 already embedded).
 """
 
@@ -40,7 +40,7 @@ class Command(BaseCommand):
             "their current chunk. To continue the backfill, re-run "
             "`./manage.py embed_pending` — it enqueues the still-unembedded "
             "reports as fresh subjobs chunked at the current "
-            "EMBEDDING_SUBJOB_SIZE; cancelled jobs are never revived. "
-            "(EMBEDDING_BATCH_SIZE and worker concurrency are read at "
+            "EMBEDDINGS_SUBJOB_SIZE; cancelled jobs are never revived. "
+            "(EMBEDDINGS_BATCH_SIZE and worker concurrency are read at "
             "execution time and don't require re-enqueueing at all.)"
         )

@@ -19,7 +19,7 @@ class ReportSearchIndex(models.Model):
 
     report = models.OneToOneField(Report, on_delete=models.CASCADE, related_name="search_index")
     search_vector = SearchVectorField(null=True)
-    embedding = VectorField(dimensions=settings.EMBEDDING_DIM, null=True)
+    embedding = VectorField(dimensions=settings.EMBEDDINGS_DIM, null=True)
 
     class Meta:
         verbose_name = "Report search index"

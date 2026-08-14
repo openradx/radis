@@ -190,7 +190,7 @@ class ReportSearchIndexAdmin(admin.ModelAdmin):
             return
 
         subjob_count = enqueue_embed_reports(
-            report_ids, priority=settings.EMBEDDING_BACKFILL_PRIORITY, run_id=run.pk
+            report_ids, priority=settings.EMBEDDINGS_BACKFILL_PRIORITY, run_id=run.pk
         )
 
         self.message_user(

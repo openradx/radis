@@ -38,7 +38,7 @@ def group(db):
 
 @pytest.fixture
 def reports_with_embeddings(group, settings):
-    dim = settings.EMBEDDING_DIM
+    dim = settings.EMBEDDINGS_DIM
     # r0: matches FTS for "pneumothorax", vector unrelated (dim 99)
     r0 = ReportFactory.create(body="Findings: pneumothorax on the left.")
     r0.groups.add(group)
@@ -58,7 +58,7 @@ def reports_with_embeddings(group, settings):
 
 def test_hybrid_returns_fts_only_hit(group, reports_with_embeddings, settings):
     r0, _, _ = reports_with_embeddings
-    dim = settings.EMBEDDING_DIM
+    dim = settings.EMBEDDINGS_DIM
     # Query vector points at dim 50 — far from all docs. So vec_top_K still
     # returns docs, but their distances are large. FTS for "pneumothorax"
     # picks up r0 and r2.
@@ -74,7 +74,7 @@ def test_hybrid_returns_fts_only_hit(group, reports_with_embeddings, settings):
 
 def test_hybrid_returns_vector_only_hit(group, reports_with_embeddings, settings):
     _, r1, _ = reports_with_embeddings
-    dim = settings.EMBEDDING_DIM
+    dim = settings.EMBEDDINGS_DIM
     # Query vector at dim 0 — closest to r1 and r2. FTS for "pneumothorax"
     # excludes r1 lexically; vector side must surface it.
     with patch("radis.pgsearch.providers.EmbeddingClient") as MockClient:
@@ -89,7 +89,7 @@ def test_hybrid_returns_vector_only_hit(group, reports_with_embeddings, settings
 
 def test_hybrid_both_sides_match_ranks_first(group, reports_with_embeddings, settings):
     _, _, r2 = reports_with_embeddings
-    dim = settings.EMBEDDING_DIM
+    dim = settings.EMBEDDINGS_DIM
     with patch("radis.pgsearch.providers.EmbeddingClient") as MockClient:
         MockClient.return_value.__enter__.return_value = MockClient.return_value
         MockClient.return_value.__exit__.return_value = None
@@ -115,7 +115,7 @@ def test_embedding_failure_falls_back_to_fts(group, reports_with_embeddings):
 
 
 def test_reports_with_null_embedding_still_returned_via_fts(group, settings):
-    dim = settings.EMBEDDING_DIM
+    dim = settings.EMBEDDINGS_DIM
     r = ReportFactory.create(body="pneumothorax findings")
     r.groups.add(group)
     # Leave embedding NULL.
@@ -130,7 +130,7 @@ def test_reports_with_null_embedding_still_returned_via_fts(group, settings):
 
 
 def test_empty_summary_falls_back_to_body_head(group, settings):
-    dim = settings.EMBEDDING_DIM
+    dim = settings.EMBEDDINGS_DIM
     # Doc whose body does not contain the query word — vector-only hit.
     r = ReportFactory.create(
         body="lung parenchyma demonstrates clear bilaterally with no abnormality",
@@ -152,7 +152,7 @@ def test_empty_summary_falls_back_to_body_head(group, settings):
 
 def test_retrieve_returns_hybrid_ordered_document_ids(group, reports_with_embeddings, settings):
     r0, r1, r2 = reports_with_embeddings
-    dim = settings.EMBEDDING_DIM
+    dim = settings.EMBEDDINGS_DIM
     with patch("radis.pgsearch.providers.EmbeddingClient") as MockClient:
         MockClient.return_value.__enter__.return_value = MockClient.return_value
         MockClient.return_value.__exit__.return_value = None
@@ -177,7 +177,7 @@ def test_retrieve_falls_back_to_fts_on_embedding_error(group, reports_with_embed
 def test_documents_carry_cosine_distance_and_rrf_score(group, reports_with_embeddings, settings):
     """Verify cosine_distance is set for vector-side hits and rrf_score reflects fusion."""
     _, _, r2 = reports_with_embeddings
-    dim = settings.EMBEDDING_DIM
+    dim = settings.EMBEDDINGS_DIM
     with patch("radis.pgsearch.providers.EmbeddingClient") as MockClient:
         MockClient.return_value.__enter__.return_value = MockClient.return_value
         MockClient.return_value.__exit__.return_value = None
@@ -200,7 +200,7 @@ def test_m2m_filter_does_not_duplicate_results(group, settings):
     filter joins the M2M table. Without `.distinct()` on the queryset, joining on
     report__modalities__code__in produces one row per matching modality, which
     inflates rank position and corrupts top-K slicing."""
-    dim = settings.EMBEDDING_DIM
+    dim = settings.EMBEDDINGS_DIM
     r = ReportFactory.create(body="pneumothorax findings", modalities=["CT", "MR", "DX"])
     r.groups.add(group)
     ReportSearchIndex.objects.filter(report=r).update(embedding=_unit_vec(0, dim))
@@ -259,7 +259,7 @@ def test_search_skips_embedding_when_query_reduces_to_not(monkeypatch, group):
 def test_search_embeds_only_positive_branch_for_and_not(monkeypatch, group, settings):
     """`A AND NOT B` embeds only `A`; FTS half still enforces the exclusion."""
     embed_query_calls: list[str] = []
-    dim = settings.EMBEDDING_DIM
+    dim = settings.EMBEDDINGS_DIM
 
     class FakeEC:
         def __init__(self):
@@ -298,7 +298,7 @@ def test_search_excludes_negated_term_from_vector_candidates(group, settings):
     doc that is semantically near `A` would otherwise enter the RRF union even
     though the FTS half excludes it via `!B`. The negation must be enforced on
     the vector candidates too."""
-    dim = settings.EMBEDDING_DIM
+    dim = settings.EMBEDDINGS_DIM
     # Contains BOTH pneumothorax and effusion; its embedding sits exactly on the
     # query vector, so it is the nearest vector neighbour. `NOT effusion` must
     # keep it out of the results entirely.
@@ -324,7 +324,7 @@ def test_search_excludes_negated_term_from_vector_candidates(group, settings):
 def test_retrieve_excludes_negated_term_from_vector_candidates(group, settings):
     """`A AND NOT B` on the retrieve path: extraction/subscription consumers
     must not receive a B-containing doc that leaked in via the vector half."""
-    dim = settings.EMBEDDING_DIM
+    dim = settings.EMBEDDINGS_DIM
     r_leak = ReportFactory.create(body="Findings: pneumothorax with a large pleural effusion.")
     r_leak.groups.add(group)
     ReportSearchIndex.objects.filter(report=r_leak).update(embedding=_unit_vec(0, dim))
@@ -346,7 +346,7 @@ def test_or_nested_negation_is_not_excluded_globally(group, settings):
     """`(A AND NOT B) OR C`: the `NOT B` is branch-scoped. A doc matching `C`
     that also contains `B` is a legitimate hit and must NOT be dropped from the
     vector half — only top-level ANDed negations are enforced globally."""
-    dim = settings.EMBEDDING_DIM
+    dim = settings.EMBEDDINGS_DIM
     # Matches the `fracture` (C) branch but also contains `effusion` (B).
     # It must survive because NOT effusion only applies to the pneumothorax branch.
     r_or = ReportFactory.create(body="Findings: acute rib fracture with small effusion.")
@@ -367,7 +367,7 @@ def test_count_matches_retrieve_union_for_semantic_only_query(group, settings):
     """count() must equal the size of retrieve()'s hybrid union. A vector-only
     hit (no FTS match) would otherwise be counted as 0, letting the extraction
     max-reports guard pass while retrieve() still yields the report."""
-    dim = settings.EMBEDDING_DIM
+    dim = settings.EMBEDDINGS_DIM
     # Body does not lexically contain "pneumothorax" -> FTS misses it; the
     # embedding sits on the query vector -> it is a vector hit.
     r = ReportFactory.create(body="lungs are clear bilaterally")

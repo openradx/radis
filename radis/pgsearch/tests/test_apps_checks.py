@@ -1,4 +1,4 @@
-"""Tests for the Django system check that guards EMBEDDING_DIM/migration parity."""
+"""Tests for the Django system check that guards EMBEDDINGS_DIM/migration parity."""
 
 import logging
 from unittest.mock import MagicMock, patch
@@ -19,14 +19,14 @@ def test_migration_embedding_dim_returns_int_without_db():
 
 def test_check_passes_when_dim_matches_migration():
     dim = _migration_embedding_dim()
-    with override_settings(EMBEDDING_DIM=dim):
+    with override_settings(EMBEDDINGS_DIM=dim):
         assert check_embedding_dim_matches_migration(app_configs=None) == []
 
 
 def test_check_fails_with_e001_when_dim_diverges_from_migration():
     dim = _migration_embedding_dim()
     assert dim is not None
-    with override_settings(EMBEDDING_DIM=dim + 1):
+    with override_settings(EMBEDDINGS_DIM=dim + 1):
         errors = check_embedding_dim_matches_migration(app_configs=None)
     assert len(errors) == 1
     err = errors[0]

@@ -16,9 +16,9 @@ logger = logging.getLogger(__name__)
 # gateway is a different provider, so a 429 from one must not pause the other. Cross-process
 # coordination is unnecessary — each container backs off on the 429s it receives itself.
 EMBEDDING_GATE = RateLimitGate(
-    base_seconds=settings.EMBEDDING_RATE_LIMIT_BACKOFF_BASE_SECONDS,
-    backoff_max_seconds=settings.EMBEDDING_RATE_LIMIT_BACKOFF_MAX_SECONDS,
-    header_ceiling_seconds=settings.EMBEDDING_RATE_LIMIT_HEADER_CEILING_SECONDS,
+    base_seconds=settings.EMBEDDINGS_RATE_LIMIT_BACKOFF_BASE_SECONDS,
+    backoff_max_seconds=settings.EMBEDDINGS_RATE_LIMIT_BACKOFF_MAX_SECONDS,
+    header_ceiling_seconds=settings.EMBEDDINGS_RATE_LIMIT_HEADER_CEILING_SECONDS,
 )
 
 
@@ -79,7 +79,7 @@ def _normalize_response(
                 f"Embedding dim too small: got {len(vec)}, expected at least {target_dim}"
             )
         if len(vec) > target_dim:
-            # Matryoshka truncation: keep first EMBEDDING_DIM components, then renormalize.
+            # Matryoshka truncation: keep first EMBEDDINGS_DIM components, then renormalize.
             # Qwen3-Embedding is trained to retain quality at truncated dimensions.
             normalized.append(_l2_normalize(list(vec[:target_dim])))
         else:
@@ -110,8 +110,8 @@ class EmbeddingClient:
             timeout=settings.EMBEDDING_REQUEST_TIMEOUT,
         )
         self._model = settings.EMBEDDING_MODEL_NAME
-        self._dim = settings.EMBEDDING_DIM
-        self._instruction = settings.EMBEDDING_QUERY_INSTRUCTION
+        self._dim = settings.EMBEDDINGS_DIM
+        self._instruction = settings.EMBEDDINGS_QUERY_INSTRUCTION
 
     def embed_documents(self, texts: list[str]) -> list[list[float]]:
         """Low-level call to the embedding backend, with no 429 handling of
@@ -134,7 +134,7 @@ class EmbeddingClient:
         prefixed = f"{self._instruction}{text}" if self._instruction else text
         vectors = run_through_gate(
             EMBEDDING_GATE,
-            settings.EMBEDDING_RATE_LIMIT_QUERY_MAX_WAIT_SECONDS,
+            settings.EMBEDDINGS_RATE_LIMIT_QUERY_MAX_WAIT_SECONDS,
             lambda: self.embed_documents([prefixed]),
         )
         if not vectors:

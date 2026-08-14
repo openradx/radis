@@ -433,54 +433,54 @@ LLM_RATE_LIMIT_HEADER_CEILING_SECONDS = env.float(
 EMBEDDING_PROVIDER_URL = env.str("EMBEDDING_PROVIDER_URL", default="")
 EMBEDDING_PROVIDER_API_KEY = env.str("EMBEDDING_PROVIDER_API_KEY", default="")
 EMBEDDING_MODEL_NAME = env.str("EMBEDDING_MODEL_NAME", default="Qwen/Qwen3-Embedding-4B")
-EMBEDDING_DIM = env.int("EMBEDDING_DIM", default=1024)
+EMBEDDINGS_DIM = env.int("EMBEDDINGS_DIM", default=1024)
 
 # Embedding tuning constants
 EMBEDDING_REQUEST_TIMEOUT = env.int("EMBEDDING_REQUEST_TIMEOUT", default=30)
-EMBEDDING_QUERY_INSTRUCTION = (
+EMBEDDINGS_QUERY_INSTRUCTION = (
     "Instruct: Given a radiology search query, retrieve relevant radiology reports.\nQuery: "
 )
 # Texts per HTTP call. A 429'd or timed-out call wastes its whole payload
 # and retries every text in it, so smaller batches bound the waste and
 # consume the gateway's sliding window in smoother increments.
-EMBEDDING_BATCH_SIZE = env.int("EMBEDDING_BATCH_SIZE", default=200)
+EMBEDDINGS_BATCH_SIZE = env.int("EMBEDDINGS_BATCH_SIZE", default=200)
 # Reports per Procrastinate subjob (task granularity, not HTTP granularity).
-EMBEDDING_SUBJOB_SIZE = env.int("EMBEDDING_SUBJOB_SIZE", default=1000)
+EMBEDDINGS_SUBJOB_SIZE = env.int("EMBEDDINGS_SUBJOB_SIZE", default=1000)
 # Procrastinate task priorities for the `embeddings` queue. Live writes
 # (write-path handler + FTS chain) get LIVE; operator-initiated backfill
 # (`embed_pending`, admin action) gets BACKFILL. A million-row backfill
 # parks itself ahead of every later live write without this split.
-EMBEDDING_LIVE_PRIORITY = 1
-EMBEDDING_BACKFILL_PRIORITY = 0
+EMBEDDINGS_LIVE_PRIORITY = 1
+EMBEDDINGS_BACKFILL_PRIORITY = 0
 # How long a search query's embedding stays in the Django cache. Paginating re-runs the
 # whole search per page, so this is what keeps page 2..n from re-calling the embedding
 # service for the same query text. Vectors are tiny (~8 KB) and deterministic per model
 # config, so the TTL only bounds staleness across model/config changes, not correctness.
-EMBEDDING_QUERY_CACHE_TIMEOUT_SECONDS = env.int(
-    "EMBEDDING_QUERY_CACHE_TIMEOUT_SECONDS", default=900
+EMBEDDINGS_QUERY_CACHE_TIMEOUT_SECONDS = env.int(
+    "EMBEDDINGS_QUERY_CACHE_TIMEOUT_SECONDS", default=900
 )
 # Rate-limit gate for the embedding provider: one per-process backoff window shared by
 # every embedding caller in the process (mirrors the LLM gate in core.utils.llm_client).
 # The embedding gateway is a different provider than the LLM, so it gets its own gate —
 # a 429 from one must not pause the other. Semantics of each knob match the LLM_RATE_LIMIT_*
 # settings above.
-EMBEDDING_RATE_LIMIT_BACKOFF_BASE_SECONDS = 2.0
-EMBEDDING_RATE_LIMIT_BACKOFF_MAX_SECONDS = 120.0
-EMBEDDING_RATE_LIMIT_HEADER_CEILING_SECONDS = 1800.0
+EMBEDDINGS_RATE_LIMIT_BACKOFF_BASE_SECONDS = 2.0
+EMBEDDINGS_RATE_LIMIT_BACKOFF_MAX_SECONDS = 120.0
+EMBEDDINGS_RATE_LIMIT_HEADER_CEILING_SECONDS = 1800.0
 # Wait budgets: long for background embedding tasks; short for the search path, where a
 # user is waiting and falling back to FTS-only beats hanging on a closed gate.
-EMBEDDING_RATE_LIMIT_MAX_WAIT_SECONDS = 300.0
-EMBEDDING_RATE_LIMIT_QUERY_MAX_WAIT_SECONDS = 10.0
+EMBEDDINGS_RATE_LIMIT_MAX_WAIT_SECONDS = 300.0
+EMBEDDINGS_RATE_LIMIT_QUERY_MAX_WAIT_SECONDS = 10.0
 # Local retries of transient (non-429) embedding call failures, mirroring the
 # LLM_TRANSIENT_RETRY_* knobs above: N retries after the first call, with
 # exponential backoff base * 2**attempt (0.5s, 1s).
-EMBEDDING_TRANSIENT_RETRY_ATTEMPTS = 2
-EMBEDDING_TRANSIENT_RETRY_BASE_SECONDS = 0.5
+EMBEDDINGS_TRANSIENT_RETRY_ATTEMPTS = 2
+EMBEDDINGS_TRANSIENT_RETRY_BASE_SECONDS = 0.5
 # Procrastinate-level retry of a whole embedding subjob (see
 # EMBEDDING_TASK_RETRY_STRATEGY in radis.pgsearch.tasks). Waits grow as
 # exponential_wait ** attempt: 6s, 36s, ~4min, ~22min.
-EMBEDDING_TASK_MAX_ATTEMPTS = 5
-EMBEDDING_TASK_EXPONENTIAL_WAIT_SECONDS = 6
+EMBEDDINGS_TASK_MAX_ATTEMPTS = 5
+EMBEDDINGS_TASK_EXPONENTIAL_WAIT_SECONDS = 6
 
 # Hybrid search tuning
 HYBRID_VECTOR_TOP_K = 100

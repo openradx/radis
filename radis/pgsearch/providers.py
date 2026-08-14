@@ -246,8 +246,8 @@ def _embed_query_cached(query_text: str, caller: str) -> list[float] | None:
     fingerprint = "\x00".join(
         [
             settings.EMBEDDING_MODEL_NAME,
-            settings.EMBEDDING_QUERY_INSTRUCTION,
-            str(settings.EMBEDDING_DIM),
+            settings.EMBEDDINGS_QUERY_INSTRUCTION,
+            str(settings.EMBEDDINGS_DIM),
             query_text,
         ]
     )
@@ -256,7 +256,7 @@ def _embed_query_cached(query_text: str, caller: str) -> list[float] | None:
     if vec is None:
         vec = _embed_query_or_none(query_text, caller)
         if vec is not None:
-            cache.set(key, vec, timeout=settings.EMBEDDING_QUERY_CACHE_TIMEOUT_SECONDS)
+            cache.set(key, vec, timeout=settings.EMBEDDINGS_QUERY_CACHE_TIMEOUT_SECONDS)
     return vec
 
 

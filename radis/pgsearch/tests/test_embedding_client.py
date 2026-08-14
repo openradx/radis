@@ -12,9 +12,9 @@ def _patched_settings():
         EMBEDDING_PROVIDER_URL="http://embed.example/v1",
         EMBEDDING_PROVIDER_API_KEY="secret",
         EMBEDDING_MODEL_NAME="qwen3",
-        EMBEDDING_DIM=4,
+        EMBEDDINGS_DIM=4,
         EMBEDDING_REQUEST_TIMEOUT=10,
-        EMBEDDING_QUERY_INSTRUCTION="INST: ",
+        EMBEDDINGS_QUERY_INSTRUCTION="INST: ",
     )
 
 
@@ -79,9 +79,9 @@ def test_embed_documents_posts_payload_and_normalizes(monkeypatch):
     EMBEDDING_PROVIDER_URL="http://embed.example/v1",
     EMBEDDING_PROVIDER_API_KEY="",
     EMBEDDING_MODEL_NAME="qwen3",
-    EMBEDDING_DIM=2,
+    EMBEDDINGS_DIM=2,
     EMBEDDING_REQUEST_TIMEOUT=10,
-    EMBEDDING_QUERY_INSTRUCTION="INST: ",
+    EMBEDDINGS_QUERY_INSTRUCTION="INST: ",
 )
 def test_embed_query_prepends_instruction(monkeypatch):
     from radis.pgsearch.utils import embedding_client as ec
@@ -109,9 +109,9 @@ def test_embed_query_prepends_instruction(monkeypatch):
     EMBEDDING_PROVIDER_URL="http://embed.example/v1",
     EMBEDDING_PROVIDER_API_KEY="",
     EMBEDDING_MODEL_NAME="qwen3",
-    EMBEDDING_DIM=2,
+    EMBEDDINGS_DIM=2,
     EMBEDDING_REQUEST_TIMEOUT=10,
-    EMBEDDING_QUERY_INSTRUCTION="",
+    EMBEDDINGS_QUERY_INSTRUCTION="",
 )
 def test_dim_too_small_raises(monkeypatch):
     from radis.pgsearch.utils import embedding_client as ec
@@ -136,9 +136,9 @@ def test_dim_too_small_raises(monkeypatch):
     EMBEDDING_PROVIDER_URL="http://embed.example/v1",
     EMBEDDING_PROVIDER_API_KEY="",
     EMBEDDING_MODEL_NAME="qwen3",
-    EMBEDDING_DIM=2,
+    EMBEDDINGS_DIM=2,
     EMBEDDING_REQUEST_TIMEOUT=10,
-    EMBEDDING_QUERY_INSTRUCTION="",
+    EMBEDDINGS_QUERY_INSTRUCTION="",
 )
 def test_oversized_embedding_truncates_and_renormalizes(monkeypatch):
     from radis.pgsearch.utils import embedding_client as ec
@@ -163,9 +163,9 @@ def test_oversized_embedding_truncates_and_renormalizes(monkeypatch):
     EMBEDDING_PROVIDER_URL="http://embed.example/v1",
     EMBEDDING_PROVIDER_API_KEY="",
     EMBEDDING_MODEL_NAME="qwen3",
-    EMBEDDING_DIM=2,
+    EMBEDDINGS_DIM=2,
     EMBEDDING_REQUEST_TIMEOUT=10,
-    EMBEDDING_QUERY_INSTRUCTION="",
+    EMBEDDINGS_QUERY_INSTRUCTION="",
 )
 def test_5xx_propagates_as_typed_openai_error(monkeypatch):
     """5xx must surface as openai.InternalServerError (not wrapped) so the
@@ -186,9 +186,9 @@ def test_5xx_propagates_as_typed_openai_error(monkeypatch):
     EMBEDDING_PROVIDER_URL="http://embed.example/v1",
     EMBEDDING_PROVIDER_API_KEY="",
     EMBEDDING_MODEL_NAME="qwen3",
-    EMBEDDING_DIM=2,
+    EMBEDDINGS_DIM=2,
     EMBEDDING_REQUEST_TIMEOUT=10,
-    EMBEDDING_QUERY_INSTRUCTION="",
+    EMBEDDINGS_QUERY_INSTRUCTION="",
 )
 def test_429_propagates_as_typed_rate_limit_error(monkeypatch):
     """429 must surface as openai.RateLimitError (not wrapped) so the
@@ -209,9 +209,9 @@ def test_429_propagates_as_typed_rate_limit_error(monkeypatch):
     EMBEDDING_PROVIDER_URL="http://embed.example/v1",
     EMBEDDING_PROVIDER_API_KEY="",
     EMBEDDING_MODEL_NAME="qwen3",
-    EMBEDDING_DIM=2,
+    EMBEDDINGS_DIM=2,
     EMBEDDING_REQUEST_TIMEOUT=10,
-    EMBEDDING_QUERY_INSTRUCTION="",
+    EMBEDDINGS_QUERY_INSTRUCTION="",
 )
 def test_400_propagates_as_typed_bad_request_error(monkeypatch):
     """4xx client errors surface as typed SDK exceptions (not wrapped) so
@@ -255,7 +255,7 @@ def test_embed_query_runs_through_gate_with_query_budget(monkeypatch):
 
     assert vec == [1.0, 0.0, 0.0, 0.0]
     assert seen["gate"] is ec.EMBEDDING_GATE, "embed_query must use the shared embedding gate"
-    assert seen["budget"] == settings.EMBEDDING_RATE_LIMIT_QUERY_MAX_WAIT_SECONDS, (
+    assert seen["budget"] == settings.EMBEDDINGS_RATE_LIMIT_QUERY_MAX_WAIT_SECONDS, (
         "a user is waiting on search, so embed_query gets the short query budget"
     )
 
@@ -264,10 +264,10 @@ def test_embed_query_runs_through_gate_with_query_budget(monkeypatch):
     EMBEDDING_PROVIDER_URL="http://embed.example/v1",
     EMBEDDING_PROVIDER_API_KEY="",
     EMBEDDING_MODEL_NAME="qwen3",
-    EMBEDDING_DIM=2,
+    EMBEDDINGS_DIM=2,
     EMBEDDING_REQUEST_TIMEOUT=10,
-    EMBEDDING_QUERY_INSTRUCTION="",
-    EMBEDDING_RATE_LIMIT_QUERY_MAX_WAIT_SECONDS=0.0,
+    EMBEDDINGS_QUERY_INSTRUCTION="",
+    EMBEDDINGS_RATE_LIMIT_QUERY_MAX_WAIT_SECONDS=0.0,
 )
 def test_429_through_real_gate_raises_rate_limited_and_arms_gate(monkeypatch):
     """End-to-end: a gateway 429 travels MockTransport → typed SDK
@@ -302,9 +302,9 @@ def test_429_through_real_gate_raises_rate_limited_and_arms_gate(monkeypatch):
     EMBEDDING_PROVIDER_URL="",
     EMBEDDING_PROVIDER_API_KEY="",
     EMBEDDING_MODEL_NAME="qwen3",
-    EMBEDDING_DIM=2,
+    EMBEDDINGS_DIM=2,
     EMBEDDING_REQUEST_TIMEOUT=10,
-    EMBEDDING_QUERY_INSTRUCTION="",
+    EMBEDDINGS_QUERY_INSTRUCTION="",
 )
 def test_missing_url_raises_at_construction():
     from radis.pgsearch.utils import embedding_client as ec
@@ -317,9 +317,9 @@ def test_missing_url_raises_at_construction():
     EMBEDDING_PROVIDER_URL="http://embed.example/v1",
     EMBEDDING_PROVIDER_API_KEY="",
     EMBEDDING_MODEL_NAME="qwen3",
-    EMBEDDING_DIM=2,
+    EMBEDDINGS_DIM=2,
     EMBEDDING_REQUEST_TIMEOUT=10,
-    EMBEDDING_QUERY_INSTRUCTION="",
+    EMBEDDINGS_QUERY_INSTRUCTION="",
 )
 def test_context_manager_closes_underlying_http_client(monkeypatch):
     from radis.pgsearch.utils import embedding_client as ec

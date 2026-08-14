@@ -59,7 +59,7 @@ def test_enqueues_via_helper_with_explicit_subjob_size():
     args, kwargs = enqueue.call_args
     assert sorted(args[0]) == expected_ids
     assert kwargs["subjob_size"] == 2
-    assert kwargs["priority"] == settings.EMBEDDING_BACKFILL_PRIORITY
+    assert kwargs["priority"] == settings.EMBEDDINGS_BACKFILL_PRIORITY
 
     output = out.getvalue()
     assert "5 report(s) in subjobs of 2" in output
@@ -79,7 +79,7 @@ def test_limit_caps_work():
     args, kwargs = enqueue.call_args
     assert len(args[0]) == 3
     assert kwargs["subjob_size"] == 10
-    assert kwargs["priority"] == settings.EMBEDDING_BACKFILL_PRIORITY
+    assert kwargs["priority"] == settings.EMBEDDINGS_BACKFILL_PRIORITY
 
 
 def test_logs_info_at_invoke_and_done(caplog):

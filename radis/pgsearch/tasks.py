@@ -41,8 +41,8 @@ def _truncate_ids(ids: list[int], limit: int = 50) -> list[int]:
 # retries. A subjob that exhausts these attempts fails permanently —
 # `embed_pending` re-enqueues any reports still missing embeddings.
 EMBEDDING_TASK_RETRY_STRATEGY = RetryStrategy(
-    max_attempts=settings.EMBEDDING_TASK_MAX_ATTEMPTS,
-    exponential_wait=settings.EMBEDDING_TASK_EXPONENTIAL_WAIT_SECONDS,
+    max_attempts=settings.EMBEDDINGS_TASK_MAX_ATTEMPTS,
+    exponential_wait=settings.EMBEDDINGS_TASK_EXPONENTIAL_WAIT_SECONDS,
     retry_exceptions={RateLimited, EmbeddingClientError, *TRANSIENT_ERRORS},
 )
 
@@ -57,11 +57,11 @@ def _embed_chunk_with_retry(client: EmbeddingClient, texts: list[str]) -> list[l
     exhausted transient errors escape to Procrastinate's task-level retry."""
     return run_through_gate(
         EMBEDDING_GATE,
-        settings.EMBEDDING_RATE_LIMIT_MAX_WAIT_SECONDS,
+        settings.EMBEDDINGS_RATE_LIMIT_MAX_WAIT_SECONDS,
         lambda: with_transient_retries(
             lambda: client.embed_documents(texts),
-            settings.EMBEDDING_TRANSIENT_RETRY_ATTEMPTS,
-            settings.EMBEDDING_TRANSIENT_RETRY_BASE_SECONDS,
+            settings.EMBEDDINGS_TRANSIENT_RETRY_ATTEMPTS,
+            settings.EMBEDDINGS_TRANSIENT_RETRY_BASE_SECONDS,
             retryable=(*TRANSIENT_ERRORS, EmbeddingClientError),
         ),
     )
@@ -139,17 +139,17 @@ def enqueue_embed_reports(
     """Chunk `report_ids` into subjobs and defer one `embed_reports_task`
     per chunk. Returns the number of subjobs deferred.
 
-    Subjob size defaults to `settings.EMBEDDING_SUBJOB_SIZE` (the
+    Subjob size defaults to `settings.EMBEDDINGS_SUBJOB_SIZE` (the
     Procrastinate-task granularity). It's distinct from
-    `settings.EMBEDDING_BATCH_SIZE` (the per-HTTP-call size inside one
-    task) — each subjob makes ceil(subjob_size / EMBEDDING_BATCH_SIZE)
+    `settings.EMBEDDINGS_BATCH_SIZE` (the per-HTTP-call size inside one
+    task) — each subjob makes ceil(subjob_size / EMBEDDINGS_BATCH_SIZE)
     HTTP calls. A 1M-report backfill becomes ~1k subjobs; many workers can
     drain in parallel, retries have bounded blast radius, and a stuck
     task can't tie up the worker on the whole queue's worth of work.
 
-    Priority defaults to `settings.EMBEDDING_LIVE_PRIORITY` (write-path).
+    Priority defaults to `settings.EMBEDDINGS_LIVE_PRIORITY` (write-path).
     `embed_pending` and the admin backfill action override to
-    `settings.EMBEDDING_BACKFILL_PRIORITY`, so a million-row backfill
+    `settings.EMBEDDINGS_BACKFILL_PRIORITY`, so a million-row backfill
     can't park itself ahead of every subsequent live ingest write.
 
     Single call site for every place that enqueues embedding work: the
@@ -171,9 +171,9 @@ def enqueue_embed_reports(
             len(report_ids),
         )
         return 0
-    size = subjob_size if subjob_size is not None else settings.EMBEDDING_SUBJOB_SIZE
+    size = subjob_size if subjob_size is not None else settings.EMBEDDINGS_SUBJOB_SIZE
     if priority is None:
-        priority = settings.EMBEDDING_LIVE_PRIORITY
+        priority = settings.EMBEDDINGS_LIVE_PRIORITY
     deferrer = app.configure_task(
         "radis.pgsearch.tasks.embed_reports_task",
         allow_unknown=False,
@@ -214,7 +214,7 @@ def cancel_backfill_embeddings() -> int:
     Run-scoped, not priority-scoped: `./manage.py retry_stalled_jobs` (run
     at stack start by both compose files) requeues stalled `doing` jobs at
     a fixed priority, which can promote a backfill subjob above
-    EMBEDDING_BACKFILL_PRIORITY — a priority-based cancel would then miss
+    EMBEDDINGS_BACKFILL_PRIORITY — a priority-based cancel would then miss
     it while `EmbeddingBackfillRun.live_subjob_count()` (run_id-scoped)
     still counts it as live. "The backfill's jobs" are therefore identified
     by the active runs' `run_id` in job args, which survives that
@@ -225,7 +225,7 @@ def cancel_backfill_embeddings() -> int:
     Returns the number of jobs actually cancelled. Cancelled jobs are
     terminal — continuing the backfill means re-running embed_pending,
     which enqueues the still-NULL reports as fresh subjobs chunked at the
-    then-current EMBEDDING_SUBJOB_SIZE."""
+    then-current EMBEDDINGS_SUBJOB_SIZE."""
     run_ids = active_backfill_run_ids()
     job_ids = (
         list(
@@ -261,7 +261,7 @@ def embed_reports_task(report_ids: list[int], run_id: int | None = None) -> None
 
     * Transient errors (connection, timeout, 5xx, malformed responses):
       retried locally inside `_embed_chunk_with_retry`
-      (EMBEDDING_TRANSIENT_RETRY_ATTEMPTS retries with exponential backoff).
+      (EMBEDDINGS_TRANSIENT_RETRY_ATTEMPTS retries with exponential backoff).
     * Gateway 429s: the per-process EMBEDDING_GATE waits out the
       server-reported pause (or an exponential ladder) up to the batch
       budget, then raises RateLimited.
@@ -315,7 +315,7 @@ def embed_reports_task(report_ids: list[int], run_id: int | None = None) -> None
         if not rsvs:
             return
 
-    batch_size = settings.EMBEDDING_BATCH_SIZE
+    batch_size = settings.EMBEDDINGS_BATCH_SIZE
     embedded: list[ReportSearchIndex] = []
     try:
         with EmbeddingClient() as client:

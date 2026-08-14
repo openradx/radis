@@ -109,7 +109,7 @@ def test_pipeline_stats_counts_procrastinate_jobs_by_status():
     _insert_procrastinate_job("todo", queue="default")
     # Todo job carrying no run_id (write-path) counts as todo but not as
     # cancellable backfill — cancel is run-scoped, not priority-scoped.
-    _insert_procrastinate_job("todo", priority=settings.EMBEDDING_LIVE_PRIORITY)
+    _insert_procrastinate_job("todo", priority=settings.EMBEDDINGS_LIVE_PRIORITY)
 
     stats = ReportSearchIndexAdmin._embedding_pipeline_stats()
     assert stats["todo"] == 3
@@ -371,7 +371,7 @@ def test_cancel_backfill_view_cancels_and_redirects(settings):
 
     run = EmbeddingBackfillRun.objects.create(total_reports=2, triggered_by="alice")
     tasks_module.enqueue_embed_reports(
-        [1, 2], subjob_size=1, priority=settings.EMBEDDING_BACKFILL_PRIORITY, run_id=run.pk
+        [1, 2], subjob_size=1, priority=settings.EMBEDDINGS_BACKFILL_PRIORITY, run_id=run.pk
     )
 
     admin_instance = ReportSearchIndexAdmin(ReportSearchIndex, AdminSite())

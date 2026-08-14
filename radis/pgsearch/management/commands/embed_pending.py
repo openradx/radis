@@ -16,7 +16,7 @@ The command itself does no HTTP work; it defers Procrastinate tasks onto the
 
 Chunking goes through the shared `enqueue_embed_reports` helper, so the
 subjob size matches what the write-path handler and the admin action use
-(default `settings.EMBEDDING_SUBJOB_SIZE`).
+(default `settings.EMBEDDINGS_SUBJOB_SIZE`).
 
 Properties:
 
@@ -52,12 +52,12 @@ class Command(BaseCommand):
         parser.add_argument(
             "--subjob-size",
             type=int,
-            default=settings.EMBEDDING_SUBJOB_SIZE,
+            default=settings.EMBEDDINGS_SUBJOB_SIZE,
             help=(
                 f"Reports per Procrastinate subjob (default "
-                f"{settings.EMBEDDING_SUBJOB_SIZE}). The worker further "
+                f"{settings.EMBEDDINGS_SUBJOB_SIZE}). The worker further "
                 f"chunks each subjob into HTTP calls of "
-                f"EMBEDDING_BATCH_SIZE={settings.EMBEDDING_BATCH_SIZE}."
+                f"EMBEDDINGS_BATCH_SIZE={settings.EMBEDDINGS_BATCH_SIZE}."
             ),
         )
         parser.add_argument(
@@ -101,7 +101,7 @@ class Command(BaseCommand):
         subjob_count = enqueue_embed_reports(
             ids,
             subjob_size=subjob_size,
-            priority=settings.EMBEDDING_BACKFILL_PRIORITY,
+            priority=settings.EMBEDDINGS_BACKFILL_PRIORITY,
             run_id=run.pk,
         )
         self.stdout.write(

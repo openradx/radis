@@ -33,7 +33,7 @@ def _migration_embedding_dim() -> int | None:
 
 @register()
 def check_embedding_dim_matches_migration(app_configs, **kwargs):
-    """Fail loudly when settings.EMBEDDING_DIM diverges from the dim baked
+    """Fail loudly when settings.EMBEDDINGS_DIM diverges from the dim baked
     into the pgsearch migrations. Mismatched values would otherwise surface as
     opaque pgvector dimension errors on the first write or query."""
     migration_dim = _migration_embedding_dim()
@@ -54,19 +54,19 @@ def check_embedding_dim_matches_migration(app_configs, **kwargs):
             )
         ]
 
-    if settings.EMBEDDING_DIM != migration_dim:
+    if settings.EMBEDDINGS_DIM != migration_dim:
         return [
             Error(
-                f"EMBEDDING_DIM={settings.EMBEDDING_DIM} does not match the "
+                f"EMBEDDINGS_DIM={settings.EMBEDDINGS_DIM} does not match the "
                 f"dim baked into the pgsearch migrations "
                 f"(vector({migration_dim})). Writes will fail with a pgvector "
                 f"dimension error. Either set "
-                f"EMBEDDING_DIM={migration_dim}, or run `makemigrations "
+                f"EMBEDDINGS_DIM={migration_dim}, or run `makemigrations "
                 f"pgsearch` to capture the new dim and follow the §4.5 "
                 f"procedure to drop and recreate the embedding column.",
                 id="pgsearch.E001",
                 hint=(
-                    "Update EMBEDDING_DIM in your .env to match the existing "
+                    "Update EMBEDDINGS_DIM in your .env to match the existing "
                     "migrations, or generate a new migration that matches the "
                     "new dim."
                 ),
