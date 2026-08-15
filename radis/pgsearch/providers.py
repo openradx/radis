@@ -9,8 +9,7 @@ import openai
 from django.conf import settings
 from django.contrib.postgres.search import SearchHeadline, SearchQuery, SearchRank
 from django.core.cache import cache
-from django.db.models import Case, F, Q, TextField, Value, When
-from django.db.models.functions import Greatest
+from django.db.models import Case, F, FloatField, Q, TextField, Value, When
 from pgvector.django import CosineDistance
 
 from radis.core.utils.embedding_client import (
@@ -83,15 +82,6 @@ def _language_configs(filters: SearchFilters) -> list[tuple[str, list[str]]]:
     codes_by_config: dict[str, list[str]] = {}
     for code in Language.objects.values_list("code", flat=True):
         codes_by_config.setdefault(code_to_language(code), []).append(code)
-    if not codes_by_config:
-        # No Language row exists at all. Report.language is a required FK, so this
-        # can only happen when the corpus is empty too -- there is nothing for the
-        # branch's code list to wrongly include or exclude. Returning a single
-        # degenerate branch (rather than an empty list) keeps callers that assume
-        # at least one configuration -- Greatest(...) needs 2+ args, and the
-        # single-config path relies on there being exactly a first element -- from
-        # crashing on an empty corpus.
-        return [("simple", [])]
     # Deterministic order keeps generated SQL stable across requests.
     return sorted(codes_by_config.items())
 
@@ -371,10 +361,22 @@ def _fuse_hybrid(search: Search, caller: str) -> _FusedHybrid:
     for config, codes in configs:
         match_q |= Q(report__language__code__in=codes, search_vector=tsqueries[config])
 
-    ranks = [SearchRank(F("search_vector"), tsqueries[config]) for config, _ in configs]
-    # A document scores ~0 under every configuration but its own, so the best
-    # branch is its real rank. Greatest needs 2+ expressions.
-    rank_expr = ranks[0] if len(ranks) == 1 else Greatest(*ranks)
+    # Rank strictly under the document's own configuration -- a foreign
+    # configuration's ts_rank is not reliably ~0 (e.g. a term whose stem equals
+    # itself scores identically under every config), so it must never be
+    # allowed to compete via Greatest. A one-branch Case is legal, unlike
+    # Greatest, so this needs no single-configuration special case.
+    rank_expr = Case(
+        *[
+            When(
+                report__language__code__in=codes,
+                then=SearchRank(F("search_vector"), tsqueries[config]),
+            )
+            for config, codes in configs
+        ],
+        default=Value(0.0),
+        output_field=FloatField(),
+    )
 
     # Vector side: skipped entirely when no embedding model is configured (FTS-only
     # deployment), and when stripping NOT branches leaves nothing to embed (see
@@ -400,14 +402,24 @@ def _fuse_hybrid(search: Search, caller: str) -> _FusedHybrid:
             vec_rank[rid] = i + 1
             vec_distance[rid] = float(dist)
 
-    # FTS side: bounded set, ts_rank only (no headline at this stage).
-    fts_rows = list(
-        ReportSearchIndex.objects.filter(filter_query)
-        .distinct()
-        .filter(match_q)
-        .annotate(rank=rank_expr)
-        .order_by("-rank", "report_id")
-        .values("report_id", "rank")[: settings.HYBRID_FTS_MAX_RESULTS]
+    # FTS side: bounded set, ts_rank only (no headline at this stage). Skipped
+    # when no configuration exists to match under -- Report.language is a
+    # required FK, so an empty ``configs`` only happens when the corpus itself
+    # is empty. Filtering with the otherwise-unapplied, empty match_q would
+    # (harmlessly, since there is nothing to match, but confusingly) match
+    # every row instead of none, so this is skipped explicitly rather than
+    # relying on that being a no-op in practice.
+    fts_rows = (
+        []
+        if not configs
+        else list(
+            ReportSearchIndex.objects.filter(filter_query)
+            .distinct()
+            .filter(match_q)
+            .annotate(rank=rank_expr)
+            .order_by("-rank", "report_id")
+            .values("report_id", "rank")[: settings.HYBRID_FTS_MAX_RESULTS]
+        )
     )
     fts_rank = {row["report_id"]: i + 1 for i, row in enumerate(fts_rows)}
 
@@ -464,24 +476,29 @@ def search(search: Search) -> SearchResult:
             max_fragments=10,
         )
 
-    if len(configs) == 1:
-        config = configs[0][0]
-        summary_expr = _headline(config)
-        rank_expr = SearchRank(F("search_vector"), tsqueries[config])
-    else:
-        # Highlight each document with the configuration it was indexed under;
-        # a headline built under another configuration silently highlights nothing.
-        summary_expr = Case(
-            *[
-                When(report__language__code__in=codes, then=_headline(config))
-                for config, codes in configs
-            ],
-            default=Value(""),
-            output_field=TextField(),
-        )
-        rank_expr = Greatest(
-            *[SearchRank(F("search_vector"), tsqueries[config]) for config, _ in configs]
-        )
+    # Highlight and rank each document under the configuration it was indexed
+    # under; a headline/rank built under another configuration silently
+    # highlights/scores nothing. A one-branch Case is legal (unlike Greatest),
+    # so this covers the single-configuration case too with no special-casing.
+    summary_expr = Case(
+        *[
+            When(report__language__code__in=codes, then=_headline(config))
+            for config, codes in configs
+        ],
+        default=Value(""),
+        output_field=TextField(),
+    )
+    rank_expr = Case(
+        *[
+            When(
+                report__language__code__in=codes,
+                then=SearchRank(F("search_vector"), tsqueries[config]),
+            )
+            for config, codes in configs
+        ],
+        default=Value(0.0),
+        output_field=FloatField(),
+    )
 
     # Headline + hydration for the page slice only.
     page_rows = (

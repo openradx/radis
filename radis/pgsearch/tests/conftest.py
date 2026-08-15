@@ -2,6 +2,20 @@ import pytest
 from django.core.cache import cache
 
 from radis.pgsearch import providers
+from radis.pgsearch.utils.language_utils import clear_search_config_cache
+
+
+@pytest.fixture(autouse=True)
+def _clear_language_config_cache():
+    """code_to_language and get_available_search_configs (language_utils.py) are
+    process-global lru_caches. test_language_utils.py monkeypatches the config
+    set per test and reuses codes (e.g. 'tr', 'zh') across tests that expect
+    DIFFERENT resolutions under different mocked config sets -- without this,
+    whichever test runs first for a given code would poison every later test,
+    in this file or elsewhere in the suite, that resolves the same code."""
+    clear_search_config_cache()
+    yield
+    clear_search_config_cache()
 
 
 @pytest.fixture(autouse=True)

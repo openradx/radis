@@ -1,6 +1,6 @@
 import logging
 import unicodedata
-from functools import lru_cache
+from functools import cache, lru_cache
 
 import pycountry
 from django.db import DatabaseError, connection
@@ -75,9 +75,24 @@ def _is_safe_language_code(code: str) -> bool:
 
 def clear_search_config_cache() -> None:
     _get_available_search_configs_cached.cache_clear()
+    code_to_language.cache_clear()
 
 
+@cache
 def code_to_language(code: str) -> str:
+    """Resolve a language code to its Postgres text-search configuration.
+
+    Cached because ``_language_configs`` (radis.pgsearch.providers) now calls
+    this once per distinct ``Language`` row on every search, not once per
+    request: an unresolvable code falls through to ``pycountry.languages.lookup``
+    (a linear scan, ~1ms), and orphaned ``Language`` rows -- RADIS accepts
+    arbitrary codes over the API, and a row can outlive the reports that used
+    it -- accumulate over time, so that cost would otherwise be paid on every
+    search, for every such row, forever. A pure function of ``code`` plus the
+    already-cached config set (see ``get_available_search_configs``), so this
+    is safe to cache the same way; ``clear_search_config_cache`` invalidates
+    both together.
+    """
     if not code:
         return "simple"
     if not _is_safe_language_code(code):
