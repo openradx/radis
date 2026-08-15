@@ -112,9 +112,9 @@ def test_search_stemming_through_full_stack():
     """With the language filter set to 'en' the query config matches the document
     config (both english), so stemming applies and 'opacity' matches 'opacities'.
 
-    The ``language=en`` param is load-bearing: see
-    ``test_language_config_mismatch_disables_stemming`` for what happens without
-    it (the query defaults to the 'simple' config and stemming is lost).
+    See ``test_language_config_mismatch_no_longer_disables_stemming`` for the
+    filterless case, which matches too now that every configuration present in
+    the corpus gets its own branch.
     """
     client, group = _logged_in_client()
     report = _seed_report(
@@ -154,16 +154,17 @@ def test_boolean_query_through_full_stack():
     assert one.document_id not in ids
 
 
-def test_language_config_mismatch_disables_stemming():
-    """Finding: when no language filter is selected the view resolves the query
-    text-search config to 'simple' (``code_to_language("")``), while reports are
-    indexed under their own language config (here english). Stemmed forms then
-    silently fail to match.
+def test_language_config_mismatch_no_longer_disables_stemming():
+    """Regression: without a language filter, the query used to resolve to the
+    'simple' text-search config (``code_to_language("")``) while reports are
+    indexed under their own language config (here english), so stemmed forms
+    silently failed to match -- 'opacities' is indexed under english (stem
+    'opac'), and a 'simple'-config query for 'opacity' produces the un-stemmed
+    lexeme 'opacity', which never met it.
 
-    'opacities' is indexed under english (stem 'opac'); a 'simple'-config query
-    for 'opacity' produces the un-stemmed lexeme 'opacity' and does NOT match,
-    even though the exact word 'opacities' would. This documents a real
-    searchability gap for users who do not pick a language.
+    The fix gives every configuration present in the corpus its own branch, so
+    a filterless search now matches under the document's own configuration too,
+    not just when an explicit ``language=en`` is given.
     """
     client, group = _logged_in_client()
     report = _seed_report(
@@ -173,15 +174,14 @@ def test_language_config_mismatch_disables_stemming():
         groups=[group],
     )
 
-    # No language param -> query resolved with the 'simple' config, which does
-    # not stem. The document, however, was indexed under english, so its stored
-    # lexeme is the stem 'opac'. The mismatch means BOTH the stemmed query and
-    # the exact surface form miss:
-    assert _doc_ids(client.get("/search/", {"query": "opacity"})) == []
-    assert _doc_ids(client.get("/search/", {"query": "opacities"})) == []
+    # No language param -> every configuration present in the corpus (here just
+    # 'english', since it's the only report's language) gets its own branch, so
+    # the stemmed query still matches.
+    assert _doc_ids(client.get("/search/", {"query": "opacity"})) == [report.document_id]
+    assert _doc_ids(client.get("/search/", {"query": "opacities"})) == [report.document_id]
 
-    # Selecting the matching language realigns the configs and the report is
-    # found (control showing the report is genuinely indexed and retrievable).
+    # Selecting the matching language explicitly still works too (control
+    # showing the report is genuinely indexed and retrievable via that path).
     aligned = client.get("/search/", {"query": "opacity", "language": "en"})
     assert _doc_ids(aligned) == [report.document_id]
 
