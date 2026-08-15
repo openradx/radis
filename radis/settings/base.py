@@ -429,6 +429,111 @@ LLM_RATE_LIMIT_HEADER_CEILING_SECONDS = env.float(
     "LLM_RATE_LIMIT_HEADER_CEILING_SECONDS", default=1800.0
 )
 
+
+# Embedding service (per-deployment)
+#
+# Embeddings are inference too, but a different model class. One endpoint serves both
+# only when the provider multiplexes models (OpenAI, Ollama, an LLM gateway); a
+# self-hosted vLLM or SGLang serves one model per process, so there the embedding
+# endpoint is a second URL. Inherit the LLM endpoint and override only where they
+# actually diverge, so the common deployment configures one URL rather than two.
+def _inherit_env(name: str, fallback: str) -> str:
+    """An embedding setting that falls back to its LLM counterpart when unset.
+
+    A blank is what an `.env` line like `EMBEDDINGS_BASE_URL=` produces, and it means
+    the same as leaving the line out.
+    """
+    return env.str(name, default="").strip() or fallback
+
+
+EMBEDDINGS_BASE_URL = _inherit_env("EMBEDDINGS_BASE_URL", LLM_BASE_URL)
+EMBEDDINGS_API_KEY = _inherit_env("EMBEDDINGS_API_KEY", LLM_API_KEY)
+EMBEDDINGS_REQUEST_TIMEOUT_SECONDS = _optional_env(
+    "EMBEDDINGS_REQUEST_TIMEOUT_SECONDS", float, LLM_REQUEST_TIMEOUT_SECONDS
+)
+
+
+def _resolve_embeddings_model() -> ModelSpec | None:
+    """The embedding model, or None when hybrid search is not configured.
+
+    Unlike the LLM models this one is optional: without it RADIS serves full-text
+    search only, which is a complete product rather than a broken one. That makes the
+    model the feature switch — every embedding code path asks this one question
+    instead of inferring configuredness from a URL that now has a fallback anyway.
+
+    Same 'model[?param=value&...]' grammar as the LLM models, so request-body
+    parameters (OpenAI's `dimensions`, a provider's `truncate`) are configured
+    alongside the model. Parsed here so a malformed spec is a boot error naming the
+    setting at fault, not a 400 on the first search.
+    """
+    raw = env.str("EMBEDDINGS_MODEL", default="").strip()
+    if not raw:
+        return None
+    try:
+        return parse_model_spec(raw)
+    except ModelSpecError as err:
+        raise ImproperlyConfigured(f"Invalid EMBEDDINGS_MODEL: {err}") from err
+
+
+EMBEDDINGS_MODEL = _resolve_embeddings_model()
+
+EMBEDDINGS_DIM = env.int("EMBEDDINGS_DIM", default=1024)
+
+EMBEDDINGS_QUERY_INSTRUCTION = env.str(
+    "EMBEDDINGS_QUERY_INSTRUCTION",
+    default=(
+        "Instruct: Given a radiology search query, retrieve relevant radiology reports.\nQuery: "
+    ),
+)
+
+# Embedding tuning constants
+# Texts per HTTP call. A 429'd or timed-out call wastes its whole payload
+# and retries every text in it, so smaller batches bound the waste and
+# consume the gateway's sliding window in smoother increments.
+EMBEDDINGS_BATCH_SIZE = env.int("EMBEDDINGS_BATCH_SIZE", default=200)
+# Reports per Procrastinate subjob (task granularity, not HTTP granularity).
+EMBEDDINGS_SUBJOB_SIZE = env.int("EMBEDDINGS_SUBJOB_SIZE", default=1000)
+# Procrastinate task priorities for the `embeddings` queue. Live writes
+# (write-path handler + FTS chain) get LIVE; operator-initiated backfill
+# (`embed_pending`, admin action) gets BACKFILL. A million-row backfill
+# parks itself ahead of every later live write without this split.
+EMBEDDINGS_LIVE_PRIORITY = 1
+EMBEDDINGS_BACKFILL_PRIORITY = 0
+# How long a search query's embedding stays in the Django cache. Paginating re-runs the
+# whole search per page, so this is what keeps page 2..n from re-calling the embedding
+# service for the same query text. Vectors are tiny (~8 KB) and deterministic per model
+# config, so the TTL only bounds staleness across model/config changes, not correctness.
+EMBEDDINGS_QUERY_CACHE_TIMEOUT_SECONDS = env.int(
+    "EMBEDDINGS_QUERY_CACHE_TIMEOUT_SECONDS", default=900
+)
+# Rate-limit gate for the embedding provider: one per-process backoff window shared by
+# every embedding caller in the process (mirrors the LLM gate in core.utils.llm_client).
+# The embedding gateway is a different provider than the LLM, so it gets its own gate —
+# a 429 from one must not pause the other. Semantics of each knob match the LLM_RATE_LIMIT_*
+# settings above.
+EMBEDDINGS_RATE_LIMIT_BACKOFF_BASE_SECONDS = 2.0
+EMBEDDINGS_RATE_LIMIT_BACKOFF_MAX_SECONDS = 120.0
+EMBEDDINGS_RATE_LIMIT_HEADER_CEILING_SECONDS = 1800.0
+# Wait budgets: long for background embedding tasks; short for the search path, where a
+# user is waiting and falling back to FTS-only beats hanging on a closed gate.
+EMBEDDINGS_RATE_LIMIT_MAX_WAIT_SECONDS = 300.0
+EMBEDDINGS_RATE_LIMIT_QUERY_MAX_WAIT_SECONDS = 10.0
+# Local retries of transient (non-429) embedding call failures, mirroring the
+# LLM_TRANSIENT_RETRY_* knobs above: N retries after the first call, with
+# exponential backoff base * 2**attempt (0.5s, 1s).
+EMBEDDINGS_TRANSIENT_RETRY_ATTEMPTS = 2
+EMBEDDINGS_TRANSIENT_RETRY_BASE_SECONDS = 0.5
+# Procrastinate-level retry of a whole embedding subjob (see
+# EMBEDDING_TASK_RETRY_STRATEGY in radis.pgsearch.tasks). Waits grow as
+# exponential_wait ** attempt: 6s, 36s, ~4min, ~22min.
+EMBEDDINGS_TASK_MAX_ATTEMPTS = 5
+EMBEDDINGS_TASK_EXPONENTIAL_WAIT_SECONDS = 6
+
+# Hybrid search tuning
+HYBRID_VECTOR_TOP_K = 100
+HYBRID_FTS_MAX_RESULTS = 10_000
+HYBRID_RRF_K = 60
+
 # Chat
 CHAT_GENERATE_TITLE_SYSTEM_PROMPT = """
 Summarize the following conversation in $num_words words or less and in the same language as

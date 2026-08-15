@@ -2,11 +2,11 @@
 
 The sibling ``test_views.py`` patches ``radis.search.views.search_provider`` with
 a stub, so it never touches Postgres full-text search. These tests instead insert
-real ``Report`` rows (whose ``ReportSearchVector`` is populated by the pgsearch
+real ``Report`` rows (whose ``ReportSearchIndex`` is populated by the pgsearch
 ``post_save`` signal) and drive the whole stack:
 
     HTTP GET /search/  ->  SearchForm  ->  QueryParser  ->  pgsearch.providers.search
-    ->  to_tsquery  ->  ReportSearchVector  ->  rendered results
+    ->  to_tsquery  ->  ReportSearchIndex  ->  rendered results
 
 so we assert the seeded report is actually found and that the form's hard
 filters (modality, patient sex, age, study date, study description) propagate

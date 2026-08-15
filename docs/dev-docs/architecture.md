@@ -51,6 +51,10 @@ RADIS uses [Procrastinate](https://procrastinate.readthedocs.io/en/stable/), a P
 
 **LLM Worker Container (`radis-llm_worker-1`)**: Executes AI-intensive tasks from the llm queue (extraction tasks, subscription tasks). Uses ChatClient to communicate with the configured LLM endpoint.
 
+**Embeddings Worker Container (`radis-embeddings_worker-1`)**: Drains the embeddings
+queue — generating and storing report vectors for hybrid search, including operator
+backfills started by `./manage.py embed_pending` or the admin action.
+
 ### LLM Configuration
 
 **Model-Agnostic Architecture**: RADIS is model-agnostic and works with any LLM that provides an OpenAI-compatible API and supports structured outputs — extractions, subscriptions and labeling send a JSON schema as `response_format`, so an endpoint offering chat completions alone is not enough. It runs no inference server of its own — all inference is sent to an external endpoint configured through `LLM_BASE_URL` and `LLM_API_KEY`. That endpoint can be a commercial API (OpenAI, Azure OpenAI, …) or a server you run yourself (Ollama, vLLM, SGLang, llama.cpp).
@@ -62,6 +66,19 @@ RADIS uses [Procrastinate](https://procrastinate.readthedocs.io/en/stable/), a P
 **Production**: Points at whatever endpoint the deployment provides. No GPU is required on the RADIS nodes themselves.
 
 **Structured Output**: Uses OpenAI's `beta.chat.completions.parse` API with Pydantic schemas as `response_format` parameter, ensuring LLM returns valid JSON matching defined schemas. Applied in extractions (custom field extraction), subscriptions (yes/no question filtering) and labeling.
+
+**Embeddings**: Hybrid search adds a second external service, an OpenAI-compatible
+`/v1/embeddings` endpoint. `EMBEDDINGS_MODEL` both names the model and switches the
+feature on — left unset, RADIS runs full-text search only, queues no embedding work and
+never calls the service. It takes the same `model[?param=value&...]` spec as the LLM
+models, so a provider supporting OpenAI's `dimensions` is asked for the stored width
+directly instead of the client truncating a larger vector. `EMBEDDINGS_BASE_URL` and
+`EMBEDDINGS_API_KEY` default to `LLM_BASE_URL` and `LLM_API_KEY`: one endpoint serves
+both when the provider multiplexes models (OpenAI, Ollama, a gateway), while a
+self-hosted vLLM or SGLang serves one model per process and needs the override. The
+service has its own rate-limit gate — a 429 from the embedding gateway must not pause
+inference — and its own worker (`radis-embeddings_worker-1`) draining the `embeddings`
+queue, so a million-report backfill cannot starve extractions.
 
 ## Search Architecture
 

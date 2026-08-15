@@ -102,6 +102,46 @@ whole pipeline works, but not to judge results by. It gets fields wrong (asked f
 a CT report it answers things like "imaging"). Point `LLM_DEFAULT_MODEL` at something larger when
 the quality matters.
 
+### Embedding Setup (optional)
+
+Hybrid search needs a second model, an embedding model, reached over the same kind of
+OpenAI-compatible endpoint. It is optional: with `EMBEDDINGS_MODEL` empty, search runs
+full-text only and nothing else changes — no queued jobs, no failed calls.
+
+To turn it on with the Ollama you already have:
+
+```terminal
+ollama pull dengcao/Qwen3-Embedding-4B:Q5_K_M
+```
+
+```env
+EMBEDDINGS_MODEL=dengcao/Qwen3-Embedding-4B:Q5_K_M
+```
+
+`EMBEDDINGS_BASE_URL` and `EMBEDDINGS_API_KEY` are not needed here — they fall back to
+`LLM_BASE_URL` and `LLM_API_KEY`, and Ollama serves both models from one endpoint. Set
+them only if your embedding model lives on a different server, which is the normal case
+for vLLM and SGLang since they serve one model per process.
+
+Check that the endpoint actually serves the model, the same way you would check the LLM one:
+
+```terminal
+docker compose exec web sh -c 'curl -sf -H "Authorization: Bearer ${EMBEDDINGS_API_KEY:-$LLM_API_KEY}" "${EMBEDDINGS_BASE_URL:-$LLM_BASE_URL}/models"'
+```
+
+The `:-` fallbacks mirror what the settings do, so this probes the endpoint the app will
+actually use whether or not you overrode it.
+
+Existing reports are not embedded retroactively by the switch. Backfill them with:
+
+```terminal
+docker compose exec web ./manage.py embed_pending
+```
+
+A GGUF-quantized embedding model produces slightly different vectors than the bf16
+reference, so dev embeddings are not interchangeable with production ones — after
+swapping models, clear the column and run `embed_pending` again.
+
 ### Choosing models per feature
 
 `LLM_DEFAULT_MODEL` covers everything, but each feature can have its own model where that is worth
