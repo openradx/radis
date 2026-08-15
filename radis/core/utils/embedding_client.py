@@ -115,7 +115,10 @@ class EmbeddingClient:
         # Request parameters configured with the model, e.g. OpenAI's `dimensions`. Copied
         # rather than aliased: spec.params is the live settings.EMBEDDINGS_MODEL.params dict,
         # and every call below hands it to the SDK as extra_body -- nothing mutates it today,
-        # but a copy costs one line and rules out a future accidental corruption of settings.
+        # but a shallow copy costs one line and rules out an accidental top-level mutation
+        # (assignment, pop, clear) corrupting settings for later calls. It does not protect
+        # nested values (e.g. a `chat_template_kwargs.*` param), which stay shared; those
+        # would need a deep copy, not worth it for the scalar params actually in use today.
         self._extra_body = dict(spec.params)
         self._dim = settings.EMBEDDINGS_DIM
         self._instruction = settings.EMBEDDINGS_QUERY_INSTRUCTION

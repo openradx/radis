@@ -241,7 +241,7 @@ def _embed_query_or_none(query_text: str, caller: str) -> list[float] | None:
     try:
         with EmbeddingClient() as ec:
             return ec.embed_query(query_text)
-    except (EmbeddingClientError, *PERMANENT_EMBEDDING_ERRORS):
+    except (EmbeddingClientError, *PERMANENT_EMBEDDING_ERRORS) as exc:
         config_key = _embedding_config_key()
         if config_key not in _LOGGED_PERMANENT_FAILURE_CONFIGS:
             _LOGGED_PERMANENT_FAILURE_CONFIGS.add(config_key)
@@ -250,14 +250,19 @@ def _embed_query_or_none(query_text: str, caller: str) -> list[float] | None:
             )
         else:
             base_url, model = config_key
+            # Include the concrete exception type/message: the suppressed traceback that
+            # would otherwise explain *what* changed (wrong path vs. expired key vs. bad
+            # request) is long gone from recent logs by the time this branch fires again.
             logger.warning(
                 "%s falling back to FTS-only; embedding service still misconfigured for "
-                "this configuration (check EMBEDDINGS_BASE_URL=%r and EMBEDDINGS_MODEL=%r) "
-                "-- search is serving full-text-only results until this is fixed; the full "
-                "traceback was already logged once for this configuration",
+                "this configuration (check EMBEDDINGS_BASE_URL=%r and EMBEDDINGS_MODEL=%r): "
+                "%s: %s -- search is serving full-text-only results until this is fixed; "
+                "the full traceback was already logged once for this configuration",
                 caller,
                 base_url,
                 model,
+                type(exc).__name__,
+                exc,
             )
         return None
     except (RateLimited, openai.OpenAIError) as e:

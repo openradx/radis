@@ -28,14 +28,10 @@ def _embeddings_configured(settings):
     settings.EMBEDDINGS_BASE_URL = "http://gateway.example/v1"
 
 
-@pytest.fixture(autouse=True)
-def _reset_logged_permanent_failure_configs():
-    """The suppression set is process-global (see providers.py), so without a reset
-    test order could make a later test pass only because an earlier test already
-    logged the traceback for the same (endpoint, model) configuration."""
-    providers._LOGGED_PERMANENT_FAILURE_CONFIGS.clear()
-    yield
-    providers._LOGGED_PERMANENT_FAILURE_CONFIGS.clear()
+# The process-global suppression set (providers._LOGGED_PERMANENT_FAILURE_CONFIGS) is
+# reset by the autouse `_clear_logged_permanent_failure_configs` fixture in
+# radis/pgsearch/tests/conftest.py, which every test in this package picks up
+# automatically; no local reset fixture is needed here.
 
 
 def _patch_embedding_client_to_fail():
@@ -78,19 +74,34 @@ def test_second_identical_failure_logs_warning_without_traceback(caplog):
     warning_records = [r for r in caplog.records if r.levelname == "WARNING"]
     assert len(warning_records) == 1
     message = warning_records[0].getMessage()
-    # Actionable on its own: names the settings to check, states the cost, and says
-    # the traceback was already logged once so the operator knows not to expect one.
+    # Actionable on its own: names the settings to check, states the cost, names the
+    # concrete cause (so a later different failure under the same config is
+    # distinguishable from this one once its own traceback has scrolled out of recent
+    # logs), and says the traceback was already logged once.
     assert "EMBEDDINGS_BASE_URL" in message
     assert "EMBEDDINGS_MODEL" in message
     assert "full-text-only" in message
     assert "once" in message
+    assert "EmbeddingClientError" in message
 
 
-def test_failure_under_changed_configuration_logs_fresh_traceback(caplog, settings):
+def test_repeat_failure_then_changed_configuration(caplog, settings):
+    """Chained so this test is self-sufficient evidence of the full throttle
+    lifecycle, rather than relying on a sibling test for the "same config" half:
+    fail under config A (full traceback) -> fail again under A (suppressed to a
+    WARNING) -> switch to config B -> fail under B (a fresh traceback of its own)."""
     patcher = _patch_embedding_client_to_fail()
     try:
         with caplog.at_level(logging.DEBUG, logger="radis.pgsearch.providers"):
             providers._embed_query_or_none("pneumonia", "test")
+            first_exceptions = [r for r in caplog.records if r.exc_info is not None]
+            assert len(first_exceptions) == 1
+
+            caplog.clear()
+            providers._embed_query_or_none("pneumonia", "test")
+            assert all(r.exc_info is None for r in caplog.records)
+            assert any(r.levelname == "WARNING" for r in caplog.records)
+
             caplog.clear()
             settings.EMBEDDINGS_BASE_URL = "http://other-gateway.example/v1"
             result = providers._embed_query_or_none("pneumonia", "test")
