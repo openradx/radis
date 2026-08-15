@@ -127,7 +127,12 @@ def test_multiple_codes_sharing_the_simple_config_are_grouped_together(group):
     """Two languages Postgres has no dictionary for both fall back to 'simple',
     landing in the SAME branch with BOTH codes in its `codes__in` list -- the
     only path that exercises `_language_configs`'s `setdefault(...).append(...)`
-    grouping with more than one code, for matching and exclusion alike."""
+    grouping with more than one code, for the grouped branch's FTS match
+    (below) and for a NOT term baked into that same raw tsquery. This does NOT
+    exercise `_exclude_negations` -- EMBEDDINGS_MODEL is unset in this test, so
+    the vector side (and `_exclude_negations` with it) never runs; see
+    `test_negation_excludes_leaking_vector_candidates_under_each_documents_own_config`
+    for the test that does reach it, with two configs."""
     thai = ReportFactory.create(
         body="Findings: opacity in the right lung.",
         language=LanguageFactory.create(code="th"),
@@ -150,8 +155,10 @@ def test_multiple_codes_sharing_the_simple_config_are_grouped_together(group):
     assert thai.document_id in hits
     assert chinese.document_id in hits
 
-    # Exclusion: NOT must exclude a document under either code sharing that
-    # branch.
+    # NOT, via the grouped branch's own raw FTS tsquery (not
+    # `_exclude_negations`, the separate vector-side path this test never
+    # reaches): the tsquery itself embeds '!effusion', so it excludes a
+    # document under either code sharing that branch.
     doc_ids = list(retrieve(_make_search("opacity AND NOT effusion", group.pk)))
     assert chinese.document_id not in doc_ids
     assert thai.document_id in doc_ids

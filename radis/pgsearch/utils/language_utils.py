@@ -92,6 +92,13 @@ def code_to_language(code: str) -> str:
     already-cached config set (see ``get_available_search_configs``), so this
     is safe to cache the same way; ``clear_search_config_cache`` invalidates
     both together.
+
+    Side effect of caching: the "Unknown language code ... falling back to
+    simple" WARNING below only fires the first time a given unresolvable code
+    is seen per process, not once per call -- like the precedent in
+    ``_LOGGED_PERMANENT_FAILURE_CONFIGS`` (radis.pgsearch.providers), this is
+    probably desirable, but an operator who sees the warning once should not
+    assume the code was only looked up once.
     """
     if not code:
         return "simple"
