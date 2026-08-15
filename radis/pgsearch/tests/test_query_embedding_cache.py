@@ -138,3 +138,24 @@ def test_differing_spec_parameters_do_not_share_a_cache_entry(monkeypatch):
         providers._embed_query_cached("pneumonia", "test")
 
     assert len(calls) == 2
+
+
+def test_differing_base_url_does_not_share_a_cache_entry(monkeypatch):
+    # Same model name, two deployments -- "qwen3" on one gateway is different weights
+    # (and thus a different vector) than "qwen3" on another, so the endpoint must be
+    # part of the fingerprint or a repointed deployment would serve stale vectors from
+    # the shared (database-backed, restart-surviving) cache.
+    calls = []
+
+    def fake_embed(text, caller):
+        calls.append(text)
+        return [1.0, 0.0]
+
+    monkeypatch.setattr(providers, "_embed_query_or_none", fake_embed)
+
+    with override_settings(EMBEDDINGS_BASE_URL="http://gateway-a.example/v1"):
+        providers._embed_query_cached("pneumonia", "test")
+    with override_settings(EMBEDDINGS_BASE_URL="http://gateway-b.example/v1"):
+        providers._embed_query_cached("pneumonia", "test")
+
+    assert len(calls) == 2

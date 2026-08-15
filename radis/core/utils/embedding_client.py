@@ -112,8 +112,11 @@ class EmbeddingClient:
             timeout=settings.EMBEDDINGS_REQUEST_TIMEOUT_SECONDS,
         )
         self._model = spec.model
-        # Request parameters configured with the model, e.g. OpenAI's `dimensions`.
-        self._extra_body = spec.params
+        # Request parameters configured with the model, e.g. OpenAI's `dimensions`. Copied
+        # rather than aliased: spec.params is the live settings.EMBEDDINGS_MODEL.params dict,
+        # and every call below hands it to the SDK as extra_body -- nothing mutates it today,
+        # but a copy costs one line and rules out a future accidental corruption of settings.
+        self._extra_body = dict(spec.params)
         self._dim = settings.EMBEDDINGS_DIM
         self._instruction = settings.EMBEDDINGS_QUERY_INSTRUCTION
 

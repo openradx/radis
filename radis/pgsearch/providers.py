@@ -213,21 +213,52 @@ def _build_filter_query(filters: SearchFilters) -> Q:
     return fq
 
 
+# (EMBEDDINGS_BASE_URL, model) pairs that have already logged a full permanent-failure
+# traceback in this process. Failures are deliberately not cached (see
+# _embed_query_cached), so without this a persistent misconfiguration would log a full
+# traceback on every single search request, forever; membership here downgrades the
+# repeat occurrences to a one-line WARNING. A config change is a new key, so it still
+# gets its own fresh traceback. Bounded by the number of distinct embedding
+# configurations this process observes -- realistically one, since it only changes on
+# a redeploy -- so this cannot grow without bound.
+_LOGGED_PERMANENT_FAILURE_CONFIGS: set[tuple[str, str | None]] = set()
+
+
+def _embedding_config_key() -> tuple[str, str | None]:
+    spec = settings.EMBEDDINGS_MODEL
+    return (settings.EMBEDDINGS_BASE_URL, spec.model if spec is not None else None)
+
+
 def _embed_query_or_none(query_text: str, caller: str) -> list[float] | None:
     """Embed the query text, or return None to signal FTS-only fallback.
 
     Search must stay usable when the embedding service doesn't, so every
     failure falls back — but at different log levels: transient conditions
     (rate limiting, connection blips, 5xx) are expected under load and log a
-    WARNING, while permanent misconfiguration logs a full exception so it
-    reaches operators instead of hiding as a silently degraded search."""
+    WARNING, while permanent misconfiguration logs a full exception (once per
+    configuration, see _LOGGED_PERMANENT_FAILURE_CONFIGS) so it reaches operators
+    instead of hiding as a silently degraded search."""
     try:
         with EmbeddingClient() as ec:
             return ec.embed_query(query_text)
     except (EmbeddingClientError, *PERMANENT_EMBEDDING_ERRORS):
-        logger.exception(
-            "%s falling back to FTS-only; embedding service looks misconfigured", caller
-        )
+        config_key = _embedding_config_key()
+        if config_key not in _LOGGED_PERMANENT_FAILURE_CONFIGS:
+            _LOGGED_PERMANENT_FAILURE_CONFIGS.add(config_key)
+            logger.exception(
+                "%s falling back to FTS-only; embedding service looks misconfigured", caller
+            )
+        else:
+            base_url, model = config_key
+            logger.warning(
+                "%s falling back to FTS-only; embedding service still misconfigured for "
+                "this configuration (check EMBEDDINGS_BASE_URL=%r and EMBEDDINGS_MODEL=%r) "
+                "-- search is serving full-text-only results until this is fixed; the full "
+                "traceback was already logged once for this configuration",
+                caller,
+                base_url,
+                model,
+            )
         return None
     except (RateLimited, openai.OpenAIError) as e:
         logger.warning("%s falling back to FTS-only: %s", caller, e)
@@ -239,11 +270,13 @@ def _embed_query_cached(query_text: str, caller: str) -> list[float] | None:
 
     Pagination re-runs the whole search for every page, so without this every
     page load re-calls the embedding service for the same query text. The key
-    covers everything that determines the vector — model, spec parameters,
-    instruction, dim, query text — because a shared cache backend (production
-    uses the database) outlives process restarts and thus config changes.
-    Failures are not cached: a transient outage must not pin searches to
-    FTS-only for the TTL.
+    covers everything that determines the vector — endpoint, model, spec
+    parameters, instruction, dim, query text — because a shared cache backend
+    (production uses the database) outlives process restarts and thus config
+    changes: "qwen3" on one deployment and "qwen3" on another are different
+    weights, so the endpoint has to be part of the fingerprint too (the API key
+    is not identity and stays out of the cache key). Failures are not cached: a
+    transient outage must not pin searches to FTS-only for the TTL.
     """
     spec = settings.EMBEDDINGS_MODEL
     if spec is None:
@@ -253,6 +286,7 @@ def _embed_query_cached(query_text: str, caller: str) -> list[float] | None:
         return None
     fingerprint = "\x00".join(
         [
+            settings.EMBEDDINGS_BASE_URL,
             spec.model,
             json.dumps(spec.params, sort_keys=True),
             settings.EMBEDDINGS_QUERY_INSTRUCTION,
