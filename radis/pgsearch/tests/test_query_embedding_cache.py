@@ -35,7 +35,11 @@ def _make_search(query_str: str, group_id: int, offset: int = 0) -> Search:
     assert node is not None
     return Search(
         query=node,
-        filters=SearchFilters(group=group_id),
+        # language="en" matches the report's pinned language below, so the
+        # query-side tsquery config equals the config the report was indexed
+        # with (ReportFactory otherwise randomizes the language, and a config
+        # mismatch makes lexical matching flaky; see test_provider_hybrid.py).
+        filters=SearchFilters(group=group_id, language="en"),
         offset=offset,
         limit=25,
     )
@@ -50,7 +54,7 @@ def group(db):
 def vector_only_report(group, settings):
     """A report only reachable through the vector side, so results prove the
     query embedding was actually used (not just that no exception occurred)."""
-    r = ReportFactory.create(body="Lungs are clear bilaterally.")
+    r = ReportFactory.create(body="Lungs are clear bilaterally.", language__code="en")
     r.groups.add(group)
     ReportSearchIndex.objects.filter(report=r).update(
         embedding=_unit_vec(0, settings.EMBEDDINGS_DIM)

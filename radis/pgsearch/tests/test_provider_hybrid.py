@@ -10,6 +10,7 @@ from radis.core.utils.model_spec import parse_model_spec
 from radis.pgsearch.models import ReportSearchIndex
 from radis.pgsearch.providers import count, retrieve, search
 from radis.reports.factories import ReportFactory
+from radis.reports.models import Report
 from radis.search.site import Search, SearchFilters
 from radis.search.utils.query_parser import QueryParser
 
@@ -31,12 +32,26 @@ def _unit_vec(idx: int, dim: int) -> list[float]:
     return v
 
 
+def _make_report(body: str, **overrides) -> Report:
+    """Create a report pinned to language ``en`` (like test_providers.py does).
+
+    ReportFactory otherwise assigns a random Faker language code, and the index
+    stems ``body`` with the config resolved from that language while the query
+    side uses the config resolved from the search filters. A random language
+    whose stemmer rewrites a query term (e.g. english: effusion -> effus) makes
+    lexical matching — including negation exclusions — silently miss, turning
+    these tests flaky."""
+    return ReportFactory.create(body=body, language__code="en", **overrides)
+
+
 def _make_search(query_str: str, group_id: int) -> Search:
     node, _ = QueryParser().parse(query_str)
     assert node is not None
     return Search(
         query=node,
-        filters=SearchFilters(group=group_id),
+        # language="en" so the query-side tsquery config matches the config the
+        # reports from _make_report were indexed with (see its docstring).
+        filters=SearchFilters(group=group_id, language="en"),
         offset=0,
         limit=25,
     )
@@ -51,15 +66,13 @@ def group(db):
 def reports_with_embeddings(group, settings):
     dim = settings.EMBEDDINGS_DIM
     # r0: matches FTS for "pneumothorax", vector unrelated (dim 99)
-    r0 = ReportFactory.create(body="Findings: pneumothorax on the left.")
+    r0 = _make_report(body="Findings: pneumothorax on the left.")
     r0.groups.add(group)
     # r1: doesn't lexically match "pneumothorax"; embedding at dim 1 (not identical to query dim 0)
-    r1 = ReportFactory.create(body="Lungs are clear bilaterally.")
+    r1 = _make_report(body="Lungs are clear bilaterally.")
     r1.groups.add(group)
     # r2: matches FTS (multiple times for stronger ts_rank) AND vector exactly at query dim 0
-    r2 = ReportFactory.create(
-        body="No pneumothorax detected. Previous pneumothorax resolved. Lungs clear."
-    )
+    r2 = _make_report(body="No pneumothorax detected. Previous pneumothorax resolved. Lungs clear.")
     r2.groups.add(group)
     ReportSearchIndex.objects.filter(report=r0).update(embedding=_unit_vec(99, dim))
     ReportSearchIndex.objects.filter(report=r1).update(embedding=_unit_vec(1, dim))
@@ -150,7 +163,7 @@ def test_search_without_a_configured_model_makes_no_embedding_call(
 
 def test_reports_with_null_embedding_still_returned_via_fts(group, settings):
     dim = settings.EMBEDDINGS_DIM
-    r = ReportFactory.create(body="pneumothorax findings")
+    r = _make_report(body="pneumothorax findings")
     r.groups.add(group)
     # Leave embedding NULL.
     with patch("radis.pgsearch.providers.EmbeddingClient") as MockClient:
@@ -166,7 +179,7 @@ def test_reports_with_null_embedding_still_returned_via_fts(group, settings):
 def test_empty_summary_falls_back_to_body_head(group, settings):
     dim = settings.EMBEDDINGS_DIM
     # Doc whose body does not contain the query word — vector-only hit.
-    r = ReportFactory.create(
+    r = _make_report(
         body="lung parenchyma demonstrates clear bilaterally with no abnormality",
     )
     r.groups.add(group)
@@ -235,7 +248,7 @@ def test_m2m_filter_does_not_duplicate_results(group, settings):
     report__modalities__code__in produces one row per matching modality, which
     inflates rank position and corrupts top-K slicing."""
     dim = settings.EMBEDDINGS_DIM
-    r = ReportFactory.create(body="pneumothorax findings", modalities=["CT", "MR", "DX"])
+    r = _make_report(body="pneumothorax findings", modalities=["CT", "MR", "DX"])
     r.groups.add(group)
     ReportSearchIndex.objects.filter(report=r).update(embedding=_unit_vec(0, dim))
 
@@ -243,7 +256,7 @@ def test_m2m_filter_does_not_duplicate_results(group, settings):
     assert node is not None
     s = Search(
         query=node,
-        filters=SearchFilters(group=group.pk, modalities=["CT", "MR", "DX"]),
+        filters=SearchFilters(group=group.pk, language="en", modalities=["CT", "MR", "DX"]),
         offset=0,
         limit=10,
     )
@@ -282,7 +295,9 @@ def test_search_skips_embedding_when_query_reduces_to_not(monkeypatch, group):
 
     node, _ = QueryParser().parse("NOT pneumothorax")
     assert node is not None
-    search = Search(query=node, filters=SearchFilters(group=group.pk), offset=0, limit=10)
+    search = Search(
+        query=node, filters=SearchFilters(group=group.pk, language="en"), offset=0, limit=10
+    )
     result = providers.search(search)
 
     assert embed_query_calls == []
@@ -319,7 +334,9 @@ def test_search_embeds_only_positive_branch_for_and_not(monkeypatch, group, sett
 
     node, _ = QueryParser().parse("pneumothorax AND NOT effusion")
     assert node is not None
-    search = Search(query=node, filters=SearchFilters(group=group.pk), offset=0, limit=10)
+    search = Search(
+        query=node, filters=SearchFilters(group=group.pk, language="en"), offset=0, limit=10
+    )
     providers.search(search)
 
     assert embed_query_calls == ["pneumothorax"]
@@ -336,11 +353,11 @@ def test_search_excludes_negated_term_from_vector_candidates(group, settings):
     # Contains BOTH pneumothorax and effusion; its embedding sits exactly on the
     # query vector, so it is the nearest vector neighbour. `NOT effusion` must
     # keep it out of the results entirely.
-    r_leak = ReportFactory.create(body="Findings: pneumothorax with a large pleural effusion.")
+    r_leak = _make_report(body="Findings: pneumothorax with a large pleural effusion.")
     r_leak.groups.add(group)
     ReportSearchIndex.objects.filter(report=r_leak).update(embedding=_unit_vec(0, dim))
     # Legitimate hit: pneumothorax, no effusion.
-    r_good = ReportFactory.create(body="Findings: pneumothorax, otherwise unremarkable.")
+    r_good = _make_report(body="Findings: pneumothorax, otherwise unremarkable.")
     r_good.groups.add(group)
     ReportSearchIndex.objects.filter(report=r_good).update(embedding=_unit_vec(1, dim))
 
@@ -359,10 +376,10 @@ def test_retrieve_excludes_negated_term_from_vector_candidates(group, settings):
     """`A AND NOT B` on the retrieve path: extraction/subscription consumers
     must not receive a B-containing doc that leaked in via the vector half."""
     dim = settings.EMBEDDINGS_DIM
-    r_leak = ReportFactory.create(body="Findings: pneumothorax with a large pleural effusion.")
+    r_leak = _make_report(body="Findings: pneumothorax with a large pleural effusion.")
     r_leak.groups.add(group)
     ReportSearchIndex.objects.filter(report=r_leak).update(embedding=_unit_vec(0, dim))
-    r_good = ReportFactory.create(body="Findings: pneumothorax, otherwise unremarkable.")
+    r_good = _make_report(body="Findings: pneumothorax, otherwise unremarkable.")
     r_good.groups.add(group)
     ReportSearchIndex.objects.filter(report=r_good).update(embedding=_unit_vec(1, dim))
 
@@ -383,7 +400,7 @@ def test_or_nested_negation_is_not_excluded_globally(group, settings):
     dim = settings.EMBEDDINGS_DIM
     # Matches the `fracture` (C) branch but also contains `effusion` (B).
     # It must survive because NOT effusion only applies to the pneumothorax branch.
-    r_or = ReportFactory.create(body="Findings: acute rib fracture with small effusion.")
+    r_or = _make_report(body="Findings: acute rib fracture with small effusion.")
     r_or.groups.add(group)
     ReportSearchIndex.objects.filter(report=r_or).update(embedding=_unit_vec(0, dim))
 
@@ -404,7 +421,7 @@ def test_count_matches_retrieve_union_for_semantic_only_query(group, settings):
     dim = settings.EMBEDDINGS_DIM
     # Body does not lexically contain "pneumothorax" -> FTS misses it; the
     # embedding sits on the query vector -> it is a vector hit.
-    r = ReportFactory.create(body="lungs are clear bilaterally")
+    r = _make_report(body="lungs are clear bilaterally")
     r.groups.add(group)
     ReportSearchIndex.objects.filter(report=r).update(embedding=_unit_vec(0, dim))
 
