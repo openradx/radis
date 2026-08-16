@@ -3,6 +3,7 @@ from datetime import datetime, timedelta
 
 from django.apps import apps
 from django.conf import settings
+from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
 from procrastinate.contrib.django.models import ProcrastinateJob
@@ -67,35 +68,38 @@ def _resolve_stale_task(task: AnalysisTask, owner_gone: Q) -> str | None:
 
     stale_job_id = task.queued_job_id  # the UPDATE below sets this to NULL
 
-    # Re-check status and owner-gone inside the UPDATE itself, so nothing happens if another
-    # sweep or a live worker got to this task first. (A rare duplicate queue row is still
-    # possible; the processor's PENDING claim drops it.)
-    updated = (
-        model.objects.filter(pk=task.pk, status=AnalysisTask.Status.IN_PROGRESS)
-        .filter(owner_gone)
-        .update(
-            status=new_status,
-            message="The worker processing this task was terminated.",
-            ended_at=ended_at,
-            queued_job_id=None,
+    # Reset and re-queue in one transaction: if delay() fails, the reset rolls back and the
+    # next sweep retries. A PENDING task without a queue row would never run again.
+    with transaction.atomic():
+        # Re-check status and owner-gone inside the UPDATE itself, so nothing happens if
+        # another sweep or a live worker got to this task first. (A rare duplicate queue
+        # row is still possible; the processor's PENDING claim drops it.)
+        updated = (
+            model.objects.filter(pk=task.pk, status=AnalysisTask.Status.IN_PROGRESS)
+            .filter(owner_gone)
+            .update(
+                status=new_status,
+                message="The worker processing this task was terminated.",
+                ended_at=ended_at,
+                queued_job_id=None,
+            )
         )
-    )
-    if not updated:
-        return None  # another sweep or a live worker got here first
+        if not updated:
+            return None  # another sweep or a live worker got here first
 
-    if new_status == AnalysisTask.Status.PENDING:
-        # Re-queue only if the old queue row will not fire again (gone, or not todo/doing).
-        # Check the DB fresh, not our snapshot: the row may have been deleted since we
-        # picked this task, and a PENDING task without a queue row would never run again.
-        row_alive = (
-            stale_job_id is not None
-            and ProcrastinateJob.objects.filter(
-                pk=stale_job_id, status__in=_LIVE_ROW_STATUSES
-            ).exists()
-        )
-        if not row_alive:
-            task.refresh_from_db()  # delay() saves the whole task; reload it first
-            task.delay()
+        if new_status == AnalysisTask.Status.PENDING:
+            # Re-queue only if the old queue row will not fire again (gone, or not
+            # todo/doing). Check the DB fresh, not our snapshot: the row may have been
+            # deleted since we picked this task.
+            row_alive = (
+                stale_job_id is not None
+                and ProcrastinateJob.objects.filter(
+                    pk=stale_job_id, status__in=_LIVE_ROW_STATUSES
+                ).exists()
+            )
+            if not row_alive:
+                task.refresh_from_db()  # delay() saves the whole task; reload it first
+                task.delay()
 
     return "pending" if new_status == AnalysisTask.Status.PENDING else "canceled"
 

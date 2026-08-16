@@ -218,3 +218,17 @@ def test_sweep_command_exits_zero_when_sweep_raises():
         side_effect=RuntimeError("boom"),
     ):
         call_command("sweep_stale_tasks")  # must not raise
+
+
+@pytest.mark.django_db
+def test_reset_rolls_back_when_requeue_fails():
+    # If delay() fails after the reset, the task must stay IN_PROGRESS so the next sweep
+    # retries it. A PENDING task without a queue row would never run again.
+    task = make_stale_task(AnalysisJob.Status.IN_PROGRESS, row=None)
+
+    with patch.object(ExtractionTask, "delay", autospec=True, side_effect=RuntimeError("db")):
+        with pytest.raises(RuntimeError):
+            recovery._resolve_stale_task(task, owner_gone_q())
+
+    task.refresh_from_db()
+    assert task.status == AnalysisTask.Status.IN_PROGRESS
