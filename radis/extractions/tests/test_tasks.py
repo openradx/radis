@@ -59,17 +59,63 @@ def test_process_extraction_job_only_enqueues_tasks_after_job_is_pending(monkeyp
     assert all(status == ExtractionJob.Status.PENDING for status in enqueue_job_statuses)
 
 
+def _dummy_provider(doc_ids: list[str]) -> ExtractionRetrievalProvider:
+    return ExtractionRetrievalProvider(
+        name="dummy",
+        count=lambda _search: len(doc_ids),
+        retrieve=lambda _search: doc_ids,
+        max_results=100,
+    )
+
+
 @pytest.mark.django_db
-def test_refired_prep_job_in_preparing_resumes_without_raising():
-    user = UserFactory.create()
-    job = ExtractionJobFactory.create(owner=user, status=AnalysisJob.Status.PREPARING)
-    ExtractionTaskFactory.create(job=job, status=AnalysisTask.Status.PENDING)
+def test_refired_prep_job_in_preparing_rebuilds_partial_tasks(monkeypatch, settings):
+    """A crash during preparation leaves a partial task set. Running the prep again must
+    not accept it as complete: it drops the leftovers and prepares all batches."""
+    settings.EXTRACTION_TASK_BATCH_SIZE = 2
+    user = UserFactory.create(is_active=True)
+    group = GroupFactory.create()
+    doc_ids = [f"DOC-{i}" for i in range(5)]  # 3 batches of size 2
+    for doc_id in doc_ids:
+        ReportFactory.create(document_id=doc_id)
+    monkeypatch.setattr(extraction_site, "extraction_retrieval_provider", _dummy_provider(doc_ids))
+
+    job = ExtractionJobFactory.create(
+        owner=user, group=group, query="test", status=AnalysisJob.Status.PREPARING
+    )
+    # Leftover from the crashed attempt: only the first batch was created.
+    partial_task = ExtractionTaskFactory.create(job=job, status=AnalysisTask.Status.PENDING)
 
     with patch.object(ExtractionTask, "delay", autospec=True) as mock_delay:
         process_extraction_job(int(job.pk))
 
     job.refresh_from_db()
     assert job.status == AnalysisJob.Status.PENDING
+    assert not ExtractionTask.objects.filter(pk=partial_task.pk).exists()
+    assert job.tasks.count() == 3
+    assert ExtractionInstance.objects.filter(task__job=job).count() == 5
+    assert mock_delay.call_count == 3
+
+
+@pytest.mark.django_db
+def test_pending_job_with_tasks_only_enqueues_them(monkeypatch):
+    """A crash after preparation finished (job PENDING, tasks created but not all
+    enqueued) must not rebuild: existing tasks are kept and enqueued."""
+    monkeypatch.setattr(
+        extraction_site,
+        "extraction_retrieval_provider",
+        _dummy_provider(["MUST-NOT-BE-RETRIEVED"]),
+    )
+    user = UserFactory.create()
+    job = ExtractionJobFactory.create(owner=user, status=AnalysisJob.Status.PENDING)
+    task = ExtractionTaskFactory.create(job=job, status=AnalysisTask.Status.PENDING)
+
+    with patch.object(ExtractionTask, "delay", autospec=True) as mock_delay:
+        process_extraction_job(int(job.pk))
+
+    job.refresh_from_db()
+    assert job.status == AnalysisJob.Status.PENDING
+    assert list(job.tasks.values_list("pk", flat=True)) == [task.pk]
     mock_delay.assert_called_once()
 
 

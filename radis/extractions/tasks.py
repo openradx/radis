@@ -50,14 +50,14 @@ def process_extraction_job(job_id: int) -> None:
     # early and `AnalysisTaskProcessor.start()` will assert because the job is still PREPARING.
     # Tasks may be created while PREPARING, but only enqueued after switching back to PENDING.
 
+    # A crash during preparation can leave a partial set of tasks behind. They were never
+    # enqueued (that only happens once the job is PENDING), so drop them and prepare again.
+    if job.status == ExtractionJob.Status.PREPARING:
+        job.tasks.all().delete()
+
     # If tasks already exist, this is a resume/retry path. We keep the job in PENDING and just
     # (re-)enqueue any pending tasks that are currently not queued.
     if job.tasks.exists():
-        # After a crash during preparation the job is still PREPARING; set it back to
-        # PENDING before enqueueing (see invariant above).
-        if job.status == ExtractionJob.Status.PREPARING:
-            job.status = ExtractionJob.Status.PENDING
-            job.save()
         tasks_to_enqueue = job.tasks.filter(status=ExtractionTask.Status.PENDING)
     else:
         job.status = ExtractionJob.Status.PREPARING
