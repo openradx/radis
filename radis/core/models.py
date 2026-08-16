@@ -126,8 +126,8 @@ class AnalysisJob(models.Model):
             self.status = AnalysisJob.Status.SUCCESS
             self.message = "All tasks succeeded."
         else:
-            # Every task is CANCELED — reachable when a task of an already CANCELED
-            # job re-fires and is canceled again. Settle the job instead of raising.
+            # All tasks are canceled (e.g. a task of an already canceled job ran again
+            # and was canceled once more). Mark the job canceled instead of raising.
             self.status = AnalysisJob.Status.CANCELED
             self.message = "All tasks canceled."
             self.save()

@@ -14,8 +14,8 @@ class Command(BaseCommand):
         self.stdout.write("Sweeping stale analysis tasks... ", ending="")
         self.stdout.flush()
 
-        # Runs in front of bg_worker joined by `&&` — must never exit non-zero. A repair
-        # that did not happen is recoverable; a worker that will not boot is not.
+        # This runs before bg_worker in the container start command (chained with &&),
+        # so it must never fail: the worker must start even if the sweep breaks.
         try:
             sweep_stale_analysis_state()
         except Exception:

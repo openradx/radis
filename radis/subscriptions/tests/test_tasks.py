@@ -53,12 +53,8 @@ def test_process_subscription_job_only_enqueues_tasks_after_job_is_pending(monke
 
 @pytest.mark.django_db(transaction=True)
 def test_pending_job_resumes_enqueueing_after_crash(settings, monkeypatch):
-    """
-    A worker crash between the PENDING flip and the enqueue loop leaves a PENDING
-    job with un-queued PENDING tasks. Nothing else repairs this (the sweep only
-    looks at IN_PROGRESS tasks, and the launcher treats PENDING as active), so
-    re-firing process_subscription_job must finish enqueueing them itself.
-    """
+    """A crash while enqueueing leaves a PENDING job with un-queued tasks. Running
+    process_subscription_job again must enqueue them (nothing else repairs this)."""
     settings.PROCRASTINATE_READONLY_MODELS = False
 
     user = UserFactory.create(is_active=True)
@@ -75,9 +71,7 @@ def test_pending_job_resumes_enqueueing_after_crash(settings, monkeypatch):
         for _ in range(2)
     ]
 
-    # If the fix took the PREPARING-only warning path instead, the filter provider
-    # would never be consulted for a resume - but it also must not be consulted here,
-    # since a mid-enqueue crash must not re-run report collection.
+    # Resuming must only enqueue; it must not search for reports again.
     def _fail_if_called(_filters):
         raise AssertionError("resume must not re-search for reports")
 

@@ -12,8 +12,7 @@ from radis.core.models import AnalysisJob, AnalysisTask
 
 logger = logging.getLogger(__name__)
 
-# Row statuses under which no worker is executing the row. ABORTING is documented as
-# legacy and unused; a row in any status other than "doing" is not being run by anyone.
+# Queue row statuses that mean no worker is currently running the row (all but "doing").
 _INACTIVE_ROW_STATUSES = [
     Status.TODO.value,
     Status.SUCCEEDED.value,
@@ -37,17 +36,17 @@ def _analysis_task_models() -> list[type[AnalysisTask]]:
 
 
 def _owner_gone_q(cutoff: datetime) -> Q:
-    """The worker that was running the task is gone.
+    """Match tasks whose worker is gone (queue row missing, finished, or worker silent).
 
-    Positive disjunctions on purpose: with a nullable join, an .exclude() of the
-    live case evaluates to NULL for orphans and silently drops them.
+    Written as OR-ed positive conditions: an .exclude() would miss tasks that have no
+    queue row at all (NULL join).
     """
     return (
         # queue row deleted (Procrastinate runs with --delete-jobs=always)
         Q(queued_job__isnull=True)
         # queue row is not being run by anyone: already re-queued, or finished
         | Q(queued_job__status__in=_INACTIVE_ROW_STATUSES)
-        # queue row says doing, but its worker row was pruned
+        # queue row says doing, but its worker row no longer exists
         | Q(queued_job__status=Status.DOING.value, queued_job__worker__isnull=True)
         # queue row says doing, but its worker stopped sending heartbeats
         | Q(queued_job__status=Status.DOING.value, queued_job__worker__last_heartbeat__lt=cutoff)
@@ -55,7 +54,7 @@ def _owner_gone_q(cutoff: datetime) -> Q:
 
 
 def _resolve_stale_task(task: AnalysisTask, owner_gone: Q) -> str | None:
-    """Repair one stale candidate. Returns the outcome, or None if the race was lost."""
+    """Reset one stale task. Returns "pending"/"canceled", or None if it was no longer stale."""
     model = type(task)
     job = task.job
 
@@ -66,12 +65,11 @@ def _resolve_stale_task(task: AnalysisTask, owner_gone: Q) -> str | None:
         new_status = AnalysisTask.Status.PENDING
         ended_at = None
 
-    stale_job_id = task.queued_job_id  # capture before the update nulls it
+    stale_job_id = task.queued_job_id  # the UPDATE below sets this to NULL
 
-    # Conditional UPDATE re-checks status AND owner-gone at execution time, closing the
-    # common orderings of concurrent sweeps and live-worker claims. A residual window
-    # between the UPDATE's snapshot of the joined worker tables and its row lock can still
-    # yield a duplicate queue row; the processor's PENDING claim discards it.
+    # Re-check status and owner-gone inside the UPDATE itself, so nothing happens if another
+    # sweep or a live worker got to this task first. (A rare duplicate queue row is still
+    # possible; the processor's PENDING claim drops it.)
     updated = (
         model.objects.filter(pk=task.pk, status=AnalysisTask.Status.IN_PROGRESS)
         .filter(owner_gone)
@@ -83,12 +81,12 @@ def _resolve_stale_task(task: AnalysisTask, owner_gone: Q) -> str | None:
         )
     )
     if not updated:
-        return None  # another sweep won, or a live worker claimed the task meanwhile
+        return None  # another sweep or a live worker got here first
 
     if new_status == AnalysisTask.Status.PENDING:
-        # Fresh read — never the candidate snapshot: the row can fire, fail its claim and
-        # be deleted mid-sweep, and a PENDING task with no row is invisible to every
-        # future sweep. Re-queue only when no live row remains.
+        # Re-queue only if the old queue row will not fire again (gone, or not todo/doing).
+        # Check the DB fresh, not our snapshot: the row may have been deleted since we
+        # picked this task, and a PENDING task without a queue row would never run again.
         row_alive = (
             stale_job_id is not None
             and ProcrastinateJob.objects.filter(
@@ -96,7 +94,7 @@ def _resolve_stale_task(task: AnalysisTask, owner_gone: Q) -> str | None:
             ).exists()
         )
         if not row_alive:
-            task.refresh_from_db()  # delay() does a full save; don't write back stale fields
+            task.refresh_from_db()  # delay() saves the whole task; reload it first
             task.delay()
 
     return "pending" if new_status == AnalysisTask.Status.PENDING else "canceled"
@@ -135,10 +133,9 @@ def sweep_stale_analysis_state() -> None:
 
     for job in affected_jobs.values():
         job.refresh_from_db()
-        # A repaired task can land PENDING under an already-terminal job (unreachable via
-        # today's UI paths, defensive only); without this it would never converge, since a
-        # terminal job never re-evaluates itself. Recheck even when status is terminal so
-        # such a task can pull the job back to a consistent state.
+        # Re-evaluate the job unless it is already finished. A finished job is re-evaluated
+        # too if it still has open tasks (should not happen, but a repaired task must never
+        # be left hanging under a finished job).
         if (
             job.status not in _TERMINAL_JOB_STATUSES
             or job.tasks.filter(
@@ -147,8 +144,6 @@ def sweep_stale_analysis_state() -> None:
         ):
             job.update_job_state()
 
-    # One summary line: the sweep runs at container boot, and a large recovery must not
-    # bury the worker's startup output. Most ticks repair nothing (cron runs every
-    # minute) - only log those at DEBUG to avoid ~1440 INFO lines/day of noise.
+    # One summary line; INFO only if something was repaired (the sweep runs every minute).
     log = logger.info if affected_jobs else logger.debug
     log("Swept stale analysis state: %s", ", ".join(summary))

@@ -281,7 +281,7 @@ def test_start_skips_stale_in_progress_task():
         processor.start()
 
     task.refresh_from_db()
-    # Repair belongs to the sweep; the processor must leave the task untouched.
+    # Resetting stale tasks is the sweep's job; the processor must not touch it.
     assert task.status == AnalysisTask.Status.IN_PROGRESS
     mock_process_task.assert_not_called()
     mock_logger.warning.assert_called_once()

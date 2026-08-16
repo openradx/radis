@@ -106,13 +106,13 @@ def test_doing_row_with_stale_worker_is_reset_without_requeue():
     task.refresh_from_db()
     assert task.status == AnalysisTask.Status.PENDING
     mock_delay.assert_not_called()
-    # Procrastinate's own row is never touched.
+    # The sweep never modifies the queue row itself.
     assert ProcrastinateJob.objects.get(pk=row.pk).status == "doing"
 
 
 @pytest.mark.django_db
 def test_doing_row_with_fresh_worker_is_left_alone():
-    # The long-LLM-batch guarantee.
+    # A worker that still sends heartbeats is alive, however long its task runs.
     row = create_row("doing", worker=create_worker(heartbeat_age_seconds=0))
     task = make_stale_task(AnalysisJob.Status.IN_PROGRESS, row=row)
 
@@ -181,9 +181,8 @@ def test_resolve_twice_changes_nothing_the_second_time():
 
 @pytest.mark.django_db
 def test_requeue_decision_uses_fresh_read_not_snapshot():
-    # The row exists (todo) at candidate-selection time, but fires and is deleted before
-    # the resolve step runs. The snapshot says "row exists, don't re-queue" — the fresh
-    # read must notice the row is gone and call delay(), else the task is lost forever.
+    # The queue row is deleted between selecting the task and resolving it. The resolve
+    # step must notice (fresh read) and re-queue, else the task stays PENDING forever.
     row = create_row("todo", worker=create_worker(heartbeat_age_seconds=60))
     task = make_stale_task(AnalysisJob.Status.IN_PROGRESS, row=row)
     task = ExtractionTask.objects.select_related("queued_job").get(pk=task.pk)  # snapshot
@@ -199,8 +198,7 @@ def test_requeue_decision_uses_fresh_read_not_snapshot():
 
 @pytest.mark.django_db
 def test_resolve_declines_when_row_is_doing_under_fresh_worker():
-    # Owner-gone is re-checked inside the conditional UPDATE: a candidate whose row a live
-    # worker claimed in the meantime must not be flipped.
+    # A live worker picked the task up in the meantime: the UPDATE must not reset it.
     row = create_row("doing", worker=create_worker(heartbeat_age_seconds=0))
     task = make_stale_task(AnalysisJob.Status.IN_PROGRESS, row=row)
 
@@ -214,7 +212,7 @@ def test_resolve_declines_when_row_is_doing_under_fresh_worker():
 
 @pytest.mark.django_db
 def test_sweep_command_exits_zero_when_sweep_raises():
-    # The command gates worker boot via `&&`; a failed repair must never stop the worker.
+    # The command runs before bg_worker via &&; a failing sweep must not stop the worker.
     with patch(
         "radis.core.management.commands.sweep_stale_tasks.sweep_stale_analysis_state",
         side_effect=RuntimeError("boom"),

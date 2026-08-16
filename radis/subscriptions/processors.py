@@ -148,8 +148,8 @@ class SubscriptionTaskProcessor(AnalysisTaskProcessor):
                         extraction_response, get_output_field_name(field), None
                     )
 
-            # get_or_create + the (subscription, report) unique constraint make a resumed
-            # task idempotent even when two runs race past the exists() check above.
+            # get_or_create, not create: after a crash or when two runs of this task overlap,
+            # the report may already be in the inbox (exists() above is not race-safe).
             SubscribedItem.objects.get_or_create(
                 subscription=subscription,
                 report=report,

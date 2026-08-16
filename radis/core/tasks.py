@@ -11,6 +11,5 @@ logger = logging.getLogger(__name__)
 @app.periodic(cron=settings.ANALYSIS_SWEEP_CRON)
 @app.task(queueing_lock="sweep_stale_tasks")
 def sweep_stale_tasks_periodic(timestamp: int) -> None:
-    # Unlike the startup command this may raise freely: a failed tick just logs, and the
-    # queueing_lock prevents pileup.
+    # A failing run just logs an error; queueing_lock keeps runs from piling up.
     sweep_stale_analysis_state()

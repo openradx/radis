@@ -229,8 +229,8 @@ def test_cancel_during_preparation_is_not_overwritten_by_empty_scope_success(mon
 
 @pytest.mark.django_db
 def test_sweep_unblocks_canceling_labeling_job():
-    # The reported bug end-to-end: worker killed mid-task, job canceled, job parks at
-    # CANCELING and blocks the singleton index. The sweep must drain it unaided.
+    # End-to-end: worker killed mid-task, then the job is canceled and gets stuck in
+    # CANCELING. The sweep alone must bring it to CANCELED.
     from radis.core.models import AnalysisTask
     from radis.core.utils.recovery import sweep_stale_analysis_state
     from radis.labels.factories import LabelingTaskFactory
@@ -242,6 +242,5 @@ def test_sweep_unblocks_canceling_labeling_job():
 
     job.refresh_from_db()
     assert job.status == LabelingJob.Status.CANCELED
-    # Singleton index unblocked: a new labeling job can be created without
-    # IntegrityError.
+    # The singleton index is free again: a new labeling job can be created.
     LabelingJobFactory.create(status=LabelingJob.Status.PENDING)

@@ -36,17 +36,16 @@ def process_subscription_job(job_id: int) -> None:
 
     logger.info("Start processing job %s", job)
 
-    # Crash mid-enqueue: the job already flipped to PENDING but some tasks were never
-    # queued. Finish enqueueing them; nothing else repairs this (the sweep only looks
-    # at IN_PROGRESS tasks and the launcher treats PENDING as active).
+    # A worker crashed while enqueueing: the job is already PENDING but some tasks were
+    # never queued. Just enqueue the missing ones; the sweep does not cover this case.
     if job.status == SubscriptionJob.Status.PENDING and job.tasks.exists():
         for task in job.tasks.filter(status=SubscriptionTask.Status.PENDING):
             if not task.is_queued:
                 task.delay()
         return
 
-    # PREPARING is the only valid entry state (the launcher creates jobs PREPARING; a
-    # crash mid-preparation re-fires still PREPARING). Anything else has nothing to do.
+    # New jobs start PREPARING, and a job run again after a crash during preparation is
+    # still PREPARING. Any other status has nothing to prepare.
     if job.status != SubscriptionJob.Status.PREPARING:
         logger.warning(
             "process_subscription_job called for job %s in status %s, ignoring.",
@@ -71,9 +70,8 @@ def _build_subscription_job(job: SubscriptionJob) -> None:
 
     logger.debug("Collecting tasks for job %s", job)
 
-    # Wipe partial tasks from a prior crashed preparation attempt (idempotent, mirroring
-    # radis/labels/tasks.py). Safe: tasks are only enqueued after the switch to PENDING,
-    # so none of these can be queued or running.
+    # Remove tasks left over from a crashed preparation attempt and start over. They were
+    # never enqueued (that only happens once the job is PENDING), so this is safe.
     job.tasks.all().delete()
 
     # Capture the refresh timestamp before querying for new reports so that
@@ -117,8 +115,8 @@ def _build_subscription_job(job: SubscriptionJob) -> None:
 
     logger.debug("Starting SubscriptionTasks done.")
 
-    # last_refreshed must commit together with the job leaving PREPARING — a crash
-    # after advancing it alone would make the re-fired prep silently skip these reports.
+    # Advance last_refreshed and the job status in one transaction. If only last_refreshed
+    # were saved before a crash, the next run would skip the reports found by this one.
     with transaction.atomic():
         job.subscription.last_refreshed = refresh_time
         # Don't write back the full object - the user may have edited the

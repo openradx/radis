@@ -94,12 +94,9 @@ def test_last_refreshed_is_advanced(monkeypatch):
 
 @pytest.mark.django_db
 def test_prep_crash_before_status_write_leaves_last_refreshed_untouched(monkeypatch):
-    """
-    A crash between advancing last_refreshed and the job leaving PREPARING must not
-    advance last_refreshed - otherwise the re-fire re-searches an already-advanced
-    window and silently drops the reports the crashed attempt wiped (job.tasks.all()
-    .delete() at the top of _build_subscription_job).
-    """
+    """If preparation crashes after last_refreshed was advanced but before the job left
+    PREPARING, last_refreshed must roll back - otherwise the next run would skip the
+    reports this run found."""
     job = _preparing_job()
     original_last_refreshed = job.subscription.last_refreshed
     ReportFactory.create(document_id="S-CRASH-1")
@@ -187,7 +184,7 @@ def test_refired_prep_job_does_not_duplicate_tasks(monkeypatch):
     process_subscription_job(int(job.pk))
     assert job.tasks.count() == 1
 
-    # Simulate a crash after task creation but before the PENDING switch, then re-fire.
+    # Simulate a crash after creating tasks but before the PENDING switch, then run again.
     SubscriptionJob.objects.filter(pk=job.pk).update(status=SubscriptionJob.Status.PREPARING)
     process_subscription_job(int(job.pk))
 

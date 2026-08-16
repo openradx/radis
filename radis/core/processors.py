@@ -34,9 +34,9 @@ class AnalysisTaskProcessor:
             job.update_job_state()
             return
 
-        # Atomic claim: only a task that is PENDING at this very instant may run. A stale
-        # IN_PROGRESS left by a killed worker is repaired by the sweep, never here — a
-        # read-then-branch would race that sweep (see the worker-crash recovery spec).
+        # Claim the task in one UPDATE: it succeeds only while the task is still PENDING, so
+        # if the same task is delivered twice only the first delivery runs it. A task left
+        # IN_PROGRESS by a killed worker is reset by the sweep in recovery.py, not here.
         now = timezone.now()
         task_model = type(task)
         claimed = task_model.objects.filter(pk=task.pk, status=AnalysisTask.Status.PENDING).update(
@@ -45,8 +45,7 @@ class AnalysisTaskProcessor:
         if not claimed:
             logger.warning("Task %s was not PENDING, skipping.", task)
             return
-        # Mirror the claim on the in-memory instance so the final save() writes the same
-        # values.
+        # Keep the in-memory task in sync with the UPDATE above.
         task.status = AnalysisTask.Status.IN_PROGRESS
         task.started_at = now
 
