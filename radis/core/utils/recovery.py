@@ -69,8 +69,9 @@ def _resolve_stale_task(task: AnalysisTask, owner_gone: Q) -> str | None:
     stale_job_id = task.queued_job_id  # capture before the update nulls it
 
     # Conditional UPDATE re-checks status AND owner-gone at execution time, closing the
-    # common orderings of concurrent sweeps and live-worker claims. A residual sub-ms EPQ
-    # window can still yield a duplicate queue row; the processor's PENDING claim discards it.
+    # common orderings of concurrent sweeps and live-worker claims. A residual window
+    # between the UPDATE's snapshot of the joined worker tables and its row lock can still
+    # yield a duplicate queue row; the processor's PENDING claim discards it.
     updated = (
         model.objects.filter(pk=task.pk, status=AnalysisTask.Status.IN_PROGRESS)
         .filter(owner_gone)
@@ -134,9 +135,20 @@ def sweep_stale_analysis_state() -> None:
 
     for job in affected_jobs.values():
         job.refresh_from_db()
-        if job.status not in _TERMINAL_JOB_STATUSES:
+        # A repaired task can land PENDING under an already-terminal job (unreachable via
+        # today's UI paths, defensive only); without this it would never converge, since a
+        # terminal job never re-evaluates itself. Recheck even when status is terminal so
+        # such a task can pull the job back to a consistent state.
+        if (
+            job.status not in _TERMINAL_JOB_STATUSES
+            or job.tasks.filter(
+                status__in=(AnalysisTask.Status.PENDING, AnalysisTask.Status.IN_PROGRESS)
+            ).exists()
+        ):
             job.update_job_state()
 
     # One summary line: the sweep runs at container boot, and a large recovery must not
-    # bury the worker's startup output.
-    logger.info("Swept stale analysis state: %s", ", ".join(summary))
+    # bury the worker's startup output. Most ticks repair nothing (cron runs every
+    # minute) - only log those at DEBUG to avoid ~1440 INFO lines/day of noise.
+    log = logger.info if affected_jobs else logger.debug
+    log("Swept stale analysis state: %s", ", ".join(summary))
