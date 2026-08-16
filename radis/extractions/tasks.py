@@ -71,7 +71,7 @@ def process_extraction_job(job_id: int) -> None:
             limit=retrieval_provider.max_results,
             filters=SearchFilters(
                 group=job.group.pk,
-                language=job.language.code,
+                language=job.language.code if job.language else "",
                 modalities=list(job.modalities.values_list("code", flat=True)),
                 study_date_from=job.study_date_from,
                 study_date_till=job.study_date_till,

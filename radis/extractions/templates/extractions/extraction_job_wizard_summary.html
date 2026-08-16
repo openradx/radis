@@ -7,15 +7,15 @@
 {% endblock title %}
 {% block heading %}
     <c-page-heading title="New Extraction Job - Review & Submit (Step 3 of 3)">
-    <c-slot name="left">
-    <button type="button"
-            class="btn btn-info"
-            hx-get="{% url 'extraction_help' %}"
-            hx-target="#htmx-dialog">
-        Help
-        {% bootstrap_icon "question-circle" %}
-    </button>
-    </c-slot>
+        <c-slot name="left">
+            <button type="button"
+                    class="btn btn-info"
+                    hx-get="{% url 'extraction_help' %}"
+                    hx-target="#htmx-dialog">
+                Help
+                {% bootstrap_icon "question-circle" %}
+            </button>
+        </c-slot>
     </c-page-heading>
 {% endblock heading %}
 {% block content %}
@@ -30,7 +30,7 @@
         </dd>
         <dt class="col-sm-3">Language</dt>
         <dd class="col-sm-9">
-            {{ search.language }}
+            {{ search.language|default:"All" }}
         </dd>
         {% if search.modalities %}
             <dt class="col-sm-3">Modalities</dt>

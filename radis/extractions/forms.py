@@ -59,7 +59,7 @@ class SearchForm(forms.ModelForm):
         if not settings.ENABLE_AUTO_QUERY_GENERATION:
             self.fields["query"].help_text = "Search query to filter reports."
             self.fields["query"].widget.attrs["placeholder"] = "Search query"
-        self.fields["language"] = create_language_field(required=True)
+        self.fields["language"] = create_language_field(empty_label="All")
         self.fields["modalities"] = create_modality_field()
         self.fields["study_date_from"].widget = forms.DateInput(attrs={"type": "date"})
         self.fields["study_date_till"].widget = forms.DateInput(attrs={"type": "date"})
@@ -129,7 +129,7 @@ class SearchForm(forms.ModelForm):
         if active_group is None:
             raise forms.ValidationError("An active group is required to create an extraction job.")
 
-        language = cast(Language, cleaned_data["language"])
+        language = cast("Language | None", cleaned_data["language"])
         modalities = cast(QuerySet[Modality], cleaned_data["modalities"])
 
         search = Search(
@@ -138,7 +138,7 @@ class SearchForm(forms.ModelForm):
             limit=0,
             filters=SearchFilters(
                 group=active_group.pk,
-                language=language.code,
+                language=language.code if language else "",
                 modalities=list(modalities.values_list("code", flat=True)),
                 study_date_from=cleaned_data["study_date_from"],
                 study_date_till=cleaned_data["study_date_till"],

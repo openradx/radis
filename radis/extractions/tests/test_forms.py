@@ -1,11 +1,14 @@
 import json
 
 import pytest
+from adit_radis_shared.accounts.factories import GroupFactory, UserFactory
+from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 
 from radis.extractions.factories import ExtractionJobFactory
-from radis.extractions.forms import OutputFieldForm
+from radis.extractions.forms import OutputFieldForm, SearchForm
 from radis.extractions.models import OutputField, OutputType
+from radis.reports.factories import LanguageFactory
 
 
 @pytest.mark.django_db
@@ -225,3 +228,57 @@ def test_search_form_includes_generation_section_when_enabled(settings):
     form = SearchForm(user=get_user_model()())
 
     assert "_query_generation_section" in _layout_html_blobs(form.helper.layout)
+
+
+@pytest.mark.django_db
+def test_language_field_offers_all_and_is_the_default():
+    """The language filter offers 'All' as a choice and is pre-selected on an
+    unbound form, mirroring the search form's behavior."""
+    LanguageFactory.create(code="en")
+    LanguageFactory.create(code="de")
+
+    form = SearchForm(user=get_user_model()())
+    field = form.fields["language"]
+
+    choices = list(field.choices)  # type: ignore[attr-defined]
+    assert choices[0] == ("", "All")
+    # No data and no initial -> the bound field's rendered value is falsy,
+    # which is what makes the browser default to the first ("All") option.
+    assert not form["language"].value()
+
+
+@pytest.mark.django_db
+def test_job_saved_with_no_language_persists_none():
+    """Submitting the search step with 'All' selected must save language=None
+    on the ExtractionJob rather than raising or falling back to some language."""
+    LanguageFactory.create(code="en")
+    user = UserFactory.create(is_active=True)
+    group = GroupFactory.create()
+    user.groups.add(group)
+    user.active_group = group
+    user.save()
+
+    data = {
+        "title": "My Extraction",
+        "query": "pneumonia",
+        "language": "",
+        "modalities": [],
+        "study_date_from": "",
+        "study_date_till": "",
+        "study_description": "",
+        "patient_sex": "",
+        "age_from": "",
+        "age_till": "",
+    }
+    form = SearchForm(data=data, user=user)
+
+    assert form.is_valid(), form.errors
+    assert form.cleaned_data["language"] is None
+
+    job = form.save(commit=False)
+    job.owner = user
+    job.group = group
+    job.save()
+    job.refresh_from_db()
+
+    assert job.language is None
