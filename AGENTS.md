@@ -147,6 +147,9 @@ Labeling uses the shared core LLM client (`radis.core.utils.llm_client`); its ti
 - **Line Length**: 100 characters (Ruff), 120 for templates (djlint)
 - **Type Checking**: pyright in basic mode (migrations excluded)
 - **Linting**: Ruff with E, F, I, DJ rules
+- **Comments**: only where the code cannot speak for itself; explain *why*, not *what*
+- **No history in comments**: describe the code as it is, not how it changed — that
+  belongs in the commit message (docstrings too)
 
 ## Key Dependencies
 
