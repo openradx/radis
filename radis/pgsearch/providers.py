@@ -9,7 +9,7 @@ import openai
 from django.conf import settings
 from django.contrib.postgres.search import SearchHeadline, SearchQuery, SearchRank
 from django.core.cache import cache
-from django.db.models import F, Q
+from django.db.models import Case, F, FloatField, Q, TextField, Value, When
 from pgvector.django import CosineDistance
 
 from radis.core.utils.embedding_client import (
@@ -18,7 +18,7 @@ from radis.core.utils.embedding_client import (
     EmbeddingClientError,
 )
 from radis.core.utils.rate_limit import RateLimited
-from radis.reports.models import Report
+from radis.reports.models import Language, Report
 from radis.search.site import ReportDocument, Search, SearchFilters, SearchResult
 from radis.search.utils.query_parser import (
     BinaryNode,
@@ -64,8 +64,26 @@ def _quote_term(term: str) -> str:
     return "'" + term.replace("'", "''") + "'"
 
 
-def _resolve_language(filters: SearchFilters) -> str:
-    return code_to_language(filters.language)
+def _language_configs(filters: SearchFilters) -> list[tuple[str, list[str]]]:
+    """The text-search configurations to match under, each with the language codes
+    indexed beneath it.
+
+    Documents are indexed with their own language's configuration
+    (``ReportSearchIndex.save()``), so a query built under a different one never
+    meets them: 'english' stores "effusion" as 'effus' while 'simple' looks for
+    'effusion'. With a language filter the queryset is already restricted to that
+    language, so one configuration covers everything. Without one, every
+    configuration present in the corpus needs its own branch — anything else
+    silently drops the languages it does not match.
+    """
+    if filters.language:
+        return [(code_to_language(filters.language), [filters.language])]
+
+    codes_by_config: dict[str, list[str]] = {}
+    for code in Language.objects.values_list("code", flat=True):
+        codes_by_config.setdefault(code_to_language(code), []).append(code)
+    # Deterministic order keeps generated SQL stable across requests.
+    return sorted(codes_by_config.items())
 
 
 def _build_query_string(node: QueryNode) -> str:
@@ -151,15 +169,21 @@ def _build_negative_query_string(node: QueryNode) -> str:
     return " | ".join(f"({part})" for part in parts)
 
 
-def _exclude_negations(queryset, node: QueryNode, language: str):
+def _exclude_negations(queryset, node: QueryNode, configs: list[tuple[str, list[str]]]):
     """Drop documents matching the query's top-level ``NOT`` branches from a
-    vector-candidate queryset, so the FTS half's exclusions also bind the
-    vector half. No-op when the query has no enforceable negation."""
+    vector-candidate queryset, so the FTS half's exclusions also bind the vector
+    half. Each configuration is excluded separately: a document is only dropped
+    when it matches the negation under the configuration it was indexed with, so
+    the exclusion cannot silently no-op the way one shared configuration did."""
     negative_query_str = _build_negative_query_string(node)
     if not negative_query_str:
         return queryset
-    negative_tsquery = SearchQuery(negative_query_str, search_type="raw", config=language)
-    return queryset.exclude(search_vector=negative_tsquery)
+    for config, codes in configs:
+        negative_tsquery = SearchQuery(negative_query_str, search_type="raw", config=config)
+        queryset = queryset.exclude(
+            Q(report__language__code__in=codes) & Q(search_vector=negative_tsquery)
+        )
+    return queryset
 
 
 def _build_filter_query(filters: SearchFilters) -> Q:
@@ -313,8 +337,8 @@ class _FusedHybrid(NamedTuple):
     rrf_score_by_id: dict[int, float]
     vec_distance: dict[int, float]
     total_relation: Literal["exact", "at_least", "approximately"]
-    language: str
-    tsquery: SearchQuery
+    configs: list[tuple[str, list[str]]]
+    query_str: str
 
 
 def _fuse_hybrid(search: Search, caller: str) -> _FusedHybrid:
@@ -326,9 +350,32 @@ def _fuse_hybrid(search: Search, caller: str) -> _FusedHybrid:
     half consumes the full boolean tsquery. Returns the fused, ordered report
     ids plus the per-id scores/distances and the query metadata callers reuse."""
     query_str = _build_query_string(search.query)
-    language = _resolve_language(search.filters)
+    configs = _language_configs(search.filters)
     filter_query = _build_filter_query(search.filters)
-    tsquery = SearchQuery(query_str, search_type="raw", config=language)
+    tsqueries = {
+        config: SearchQuery(query_str, search_type="raw", config=config) for config, _ in configs
+    }
+
+    # A document matches only under the configuration it was indexed with.
+    match_q = Q()
+    for config, codes in configs:
+        match_q |= Q(report__language__code__in=codes, search_vector=tsqueries[config])
+
+    # Rank strictly under the document's own configuration. Do not swap this for
+    # Greatest over all configurations: a foreign config's ts_rank is not
+    # reliably ~0 (a term whose stem equals itself scores the same under every
+    # config), and Greatest would also need a special case for one branch.
+    rank_expr = Case(
+        *[
+            When(
+                report__language__code__in=codes,
+                then=SearchRank(F("search_vector"), tsqueries[config]),
+            )
+            for config, codes in configs
+        ],
+        default=Value(0.0),
+        output_field=FloatField(),
+    )
 
     # Vector side: skipped entirely when no embedding model is configured (FTS-only
     # deployment), and when stripping NOT branches leaves nothing to embed (see
@@ -342,7 +389,7 @@ def _fuse_hybrid(search: Search, caller: str) -> _FusedHybrid:
     vec_distance: dict[int, float] = {}
     if query_vec is not None:
         vec_qs = ReportSearchIndex.objects.filter(filter_query)
-        vec_qs = _exclude_negations(vec_qs, search.query, language)
+        vec_qs = _exclude_negations(vec_qs, search.query, configs)
         vec_rows = list(
             vec_qs.distinct()
             .exclude(embedding__isnull=True)
@@ -354,14 +401,20 @@ def _fuse_hybrid(search: Search, caller: str) -> _FusedHybrid:
             vec_rank[rid] = i + 1
             vec_distance[rid] = float(dist)
 
-    # FTS side: bounded set, ts_rank only (no headline at this stage).
-    fts_rows = list(
-        ReportSearchIndex.objects.filter(filter_query)
-        .distinct()
-        .filter(search_vector=tsquery)
-        .annotate(rank=SearchRank(F("search_vector"), tsquery))
-        .order_by("-rank", "report_id")
-        .values("report_id", "rank")[: settings.HYBRID_FTS_MAX_RESULTS]
+    # FTS side: bounded set, ts_rank only (no headline at this stage). An empty
+    # ``configs`` means an empty corpus (Report.language is a required FK), and
+    # an empty match_q would match every row rather than none, so skip it.
+    fts_rows = (
+        []
+        if not configs
+        else list(
+            ReportSearchIndex.objects.filter(filter_query)
+            .distinct()
+            .filter(match_q)
+            .annotate(rank=rank_expr)
+            .order_by("-rank", "report_id")
+            .values("report_id", "rank")[: settings.HYBRID_FTS_MAX_RESULTS]
+        )
     )
     fts_rank = {row["report_id"]: i + 1 for i, row in enumerate(fts_rows)}
 
@@ -382,16 +435,14 @@ def _fuse_hybrid(search: Search, caller: str) -> _FusedHybrid:
         rrf_score_by_id=rrf_score_by_id,
         vec_distance=vec_distance,
         total_relation=total_relation,
-        language=language,
-        tsquery=tsquery,
+        configs=configs,
+        query_str=query_str,
     )
 
 
 def search(search: Search) -> SearchResult:
     fused = _fuse_hybrid(search, "Hybrid search")
     ordered_ids = fused.ordered_ids
-    tsquery = fused.tsquery
-    language = fused.language
     vec_distance = fused.vec_distance
     rrf_score_by_id = fused.rrf_score_by_id
     total_count = len(ordered_ids)
@@ -402,21 +453,54 @@ def search(search: Search) -> SearchResult:
     else:
         page_ids = ordered_ids[search.offset : search.offset + search.limit]
 
+    configs = fused.configs
+    tsqueries = {
+        config: SearchQuery(fused.query_str, search_type="raw", config=config)
+        for config, _ in configs
+    }
+
+    def _headline(config: str) -> SearchHeadline:
+        return SearchHeadline(
+            "report__body",
+            tsqueries[config],
+            config=config,
+            start_sel="<em>",
+            stop_sel="</em>",
+            min_words=10,
+            max_words=20,
+            max_fragments=10,
+        )
+
+    # Highlight and rank each document under the configuration it was indexed
+    # under; a headline/rank built under another configuration silently
+    # highlights/scores nothing. A one-branch Case is legal (unlike Greatest),
+    # so this covers the single-configuration case too with no special-casing.
+    summary_expr = Case(
+        *[
+            When(report__language__code__in=codes, then=_headline(config))
+            for config, codes in configs
+        ],
+        default=Value(""),
+        output_field=TextField(),
+    )
+    rank_expr = Case(
+        *[
+            When(
+                report__language__code__in=codes,
+                then=SearchRank(F("search_vector"), tsqueries[config]),
+            )
+            for config, codes in configs
+        ],
+        default=Value(0.0),
+        output_field=FloatField(),
+    )
+
     # Headline + hydration for the page slice only.
     page_rows = (
         ReportSearchIndex.objects.filter(report_id__in=page_ids)
         .annotate(
-            summary=SearchHeadline(
-                "report__body",
-                tsquery,
-                config=language,
-                start_sel="<em>",
-                stop_sel="</em>",
-                min_words=10,
-                max_words=20,
-                max_fragments=10,
-            ),
-            rank=SearchRank(F("search_vector"), tsquery),
+            summary=summary_expr,
+            rank=rank_expr,
         )
         .select_related("report")
     )

@@ -112,9 +112,8 @@ def test_search_stemming_through_full_stack():
     """With the language filter set to 'en' the query config matches the document
     config (both english), so stemming applies and 'opacity' matches 'opacities'.
 
-    The ``language=en`` param is load-bearing: see
-    ``test_language_config_mismatch_disables_stemming`` for what happens without
-    it (the query defaults to the 'simple' config and stemming is lost).
+    See ``test_stemming_applies_without_a_language_filter`` for the filterless
+    case, which matches under each document's own configuration instead.
     """
     client, group = _logged_in_client()
     report = _seed_report(
@@ -154,16 +153,14 @@ def test_boolean_query_through_full_stack():
     assert one.document_id not in ids
 
 
-def test_language_config_mismatch_disables_stemming():
-    """Finding: when no language filter is selected the view resolves the query
-    text-search config to 'simple' (``code_to_language("")``), while reports are
-    indexed under their own language config (here english). Stemmed forms then
-    silently fail to match.
+def test_stemming_applies_without_a_language_filter():
+    """Without a language filter, each document is matched under the
+    configuration it was indexed with, so stemming still applies: an english
+    report storing the stem 'opac' is found by both 'opacity' and 'opacities'.
 
-    'opacities' is indexed under english (stem 'opac'); a 'simple'-config query
-    for 'opacity' produces the un-stemmed lexeme 'opacity' and does NOT match,
-    even though the exact word 'opacities' would. This documents a real
-    searchability gap for users who do not pick a language.
+    A ``simple``-config query would produce the un-stemmed lexeme 'opacity' and
+    never meet 'opac', which is why the filterless case gets one branch per
+    configuration present rather than a single shared one.
     """
     client, group = _logged_in_client()
     report = _seed_report(
@@ -173,15 +170,11 @@ def test_language_config_mismatch_disables_stemming():
         groups=[group],
     )
 
-    # No language param -> query resolved with the 'simple' config, which does
-    # not stem. The document, however, was indexed under english, so its stored
-    # lexeme is the stem 'opac'. The mismatch means BOTH the stemmed query and
-    # the exact surface form miss:
-    assert _doc_ids(client.get("/search/", {"query": "opacity"})) == []
-    assert _doc_ids(client.get("/search/", {"query": "opacities"})) == []
+    # No language param -> one branch per configuration present, here just english.
+    assert _doc_ids(client.get("/search/", {"query": "opacity"})) == [report.document_id]
+    assert _doc_ids(client.get("/search/", {"query": "opacities"})) == [report.document_id]
 
-    # Selecting the matching language realigns the configs and the report is
-    # found (control showing the report is genuinely indexed and retrievable).
+    # Control: naming the language explicitly reaches the same report.
     aligned = client.get("/search/", {"query": "opacity", "language": "en"})
     assert _doc_ids(aligned) == [report.document_id]
 

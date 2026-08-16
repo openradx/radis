@@ -102,3 +102,15 @@ RADIS uses a modular search architecture allowing different search providers to 
 - Study description, patient sex, patient age range
 - Patient ID, group access
 - Created after timestamp (for subscriptions)
+
+**Text-search configurations**: reports are indexed with the PostgreSQL configuration for
+their own language, so stemming matches the text — an English report stores "effusion" as
+`effus`. Queries follow the same rule: with a language filter the search is restricted to
+that language and built under its configuration; without one it is matched under every
+configuration the known languages map to, one branch per configuration, so a filterless search still finds
+stemmed terms in every language rather than only the ones a shared configuration happens
+to agree with. Languages PostgreSQL has no dictionary for fall back to `simple`, which
+does no stemming and therefore matches literally. An unset language filter is not confined
+to subscriptions' "All" choice: the search form's language field is optional with no
+explicit empty option, so a bookmarked or shared search URL missing `language=` — or the
+search page's first, filter-less load — resolves the same way.
