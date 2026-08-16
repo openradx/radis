@@ -82,23 +82,13 @@ def clear_search_config_cache() -> None:
 def code_to_language(code: str) -> str:
     """Resolve a language code to its Postgres text-search configuration.
 
-    Cached because ``_language_configs`` (radis.pgsearch.providers) now calls
-    this once per distinct ``Language`` row on every search, not once per
-    request: an unresolvable code falls through to ``pycountry.languages.lookup``
-    (a linear scan, ~1ms), and orphaned ``Language`` rows -- RADIS accepts
-    arbitrary codes over the API, and a row can outlive the reports that used
-    it -- accumulate over time, so that cost would otherwise be paid on every
-    search, for every such row, forever. A pure function of ``code`` plus the
-    already-cached config set (see ``get_available_search_configs``), so this
-    is safe to cache the same way; ``clear_search_config_cache`` invalidates
-    both together.
+    Cached because ``_language_configs`` calls this once per ``Language`` row
+    on every search, and an unresolvable code costs a ``pycountry`` linear scan
+    (~1ms). Invalidated together with the config set it depends on by
+    ``clear_search_config_cache``.
 
-    Side effect of caching: the "Unknown language code ... falling back to
-    simple" WARNING below only fires the first time a given unresolvable code
-    is seen per process, not once per call -- like the precedent in
-    ``_LOGGED_PERMANENT_FAILURE_CONFIGS`` (radis.pgsearch.providers), this is
-    probably desirable, but an operator who sees the warning once should not
-    assume the code was only looked up once.
+    Side effect: the unknown-code WARNING below fires once per process per
+    code, not once per call, so seeing it once does not mean one lookup.
     """
     if not code:
         return "simple"

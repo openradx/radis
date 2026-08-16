@@ -361,11 +361,10 @@ def _fuse_hybrid(search: Search, caller: str) -> _FusedHybrid:
     for config, codes in configs:
         match_q |= Q(report__language__code__in=codes, search_vector=tsqueries[config])
 
-    # Rank strictly under the document's own configuration -- a foreign
-    # configuration's ts_rank is not reliably ~0 (e.g. a term whose stem equals
-    # itself scores identically under every config), so it must never be
-    # allowed to compete via Greatest. A one-branch Case is legal, unlike
-    # Greatest, so this needs no single-configuration special case.
+    # Rank strictly under the document's own configuration. Do not swap this for
+    # Greatest over all configurations: a foreign config's ts_rank is not
+    # reliably ~0 (a term whose stem equals itself scores the same under every
+    # config), and Greatest would also need a special case for one branch.
     rank_expr = Case(
         *[
             When(
@@ -402,13 +401,9 @@ def _fuse_hybrid(search: Search, caller: str) -> _FusedHybrid:
             vec_rank[rid] = i + 1
             vec_distance[rid] = float(dist)
 
-    # FTS side: bounded set, ts_rank only (no headline at this stage). Skipped
-    # when no configuration exists to match under -- Report.language is a
-    # required FK, so an empty ``configs`` only happens when the corpus itself
-    # is empty. Filtering with the otherwise-unapplied, empty match_q would
-    # (harmlessly, since there is nothing to match, but confusingly) match
-    # every row instead of none, so this is skipped explicitly rather than
-    # relying on that being a no-op in practice.
+    # FTS side: bounded set, ts_rank only (no headline at this stage). An empty
+    # ``configs`` means an empty corpus (Report.language is a required FK), and
+    # an empty match_q would match every row rather than none, so skip it.
     fts_rows = (
         []
         if not configs
