@@ -1,6 +1,6 @@
 import logging
 import unicodedata
-from functools import cache, lru_cache
+from functools import lru_cache
 
 import pycountry
 from django.db import DatabaseError, connection
@@ -78,7 +78,9 @@ def clear_search_config_cache() -> None:
     code_to_language.cache_clear()
 
 
-@cache
+# Bounded: the API creates a Language row for any code it is sent
+# (reports/api/serializers.py), so an unbounded cache would grow with them.
+@lru_cache(maxsize=1024)
 def code_to_language(code: str) -> str:
     """Resolve a language code to its Postgres text-search configuration.
 

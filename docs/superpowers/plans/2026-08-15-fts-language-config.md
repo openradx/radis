@@ -6,7 +6,7 @@
 
 **Architecture:** Indexing already uses the document's own language (`ReportSearchIndex.save()`). The query side resolves one config from the search filters, which is `simple` when no language filter is given — so stemmed lexemes never meet. The fix keeps a single bounded query but splits the full-text predicate into one branch per text-search configuration present, each restricted to the reports indexed under it, OR'd together. A specified `filters.language` still produces exactly one branch, so that path is unchanged.
 
-**Tech Stack:** Django 6 ORM (`SearchQuery`, `SearchRank`, `SearchHeadline`, `Q`, `Case`/`When`, `Greatest`), PostgreSQL full-text search with snowball configurations, pytest + pytest-django.
+**Tech Stack:** Django 6 ORM (`SearchQuery`, `SearchRank`, `SearchHeadline`, `Q`, `Case`/`When`), PostgreSQL full-text search with snowball configurations, pytest + pytest-django.
 
 ## Global Constraints
 
@@ -19,7 +19,7 @@
 - Lint with `uv run cli lint` before committing. **Never run `uv run cli format-code`** — it reformats the whole repository. Stage by explicit filename, never `git add -A`.
 - Commit messages use conventional-commit style, with these trailers after a blank line:
 
-```
+```text
 Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_01WQ5JV4VntoXmqMjT7CHDVR
 ```
@@ -204,7 +204,7 @@ Import `Language` from `radis.reports.models`.
 
 - [ ] **Step 4: Match and rank per configuration in `_fuse_hybrid`**
 
-Replace the single `tsquery` with one per configuration, OR the branches, and rank with the best branch. Note `Greatest` requires at least two expressions, so the single-configuration case must stay a plain `SearchRank`:
+Replace the single `tsquery` with one per configuration, OR the branches, and rank each document under its own configuration. A foreign configuration's `SearchRank` is not reliably ~0 — a term whose stem equals itself scores the same under every configuration — so the rank must be scoped by the same condition as the match, not taken as a maximum across configurations:
 
 ```python
     configs = _language_configs(search.filters)
@@ -215,15 +215,22 @@ Replace the single `tsquery` with one per configuration, OR the branches, and ra
     for config, codes in configs:
         match_q |= Q(report__language__code__in=codes, search_vector=tsqueries[config])
 
-    ranks = [SearchRank(F("search_vector"), tsqueries[config]) for config, _ in configs]
-    # A document scores ~0 under every configuration but its own, so the best
-    # branch is its real rank. Greatest needs 2+ expressions.
-    rank_expr = ranks[0] if len(ranks) == 1 else Greatest(*ranks)
+    rank_expr = Case(
+        *[
+            When(
+                report__language__code__in=codes,
+                then=SearchRank(F("search_vector"), tsqueries[config]),
+            )
+            for config, codes in configs
+        ],
+        default=Value(0.0),
+        output_field=FloatField(),
+    )
 ```
 
 Then use `.filter(match_q)` where the old code had `.filter(search_vector=tsquery)`, and `.annotate(rank=rank_expr)`.
 
-Import `Greatest` from `django.db.models.functions`.
+Import `Case`, `When`, `Value` and `FloatField` from `django.db.models`.
 
 - [ ] **Step 5: Exclude negations per configuration**
 
@@ -289,7 +296,17 @@ In `search()`, the headline and the page-slice rank both need the document's own
             default=Value(""),
             output_field=TextField(),
         )
-        rank_expr = Greatest(*[SearchRank(F("search_vector"), tsqueries[config]) for config, _ in configs])
+        rank_expr = Case(
+            *[
+                When(
+                    report__language__code__in=codes,
+                    then=SearchRank(F("search_vector"), tsqueries[config]),
+                )
+                for config, codes in configs
+            ],
+            default=Value(0.0),
+            output_field=FloatField(),
+        )
 ```
 
 Then annotate `summary=summary_expr, rank=rank_expr`. `summary_with_fallback` already handles an empty headline, so the `default=Value("")` degrades to the body excerpt rather than to nothing.

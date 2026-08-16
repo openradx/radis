@@ -107,7 +107,7 @@ RADIS uses a modular search architecture allowing different search providers to 
 their own language, so stemming matches the text — an English report stores "effusion" as
 `effus`. Queries follow the same rule: with a language filter the search is restricted to
 that language and built under its configuration; without one it is matched under every
-configuration present, one branch per configuration, so a filterless search still finds
+configuration the known languages map to, one branch per configuration, so a filterless search still finds
 stemmed terms in every language rather than only the ones a shared configuration happens
 to agree with. Languages PostgreSQL has no dictionary for fall back to `simple`, which
 does no stemming and therefore matches literally. An unset language filter is not confined
