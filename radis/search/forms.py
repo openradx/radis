@@ -35,7 +35,7 @@ class SearchForm(forms.Form):
         super().__init__(*args, **kwargs)
 
         # Create fields using factory functions (use codes, not PKs)
-        self.fields["language"] = create_language_field(use_pk=False)
+        self.fields["language"] = create_language_field(use_pk=False, empty_label="All")
         self.fields["modalities"] = create_modality_field(use_pk=False)
         age_from, age_till = create_age_range_fields()
         self.fields["age_from"] = age_from

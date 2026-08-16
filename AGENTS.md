@@ -247,11 +247,15 @@ reports = response.json()
   `LLM_BASE_URL`) can point embeddings at an endpoint that serves chat but not
   `/v1/embeddings` — a gateway route that only forwards chat, or an Ollama where the
   embedding model was never `ollama pull`ed. This surfaces as `openai.NotFoundError` or
-  `openai.BadRequestError` with a full traceback on **every** search request
-  (`docker compose logs web`) or embedding subjob (`docker compose logs
-  embeddings_worker`) — it is not throttled, so the same traceback repeats per request.
-  Fix by pulling/serving the embedding model on that endpoint, or by setting
-  `EMBEDDINGS_BASE_URL` explicitly to an endpoint that does serve `/v1/embeddings`.
+  `openai.BadRequestError`, logged differently depending on the path: a search request
+  (`docker compose logs web`) logs the full traceback once per `(EMBEDDINGS_BASE_URL,
+  MODEL)` configuration, then a single-line WARNING on every search after that until the
+  configuration changes — one traceback followed by repeating WARNINGs is this working as
+  designed, not a new problem. An embedding subjob (`docker compose logs
+  embeddings_worker`) is a separate code path with no such throttle, so each subjob still
+  logs its own error on every invocation. Fix by pulling/serving the embedding model on
+  that endpoint, or by setting `EMBEDDINGS_BASE_URL` explicitly to an endpoint that does
+  serve `/v1/embeddings`.
 
 ### Worker Not Processing Tasks
 
