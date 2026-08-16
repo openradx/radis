@@ -102,3 +102,15 @@ def test_scan_checkpoint_is_singleton():
     second.save()  # save() forces pk=1, so this updates row 1 rather than inserting a second
 
     assert LabelingScanCheckpoint.objects.count() == 1
+
+
+@pytest.mark.django_db
+def test_label_result_is_stale_after_report_update():
+    result = LabelResultFactory.create()
+    assert not result.is_stale
+
+    result.report.body = "changed"
+    result.report.save()
+    result.refresh_from_db()
+
+    assert result.is_stale

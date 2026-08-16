@@ -89,3 +89,22 @@ def test_no_active_labels_skips(monkeypatch):
 
     assert not LabelingJob.objects.exists()
     assert LabelingScanCheckpoint.objects.get(pk=1).last_scanned_at == frozen
+
+
+@pytest.mark.django_db
+def test_updated_old_report_creates_scan_job(monkeypatch):
+    from radis.labels import tasks
+    from radis.reports.models import Report
+
+    LabelFactory.create(group=LabelGroupFactory.create())
+    report = ReportFactory.create()
+    # Created before the checkpoint, updated after it.
+    Report.objects.filter(pk=report.pk).update(created_at=timezone.now() - timedelta(days=10))
+    LabelingScanCheckpoint.objects.create(last_scanned_at=timezone.now() - timedelta(hours=1))
+
+    delayed = []
+    monkeypatch.setattr(LabelingJob, "delay", lambda self: delayed.append(self.pk))
+    tasks.incremental_label_scan(_now_ts())
+
+    job = LabelingJob.objects.get(trigger=LabelingJob.Trigger.SCAN)
+    assert delayed == [job.pk]
