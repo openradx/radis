@@ -1,9 +1,14 @@
 import pytest
 from adit_radis_shared.accounts.factories import GroupFactory, UserFactory
+from procrastinate.contrib.django.models import ProcrastinateJob
 
 from radis.reports.factories import ReportFactory
 from radis.subscriptions import site as subscription_site
-from radis.subscriptions.factories import SubscriptionFactory, SubscriptionJobFactory
+from radis.subscriptions.factories import (
+    SubscriptionFactory,
+    SubscriptionJobFactory,
+    SubscriptionTaskFactory,
+)
 from radis.subscriptions.models import SubscriptionJob, SubscriptionTask
 from radis.subscriptions.site import SubscriptionFilterProvider
 from radis.subscriptions.tasks import process_subscription_job
@@ -44,3 +49,51 @@ def test_process_subscription_job_only_enqueues_tasks_after_job_is_pending(monke
 
     assert enqueue_job_statuses
     assert all(status == SubscriptionJob.Status.PENDING for status in enqueue_job_statuses)
+
+
+@pytest.mark.django_db(transaction=True)
+def test_pending_job_resumes_enqueueing_after_crash(settings, monkeypatch):
+    """
+    A worker crash between the PENDING flip and the enqueue loop leaves a PENDING
+    job with un-queued PENDING tasks. Nothing else repairs this (the sweep only
+    looks at IN_PROGRESS tasks, and the launcher treats PENDING as active), so
+    re-firing process_subscription_job must finish enqueueing them itself.
+    """
+    settings.PROCRASTINATE_READONLY_MODELS = False
+
+    user = UserFactory.create(is_active=True)
+    group = GroupFactory.create()
+    subscription = SubscriptionFactory.create(owner=user, group=group)
+    job = SubscriptionJobFactory.create(subscription=subscription, owner=user)
+    job.status = SubscriptionJob.Status.PENDING
+    job.save()
+
+    tasks = [
+        SubscriptionTaskFactory.create(
+            job=job, status=SubscriptionTask.Status.PENDING, queued_job=None
+        )
+        for _ in range(2)
+    ]
+
+    # If the fix took the PREPARING-only warning path instead, the filter provider
+    # would never be consulted for a resume - but it also must not be consulted here,
+    # since a mid-enqueue crash must not re-run report collection.
+    def _fail_if_called(_filters):
+        raise AssertionError("resume must not re-search for reports")
+
+    monkeypatch.setattr(
+        subscription_site,
+        "subscription_filter_provider",
+        SubscriptionFilterProvider(name="dummy", filter=_fail_if_called),
+    )
+
+    process_subscription_job(int(job.pk))
+
+    assert job.tasks.count() == 2  # neither deleted nor duplicated
+    for task in tasks:
+        task.refresh_from_db()
+        assert task.is_queued
+        assert ProcrastinateJob.objects.filter(pk=task.queued_job_id).exists()
+
+    job.refresh_from_db()
+    assert job.status == SubscriptionJob.Status.PENDING

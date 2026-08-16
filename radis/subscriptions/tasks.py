@@ -36,6 +36,15 @@ def process_subscription_job(job_id: int) -> None:
 
     logger.info("Start processing job %s", job)
 
+    # Crash mid-enqueue: the job already flipped to PENDING but some tasks were never
+    # queued. Finish enqueueing them; nothing else repairs this (the sweep only looks
+    # at IN_PROGRESS tasks and the launcher treats PENDING as active).
+    if job.status == SubscriptionJob.Status.PENDING and job.tasks.exists():
+        for task in job.tasks.filter(status=SubscriptionTask.Status.PENDING):
+            if not task.is_queued:
+                task.delay()
+        return
+
     # PREPARING is the only valid entry state (the launcher creates jobs PREPARING; a
     # crash mid-preparation re-fires still PREPARING). Anything else has nothing to do.
     if job.status != SubscriptionJob.Status.PREPARING:
@@ -108,25 +117,28 @@ def _build_subscription_job(job: SubscriptionJob) -> None:
 
     logger.debug("Starting SubscriptionTasks done.")
 
-    job.subscription.last_refreshed = refresh_time
-    # Don't write back the full object - the user may have edited the
-    # subscription while this refresh was running.
-    job.subscription.save(update_fields=["last_refreshed"])
+    # last_refreshed must commit together with the job leaving PREPARING — a crash
+    # after advancing it alone would make the re-fired prep silently skip these reports.
+    with transaction.atomic():
+        job.subscription.last_refreshed = refresh_time
+        # Don't write back the full object - the user may have edited the
+        # subscription while this refresh was running.
+        job.subscription.save(update_fields=["last_refreshed"])
 
-    if tasks_created == 0:
-        # A job with no tasks is never completed by task processing, so it
-        # would stay PENDING forever and the launcher would skip the
-        # subscription on every future tick. Complete it right away.
-        job.status = SubscriptionJob.Status.SUCCESS
-        job.message = "No new reports found."
+        if tasks_created == 0:
+            # A job with no tasks is never completed by task processing, so it
+            # would stay PENDING forever and the launcher would skip the
+            # subscription on every future tick. Complete it right away.
+            job.status = SubscriptionJob.Status.SUCCESS
+            job.message = "No new reports found."
+            job.queued_job_id = None
+            job.save()
+            logger.debug("No new reports for job %s - completed without tasks", job)
+            return
+
+        job.status = SubscriptionJob.Status.PENDING
         job.queued_job_id = None
         job.save()
-        logger.debug("No new reports for job %s - completed without tasks", job)
-        return
-
-    job.status = SubscriptionJob.Status.PENDING
-    job.queued_job_id = None
-    job.save()
 
     # Important invariant:
     # Do not enqueue tasks while the job is still PREPARING, otherwise a worker can pick them up

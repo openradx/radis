@@ -93,6 +93,40 @@ def test_last_refreshed_is_advanced(monkeypatch):
 
 
 @pytest.mark.django_db
+def test_prep_crash_before_status_write_leaves_last_refreshed_untouched(monkeypatch):
+    """
+    A crash between advancing last_refreshed and the job leaving PREPARING must not
+    advance last_refreshed - otherwise the re-fire re-searches an already-advanced
+    window and silently drops the reports the crashed attempt wiped (job.tasks.all()
+    .delete() at the top of _build_subscription_job).
+    """
+    job = _preparing_job()
+    original_last_refreshed = job.subscription.last_refreshed
+    ReportFactory.create(document_id="S-CRASH-1")
+
+    monkeypatch.setattr(
+        subscription_site,
+        "subscription_filter_provider",
+        SubscriptionFilterProvider(name="f", filter=lambda _f: ["S-CRASH-1"]),
+    )
+
+    original_save = SubscriptionJob.save
+
+    def _raise_on_status_write(self, *args, **kwargs):
+        if self.status == SubscriptionJob.Status.PENDING:
+            raise RuntimeError("simulated crash before leaving PREPARING")
+        return original_save(self, *args, **kwargs)
+
+    monkeypatch.setattr(SubscriptionJob, "save", _raise_on_status_write, raising=True)
+
+    with pytest.raises(RuntimeError):
+        process_subscription_job(int(job.pk))
+
+    job.subscription.refresh_from_db()
+    assert job.subscription.last_refreshed == original_last_refreshed
+
+
+@pytest.mark.django_db
 def test_missing_filter_provider_raises(monkeypatch):
     job = _preparing_job()
     monkeypatch.setattr(subscription_site, "subscription_filter_provider", None)
