@@ -317,3 +317,27 @@ def test_start_assertion_error_on_invalid_job_status():
 
     with pytest.raises(AssertionError):
         processor.start()
+
+
+@pytest.mark.django_db
+def test_start_finalizes_to_canceled_when_cancel_lands_during_processing():
+    """A cancel issued while the worker runs the task must win. The worker holds the
+    job instance it loaded before the cancel, yet finalizing it ends CANCELED, not
+    SUCCESS — the processor refetches the job status before update_job_state, and the
+    guarded write backs it up."""
+    user = UserFactory.create()
+    job = ExtractionJobFactory.create(owner=user, status=AnalysisJob.Status.IN_PROGRESS)
+    task = ExtractionTaskFactory.create(job=job, status=AnalysisTask.Status.PENDING)
+
+    processor = AnalysisTaskProcessor(task)
+
+    def cancel_during_processing(task):
+        # The user cancels the job while this task runs; the worker's in-memory job
+        # instance is not updated.
+        type(job).objects.filter(pk=job.pk).update(status=AnalysisJob.Status.CANCELING)
+
+    with patch.object(processor, "process_task", side_effect=cancel_during_processing):
+        processor.start()
+
+    job.refresh_from_db()
+    assert job.status == AnalysisJob.Status.CANCELED

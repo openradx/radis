@@ -79,6 +79,12 @@ class AnalysisJob(models.Model):
 
         Should be called whenever task are updated or manipulated.
 
+        Evaluates ``self`` as given — it does not re-read the instance. A caller that
+        holds a job across a long operation (e.g. a worker running a task) must refetch
+        its status first, so a cancel the user issued meanwhile is not decided against a
+        stale status. The final write is guarded regardless, so a cancel landing between
+        that refetch and the write still cannot be overwritten by a computed final status.
+
         Returns: True if the job (for now) has no more pending tasks left. If it
             is a continuous job there could be added new tasks later on.
         """
@@ -110,31 +116,50 @@ class AnalysisJob(models.Model):
         has_success = self.tasks.filter(status=AnalysisTask.Status.SUCCESS).exists()
         has_warning = self.tasks.filter(status=AnalysisTask.Status.WARNING).exists()
         has_failure = self.tasks.filter(status=AnalysisTask.Status.FAILURE).exists()
+        has_canceled = self.tasks.filter(status=AnalysisTask.Status.CANCELED).exists()
 
+        # An "All tasks ..." message would be untrue when some tasks were canceled instead.
         if has_failure:
             self.status = AnalysisJob.Status.FAILURE
             self.message = (
-                "Some tasks failed." if (has_success or has_warning) else "All tasks failed."
+                "Some tasks failed."
+                if (has_success or has_warning or has_canceled)
+                else "All tasks failed."
             )
 
         elif has_warning:
             self.status = AnalysisJob.Status.WARNING
             self.message = (
-                "Some tasks have warnings." if has_success else "All tasks have warnings."
+                "Some tasks have warnings."
+                if (has_success or has_canceled)
+                else "All tasks have warnings."
             )
         elif has_success:
             self.status = AnalysisJob.Status.SUCCESS
-            self.message = "All tasks succeeded."
-        else:
-            # All tasks are canceled (e.g. a task of an already canceled job ran again
-            # and was canceled once more). Mark the job canceled instead of raising.
+            self.message = "Some tasks were canceled." if has_canceled else "All tasks succeeded."
+        elif has_canceled:
             self.status = AnalysisJob.Status.CANCELED
-            self.message = "All tasks canceled."
-            self.save()
-            return False
+            self.message = "All tasks were canceled."
+        else:
+            # at least one of success, warnings, failures or cancellations must be > 0
+            raise AssertionError(f"Invalid task status of {self}.")
 
         self.ended_at = timezone.now()
-        self.save()
+        # Guarded write: the caller's refetch and this write are not atomic, so a
+        # cancel can still land in between. A final status must never replace
+        # a cancel; zero updated rows means a concurrent cancel won.
+        updated = (
+            type(self)
+            .objects.filter(pk=self.pk)
+            .exclude(status__in=[AnalysisJob.Status.CANCELING, AnalysisJob.Status.CANCELED])
+            .update(status=self.status, message=self.message, ended_at=self.ended_at)
+        )
+        if updated == 0:
+            type(self).objects.filter(pk=self.pk, status=AnalysisJob.Status.CANCELING).update(
+                status=AnalysisJob.Status.CANCELED, ended_at=self.ended_at
+            )
+            self.status = AnalysisJob.Status.CANCELED
+            return False
 
         if self.send_finished_mail:
             self._send_job_finished_mail()

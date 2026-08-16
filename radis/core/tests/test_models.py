@@ -63,6 +63,67 @@ class TestAnalysisJob:
         assert job.ended_at is not None
 
     @pytest.mark.django_db
+    def test_job_update_job_state_all_tasks_canceled(self):
+        # Status is PENDING, not CANCELING, so this reaches the final evaluation, where
+        # an all-canceled job raised AssertionError before the canceled branch existed.
+        user = UserFactory.create()
+        job = ExtractionJobFactory.create(owner=user, status=AnalysisJob.Status.PENDING)
+
+        ExtractionTaskFactory.create(job=job, status=AnalysisTask.Status.CANCELED)
+        ExtractionTaskFactory.create(job=job, status=AnalysisTask.Status.CANCELED)
+
+        result = job.update_job_state()
+        job.refresh_from_db()
+
+        assert result is True
+        assert job.status == AnalysisJob.Status.CANCELED
+        assert job.message == "All tasks were canceled."
+        assert job.ended_at is not None
+
+    @pytest.mark.django_db
+    def test_job_update_job_state_canceled_task_does_not_mask_failure(self):
+        # The canceled branch is last in the chain, so it must not shadow a failure.
+        user = UserFactory.create()
+        job = ExtractionJobFactory.create(owner=user, status=AnalysisJob.Status.PENDING)
+
+        ExtractionTaskFactory.create(job=job, status=AnalysisTask.Status.CANCELED)
+        ExtractionTaskFactory.create(job=job, status=AnalysisTask.Status.FAILURE)
+
+        job.update_job_state()
+        job.refresh_from_db()
+
+        assert job.status == AnalysisJob.Status.FAILURE
+        assert job.message == "Some tasks failed."
+
+    @pytest.mark.django_db
+    def test_job_update_job_state_success_and_canceled_does_not_claim_all_succeeded(self):
+        user = UserFactory.create()
+        job = ExtractionJobFactory.create(owner=user, status=AnalysisJob.Status.PENDING)
+
+        ExtractionTaskFactory.create(job=job, status=AnalysisTask.Status.SUCCESS)
+        ExtractionTaskFactory.create(job=job, status=AnalysisTask.Status.CANCELED)
+
+        job.update_job_state()
+        job.refresh_from_db()
+
+        assert job.status == AnalysisJob.Status.SUCCESS
+        assert job.message == "Some tasks were canceled."
+
+    @pytest.mark.django_db
+    def test_job_update_job_state_warning_and_canceled_does_not_claim_all_warned(self):
+        user = UserFactory.create()
+        job = ExtractionJobFactory.create(owner=user, status=AnalysisJob.Status.PENDING)
+
+        ExtractionTaskFactory.create(job=job, status=AnalysisTask.Status.WARNING)
+        ExtractionTaskFactory.create(job=job, status=AnalysisTask.Status.CANCELED)
+
+        job.update_job_state()
+        job.refresh_from_db()
+
+        assert job.status == AnalysisJob.Status.WARNING
+        assert job.message == "Some tasks have warnings."
+
+    @pytest.mark.django_db
     def test_job_update_job_state_tasks_still_pending(self):
         user = UserFactory.create()
         job = ExtractionJobFactory.create(owner=user, status=AnalysisJob.Status.PENDING)
@@ -382,20 +443,6 @@ class TestAnalysisJob:
         assert context == {}  # Default implementation returns empty dict
 
     @pytest.mark.django_db
-    def test_job_update_job_state_with_only_canceled_tasks(self):
-        user = UserFactory.create()
-        job = ExtractionJobFactory.create(owner=user, status=AnalysisJob.Status.PENDING)
-        ExtractionTaskFactory.create(job=job, status=AnalysisTask.Status.CANCELED)
-        ExtractionTaskFactory.create(job=job, status=AnalysisTask.Status.CANCELED)
-
-        result = job.update_job_state()
-        job.refresh_from_db()
-
-        assert result is False
-        assert job.status == AnalysisJob.Status.CANCELED
-        assert job.message == "All tasks canceled."
-
-    @pytest.mark.django_db
     def test_job_update_job_state_consecutive_calls(self):
         user = UserFactory.create()
         job = ExtractionJobFactory.create(owner=user, status=AnalysisJob.Status.PENDING)
@@ -533,23 +580,6 @@ class TestAnalysisJob:
                     f"but was {actual_value}"
                 )
 
-    @pytest.mark.django_db
-    def test_update_job_state_all_tasks_canceled_without_canceling_job(self):
-        user = UserFactory.create()
-        job = ExtractionJobFactory.create(
-            owner=user, status=AnalysisJob.Status.IN_PROGRESS, send_finished_mail=True
-        )
-        ExtractionTaskFactory.create(job=job, status=AnalysisTask.Status.CANCELED)
-
-        with patch.object(type(job), "_send_job_finished_mail") as mock_mail:
-            result = job.update_job_state()
-
-        job.refresh_from_db()
-        assert result is False
-        assert job.status == AnalysisJob.Status.CANCELED
-        assert job.message == "All tasks canceled."
-        mock_mail.assert_not_called()
-
 
 @pytest.mark.django_db
 def test_cancel_job_cancels_pending_and_sets_canceled():
@@ -657,3 +687,54 @@ class TestAnalysisTask:
         task.created_at = None
         with pytest.raises(Exception):
             task.save()
+
+
+@pytest.mark.django_db
+def test_update_job_state_on_stale_instance_respects_concurrent_cancel():
+    """A worker holds a job instance loaded before the user canceled (it kept it
+    in memory across a long task run). When the last task finishes and the worker
+    evaluates the final state, the CANCELING recorded in the DB must win: the job
+    ends CANCELED, never SUCCESS."""
+    user = UserFactory.create()
+    job = ExtractionJobFactory.create(owner=user, status=AnalysisJob.Status.IN_PROGRESS)
+    ExtractionTaskFactory.create(job=job, status=AnalysisTask.Status.SUCCESS)
+    ExtractionTaskFactory.create(job=job, status=AnalysisTask.Status.CANCELED)
+
+    # The cancel view writes CANCELING directly to the DB; the worker's `job`
+    # instance still holds IN_PROGRESS.
+    type(job).objects.filter(pk=job.pk).update(status=AnalysisJob.Status.CANCELING)
+
+    job.update_job_state()
+
+    job.refresh_from_db()
+    assert job.status == AnalysisJob.Status.CANCELED
+
+
+@pytest.mark.django_db
+def test_update_job_state_guards_final_write_against_late_cancel(monkeypatch):
+    """The final-state write must be guarded, not merely preceded by a fresh read: a
+    cancel landing in the sliver between the last read and the write still has to win
+    over a computed SUCCESS. Inject the cancel at the moment ``ended_at`` is stamped,
+    the line immediately before the guarded write."""
+    from radis.core import models as core_models
+
+    user = UserFactory.create()
+    job = ExtractionJobFactory.create(owner=user, status=AnalysisJob.Status.IN_PROGRESS)
+    ExtractionTaskFactory.create(job=job, status=AnalysisTask.Status.SUCCESS)
+
+    real_now = core_models.timezone.now
+    fired = {"done": False}
+
+    def now_then_cancel():
+        if not fired["done"]:
+            fired["done"] = True
+            # The cancel view writes CANCELING just before the guarded write runs.
+            type(job).objects.filter(pk=job.pk).update(status=AnalysisJob.Status.CANCELING)
+        return real_now()
+
+    monkeypatch.setattr(core_models.timezone, "now", now_then_cancel)
+
+    job.update_job_state()
+
+    db_status = type(job).objects.values_list("status", flat=True).get(pk=job.pk)
+    assert db_status == AnalysisJob.Status.CANCELED

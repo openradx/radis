@@ -9,7 +9,6 @@ x-app: &default-app
     DATABASE_URL: postgres://postgres:postgres@postgres.local:5432/postgres
     DBBACKUP_STORAGE_LOCATION: /backups
     IS_DOCKER_CONTAINER: 1
-    LLM_SERVICE_URL: http://llm.local:8080/v1
     # STACK_NAME is computed by the CLI and passed as process environment variable,
     # it is not necessarily set in the .env file.
     STACK_NAME: ${STACK_NAME:-}
@@ -34,8 +33,12 @@ services:
     <<: *default-app
     hostname: llm_worker.local
 
+  embeddings_worker:
+    <<: *default-app
+    hostname: embeddings_worker.local
+
   postgres:
-    image: postgres:17
+    image: pgvector/pgvector:pg17
     hostname: postgres.local
     volumes:
       - postgres_data:/var/lib/postgresql/data

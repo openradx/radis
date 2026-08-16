@@ -37,7 +37,7 @@ def label_report(report_id: int) -> None:
         logger.warning("No active label groups, skipping labeling of report %s.", report_id)
         return
 
-    client = LLMClient()
+    client = LLMClient("labeling")
 
     existing_gates = {
         ga.label_group_id: ga

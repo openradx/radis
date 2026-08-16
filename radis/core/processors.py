@@ -78,6 +78,10 @@ class AnalysisTaskProcessor:
             logger.info("Task %s ended", task)
             task.ended_at = timezone.now()
             task.save()
+            # `job` was loaded before process_task ran; the user may have canceled
+            # meanwhile. Refetch its status so update_job_state decides on the current
+            # value, not the stale one it was handed.
+            job.refresh_from_db(fields=["status"])
             job.update_job_state()
 
     def process_task(self, task: AnalysisTask) -> None:

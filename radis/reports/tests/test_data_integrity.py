@@ -25,7 +25,7 @@ from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APIClient
 
-from radis.pgsearch.models import ReportSearchVector
+from radis.pgsearch.models import ReportSearchIndex
 from radis.reports.api.viewsets import _bulk_upsert_reports
 from radis.reports.factories import LanguageFactory, ModalityFactory, ReportFactory
 from radis.reports.models import Language, Metadata, Modality, Report
@@ -296,7 +296,7 @@ def test_deleting_report_cascades_metadata_and_search_vector():
         modalities=["CT", "MR"],
     )
     # Saving a Report creates its search vector via the pgsearch post_save signal.
-    assert ReportSearchVector.objects.filter(report=report).exists()
+    assert ReportSearchIndex.objects.filter(report=report).exists()
     assert report.metadata.exists()
     report_pk = report.pk
 
@@ -306,7 +306,7 @@ def test_deleting_report_cascades_metadata_and_search_vector():
     # Metadata has on_delete=CASCADE
     assert not Metadata.objects.filter(report_id=report_pk).exists()
     # OneToOne search vector has on_delete=CASCADE
-    assert not ReportSearchVector.objects.filter(report_id=report_pk).exists()
+    assert not ReportSearchIndex.objects.filter(report_id=report_pk).exists()
     # M2M through rows are removed, but the Modality rows themselves survive.
     through = Report.modalities.through
     assert not through.objects.filter(report_id=report_pk).exists()

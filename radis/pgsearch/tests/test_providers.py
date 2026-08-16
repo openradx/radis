@@ -24,7 +24,7 @@ from adit_radis_shared.accounts.factories import GroupFactory
 from django.utils import timezone
 
 from radis.pgsearch import providers
-from radis.pgsearch.models import ReportSearchVector
+from radis.pgsearch.models import ReportSearchIndex
 from radis.reports.factories import LanguageFactory, ReportFactory
 from radis.reports.models import Report
 from radis.search.site import Search, SearchFilters
@@ -95,7 +95,7 @@ def _search(
 def test_saving_report_creates_and_populates_search_vector():
     report = make_report("The patient has acute pneumonia in the left lung.")
 
-    search_vector = ReportSearchVector.objects.get(report=report)
+    search_vector = ReportSearchIndex.objects.get(report=report)
     assert search_vector.search_vector is not None
     # lexemes are stemmed/normalised by the english config; check a stem is present
     lexemes = str(search_vector.search_vector)

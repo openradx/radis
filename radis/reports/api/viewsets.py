@@ -1,7 +1,6 @@
 import logging
 from typing import Any
 
-from django.conf import settings
 from django.db import transaction
 from django.http import Http404
 from django.utils import timezone
@@ -12,9 +11,6 @@ from rest_framework.permissions import IsAdminUser
 from rest_framework.request import Request, clone_request
 from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
-
-from radis.pgsearch.tasks import enqueue_bulk_index_reports
-from radis.pgsearch.utils.indexing import bulk_upsert_report_search_vectors
 
 from ..models import Language, Metadata, Modality, Report
 from ..site import (
@@ -241,12 +237,6 @@ def _bulk_upsert_reports(
                     group_duplicate_count,
                 )
 
-        touched_report_ids = [
-            report_id_by_document_id[document_id]
-            for document_id in [*created_ids, *updated_ids]
-            if document_id in report_id_by_document_id
-        ]
-
         def on_commit():
             if created_ids:
                 created_reports = list(Report.objects.filter(document_id__in=created_ids))
@@ -256,11 +246,6 @@ def _bulk_upsert_reports(
                 updated_reports = list(Report.objects.filter(document_id__in=updated_ids))
                 for handler in reports_updated_handlers:
                     handler.handle(updated_reports)
-            if touched_report_ids:
-                if settings.PGSEARCH_SYNC_INDEXING:
-                    bulk_upsert_report_search_vectors(touched_report_ids)
-                else:
-                    enqueue_bulk_index_reports(touched_report_ids)
 
         transaction.on_commit(on_commit)
 

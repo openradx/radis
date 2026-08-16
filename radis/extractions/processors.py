@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 class ExtractionTaskProcessor(AnalysisTaskProcessor):
     def __init__(self, task: ExtractionTask) -> None:
         super().__init__(task)
-        self.client = LLMClient()
+        self.client = LLMClient("extractions")
 
     def process_task(self, task: ExtractionTask) -> None:
         with ThreadPoolExecutor(max_workers=settings.EXTRACTION_LLM_CONCURRENCY_LIMIT) as executor:

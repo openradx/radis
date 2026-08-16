@@ -8,13 +8,17 @@ jobs:
   ci:
     runs-on: "ubuntu-latest"
     timeout-minutes: 25
+    permissions:
+      contents: read
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - name: Install uv
         uses: astral-sh/setup-uv@v9.0.0
         with:
-          version: "0.12.1"
+          version: "0.12.3"
       - name: Setup Python
         uses: actions/setup-python@v7
         with:
@@ -35,6 +39,7 @@ jobs:
             radis_dev-web:latest
             radis_dev-default_worker:latest
             radis_dev-llm_worker:latest
+            radis_dev-embeddings_worker:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
       - name: Start Docker containers

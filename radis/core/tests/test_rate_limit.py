@@ -352,6 +352,100 @@ def test_transient_retry_does_not_catch_rate_limit_error():
     assert calls["n"] == 1
 
 
+class _CustomTransientError(Exception):
+    pass
+
+
+def test_transient_retry_custom_retryable_catches_extra_exception():
+    sleeps: list[float] = []
+    calls = {"n": 0}
+
+    def fn():
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise _CustomTransientError()
+        return "ok"
+
+    result = with_transient_retries(
+        fn,
+        attempts=2,
+        base=1.0,
+        sleep=sleeps.append,
+        retryable=(_CustomTransientError,),
+    )
+    assert result == "ok"
+    assert sleeps == [1.0]
+
+
+def test_transient_retry_default_does_not_catch_custom_exception():
+    with pytest.raises(_CustomTransientError):
+        with_transient_retries(
+            lambda: (_ for _ in ()).throw(_CustomTransientError()),
+            attempts=2,
+            base=1.0,
+            sleep=lambda s: None,
+        )
+
+
+def test_transient_retry_default_sleep_resolves_at_call_time(monkeypatch):
+    """Call sites that omit `sleep` (e.g. the embeddings task) must still be
+    testable: patching time.sleep has to take effect, which requires the
+    default to be resolved at call time, not bound at import time."""
+    import time
+
+    slept: list[float] = []
+    monkeypatch.setattr(time, "sleep", slept.append)
+    calls = {"n": 0}
+
+    def fn():
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise make_connection_error()
+        return "ok"
+
+    assert with_transient_retries(fn, attempts=2, base=1.0) == "ok"
+    assert slept == [1.0]
+
+
+@pytest.mark.asyncio
+async def test_transient_retry_async_default_sleep_resolves_at_call_time(monkeypatch):
+    import asyncio
+
+    slept: list[float] = []
+
+    async def fake_sleep(s):
+        slept.append(s)
+
+    monkeypatch.setattr(asyncio, "sleep", fake_sleep)
+    calls = {"n": 0}
+
+    async def fn():
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise make_connection_error()
+        return "ok"
+
+    assert await with_transient_retries_async(fn, attempts=2, base=1.0) == "ok"
+    assert slept == [1.0]
+
+
+def test_transient_retry_logs_warning_per_retry(caplog):
+    calls = {"n": 0}
+
+    def fn():
+        calls["n"] += 1
+        if calls["n"] < 3:
+            raise make_connection_error()
+        return "ok"
+
+    with caplog.at_level("WARNING", logger="radis.core.utils.rate_limit"):
+        assert with_transient_retries(fn, attempts=2, base=1.0, sleep=lambda s: None) == "ok"
+
+    warnings = [r for r in caplog.records if r.levelname == "WARNING"]
+    assert len(warnings) == 2
+    assert "retrying" in warnings[0].getMessage()
+
+
 # --- transient retries (async) ---
 
 
@@ -371,6 +465,53 @@ async def test_transient_retry_async_recovers_after_one_connection_error():
 
     assert await with_transient_retries_async(fn, attempts=2, base=1.0, sleep=fake_sleep) == "ok"
     assert sleeps == [1.0]
+
+
+@pytest.mark.asyncio
+async def test_transient_retry_async_custom_retryable_catches_extra_exception():
+    sleeps: list[float] = []
+    calls = {"n": 0}
+
+    async def fn():
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise _CustomTransientError()
+        return "ok"
+
+    async def fake_sleep(s):
+        sleeps.append(s)
+
+    result = await with_transient_retries_async(
+        fn,
+        attempts=2,
+        base=1.0,
+        sleep=fake_sleep,
+        retryable=(_CustomTransientError,),
+    )
+    assert result == "ok"
+    assert sleeps == [1.0]
+
+
+@pytest.mark.asyncio
+async def test_transient_retry_async_logs_warning_per_retry(caplog):
+    calls = {"n": 0}
+
+    async def fn():
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise make_connection_error()
+        return "ok"
+
+    async def fake_sleep(s):
+        pass
+
+    with caplog.at_level("WARNING", logger="radis.core.utils.rate_limit"):
+        result = await with_transient_retries_async(fn, attempts=2, base=1.0, sleep=fake_sleep)
+    assert result == "ok"
+
+    warnings = [r for r in caplog.records if r.levelname == "WARNING"]
+    assert len(warnings) == 1
+    assert "retrying" in warnings[0].getMessage()
 
 
 @pytest.mark.asyncio

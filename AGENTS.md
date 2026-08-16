@@ -45,7 +45,7 @@ uv run cli db-backup                 # Backup database
 - **Search**: pg_vector (semantic), pg_search (full-text), hybrid ranking
 - **Async**: Daphne (ASGI), Django Channels, Procrastinate (task queue)
 - **Frontend**: Django templates, Cotton components, HTMX, Alpine.js, Bootstrap 5
-- **LLM**: OpenAI-compatible API or local Llama.cpp server
+- **LLM**: External OpenAI-compatible API endpoint
 - **API**: Django REST Framework with async support (ADRF)
 
 ### Django Apps
@@ -68,7 +68,7 @@ Shared utilities come from `adit-radis-shared` package (accounts, token auth, co
 Analysis operations follow a Job -> Task pattern (similar to ADIT):
 
 - An **AnalysisJob** contains multiple **AnalysisTasks**
-- Status flow: `UNVERIFIED` -> `PREPARING` -> `PENDING` -> `IN_PROGRESS` -> `SUCCESS`/`WARNING`/`FAILURE`
+- Status flow: `UNVERIFIED` -> `PREPARING` -> `PENDING` -> `IN_PROGRESS` -> `SUCCESS`/`WARNING`/`FAILURE`/`CANCELED`
 - Jobs automatically update state based on task completion
 - Email notifications sent on job completion
 - Background workers (Procrastinate) process tasks from `default` and `llm` queues
@@ -85,13 +85,12 @@ Analysis operations follow a Job -> Task pattern (similar to ADIT):
 - **web**: Django dev server with Daphne (port 8000)
 - **default_worker**: General background task processor (Procrastinate queue: `default`)
 - **llm_worker**: LLM-specific task processor (Procrastinate queue: `llm`)
+- **embeddings_worker**: Embedding task processor (Procrastinate queue: `embeddings`)
 - **postgres**: PostgreSQL 17 with pg_vector and pg_search extensions (port 5432)
 
-### Docker Compose Profiles
+### LLM Endpoint
 
-- **No profile**: Uses external LLM via API (configure `OPENAI_API_BASE_URL`)
-- **cpu**: Local LLM on CPU using Llama.cpp
-- **gpu**: Local LLM with CUDA acceleration using Llama.cpp
+App services talk to the endpoint in `LLM_BASE_URL`; the stack contains no inference service. In development that is by default a provider on the Docker host (`http://host.docker.internal:11434/v1`), and the dev compose file sets `extra_hosts: host.docker.internal:host-gateway` so the name resolves on plain Linux Docker too. See `docs/dev-docs/contributing.md` for running Ollama locally, natively or as a standalone container.
 
 ## Environment Variables
 
@@ -101,11 +100,34 @@ Key variables in `.env` (see `example.env`):
 - `DJANGO_SECRET_KEY`: Cryptographic signing key
 - `POSTGRES_PASSWORD`: Database password
 - `DJANGO_ALLOWED_HOSTS`: Comma-separated allowed hosts
-- `OPENAI_API_KEY`: API key for OpenAI-compatible LLM service
-- `OPENAI_API_BASE_URL`: Base URL for LLM API (for local or alternative providers)
-- `LLM_MODEL_NAME`: Model to use for LLM operations
+- `LLM_BASE_URL`: Base URL of the OpenAI-compatible LLM endpoint (required, no default)
+- `LLM_API_KEY`: API key for that endpoint (many self-hosted providers ignore it)
+- `LLM_DEFAULT_MODEL`: Model every feature uses unless overridden (required). Takes the form `model[?param=value&...]`; the params are merged into the request body, values are read as JSON where possible (`temperature=0` → number, `reasoning_effort=none` → string), and dotted keys nest (`chat_template_kwargs.enable_thinking=false`)
+- `LLM_CHATS_MODEL`, `LLM_QUERY_GENERATION_MODEL`, `LLM_EXTRACTIONS_MODEL`, `LLM_SUBSCRIPTIONS_MODEL`, `LLM_LABELING_MODEL`: Per-feature overrides, same form. Blank means use `LLM_DEFAULT_MODEL`
+
 - `SITE_NAME`, `SITE_DOMAIN`: Site framework settings
 - `ADMIN_USERNAME`, `ADMIN_EMAIL`, `ADMIN_PASSWORD`: Initial superuser
+
+Hybrid search embeddings (`radis.pgsearch`):
+
+- `EMBEDDINGS_MODEL`: Embedding model, same `model[?param=value&...]` form as the LLM
+  models. Empty means full-text search only — no embedding jobs, no calls to the service
+- `EMBEDDINGS_BASE_URL`, `EMBEDDINGS_API_KEY`: Default to `LLM_BASE_URL` / `LLM_API_KEY`.
+  Set only when embeddings are served from a different endpoint, which is the normal case
+  for vLLM and SGLang since they serve one model per process
+- `EMBEDDINGS_DIM`: Vector width (default `1024`). Schema-coupled — it must match the
+  pgsearch migrations and any `dimensions` parameter in `EMBEDDINGS_MODEL`, both checked
+  at startup (`pgsearch.E001`, `pgsearch.E003`)
+- `EMBEDDINGS_QUERY_INSTRUCTION`: Instruction prefix prepended to search queries.
+  Model-specific; not a request parameter, so it is not part of the model spec
+- `EMBEDDINGS_REQUEST_TIMEOUT_SECONDS`: Defaults to `LLM_REQUEST_TIMEOUT_SECONDS` (itself
+  60s by default), not to a fixed value — raising the LLM timeout raises this one too
+  unless set here explicitly
+- `EMBEDDINGS_QUERY_CACHE_TIMEOUT_SECONDS`: How long a search query's embedding stays in
+  the Django cache (default `900`s). The knob to reach for right after a model/provider
+  swap — cached query vectors otherwise keep serving stale results for up to this long
+- `EMBEDDINGS_BATCH_SIZE`, `EMBEDDINGS_SUBJOB_SIZE`, `EMBEDDINGS_WORKER_CONCURRENCY`:
+  Throughput tuning
 
 Auto-labeling (`radis.labels`):
 
@@ -201,17 +223,48 @@ reports = response.json()
 
 ### LLM Operations Failing
 
-- Verify `OPENAI_API_KEY` and `OPENAI_API_BASE_URL` are set
-- Check llm_worker is running: `docker compose logs llm_worker`
-- For local LLM, ensure llama.cpp service is healthy
-- Review model compatibility (see KNOWLEDGE.md for recommendations)
+- Verify `LLM_BASE_URL` and `LLM_DEFAULT_MODEL` are set (`LLM_API_KEY` is optional; many self-hosted providers ignore it)
+- Check the right logs for the failing path: chat and query generation run in `web` (`docker compose logs web`), while extraction, subscription and labeling tasks run in `llm_worker` (`docker compose logs llm_worker`)
+- Ensure the endpoint is reachable from inside the containers, not just from the host.
+  Note the single quotes, so the variables are expanded in the container and not by your shell:
+  `docker compose exec web sh -c 'curl -sf -H "Authorization: Bearer $LLM_API_KEY" "$LLM_BASE_URL/models"'`
+- If the endpoint runs on the host, it must listen on more than loopback: Ollama needs
+  `OLLAMA_HOST=0.0.0.0`, otherwise containers get "connection refused" even though the name resolves
+- If the provider rejects requests with a 400, check the `?param=value` part of the model setting for parameters it doesn't support
+- Confirm the endpoint serves the configured model and supports structured outputs
+- If one feature misbehaves, check whether it has its own `LLM_<FEATURE>_MODEL` override
+
+### Hybrid Search Returns Only Full-Text Results
+
+- Confirm `EMBEDDINGS_MODEL` is set — empty is the documented way to run FTS-only
+- Check `docker compose logs embeddings_worker` for failed subjobs
+- Reports ingested before the model was configured have no vector; run
+  `docker compose exec web ./manage.py embed_pending` to backfill them
+- A search logs a WARNING and degrades to FTS-only when the embedding service is rate
+  limiting or unreachable; the log line names which
+- Verify the endpoint serves the model: `docker compose exec web sh -c 'curl -sf -H
+  "Authorization: Bearer ${EMBEDDINGS_API_KEY:-$LLM_API_KEY}"
+  "${EMBEDDINGS_BASE_URL:-$LLM_BASE_URL}/models"'`
+- Leaving `EMBEDDINGS_BASE_URL` unset (now the normal case, since it inherits
+  `LLM_BASE_URL`) can point embeddings at an endpoint that serves chat but not
+  `/v1/embeddings` — a gateway route that only forwards chat, or an Ollama where the
+  embedding model was never `ollama pull`ed. This surfaces as `openai.NotFoundError` or
+  `openai.BadRequestError`, logged differently depending on the path: a search request
+  (`docker compose logs web`) logs the full traceback once per `(EMBEDDINGS_BASE_URL,
+  MODEL)` configuration, then a single-line WARNING on every search after that until the
+  configuration changes — one traceback followed by repeating WARNINGs is this working as
+  designed, not a new problem. An embedding subjob (`docker compose logs
+  embeddings_worker`) is a separate code path with no such throttle, so each subjob still
+  logs its own error on every invocation. Fix by pulling/serving the embedding model on
+  that endpoint, or by setting `EMBEDDINGS_BASE_URL` explicitly to an endpoint that does
+  serve `/v1/embeddings`.
 
 ### Worker Not Processing Tasks
 
 - Check worker logs: `docker compose logs default_worker`
 - Verify Procrastinate is running: `docker compose ps`
 - Check PostgreSQL connection
-- Ensure task is in correct queue (`default` vs `llm`)
+- Ensure task is in correct queue (`default` vs `llm` vs `embeddings`)
 
 ### Report Import Issues
 

@@ -3,7 +3,7 @@ from adit_radis_shared.accounts.factories import GroupFactory
 
 from radis.labels.factories import LabelFactory, LabelResultFactory
 from radis.labels.models import LabelResult
-from radis.pgsearch.models import ReportSearchVector
+from radis.pgsearch.models import ReportSearchIndex
 from radis.pgsearch.providers import _build_filter_query
 from radis.reports.factories import ReportFactory
 from radis.reports.models import Language
@@ -26,11 +26,11 @@ def test_label_filter_includes_surfacing_result() -> None:
     label = LabelFactory.create(name="edema")
     LabelResultFactory.create(report=report, label=label, value=LabelResult.Value.PRESENT)
 
-    # ReportSearchVector is created automatically by signal on Report save.
-    assert ReportSearchVector.objects.filter(report=report).exists()
+    # ReportSearchIndex is created automatically by signal on Report save.
+    assert ReportSearchIndex.objects.filter(report=report).exists()
 
     fq = _build_filter_query(SearchFilters(group=group.pk, labels=["edema"]))
-    matched_ids = set(ReportSearchVector.objects.filter(fq).values_list("report_id", flat=True))
+    matched_ids = set(ReportSearchIndex.objects.filter(fq).values_list("report_id", flat=True))
 
     assert report.pk in matched_ids
 
@@ -44,10 +44,10 @@ def test_label_filter_excludes_absent_result() -> None:
     label = LabelFactory.create(name="edema")
     LabelResultFactory.create(report=report, label=label, value=LabelResult.Value.ABSENT)
 
-    assert ReportSearchVector.objects.filter(report=report).exists()
+    assert ReportSearchIndex.objects.filter(report=report).exists()
 
     fq = _build_filter_query(SearchFilters(group=group.pk, labels=["edema"]))
-    matched_ids = set(ReportSearchVector.objects.filter(fq).values_list("report_id", flat=True))
+    matched_ids = set(ReportSearchIndex.objects.filter(fq).values_list("report_id", flat=True))
 
     assert report.pk not in matched_ids
 
@@ -85,7 +85,7 @@ def test_label_filter_matches_any_label() -> None:
     report_neither = _make_report(group, language)
 
     fq = _build_filter_query(SearchFilters(group=group.pk, labels=["edema", "pneumonia"]))
-    matched_ids = set(ReportSearchVector.objects.filter(fq).values_list("report_id", flat=True))
+    matched_ids = set(ReportSearchIndex.objects.filter(fq).values_list("report_id", flat=True))
 
     assert report_edema.pk in matched_ids
     assert report_pneumonia.pk in matched_ids

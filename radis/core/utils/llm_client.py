@@ -6,6 +6,7 @@ from django.conf import settings
 from openai.types.chat import ChatCompletionMessageParam
 from pydantic import BaseModel
 
+from radis.core.utils.model_spec import ModelSpec
 from radis.core.utils.rate_limit import (
     RateLimitGate,
     run_through_gate,
@@ -29,27 +30,37 @@ _LLM_GATE = RateLimitGate(
 )
 
 
-def _get_base_url() -> str:
-    base_url = settings.EXTERNAL_LLM_PROVIDER_URL
-    if not base_url:
-        base_url = settings.LLM_SERVICE_URL
-    return base_url
+def _model_spec(feature: str) -> ModelSpec:
+    """The model and request parameters configured for a feature.
+
+    Unknown features are a programming error rather than a configuration one: the
+    feature names come from LLM_FEATURES, not from user input.
+    """
+    try:
+        return settings.LLM_MODELS[feature]
+    except KeyError:
+        raise ValueError(
+            f"Unknown LLM feature {feature!r}, expected one of {sorted(settings.LLM_MODELS)}"
+        ) from None
 
 
 class AsyncChatClient:
-    def __init__(self, *, timeout: float | None = None) -> None:
-        """`timeout` overrides the per-request HTTP timeout (interactive callers
-        may want a much shorter one than the worker default)."""
-        base_url = _get_base_url()
-        api_key = settings.EXTERNAL_LLM_PROVIDER_API_KEY
+    def __init__(self, feature: str, *, timeout: float | None = None) -> None:
+        """`feature` selects the configured model (see LLM_FEATURES).
+
+        `timeout` overrides the per-request HTTP timeout (interactive callers
+        may want a much shorter one than the worker default).
+        """
         # max_retries=0 so the gate fully owns backoff (no hidden SDK retries).
         self._client = openai.AsyncOpenAI(
-            base_url=base_url,
-            api_key=api_key,
+            base_url=settings.LLM_BASE_URL,
+            api_key=settings.LLM_API_KEY,
             max_retries=0,
             timeout=timeout if timeout is not None else settings.LLM_REQUEST_TIMEOUT_SECONDS,
         )
-        self._model_name = settings.LLM_MODEL_NAME
+        spec = _model_spec(feature)
+        self._model_name = spec.model
+        self._extra_body = spec.params
 
     async def close(self) -> None:
         """Close the underlying HTTP client; call once the client is no longer needed."""
@@ -86,7 +97,11 @@ class AsyncChatClient:
         max_completion_tokens: int | None,
     ) -> str:
         logger.debug(f"Sending messages to LLM for chat:\n{messages}")
-        request = {"model": self._model_name, "messages": messages}
+        request = {
+            "model": self._model_name,
+            "messages": messages,
+            "extra_body": self._extra_body,
+        }
         if max_completion_tokens is not None:
             request["max_completion_tokens"] = max_completion_tokens
 
@@ -102,19 +117,19 @@ class AsyncChatClient:
 
 
 class LLMClient:
-    def __init__(self) -> None:
-        base_url = _get_base_url()
-        api_key = settings.EXTERNAL_LLM_PROVIDER_API_KEY
+    def __init__(self, feature: str) -> None:
+        """`feature` selects the configured model (see LLM_FEATURES)."""
         # max_retries=0 so the gate fully owns backoff (no hidden SDK retries).
         self._client = openai.OpenAI(
-            base_url=base_url,
-            api_key=api_key,
+            base_url=settings.LLM_BASE_URL,
+            api_key=settings.LLM_API_KEY,
             max_retries=0,
             timeout=settings.LLM_REQUEST_TIMEOUT_SECONDS,
         )
-        self._llm_model_name = settings.LLM_MODEL_NAME
-        # Provider quirks (e.g. Qwen's enable_thinking flag) sent with each call.
-        self._extra_body: dict = getattr(settings, "LLM_EXTRA_BODY", {}) or {}
+        spec = _model_spec(feature)
+        self._llm_model_name = spec.model
+        # Request parameters configured with the model, e.g. reasoning_effort.
+        self._extra_body = spec.params
 
     def extract_data(
         self,

@@ -2,6 +2,10 @@ x-app: &default-app
   build:
     target: development
   pull_policy: build
+  # Makes a provider running on the Docker host reachable as host.docker.internal,
+  # also on plain Linux Docker where it is not provided automatically.
+  extra_hosts:
+    - "host.docker.internal:host-gateway"
   environment:
     DJANGO_SETTINGS_MODULE: radis.settings.development
   develop:
@@ -15,24 +19,6 @@ x-app: &default-app
           - node_modules/
       - action: rebuild
         path: ./pyproject.toml
-
-x-llm: &llm
-  hostname: llm.local
-  ports:
-    - ${LLM_SERVICE_DEV_PORT:-8080}:8080
-  environment:
-    HF_TOKEN: ${HF_TOKEN:-}
-    HTTP_PROXY: ${HTTP_PROXY:-}
-    HTTPS_PROXY: ${HTTPS_PROXY:-}
-    LLAMA_ARG_HF_REPO: ${LLM_MODEL_NAME}
-    LLAMA_ARG_CTX_SIZE: 8192
-    LLAMA_ARG_N_PARALLEL: 2
-    LLAMA_ARG_ENDPOINT_METRICS: 1
-    LLAMA_ARG_PORT: 8080
-    LLAMA_ARG_N_GPU_LAYERS: 99
-    NO_PROXY: ${NO_PROXY:-}
-  volumes:
-    - models_data:/models
 
 services:
   init:
@@ -82,31 +68,17 @@ services:
         ./manage.py bg_worker -l debug -q llm --autoreload
       "
 
+  embeddings_worker:
+    <<: *default-app
+    image: radis_dev-embeddings_worker:latest
+    command: >
+      bash -c "
+        wait-for-it -s postgres.local:5432 -t ${WAIT_POSTGRES_TIMEOUT:-180} &&
+        ./manage.py bg_worker -l debug -q embeddings --autoreload --concurrency ${EMBEDDINGS_WORKER_CONCURRENCY:-2}
+      "
+
   postgres:
     environment:
       POSTGRES_PASSWORD: postgres
     ports:
       - ${POSTGRES_DEV_PORT:-5432}:5432
-
-  llm_cpu:
-    <<: *llm
-    image: ghcr.io/ggml-org/llama.cpp:server-b5170
-    profiles:
-      - cpu
-
-  llm_gpu:
-    <<: *llm
-    image: ghcr.io/ggml-org/llama.cpp:server-cuda-b5170
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities:
-                - gpu
-    profiles:
-      - gpu
-
-volumes:
-  models_data:
