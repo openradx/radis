@@ -9,6 +9,7 @@ from django.utils import timezone
 from procrastinate.contrib.django.models import ProcrastinateJob, ProcrastinateWorker
 
 from radis.core.models import AnalysisJob, AnalysisTask
+from radis.core.processors import AnalysisTaskProcessor
 from radis.core.utils import recovery
 from radis.core.utils.recovery import sweep_stale_analysis_state
 from radis.extractions.factories import ExtractionJobFactory, ExtractionTaskFactory
@@ -92,6 +93,7 @@ def test_todo_row_with_stale_worker_is_reset_without_requeue():
 
     task.refresh_from_db()
     assert task.status == AnalysisTask.Status.PENDING
+    assert task.queued_job_id == row.pk  # the row will fire again, so the task keeps it
     mock_delay.assert_not_called()  # retry_stalled_jobs re-queued that same row
 
 
@@ -105,6 +107,7 @@ def test_doing_row_with_stale_worker_is_reset_without_requeue():
 
     task.refresh_from_db()
     assert task.status == AnalysisTask.Status.PENDING
+    assert task.queued_job_id == row.pk  # the row will fire again, so the task keeps it
     mock_delay.assert_not_called()
     # The sweep never modifies the queue row itself.
     assert ProcrastinateJob.objects.get(pk=row.pk).status == "doing"
@@ -232,3 +235,35 @@ def test_reset_rolls_back_when_requeue_fails():
 
     task.refresh_from_db()
     assert task.status == AnalysisTask.Status.IN_PROGRESS
+
+
+@pytest.mark.django_db
+def test_recovered_task_is_not_swept_again_once_its_row_refires():
+    # Crash, sweep, then Procrastinate re-fires the same row on a healthy worker. While that
+    # worker runs the task, the next sweep tick must leave it alone and not enqueue a second row.
+    row = create_row("doing", worker=create_worker(heartbeat_age_seconds=60))
+    task = make_stale_task(AnalysisJob.Status.IN_PROGRESS, row=row)
+
+    with patch.object(ExtractionTask, "delay", autospec=True) as mock_delay:
+        sweep_stale_analysis_state()  # first tick: reset to PENDING, no re-queue
+
+        # retry_stalled_jobs hands the same row to a live worker, which claims the task
+        ProcrastinateJob.objects.filter(pk=row.pk).update(
+            status="doing", worker=create_worker(heartbeat_age_seconds=0)
+        )
+        seen_mid_run = {}
+
+        def run_task_and_sweep_meanwhile(_task):
+            sweep_stale_analysis_state()  # second tick, while the task is still running
+            fresh = ExtractionTask.objects.get(pk=task.pk)
+            seen_mid_run["status"] = fresh.status
+            seen_mid_run["queued_job_id"] = fresh.queued_job_id
+
+        processor = AnalysisTaskProcessor(ExtractionTask.objects.get(pk=task.pk))
+        with patch.object(processor, "process_task", side_effect=run_task_and_sweep_meanwhile):
+            processor.start()
+
+    assert seen_mid_run == {"status": AnalysisTask.Status.IN_PROGRESS, "queued_job_id": row.pk}
+    mock_delay.assert_not_called()
+    task.refresh_from_db()
+    assert task.status == AnalysisTask.Status.SUCCESS

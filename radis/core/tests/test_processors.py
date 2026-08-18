@@ -251,6 +251,27 @@ def test_process_task_default_implementation():
 
 
 @pytest.mark.django_db
+def test_start_clears_old_message_when_claiming():
+    # A task reset by the sweep carries "The worker ... was terminated."; once it runs again
+    # and succeeds, that old message must not stick to it.
+    user = UserFactory.create()
+    job = ExtractionJobFactory.create(owner=user, status=AnalysisJob.Status.IN_PROGRESS)
+    task = ExtractionTaskFactory.create(
+        job=job,
+        status=AnalysisTask.Status.PENDING,
+        message="The worker processing this task was terminated.",
+    )
+
+    processor = AnalysisTaskProcessor(task)
+    with patch.object(processor, "process_task"):
+        processor.start()
+
+    task.refresh_from_db()
+    assert task.status == AnalysisTask.Status.SUCCESS
+    assert task.message == ""
+
+
+@pytest.mark.django_db
 def test_start_skips_task_not_pending():
     user = UserFactory.create()
     job = ExtractionJobFactory.create(owner=user, status=AnalysisJob.Status.PENDING)

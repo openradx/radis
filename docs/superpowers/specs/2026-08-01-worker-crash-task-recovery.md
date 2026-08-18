@@ -216,17 +216,20 @@ rows sitting `todo` for minutes.
   periodic sweep ticks every minute, and a live worker may claim the task at any moment:
 
   ```python
-  stale_job_id = task.queued_job_id  # capture before the update nulls it
+  old_row_id = task.queued_job_id
+  # Keep the link when the old row will fire again (todo/doing): the re-run task must still
+  # point at its row, or the next sweep sees a NULL link, treats the running task as ownerless
+  # and enqueues a second row for it. Drop the link only when a fresh row is enqueued below.
+  keep_link = new_status == PENDING and row_will_refire(old_row_id)
 
+  changes = {"status": new_status, "message": "The worker processing this task was terminated.",
+             "ended_at": ended_at}
+  if not keep_link:
+      changes["queued_job_id"] = None
   updated = (
       Model.objects.filter(pk=task.pk, status=Model.Status.IN_PROGRESS)
       .filter(owner_gone)
-      .update(
-          status=new_status,
-          message="The worker processing this task was terminated.",
-          ended_at=timezone.now(),
-          queued_job_id=None,
-      )
+      .update(**changes)
   )
   if not updated:
       continue  # another sweep won the race, or a live worker claimed the task meanwhile

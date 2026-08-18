@@ -66,42 +66,49 @@ def _resolve_stale_task(task: AnalysisTask, owner_gone: Q) -> str | None:
         new_status = AnalysisTask.Status.PENDING
         ended_at = None
 
-    stale_job_id = task.queued_job_id  # the UPDATE below sets this to NULL
+    old_row_id = task.queued_job_id
 
     # Reset and re-queue in one transaction: if delay() fails, the reset rolls back and the
     # next sweep retries. A PENDING task without a queue row would never run again.
     with transaction.atomic():
+        # A PENDING task whose old row will fire again keeps pointing at that row. If the link
+        # were dropped, the next sweep would see the re-run task as ownerless (NULL link) and
+        # enqueue a second row for it while the first is still running.
+        keep_link = new_status == AnalysisTask.Status.PENDING and _row_will_refire(old_row_id)
+
         # Re-check status and owner-gone inside the UPDATE itself, so nothing happens if
         # another sweep or a live worker got to this task first. (A rare duplicate queue
         # row is still possible; the processor's PENDING claim drops it.)
+        changes = {
+            "status": new_status,
+            "message": "The worker processing this task was terminated.",
+            "ended_at": ended_at,
+        }
+        if not keep_link:
+            changes["queued_job_id"] = None
         updated = (
             model.objects.filter(pk=task.pk, status=AnalysisTask.Status.IN_PROGRESS)
             .filter(owner_gone)
-            .update(
-                status=new_status,
-                message="The worker processing this task was terminated.",
-                ended_at=ended_at,
-                queued_job_id=None,
-            )
+            .update(**changes)
         )
         if not updated:
             return None  # another sweep or a live worker got here first
 
-        if new_status == AnalysisTask.Status.PENDING:
-            # Re-queue only if the old queue row will not fire again (gone, or not
-            # todo/doing). Check the DB fresh, not our snapshot: the row may have been
-            # deleted since we picked this task.
-            row_alive = (
-                stale_job_id is not None
-                and ProcrastinateJob.objects.filter(
-                    pk=stale_job_id, status__in=_LIVE_ROW_STATUSES
-                ).exists()
-            )
-            if not row_alive:
-                task.refresh_from_db()  # delay() saves the whole task; reload it first
-                task.delay()
+        # Re-queue only if no old row will fire again. Read the DB fresh once more: the row may
+        # have fired, failed its claim and been deleted between the check above and the UPDATE.
+        if new_status == AnalysisTask.Status.PENDING and not _row_will_refire(old_row_id):
+            task.refresh_from_db()  # delay() saves the whole task; reload it first
+            task.delay()
 
     return "pending" if new_status == AnalysisTask.Status.PENDING else "canceled"
+
+
+def _row_will_refire(row_id: int | None) -> bool:
+    """True if the queue row still exists and is todo/doing, so a worker will run it again."""
+    return (
+        row_id is not None
+        and ProcrastinateJob.objects.filter(pk=row_id, status__in=_LIVE_ROW_STATUSES).exists()
+    )
 
 
 def sweep_stale_analysis_state() -> None:
