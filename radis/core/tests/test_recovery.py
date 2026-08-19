@@ -13,7 +13,7 @@ from radis.core.processors import AnalysisTaskProcessor
 from radis.core.utils import recovery
 from radis.core.utils.recovery import sweep_stale_analysis_state
 from radis.extractions.factories import ExtractionJobFactory, ExtractionTaskFactory
-from radis.extractions.models import ExtractionTask
+from radis.extractions.models import ExtractionJob, ExtractionTask
 
 
 @pytest.fixture(autouse=True)
@@ -267,3 +267,49 @@ def test_recovered_task_is_not_swept_again_once_its_row_refires():
     mock_delay.assert_not_called()
     task.refresh_from_db()
     assert task.status == AnalysisTask.Status.SUCCESS
+
+
+@pytest.mark.django_db
+def test_one_failing_job_update_does_not_strand_the_next_job():
+    # Two canceling jobs get their orphaned task canceled in the same tick. The first job's
+    # recount blows up (e.g. its finished mail bounces). The second job must still converge
+    # to CANCELED, and the tick must still end as failed.
+    task_a = make_stale_task(AnalysisJob.Status.CANCELING, row=None)
+    task_b = make_stale_task(AnalysisJob.Status.CANCELING, row=None)
+
+    real = ExtractionJob.update_job_state
+
+    def failing_for_job_a(self):
+        if self.pk == task_a.job.pk:
+            raise RuntimeError("mail server down")
+        return real(self)
+
+    with patch.object(ExtractionJob, "update_job_state", autospec=True) as mock_update:
+        mock_update.side_effect = failing_for_job_a
+        with pytest.raises(RuntimeError):
+            sweep_stale_analysis_state()
+
+    job_b = ExtractionJob.objects.get(pk=task_b.job.pk)
+    assert job_b.status == AnalysisJob.Status.CANCELED
+
+
+@pytest.mark.django_db
+def test_one_failing_task_repair_does_not_stop_the_others():
+    # The first task's re-queue blows up; the second task must still be repaired, and the
+    # tick must still end as failed.
+    task_a = make_stale_task(AnalysisJob.Status.IN_PROGRESS, row=None)
+    task_b = make_stale_task(AnalysisJob.Status.IN_PROGRESS, row=None)
+
+    def failing_for_task_a(self):
+        if self.pk == task_a.pk:
+            raise RuntimeError("enqueue failed")
+
+    with patch.object(ExtractionTask, "delay", autospec=True) as mock_delay:
+        mock_delay.side_effect = failing_for_task_a
+        with pytest.raises(RuntimeError):
+            sweep_stale_analysis_state()
+
+    task_a.refresh_from_db()
+    task_b.refresh_from_db()
+    assert task_a.status == AnalysisTask.Status.IN_PROGRESS  # reset rolled back, next tick retries
+    assert task_b.status == AnalysisTask.Status.PENDING

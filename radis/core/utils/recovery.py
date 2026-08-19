@@ -118,6 +118,7 @@ def sweep_stale_analysis_state() -> None:
 
     summary: list[str] = []
     affected_jobs: dict[tuple[str, int], AnalysisJob] = {}
+    errors = 0
 
     for model in _analysis_task_models():
         pending = canceled = 0
@@ -127,7 +128,14 @@ def sweep_stale_analysis_state() -> None:
             .select_related("job", "queued_job", "queued_job__worker")
         )
         for task in candidates:
-            outcome = _resolve_stale_task(task, owner_gone)
+            # One broken task (e.g. its re-queue failing) must not stop the repair of the
+            # others; it is still IN_PROGRESS, so the next tick retries it.
+            try:
+                outcome = _resolve_stale_task(task, owner_gone)
+            except Exception:
+                logger.exception("Sweep failed to repair %s %s", model.__name__, task.pk)
+                errors += 1
+                continue
             if outcome == "pending":
                 pending += 1
             elif outcome == "canceled":
@@ -143,18 +151,22 @@ def sweep_stale_analysis_state() -> None:
             summary.append(f"{model.__name__} 0")
 
     for job in affected_jobs.values():
-        job.refresh_from_db()
-        # Re-evaluate the job unless it is already finished. A finished job is re-evaluated
-        # too if it still has open tasks (should not happen, but a repaired task must never
-        # be left hanging under a finished job).
-        if (
-            job.status not in _TERMINAL_JOB_STATUSES
-            or job.tasks.filter(
-                status__in=(AnalysisTask.Status.PENDING, AnalysisTask.Status.IN_PROGRESS)
-            ).exists()
-        ):
-            job.update_job_state()
+        # One job's failure (e.g. its finished mail bouncing) must not stop the jobs after
+        # it: a skipped job here is never revisited, since its tasks are already repaired.
+        try:
+            job.refresh_from_db()
+            # Re-evaluate jobs that are still running (e.g. CANCELING -> CANCELED once its
+            # last task is settled). A job that already finished has nothing left to converge.
+            if job.status not in _TERMINAL_JOB_STATUSES:
+                job.update_job_state()
+        except Exception:
+            logger.exception("Sweep failed to update job %s %s", job._meta.label, job.pk)
+            errors += 1
 
     # One summary line; INFO only if something was repaired (the sweep runs every minute).
     log = logger.info if affected_jobs else logger.debug
     log("Swept stale analysis state: %s", ", ".join(summary))
+
+    # Everything repairable was repaired; still fail the run so the errors are not invisible.
+    if errors:
+        raise RuntimeError(f"Sweep finished with {errors} error(s), see log for details.")
