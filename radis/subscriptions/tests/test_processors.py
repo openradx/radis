@@ -18,6 +18,7 @@ from adit_radis_shared.accounts.factories import GroupFactory, UserFactory
 from adit_radis_shared.common.utils.testing_helpers import add_user_to_group
 from pydantic import BaseModel, create_model
 
+from radis.core.models import AnalysisJob, AnalysisTask
 from radis.reports.factories import ReportFactory
 from radis.subscriptions.factories import (
     FilterQuestionFactory,
@@ -239,3 +240,22 @@ def test_accept_path_succeeds_and_creates_item():
     task.refresh_from_db()
     assert task.status == SubscriptionTask.Status.SUCCESS
     assert SubscribedItem.objects.count() == 1
+
+
+@pytest.mark.django_db(transaction=True)
+def test_running_same_report_twice_creates_one_subscribed_item():
+    # No filter questions and no output fields: the report is accepted without any LLM call.
+    subscription = SubscriptionFactory.create()
+    job = SubscriptionJobFactory.create(
+        subscription=subscription, status=AnalysisJob.Status.IN_PROGRESS
+    )
+    task = SubscriptionTaskFactory.create(job=job, status=AnalysisTask.Status.IN_PROGRESS)
+    report = ReportFactory.create()
+
+    with patch("radis.subscriptions.processors.LLMClient"):
+        processor = SubscriptionTaskProcessor(task)
+
+    processor.process_report(report, task)
+    processor.process_report(report, task)
+
+    assert SubscribedItem.objects.filter(subscription=subscription, report=report).count() == 1

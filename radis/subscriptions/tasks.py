@@ -35,7 +35,26 @@ def process_subscription_job(job_id: int) -> None:
     job = SubscriptionJob.objects.get(id=job_id)
 
     logger.info("Start processing job %s", job)
-    assert job.status == SubscriptionJob.Status.PREPARING
+
+    # A worker crashed while enqueueing: the job is already PENDING but some tasks were
+    # never queued. Just enqueue the missing ones; the sweep does not cover this case.
+    if job.status == SubscriptionJob.Status.PENDING and job.tasks.exists():
+        # Atomic for the same reason as the enqueue loop in _build_subscription_job.
+        with transaction.atomic():
+            for task in job.tasks.filter(status=SubscriptionTask.Status.PENDING):
+                if not task.is_queued:
+                    task.delay()
+        return
+
+    # New jobs start PREPARING, and a job run again after a crash during preparation is
+    # still PREPARING. Any other status has nothing to prepare.
+    if job.status != SubscriptionJob.Status.PREPARING:
+        logger.warning(
+            "process_subscription_job called for job %s in status %s, ignoring.",
+            job.pk,
+            job.get_status_display(),
+        )
+        return
 
     try:
         _build_subscription_job(job)
@@ -52,6 +71,10 @@ def process_subscription_job(job_id: int) -> None:
 def _build_subscription_job(job: SubscriptionJob) -> None:
 
     logger.debug("Collecting tasks for job %s", job)
+
+    # Remove tasks left over from a crashed preparation attempt and start over. They were
+    # never enqueued (that only happens once the job is PENDING), so this is safe.
+    job.tasks.all().delete()
 
     # Capture the refresh timestamp before querying for new reports so that
     # any reports arriving during task creation are picked up in the next cycle.
@@ -94,34 +117,35 @@ def _build_subscription_job(job: SubscriptionJob) -> None:
 
     logger.debug("Starting SubscriptionTasks done.")
 
-    job.subscription.last_refreshed = refresh_time
-    # Don't write back the full object - the user may have edited the
-    # subscription while this refresh was running.
-    job.subscription.save(update_fields=["last_refreshed"])
+    # Advance last_refreshed and the job status in one transaction. If only last_refreshed
+    # were saved before a crash, the next run would skip the reports found by this one.
+    with transaction.atomic():
+        job.subscription.last_refreshed = refresh_time
+        # Don't write back the full object - the user may have edited the
+        # subscription while this refresh was running.
+        job.subscription.save(update_fields=["last_refreshed"])
 
-    if tasks_created == 0:
-        # A job with no tasks is never completed by task processing, so it
-        # would stay PENDING forever and the launcher would skip the
-        # subscription on every future tick. Complete it right away.
-        job.status = SubscriptionJob.Status.SUCCESS
-        job.message = "No new reports found."
+        if tasks_created == 0:
+            # A job with no tasks is never completed by task processing, so it
+            # would stay PENDING forever and the launcher would skip the
+            # subscription on every future tick. Complete it right away.
+            job.status = SubscriptionJob.Status.SUCCESS
+            job.message = "No new reports found."
+            job.queued_job_id = None
+            job.save()
+            logger.debug("No new reports for job %s - completed without tasks", job)
+            return
+
+        job.status = SubscriptionJob.Status.PENDING
         job.queued_job_id = None
         job.save()
-        logger.debug("No new reports for job %s - completed without tasks", job)
-        return
 
-    job.status = SubscriptionJob.Status.PENDING
-    job.queued_job_id = None
-    job.save()
-
-    # Important invariant:
-    # Do not enqueue tasks while the job is still PREPARING, otherwise a worker can pick them up
-    # and `AnalysisTaskProcessor.start()` will assert because it expects the job to be
-    # PENDING/IN_PROGRESS.
-    tasks_to_enqueue = job.tasks.filter(status=SubscriptionTask.Status.PENDING)
-    for task in tasks_to_enqueue:
-        if not task.is_queued:
-            task.delay()
+        # Enqueue in the same transaction: the queue rows become visible only at commit, when
+        # the job is already PENDING — a worker can never pick up a task of a PREPARING job.
+        # And if the worker dies mid-loop, everything above rolls back with the enqueues.
+        for task in job.tasks.filter(status=SubscriptionTask.Status.PENDING):
+            if not task.is_queued:
+                task.delay()
 
 
 @app.periodic(cron=settings.SUBSCRIPTION_CRON)
