@@ -36,8 +36,9 @@ def process_extraction_job(job_id: int) -> None:
 
     logger.info("Start preparing job %s", job)
 
-    # PENDING: a new job. PREPARING: this job is being run again after a worker crashed
-    # while preparing it. Any other status has nothing to prepare.
+    # PENDING: a new job, or one re-run while its tasks already exist (resumed below).
+    # PREPARING: run again after a worker crashed while preparing it. Anything else
+    # has nothing to prepare.
     if job.status not in (ExtractionJob.Status.PENDING, ExtractionJob.Status.PREPARING):
         logger.warning(
             "process_extraction_job called for job %s in status %s, ignoring.",
@@ -46,10 +47,9 @@ def process_extraction_job(job_id: int) -> None:
         )
         return
 
-    # Important invariant:
-    # While a job is in PREPARING we must not enqueue tasks. Otherwise a worker can pick up a task
-    # early and `AnalysisTaskProcessor.start()` will assert because the job is still PREPARING.
-    # Tasks may be created while PREPARING, but only enqueued after switching back to PENDING.
+    # Tasks may be created while the job is PREPARING, but they must not run yet — a worker
+    # picking one up early would fail, because the job is not PENDING/IN_PROGRESS. The
+    # transaction at the end guarantees this: queue rows appear only once the job is PENDING.
 
     # A crash during preparation can leave a partial set of tasks behind. They were never
     # enqueued (that only happens once the job is PENDING), so drop them and prepare again.

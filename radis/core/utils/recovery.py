@@ -39,8 +39,8 @@ def _analysis_task_models() -> list[type[AnalysisTask]]:
 def _owner_gone_q(cutoff: datetime) -> Q:
     """Match tasks whose worker is gone (queue row missing, finished, or worker silent).
 
-    Written as OR-ed positive conditions: an .exclude() would miss tasks that have no
-    queue row at all (NULL join).
+    Written as OR-ed positive conditions: an .exclude() would drop tasks that have no
+    queue row at all, because all their queue-row fields are NULL.
     """
     return (
         # queue row deleted (Procrastinate runs with --delete-jobs=always)
@@ -104,7 +104,8 @@ def _resolve_stale_task(task: AnalysisTask, owner_gone: Q) -> str | None:
 
 
 def _row_will_refire(row_id: int | None) -> bool:
-    """True if the queue row still exists and is todo/doing, so a worker will run it again."""
+    """True if the queue row will run again: a todo row fires by itself, and a doing row
+    left by a dead worker is re-queued by retry_stalled_jobs. Either way, no second row."""
     return (
         row_id is not None
         and ProcrastinateJob.objects.filter(pk=row_id, status__in=_LIVE_ROW_STATUSES).exists()

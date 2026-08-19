@@ -121,7 +121,7 @@ def test_pending_job_with_tasks_only_enqueues_them(monkeypatch):
 
 
 @pytest.mark.django_db
-def test_prep_job_in_unexpected_status_is_ignored():
+def test_extraction_prep_job_in_unexpected_status_is_ignored():
     user = UserFactory.create()
     job = ExtractionJobFactory.create(owner=user, status=AnalysisJob.Status.SUCCESS)
 

@@ -1,3 +1,4 @@
+import logging
 from datetime import timedelta
 from unittest.mock import patch
 
@@ -54,9 +55,10 @@ def owner_gone_q():
 
 
 @pytest.mark.django_db
-def test_orphan_under_canceling_job_is_canceled():
-    # The reported bug: task IN_PROGRESS, queue row gone, job CANCELING.
-    task = make_stale_task(AnalysisJob.Status.CANCELING, row=None)
+@pytest.mark.parametrize("job_status", [AnalysisJob.Status.CANCELING, AnalysisJob.Status.CANCELED])
+def test_orphan_under_canceling_or_canceled_job_is_canceled(job_status):
+    # The reported bug: task IN_PROGRESS, queue row gone, job canceling (or already canceled).
+    task = make_stale_task(job_status, row=None)
 
     sweep_stale_analysis_state()
 
@@ -142,7 +144,7 @@ def test_doing_row_without_worker_is_treated_as_dead():
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize("row_status", ["succeeded", "failed"])
+@pytest.mark.parametrize("row_status", ["succeeded", "failed", "cancelled", "aborted"])
 def test_terminal_row_is_resolved_like_an_orphan(row_status):
     row = create_row(row_status)
     task = make_stale_task(AnalysisJob.Status.IN_PROGRESS, row=row)
@@ -313,3 +315,36 @@ def test_one_failing_task_repair_does_not_stop_the_others():
     task_b.refresh_from_db()
     assert task_a.status == AnalysisTask.Status.IN_PROGRESS  # reset rolled back, next tick retries
     assert task_b.status == AnalysisTask.Status.PENDING
+
+
+@pytest.mark.django_db(transaction=True)
+def test_requeue_with_real_delay_writes_fresh_task_state(settings):
+    # Unmocked delay() saves the whole task object. Without the refresh_from_db before it,
+    # the stale in-memory copy (still IN_PROGRESS) would overwrite the reset.
+    settings.PROCRASTINATE_READONLY_MODELS = False
+    task = make_stale_task(AnalysisJob.Status.IN_PROGRESS, row=None)
+
+    sweep_stale_analysis_state()
+
+    task.refresh_from_db()
+    assert task.status == AnalysisTask.Status.PENDING
+    row = ProcrastinateJob.objects.get(pk=task.queued_job_id)
+    assert row.status == "todo"
+    assert row.args == {"task_id": task.pk}
+
+
+@pytest.mark.django_db
+def test_quiet_tick_logs_at_debug_and_repairing_tick_at_info(caplog):
+    logger_name = "radis.core.utils.recovery"
+
+    with caplog.at_level(logging.DEBUG, logger=logger_name):
+        sweep_stale_analysis_state()  # nothing to repair
+    quiet = [r for r in caplog.records if r.message.startswith("Swept stale")]
+    assert [r.levelno for r in quiet] == [logging.DEBUG]
+
+    caplog.clear()
+    make_stale_task(AnalysisJob.Status.CANCELING, row=None)
+    with caplog.at_level(logging.DEBUG, logger=logger_name):
+        sweep_stale_analysis_state()
+    repaired = [r for r in caplog.records if r.message.startswith("Swept stale")]
+    assert [r.levelno for r in repaired] == [logging.INFO]

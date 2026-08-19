@@ -54,10 +54,24 @@ def test_raw_queue_row_delete_nulls_subscription_task_fk(settings):
         attempts=0,
         abort_requested=False,
     )
+    job_row = ProcrastinateJob.objects.create(
+        queue_name="default",
+        task_name="radis.subscriptions.tasks.process_subscription_job",
+        priority=0,
+        args={},
+        status="todo",
+        attempts=0,
+        abort_requested=False,
+    )
     task = SubscriptionTaskFactory.create(queued_job=row)
+    job = task.job
+    job.queued_job_id = job_row.pk
+    job.save()
 
     with connection.cursor() as cursor:
-        cursor.execute("DELETE FROM procrastinate_jobs WHERE id = %s", [row.pk])
+        cursor.execute("DELETE FROM procrastinate_jobs WHERE id IN (%s, %s)", [row.pk, job_row.pk])
 
     task.refresh_from_db()
+    job.refresh_from_db()
     assert task.queued_job_id is None
+    assert job.queued_job_id is None  # the job-level FK is covered by the same migration

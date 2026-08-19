@@ -121,11 +121,23 @@ def test_raw_queue_row_delete_nulls_labeling_task_fk(settings):
         attempts=0,
         abort_requested=False,
     )
-    task = LabelingTaskFactory.create(job=LabelingJobFactory.create(), queued_job=row)
+    job_row = ProcrastinateJob.objects.create(
+        queue_name="default",
+        task_name="radis.labels.tasks.process_labeling_job",
+        priority=0,
+        args={},
+        status="todo",
+        attempts=0,
+        abort_requested=False,
+    )
+    job = LabelingJobFactory.create(queued_job=job_row)
+    task = LabelingTaskFactory.create(job=job, queued_job=row)
 
     # Procrastinate deletes rows via raw SQL, bypassing Django's SET_NULL.
     with connection.cursor() as cursor:
-        cursor.execute("DELETE FROM procrastinate_jobs WHERE id = %s", [row.pk])
+        cursor.execute("DELETE FROM procrastinate_jobs WHERE id IN (%s, %s)", [row.pk, job_row.pk])
 
     task.refresh_from_db()
+    job.refresh_from_db()
     assert task.queued_job_id is None
+    assert job.queued_job_id is None  # the job-level FK is covered by the same migration

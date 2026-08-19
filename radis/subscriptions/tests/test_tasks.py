@@ -70,6 +70,15 @@ def test_pending_job_resumes_enqueueing_after_crash(settings, monkeypatch):
         )
         for _ in range(2)
     ]
+    # One task already has a queue row and one already succeeded: resume must skip both.
+    queued_task = SubscriptionTaskFactory.create(
+        job=job, status=SubscriptionTask.Status.PENDING, queued_job=None
+    )
+    queued_task.delay()
+    queued_row_id = queued_task.queued_job_id
+    done_task = SubscriptionTaskFactory.create(
+        job=job, status=SubscriptionTask.Status.SUCCESS, queued_job=None
+    )
 
     # Resuming must only enqueue; it must not search for reports again.
     def _fail_if_called(_filters):
@@ -83,11 +92,15 @@ def test_pending_job_resumes_enqueueing_after_crash(settings, monkeypatch):
 
     process_subscription_job(int(job.pk))
 
-    assert job.tasks.count() == 2  # neither deleted nor duplicated
+    assert job.tasks.count() == 4  # neither deleted nor duplicated
     for task in tasks:
         task.refresh_from_db()
         assert task.is_queued
         assert ProcrastinateJob.objects.filter(pk=task.queued_job_id).exists()
+    queued_task.refresh_from_db()
+    assert queued_task.queued_job_id == queued_row_id  # not enqueued a second time
+    done_task.refresh_from_db()
+    assert done_task.queued_job_id is None  # finished tasks are left alone
 
     job.refresh_from_db()
     assert job.status == SubscriptionJob.Status.PENDING
