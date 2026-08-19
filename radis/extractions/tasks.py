@@ -3,6 +3,7 @@ from itertools import batched
 
 from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
+from django.db import transaction
 from procrastinate.contrib.django import app
 
 from radis.reports.models import Report
@@ -108,18 +109,18 @@ def process_extraction_job(job_id: int) -> None:
                 report = Report.objects.get(document_id=document_id)
                 ExtractionInstance.objects.create(task=task, report_id=report.pk)
 
-        # Preparation is complete. Only now do we allow enqueuing tasks.
-        job.status = ExtractionJob.Status.PENDING
-        job.queued_job_id = None
-        job.save()
-
         tasks_to_enqueue = job.tasks.filter(status=ExtractionTask.Status.PENDING)
 
-    # Ensure the job isn't considered queued anymore once the preparation task has run.
-    if job.queued_job_id is not None:
+    # Flip to PENDING and enqueue in one transaction: if the worker dies mid-loop, nothing is
+    # committed — the job is still PREPARING (or PENDING with no new rows) and the re-run
+    # rebuilds or resumes. A half-enqueued PENDING job would strand its remaining tasks.
+    with transaction.atomic():
+        if job.status == ExtractionJob.Status.PREPARING:
+            job.status = ExtractionJob.Status.PENDING
+        # The preparation run itself is over; its own queue row must not count as queued.
         job.queued_job_id = None
         job.save()
 
-    for task in tasks_to_enqueue:
-        if not task.is_queued:
-            task.delay()
+        for task in tasks_to_enqueue:
+            if not task.is_queued:
+                task.delay()

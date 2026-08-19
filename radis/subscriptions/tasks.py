@@ -39,9 +39,11 @@ def process_subscription_job(job_id: int) -> None:
     # A worker crashed while enqueueing: the job is already PENDING but some tasks were
     # never queued. Just enqueue the missing ones; the sweep does not cover this case.
     if job.status == SubscriptionJob.Status.PENDING and job.tasks.exists():
-        for task in job.tasks.filter(status=SubscriptionTask.Status.PENDING):
-            if not task.is_queued:
-                task.delay()
+        # Atomic for the same reason as the enqueue loop in _build_subscription_job.
+        with transaction.atomic():
+            for task in job.tasks.filter(status=SubscriptionTask.Status.PENDING):
+                if not task.is_queued:
+                    task.delay()
         return
 
     # New jobs start PREPARING, and a job run again after a crash during preparation is
@@ -138,14 +140,12 @@ def _build_subscription_job(job: SubscriptionJob) -> None:
         job.queued_job_id = None
         job.save()
 
-    # Important invariant:
-    # Do not enqueue tasks while the job is still PREPARING, otherwise a worker can pick them up
-    # and `AnalysisTaskProcessor.start()` will assert because it expects the job to be
-    # PENDING/IN_PROGRESS.
-    tasks_to_enqueue = job.tasks.filter(status=SubscriptionTask.Status.PENDING)
-    for task in tasks_to_enqueue:
-        if not task.is_queued:
-            task.delay()
+        # Enqueue in the same transaction: the queue rows become visible only at commit, when
+        # the job is already PENDING — a worker can never pick up a task of a PREPARING job.
+        # And if the worker dies mid-loop, everything above rolls back with the enqueues.
+        for task in job.tasks.filter(status=SubscriptionTask.Status.PENDING):
+            if not task.is_queued:
+                task.delay()
 
 
 @app.periodic(cron=settings.SUBSCRIPTION_CRON)

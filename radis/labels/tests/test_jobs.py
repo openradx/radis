@@ -244,3 +244,48 @@ def test_sweep_unblocks_canceling_labeling_job():
     assert job.status == LabelingJob.Status.CANCELED
     # The singleton index is free again: a new labeling job can be created.
     LabelingJobFactory.create(status=LabelingJob.Status.PENDING)
+
+
+@pytest.mark.django_db(transaction=True)
+def test_crash_while_enqueueing_rolls_back_the_pending_flip(monkeypatch, settings):
+    """The PENDING flip and the task enqueues commit together. If the worker dies mid-loop
+    the job is still PREPARING and the re-run rebuilds, instead of a half-enqueued job
+    whose remaining tasks nothing would ever enqueue."""
+    from procrastinate.contrib.django.models import ProcrastinateJob
+
+    from radis.labels import tasks
+    from radis.labels.factories import LabelFactory, LabelGroupFactory
+    from radis.labels.models import LabelingTask
+    from radis.reports.factories import ReportFactory
+
+    settings.PROCRASTINATE_READONLY_MODELS = False
+    settings.LABELING_TASK_BATCH_SIZE = 1
+    group = LabelGroupFactory.create()
+    LabelFactory.create(group=group)
+    ReportFactory.create()
+    ReportFactory.create()  # 2 reports with batch size 1 -> 2 tasks
+    job = LabelingJobFactory.create(
+        trigger=LabelingJob.Trigger.MANUAL, status=LabelingJob.Status.PENDING
+    )
+
+    real_delay = LabelingTask.delay
+    calls = {"n": 0}
+
+    def dies_on_second_enqueue(self):
+        calls["n"] += 1
+        if calls["n"] == 2:
+            raise RuntimeError("worker killed mid-enqueue")
+        real_delay(self)
+
+    monkeypatch.setattr(LabelingTask, "delay", dies_on_second_enqueue, raising=True)
+
+    with pytest.raises(RuntimeError):
+        tasks.process_labeling_job(job.pk)
+
+    job.refresh_from_db()
+    assert job.status == LabelingJob.Status.PREPARING  # the flip rolled back
+    assert not job.tasks.filter(queued_job__isnull=False).exists()  # so did the first enqueue
+    task_pks = list(job.tasks.values_list("pk", flat=True))
+    assert not ProcrastinateJob.objects.filter(
+        task_name="radis.labels.tasks.process_labeling_task", args__task_id__in=task_pks
+    ).exists()
