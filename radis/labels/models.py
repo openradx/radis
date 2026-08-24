@@ -76,8 +76,10 @@ class LabelResult(models.Model):
 
     @property
     def is_stale(self) -> bool:
-        """A result is stale when its label's definition changed after it was generated."""
-        return self.generated_at < self.label.updated_at
+        """Stale when the label's definition or the report's content changed after generation."""
+        return (
+            self.generated_at < self.label.updated_at or self.generated_at < self.report.updated_at
+        )
 
 
 class GateAnswer(models.Model):

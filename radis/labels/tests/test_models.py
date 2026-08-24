@@ -105,6 +105,18 @@ def test_scan_checkpoint_is_singleton():
 
 
 @pytest.mark.django_db
+def test_label_result_is_stale_after_report_update():
+    result = LabelResultFactory.create()
+    assert not result.is_stale
+
+    result.report.body = "changed"
+    result.report.save()
+    result.refresh_from_db()
+
+    assert result.is_stale
+
+
+@pytest.mark.django_db
 def test_raw_queue_row_delete_nulls_labeling_task_fk(settings):
     settings.PROCRASTINATE_READONLY_MODELS = False
     from django.db import connection

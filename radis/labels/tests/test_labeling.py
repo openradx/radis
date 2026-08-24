@@ -3,7 +3,12 @@ from unittest.mock import patch
 import pytest
 from django.test import override_settings
 
-from radis.labels.factories import GateAnswerFactory, LabelFactory, LabelGroupFactory
+from radis.labels.factories import (
+    GateAnswerFactory,
+    LabelFactory,
+    LabelGroupFactory,
+    LabelResultFactory,
+)
 from radis.labels.models import GateAnswer, LabelResult
 from radis.labels.tests.helpers import FakeChatClient
 from radis.reports.factories import ReportFactory
@@ -236,3 +241,46 @@ def test_stale_gate_yes_yes_with_fresh_results_makes_no_label_calls():
     assert len(client.gate_calls) == 1
     assert client.label_calls == []  # results already fresh -> no label LLM call
     assert LabelResult.objects.get(report=report, label=label).value == "PRESENT"
+
+
+@pytest.mark.django_db
+def test_report_update_reruns_gate_and_labels():
+    from radis.labels.labeling import label_report
+
+    report = ReportFactory.create(body="original body")
+    group = LabelGroupFactory.create()
+    label = LabelFactory.create(group=group)
+    GateAnswerFactory.create(report=report, label_group=group, value=GateAnswer.Value.YES)
+    LabelResultFactory.create(report=report, label=label, value=LabelResult.Value.ABSENT)
+
+    # Editing the report bumps report.updated_at past both generated_at values.
+    report.body = "changed body"
+    report.save()
+
+    client = FakeChatClient(gate_values={group.name: "YES"}, label_values={label.name: "PRESENT"})
+    with _patch_client(client):
+        label_report(report.pk)
+
+    assert len(client.gate_calls) == 1
+    assert len(client.label_calls) == 1
+    assert LabelResult.objects.get(report=report, label=label).value == "PRESENT"
+
+
+@pytest.mark.django_db
+def test_report_update_reruns_gate_even_when_previous_answer_was_no():
+    from radis.labels.labeling import label_report
+
+    report = ReportFactory.create(body="original body")
+    group = LabelGroupFactory.create()
+    LabelFactory.create(group=group)
+    GateAnswerFactory.create(report=report, label_group=group, value=GateAnswer.Value.NO)
+
+    report.body = "changed body"
+    report.save()
+
+    client = FakeChatClient(gate_values={group.name: "NO"})
+    with _patch_client(client):
+        label_report(report.pk)
+
+    assert len(client.gate_calls) == 1  # gate re-asked despite an existing NO answer
+    assert client.label_calls == []

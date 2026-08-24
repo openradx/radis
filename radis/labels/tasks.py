@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 def _scope_queryset(job: LabelingJob) -> QuerySet:
     if job.scan_from is not None:  # SCAN job: recent window
-        return Report.objects.filter(created_at__gte=job.scan_from).order_by("pk")
+        return Report.objects.filter(updated_at__gte=job.scan_from).order_by("pk")
     active_group_count = LabelGroup.objects.filter(labels__active=True).distinct().count()
     return _needs_work_queryset(active_group_count).order_by("pk")
 
@@ -147,7 +147,7 @@ def incremental_label_scan(timestamp: int) -> None:
         # everything ingested meanwhile.
         return
 
-    if Report.objects.filter(created_at__gte=checkpoint.last_scanned_at).exists():
+    if Report.objects.filter(updated_at__gte=checkpoint.last_scanned_at).exists():
         # Atomic so the job row and its Procrastinate queue row commit together — a crash in
         # between would otherwise strand an active-but-never-queued job that wedges the singleton.
         with transaction.atomic():

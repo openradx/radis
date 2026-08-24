@@ -7,27 +7,29 @@ from .models import GateAnswer, Label, LabelResult
 
 def _needs_work_queryset(active_group_count: int) -> QuerySet:
     """Reports needing labeling work: missing/stale gate (condition A) OR a fresh YES
-    group with a missing/stale label result (condition B)."""
+    group with a missing/stale label result (condition B). Fresh means generated after
+    both the label-side updated_at and the report's updated_at."""
     # Both predicates must match the SAME LabelResult row — otherwise a fresh result on
     # another report could mask this report's stale one.
     fresh_result_for_report = LabelResult.objects.filter(
         report_id=OuterRef(OuterRef("pk")),
         label_id=OuterRef("pk"),
         generated_at__gte=OuterRef("updated_at"),
-    )
+    ).filter(generated_at__gte=OuterRef(OuterRef("updated_at")))
     fresh_yes_gate = GateAnswer.objects.filter(
         report_id=OuterRef(OuterRef("pk")),
         label_group_id=OuterRef("group_id"),
         value=GateAnswer.Value.YES,
         generated_at__gte=F("label_group__updated_at"),
-    )
+    ).filter(generated_at__gte=OuterRef(OuterRef("updated_at")))
     return Report.objects.annotate(
         non_stale_gate_count=Count(
             "gate_answers",
             filter=Q(
                 gate_answers__label_group__labels__active=True,
                 gate_answers__generated_at__gte=F("gate_answers__label_group__updated_at"),
-            ),
+            )
+            & Q(gate_answers__generated_at__gte=F("updated_at")),
             distinct=True,
         ),
     ).filter(

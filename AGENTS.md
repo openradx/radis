@@ -286,7 +286,7 @@ reports = response.json()
 ### Labels Not Appearing
 
 - Confirm the label exists and is `active`
-- Ensure a backfill has run or the periodic scan (`LABELING_SCAN_CRON`) has ticked since the label/report was created
+- Ensure a backfill has run or the periodic scan (`LABELING_SCAN_CRON`) has ticked since the label was created or the report was created/updated (any report update marks its labels stale and triggers re-labeling)
 - Check the group gate was answered `YES` for the report (a `NO` gate skips per-label classification)
 - Verify the result is a surfacing bucket (`PRESENT`/`LIKELY`/`POSSIBLE`); `ABSENT`/`UNMENTIONED` never surface
 - Use `uv run cli shell` + `labels_status` (or `manage.py labels_status`) to inspect corpus-wide counts and the scan checkpoint
