@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 class SubscriptionTaskProcessor(AnalysisTaskProcessor):
     def __init__(self, task: SubscriptionTask) -> None:
         super().__init__(task)
-        self.client = LLMClient()
+        self.client = LLMClient("subscriptions")
 
     def process_task(self, task: SubscriptionTask) -> None:
         user: User = task.job.owner

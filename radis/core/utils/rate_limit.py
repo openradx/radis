@@ -11,7 +11,11 @@ import openai
 logger = logging.getLogger(__name__)
 
 # Transient, usually per-request failures (not rate-limits). Worth a small local retry.
-TRANSIENT_ERRORS = (openai.APIConnectionError, openai.InternalServerError)
+# Timeouts are covered too: openai.APITimeoutError subclasses APIConnectionError.
+TRANSIENT_ERRORS: tuple[type[Exception], ...] = (
+    openai.APIConnectionError,
+    openai.InternalServerError,
+)
 
 
 class RateLimited(Exception):
@@ -191,20 +195,30 @@ def with_transient_retries[T](
     fn: Callable[[], T],
     attempts: int,
     base: float,
-    sleep: Callable[[float], None] = time.sleep,
+    sleep: Callable[[float], None] | None = None,
+    retryable: tuple[type[Exception], ...] = TRANSIENT_ERRORS,
 ) -> T:
     """Retry `fn` a few times on transient non-429 errors (connection/timeout/5xx).
 
     Not gate-coordinated: these are usually per-request, not a provider-wide stop.
     A 429 is not caught here, so it passes straight to the gate without retrying.
     """
+    if sleep is None:  # resolved at call time so tests can patch time.sleep
+        sleep = time.sleep
     for attempt in range(attempts + 1):
         try:
             return fn()
-        except TRANSIENT_ERRORS:
+        except retryable as exc:
             if attempt == attempts:
                 raise  # exhausted -> let the failure path handle it
-            sleep(base * 2**attempt)  # 1s, 2s, ...
+            wait = base * 2**attempt  # 1s, 2s, ...
+            logger.warning(
+                "Transient error on attempt %d; retrying in %.2fs. Error: %s",
+                attempt + 1,
+                wait,
+                exc,
+            )
+            sleep(wait)
     raise AssertionError("unreachable")  # range always runs at least once
 
 
@@ -212,14 +226,24 @@ async def with_transient_retries_async[T](
     fn: Callable[[], Awaitable[T]],
     attempts: int,
     base: float,
-    sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+    sleep: Callable[[float], Awaitable[None]] | None = None,
+    retryable: tuple[type[Exception], ...] = TRANSIENT_ERRORS,
 ) -> T:
     """Async twin of with_transient_retries; `fn` is awaited, `sleep` is awaited."""
+    if sleep is None:  # resolved at call time so tests can patch asyncio.sleep
+        sleep = asyncio.sleep
     for attempt in range(attempts + 1):
         try:
             return await fn()
-        except TRANSIENT_ERRORS:
+        except retryable as exc:
             if attempt == attempts:
                 raise
-            await sleep(base * 2**attempt)
+            wait = base * 2**attempt
+            logger.warning(
+                "Transient error on attempt %d; retrying in %.2fs. Error: %s",
+                attempt + 1,
+                wait,
+                exc,
+            )
+            await sleep(wait)
     raise AssertionError("unreachable")

@@ -291,3 +291,40 @@ async def test_chat_list_requires_login():
     assert resp.status_code == 302
     location = resp["Location"]
     assert "/login" in location or "next=" in location
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db(transaction=True)
+async def test_create_chat_renders_an_error_when_the_provider_rejects_the_request():
+    """A provider that rejects a configured model parameter must not 500 the chat view.
+
+    Chat sends the model's params as extra_body, so a spec the endpoint dislikes turns
+    every message into a BadRequestError; that has to degrade like a rate limit does.
+    """
+    from radis.chats.utils.testing_helpers import make_bad_request_error
+
+    user = await database_sync_to_async(UserFactory.create)(is_active=True)
+    client = await _login(user)
+
+    openai_mock = MagicMock()
+    openai_mock.chat.completions.create.side_effect = make_bad_request_error()
+
+    with (
+        patch("openai.AsyncOpenAI", return_value=openai_mock),
+        patch("radis.chats.views.render", return_value=HttpResponse("ok")) as render_mock,
+    ):
+        resp = await client.post(
+            reverse("chat_create"),
+            data={"prompt": "What is pneumonia?", "report_id": ""},
+            headers=HX_HEADERS,
+        )
+
+    assert resp.status_code == 200
+    # Nothing persisted, and no exception escaped the view.
+    assert await database_sync_to_async(Chat.objects.count)() == 0
+
+    # The user is told the request failed, and not that the service is merely busy:
+    # a rejected parameter does not get better by trying again.
+    context = render_mock.call_args.args[2]
+    assert context["error"]
+    assert "busy" not in context["error"]

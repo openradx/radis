@@ -1,6 +1,8 @@
+import logging
 import string
 from string import Template
 
+import openai
 from adit_radis_shared.common.types import AuthenticatedHttpRequest
 from django.conf import settings
 from django.contrib import messages
@@ -16,11 +18,26 @@ from openai.types.chat import ChatCompletionMessageParam
 
 from radis.chats.forms import CreateChatForm, PromptForm
 from radis.chats.tables import ChatTable
-from radis.core.utils.llm_client import AsyncChatClient
+from radis.core.utils.llm_client import AsyncChatClient, LLMResponseError
 from radis.core.utils.rate_limit import RateLimited
 from radis.reports.models import Report
 
 from .models import Chat, ChatMessage, ChatRole
+
+logger = logging.getLogger(__name__)
+
+
+def _chat_error_message(err: Exception) -> str:
+    """User-facing text for a failed chat call.
+
+    A rate limit clears by itself, so it is worth retrying. Anything else — a provider
+    rejecting a configured request parameter, a refusal, an outage — will not, and
+    telling the user to try again just sends them round the same loop.
+    """
+    if isinstance(err, RateLimited):
+        return "The LLM service is busy. Please try again in a moment."
+    logger.exception("Chat request failed", exc_info=err)
+    return "The LLM service could not answer this request. Please contact your administrator."
 
 
 @require_GET
@@ -62,7 +79,7 @@ async def chat_create_view(request: AuthenticatedHttpRequest) -> HttpResponse:
             else:
                 instructions_system_prompt: str = settings.CHAT_GENERAL_SYSTEM_PROMPT
 
-            client = AsyncChatClient()
+            client = AsyncChatClient("chats")
 
             try:
                 # Generate an answer for the user prompt
@@ -72,7 +89,7 @@ async def chat_create_view(request: AuthenticatedHttpRequest) -> HttpResponse:
                         {"role": "user", "content": user_prompt},
                     ],
                 )
-            except RateLimited:
+            except (RateLimited, LLMResponseError, openai.APIError) as err:
                 return render(
                     request,
                     "chats/_chat.html",
@@ -81,7 +98,7 @@ async def chat_create_view(request: AuthenticatedHttpRequest) -> HttpResponse:
                         "report": report,
                         "chat_messages": [],
                         "form": form,
-                        "error": "The LLM service is busy. Please try again in a moment.",
+                        "error": _chat_error_message(err),
                     },
                 )
 
@@ -98,7 +115,7 @@ async def chat_create_view(request: AuthenticatedHttpRequest) -> HttpResponse:
                     ],
                     max_completion_tokens=20,
                 )
-            except RateLimited:
+            except (RateLimited, LLMResponseError, openai.APIError):
                 title = user_prompt
             title = title.strip().rstrip(string.punctuation)[:100]
 
@@ -188,10 +205,10 @@ async def chat_update_view(request: AuthenticatedHttpRequest, pk: int) -> HttpRe
         prompt = form.cleaned_data["prompt"]
         messages.append({"role": "user", "content": prompt})
 
-        client = AsyncChatClient()
+        client = AsyncChatClient("chats")
         try:
             response = await client.chat(messages)
-        except RateLimited:
+        except (RateLimited, LLMResponseError, openai.APIError) as err:
             return render(
                 request,
                 "chats/_chat.html",
@@ -205,7 +222,7 @@ async def chat_update_view(request: AuthenticatedHttpRequest, pk: int) -> HttpRe
                         )
                     ],
                     "form": form,
-                    "error": "The LLM service is busy. Please try again in a moment.",
+                    "error": _chat_error_message(err),
                 },
             )
 

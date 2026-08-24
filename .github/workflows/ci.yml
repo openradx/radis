@@ -8,15 +8,19 @@ jobs:
   ci:
     runs-on: "ubuntu-latest"
     timeout-minutes: 25
+    permissions:
+      contents: read
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
-      - name: Install uv
-        uses: astral-sh/setup-uv@v9.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          version: "0.12.3"
+          persist-credentials: false
+      - name: Install uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.12.5"
       - name: Setup Python
-        uses: actions/setup-python@v7
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version-file: "pyproject.toml"
       - name: Install dependencies
@@ -24,9 +28,9 @@ jobs:
       - name: Configure environment
         run: uv run cli init-workspace
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
+        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4
       - name: Build and cache Docker image
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
         with:
           context: .
           target: development
@@ -35,6 +39,7 @@ jobs:
             radis_dev-web:latest
             radis_dev-default_worker:latest
             radis_dev-llm_worker:latest
+            radis_dev-embeddings_worker:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
       - name: Start Docker containers

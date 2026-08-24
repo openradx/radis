@@ -75,9 +75,23 @@ def _is_safe_language_code(code: str) -> bool:
 
 def clear_search_config_cache() -> None:
     _get_available_search_configs_cached.cache_clear()
+    code_to_language.cache_clear()
 
 
+# Bounded: the API creates a Language row for any code it is sent
+# (reports/api/serializers.py), so an unbounded cache would grow with them.
+@lru_cache(maxsize=1024)
 def code_to_language(code: str) -> str:
+    """Resolve a language code to its Postgres text-search configuration.
+
+    Cached because ``_language_configs`` calls this once per ``Language`` row
+    on every search, and an unresolvable code costs a ``pycountry`` linear scan
+    (~1ms). Invalidated together with the config set it depends on by
+    ``clear_search_config_cache``.
+
+    Side effect: the unknown-code WARNING below fires once per process per
+    code, not once per call, so seeing it once does not mean one lookup.
+    """
     if not code:
         return "simple"
     if not _is_safe_language_code(code):

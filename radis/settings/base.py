@@ -13,7 +13,10 @@ https://docs.djangoproject.com/en/3.0/ref/settings/
 from pathlib import Path
 
 from adit_radis_shared.telemetry import add_otel_logging_handler, is_telemetry_active
+from django.core.exceptions import ImproperlyConfigured
 from environs import env
+
+from radis.core.utils.model_spec import ModelSpec, ModelSpecError, parse_model_spec
 
 # During development and calling `manage.py` from the host we have to load the .env file manually.
 # Some env variables will still need a default value, as those are only set in the compose file.
@@ -335,17 +338,69 @@ BACKUP_CRON = env.str("BACKUP_CRON", default="0 3 * * *")
 FILTERS_EMPTY_CHOICE_LABEL = "Show All"
 
 # LLM configuration
-LLM_MODEL_NAME = env.str("LLM_MODEL_NAME")
-EXTERNAL_LLM_PROVIDER_URL = env.str("EXTERNAL_LLM_PROVIDER_URL", default="")
-EXTERNAL_LLM_PROVIDER_API_KEY = env.str("EXTERNAL_LLM_PROVIDER_API_KEY", default="")
-LLM_SERVICE_DEV_PORT = env.int("LLM_SERVICE_DEV_PORT", default=8080)
-LLM_SERVICE_URL = env.str("LLM_SERVICE_URL", default=f"http://localhost:{LLM_SERVICE_DEV_PORT}/v1")
+# The OpenAI-compatible endpoint all inference is sent to. Required, as RADIS ships no
+# inference server of its own. An empty value is rejected as well, so a misconfigured
+# deployment fails at startup instead of on the first LLM call.
+LLM_BASE_URL = env.str("LLM_BASE_URL").strip()
+if not LLM_BASE_URL:
+    raise ImproperlyConfigured(
+        "LLM_BASE_URL must point to an OpenAI-compatible endpoint, e.g. "
+        "http://host.docker.internal:11434/v1 for a provider running on the Docker host."
+    )
+# Many self-hosted providers ignore the key, but the OpenAI client requires it to be set.
+LLM_API_KEY = env.str("LLM_API_KEY", default="")
+
+
+def _optional_env(name: str, parse, default):
+    """Read an optional setting, treating a blank value as unset.
+
+    A blank is what an `.env` line like `LLM_EXTRA_SETTING=` produces, and it means the
+    same as leaving the line out. A value that will not parse is reported with the name
+    of the variable at fault, which a bare ValueError from deep in this module would not
+    give the reader.
+    """
+    raw = env.str(name, default="").strip()
+    if not raw:
+        return default
+    try:
+        return parse(raw)
+    except Exception as err:
+        # Name the variable: a bare "could not convert string to float" from deep inside
+        # the settings module leaves the admin guessing which one is at fault.
+        raise ImproperlyConfigured(f"Invalid {name}={raw!r}: {err}") from err
+
+
 # How long a single LLM HTTP request may take before the client aborts it.
-LLM_REQUEST_TIMEOUT_SECONDS = env.float("LLM_REQUEST_TIMEOUT_SECONDS", default=60.0)
-# Provider quirks (e.g. Qwen's enable_thinking flag) sent with each extract_data call.
-LLM_EXTRA_BODY = env.json(
-    "LLM_EXTRA_BODY", default={"chat_template_kwargs": {"enable_thinking": False}}
-)
+LLM_REQUEST_TIMEOUT_SECONDS = _optional_env("LLM_REQUEST_TIMEOUT_SECONDS", float, 60.0)
+
+# The model each feature talks to, as 'model[?param=value&...]'. The parameters are merged
+# into the request body, so both standard OpenAI fields (temperature) and provider
+# extensions (reasoning_effort, or vLLM's chat_template_kwargs.enable_thinking) can be set
+# per model. Every feature falls back to LLM_DEFAULT_MODEL when its own is not configured.
+LLM_FEATURES = ("chats", "query_generation", "extractions", "subscriptions", "labeling")
+
+
+def _resolve_llm_models() -> dict[str, ModelSpec]:
+    try:
+        default = parse_model_spec(env.str("LLM_DEFAULT_MODEL"))
+    except ModelSpecError as err:
+        raise ImproperlyConfigured(f"Invalid LLM_DEFAULT_MODEL: {err}") from err
+
+    models = {}
+    for feature in LLM_FEATURES:
+        name = f"LLM_{feature.upper()}_MODEL"
+        raw = env.str(name, default="").strip()
+        if not raw:
+            models[feature] = default
+            continue
+        try:
+            models[feature] = parse_model_spec(raw)
+        except ModelSpecError as err:
+            raise ImproperlyConfigured(f"Invalid {name}: {err}") from err
+    return models
+
+
+LLM_MODELS = _resolve_llm_models()
 
 # Rate-limit gate: one per-process backoff window shared by every LLM client. On a 429
 # it closes the gate so all callers back off together instead of hammering the provider.
@@ -373,6 +428,111 @@ LLM_TRANSIENT_RETRY_BASE_SECONDS = env.float("LLM_TRANSIENT_RETRY_BASE_SECONDS",
 LLM_RATE_LIMIT_HEADER_CEILING_SECONDS = env.float(
     "LLM_RATE_LIMIT_HEADER_CEILING_SECONDS", default=1800.0
 )
+
+
+# Embedding service (per-deployment)
+#
+# Embeddings are inference too, but a different model class. One endpoint serves both
+# only when the provider multiplexes models (OpenAI, Ollama, an LLM gateway); a
+# self-hosted vLLM or SGLang serves one model per process, so there the embedding
+# endpoint is a second URL. Inherit the LLM endpoint and override only where they
+# actually diverge, so the common deployment configures one URL rather than two.
+def _inherit_env(name: str, fallback: str) -> str:
+    """An embedding setting that falls back to its LLM counterpart when unset.
+
+    A blank is what an `.env` line like `EMBEDDINGS_BASE_URL=` produces, and it means
+    the same as leaving the line out.
+    """
+    return env.str(name, default="").strip() or fallback
+
+
+EMBEDDINGS_BASE_URL = _inherit_env("EMBEDDINGS_BASE_URL", LLM_BASE_URL)
+EMBEDDINGS_API_KEY = _inherit_env("EMBEDDINGS_API_KEY", LLM_API_KEY)
+EMBEDDINGS_REQUEST_TIMEOUT_SECONDS = _optional_env(
+    "EMBEDDINGS_REQUEST_TIMEOUT_SECONDS", float, LLM_REQUEST_TIMEOUT_SECONDS
+)
+
+
+def _resolve_embeddings_model() -> ModelSpec | None:
+    """The embedding model, or None when hybrid search is not configured.
+
+    Unlike the LLM models this one is optional: without it RADIS serves full-text
+    search only, which is a complete product rather than a broken one. That makes the
+    model the feature switch — every embedding code path asks this one question
+    instead of inferring configuredness from a URL that now has a fallback anyway.
+
+    Same 'model[?param=value&...]' grammar as the LLM models, so request-body
+    parameters (OpenAI's `dimensions`, a provider's `truncate`) are configured
+    alongside the model. Parsed here so a malformed spec is a boot error naming the
+    setting at fault, not a 400 on the first search.
+    """
+    raw = env.str("EMBEDDINGS_MODEL", default="").strip()
+    if not raw:
+        return None
+    try:
+        return parse_model_spec(raw)
+    except ModelSpecError as err:
+        raise ImproperlyConfigured(f"Invalid EMBEDDINGS_MODEL: {err}") from err
+
+
+EMBEDDINGS_MODEL = _resolve_embeddings_model()
+
+EMBEDDINGS_DIM = env.int("EMBEDDINGS_DIM", default=1024)
+
+EMBEDDINGS_QUERY_INSTRUCTION = env.str(
+    "EMBEDDINGS_QUERY_INSTRUCTION",
+    default=(
+        "Instruct: Given a radiology search query, retrieve relevant radiology reports.\nQuery: "
+    ),
+)
+
+# Embedding tuning constants
+# Texts per HTTP call. A 429'd or timed-out call wastes its whole payload
+# and retries every text in it, so smaller batches bound the waste and
+# consume the gateway's sliding window in smoother increments.
+EMBEDDINGS_BATCH_SIZE = env.int("EMBEDDINGS_BATCH_SIZE", default=200)
+# Reports per Procrastinate subjob (task granularity, not HTTP granularity).
+EMBEDDINGS_SUBJOB_SIZE = env.int("EMBEDDINGS_SUBJOB_SIZE", default=1000)
+# Procrastinate task priorities for the `embeddings` queue. Live writes
+# (write-path handler + FTS chain) get LIVE; operator-initiated backfill
+# (`embed_pending`, admin action) gets BACKFILL. A million-row backfill
+# parks itself ahead of every later live write without this split.
+EMBEDDINGS_LIVE_PRIORITY = 1
+EMBEDDINGS_BACKFILL_PRIORITY = 0
+# How long a search query's embedding stays in the Django cache. Paginating re-runs the
+# whole search per page, so this is what keeps page 2..n from re-calling the embedding
+# service for the same query text. Vectors are tiny (~8 KB) and deterministic per model
+# config, so the TTL only bounds staleness across model/config changes, not correctness.
+EMBEDDINGS_QUERY_CACHE_TIMEOUT_SECONDS = env.int(
+    "EMBEDDINGS_QUERY_CACHE_TIMEOUT_SECONDS", default=900
+)
+# Rate-limit gate for the embedding provider: one per-process backoff window shared by
+# every embedding caller in the process (mirrors the LLM gate in core.utils.llm_client).
+# The embedding gateway is a different provider than the LLM, so it gets its own gate —
+# a 429 from one must not pause the other. Semantics of each knob match the LLM_RATE_LIMIT_*
+# settings above.
+EMBEDDINGS_RATE_LIMIT_BACKOFF_BASE_SECONDS = 2.0
+EMBEDDINGS_RATE_LIMIT_BACKOFF_MAX_SECONDS = 120.0
+EMBEDDINGS_RATE_LIMIT_HEADER_CEILING_SECONDS = 1800.0
+# Wait budgets: long for background embedding tasks; short for the search path, where a
+# user is waiting and falling back to FTS-only beats hanging on a closed gate.
+EMBEDDINGS_RATE_LIMIT_MAX_WAIT_SECONDS = 300.0
+EMBEDDINGS_RATE_LIMIT_QUERY_MAX_WAIT_SECONDS = 10.0
+# Local retries of transient (non-429) embedding call failures, mirroring the
+# LLM_TRANSIENT_RETRY_* knobs above: N retries after the first call, with
+# exponential backoff base * 2**attempt (0.5s, 1s).
+EMBEDDINGS_TRANSIENT_RETRY_ATTEMPTS = 2
+EMBEDDINGS_TRANSIENT_RETRY_BASE_SECONDS = 0.5
+# Procrastinate-level retry of a whole embedding subjob (see
+# EMBEDDING_TASK_RETRY_STRATEGY in radis.pgsearch.tasks). Waits grow as
+# exponential_wait ** attempt: 6s, 36s, ~4min, ~22min.
+EMBEDDINGS_TASK_MAX_ATTEMPTS = 5
+EMBEDDINGS_TASK_EXPONENTIAL_WAIT_SECONDS = 6
+
+# Hybrid search tuning
+HYBRID_VECTOR_TOP_K = 100
+HYBRID_FTS_MAX_RESULTS = 10_000
+HYBRID_RRF_K = 60
 
 # Chat
 CHAT_GENERATE_TITLE_SYSTEM_PROMPT = """
@@ -467,7 +627,10 @@ $fields
 
 # Query Generation from Extraction Fields
 ENABLE_AUTO_QUERY_GENERATION = env.bool("ENABLE_AUTO_QUERY_GENERATION", default=True)
-QUERY_GENERATION_TIMEOUT = env.int("QUERY_GENERATION_TIMEOUT", default=10)
+# A user waits on this one, so it is much shorter than the worker timeout. It replaces
+# LLM_REQUEST_TIMEOUT_SECONDS rather than capping it, so a slow endpoint needs this raised
+# as well — see https://github.com/openradx/radis/issues/266.
+QUERY_GENERATION_TIMEOUT = _optional_env("QUERY_GENERATION_TIMEOUT", int, 10)
 QUERY_GENERATION_MAX_RETRIES = env.int("QUERY_GENERATION_MAX_RETRIES", default=2)
 
 QUERY_GENERATION_SYSTEM_PROMPT = """You are an AI assistant specialized in medical informatics and
@@ -516,9 +679,8 @@ EXTRACTION_TASK_BATCH_SIZE = 100
 
 # The number of parallel requests the LLM can handle. This limit is enforced within each task. When
 # having multiple workers that uses the LLM, the total number of parallel requests is
-# EXTRACTION_LLM_CONCURRENCY_LIMIT * number of workers. Either the number of HTTP Threads and
-# number of parallel computing slots of the llama.cpp should be set to match this number or the
-# continuous batching capability of the LLM or a combination of both should be used.
+# EXTRACTION_LLM_CONCURRENCY_LIMIT * number of workers. Keep this within whatever concurrency the
+# configured provider allows, otherwise the surplus requests just get rate limited.
 EXTRACTION_LLM_CONCURRENCY_LIMIT = 6
 
 START_EXTRACTION_JOB_UNVERIFIED = False

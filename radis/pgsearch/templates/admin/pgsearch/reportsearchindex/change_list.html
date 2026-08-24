@@ -1,0 +1,60 @@
+{% extends "admin/change_list.html" %}
+{% block content %}
+    {% if embedding_pipeline_stats %}
+        <div class="module"
+             style="margin-bottom: 15px;
+                    padding: 10px 14px;
+                    border-left: 4px solid #79aec8">
+            <strong>Embedding pipeline</strong>
+            &nbsp;·&nbsp;
+            <strong>{{ embedding_pipeline_stats.embedded_reports }}</strong> /
+            <strong>{{ embedding_pipeline_stats.total_reports }}</strong> reports processed
+            {% if embedding_pipeline_stats.pending_reports %}
+                {% if embedding_pipeline_stats.todo_reports %}
+                    &nbsp;·&nbsp; {{ embedding_pipeline_stats.todo_reports }} queued
+                {% endif %}
+                {% if embedding_pipeline_stats.doing_reports %}
+                    &nbsp;·&nbsp; {{ embedding_pipeline_stats.doing_reports }} in progress
+                {% endif %}
+                {% if embedding_pipeline_stats.unqueued_reports %}
+                    &nbsp;·&nbsp; {{ embedding_pipeline_stats.unqueued_reports }} not queued
+                {% endif %}
+            {% endif %}
+            {% if embedding_pipeline_stats.run %}
+                <div style="margin-top: 4px;">
+                    Backfill: <strong>{{ embedding_pipeline_stats.run.processed_reports }}</strong> /
+                    <strong>{{ embedding_pipeline_stats.run.total_reports }}</strong> reports processed
+                    ({% widthratio embedding_pipeline_stats.run.processed_reports embedding_pipeline_stats.run.total_reports 100 %}%)
+                    · started {{ embedding_pipeline_stats.run.started_at|timesince }} ago
+                    {% if embedding_pipeline_stats.run_stalled %}
+                        <strong style="color: #ba2121;">· stalled — no live subjobs</strong>
+                    {% endif %}
+                </div>
+            {% endif %}
+            {% if embedding_pipeline_stats.todo or embedding_pipeline_stats.doing or embedding_pipeline_stats.failed %}
+                <div style="margin-top: 4px; color: #666;">
+                    subjobs: {{ embedding_pipeline_stats.todo }} queued
+                    · {{ embedding_pipeline_stats.doing }} in-flight
+                    ·
+                    {% if embedding_pipeline_stats.failed %}
+                        <strong style="color: #ba2121;">{{ embedding_pipeline_stats.failed }}</strong>
+                    {% else %}
+                        0
+                    {% endif %}
+                    failed
+                    <span>(<code>embeddings</code> queue)</span>
+                    {% if embedding_pipeline_stats.todo_backfill %}
+                        <form method="post"
+                              action="{% url 'admin:pgsearch_reportsearchindex_cancel_backfill' %}"
+                              style="display: inline;
+                                     margin-left: 10px">
+                            {% csrf_token %}
+                            <button type="submit" class="button">Cancel queued backfill</button>
+                        </form>
+                    {% endif %}
+                </div>
+            {% endif %}
+        </div>
+    {% endif %}
+    {{ block.super }}
+{% endblock content %}

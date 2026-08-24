@@ -18,6 +18,38 @@ There are different things that can be upgraded:
 - Github Codespaces development container dependencies in `.devcontainer/devcontainer.json` and `.devcontainer/Dockerfile`
 - Github actions `.github/workflows/ci.yml` dependencies
 
+## Stray inference containers
+
+RADIS sends all inference to the endpoint in `LLM_BASE_URL` and runs no inference server of
+its own. Docker keeps containers and Swarm services that the compose files do not define,
+so a deployment that still runs one needs it cleaned up by hand.
+
+**Development**: pass `--remove-orphans`, which removes containers of this project that
+the compose files no longer define:
+
+```terminal
+uv run cli compose-down -- --remove-orphans
+```
+
+A model cache volume outlives them and can be reclaimed with
+`docker volume rm radis_dev_models_data`.
+
+**Production (Docker Swarm)**: pass `--prune`, which removes services the deployment no
+longer declares. Only do so when deploying the complete set of compose files, since Swarm
+removes every service the deployment does not mention:
+
+```terminal
+uv run cli stack-deploy -- --prune
+```
+
+To look first, or to clean up without redeploying:
+
+```terminal
+docker service ls | grep llm          # e.g. radis_llm_gpu
+docker service rm radis_llm_gpu       # use your stack name if it is not 'radis'
+docker volume rm radis_models_data    # on each node that holds model files
+```
+
 ## Search language configs
 
 RADIS reads available text search configs from Postgres (`pg_ts_config`) and auto-maps
