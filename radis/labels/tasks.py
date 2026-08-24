@@ -79,26 +79,30 @@ def process_labeling_job(job_id: int) -> None:
         logger.info("Labeling job %s had nothing to do; marked SUCCESS.", job.pk)
         return
 
-    # Conditional write: a concurrent admin cancel may have moved the job out of PREPARING —
-    # an unconditional save() here would resurrect a CANCELED job to PENDING and wedge the
-    # singleton index (its tasks are all CANCELED, so nothing would ever finish it).
-    updated = LabelingJob.objects.filter(pk=job.pk, status=AnalysisJob.Status.PREPARING).update(
-        status=AnalysisJob.Status.PENDING, queued_job_id=None
-    )
-    if not updated:
-        # Cancel won the race; sweep any tasks created after cancel_job's own sweep.
-        job.tasks.filter(status=AnalysisTask.Status.PENDING).update(
-            status=AnalysisTask.Status.CANCELED
+    # Flip to PENDING and enqueue in one transaction: if the worker dies mid-loop, nothing is
+    # committed — the job is still PREPARING and the re-run rebuilds. A half-enqueued PENDING
+    # job would strand its remaining tasks.
+    with transaction.atomic():
+        # Conditional write: a concurrent admin cancel may have moved the job out of PREPARING —
+        # an unconditional save() here would resurrect a CANCELED job to PENDING and wedge the
+        # singleton index (its tasks are all CANCELED, so nothing would ever finish it).
+        updated = LabelingJob.objects.filter(pk=job.pk, status=AnalysisJob.Status.PREPARING).update(
+            status=AnalysisJob.Status.PENDING, queued_job_id=None
         )
-        logger.warning(
-            "Labeling job %s left PREPARING during preparation; not enqueuing tasks.", job.pk
-        )
-        return
+        if not updated:
+            # Cancel won the race; sweep any tasks created after cancel_job's own sweep.
+            job.tasks.filter(status=AnalysisTask.Status.PENDING).update(
+                status=AnalysisTask.Status.CANCELED
+            )
+            logger.warning(
+                "Labeling job %s left PREPARING during preparation; not enqueuing tasks.", job.pk
+            )
+            return
 
-    # Only now (PENDING) may tasks be enqueued.
-    for task in job.tasks.filter(status=AnalysisTask.Status.PENDING):
-        if not task.is_queued:
-            task.delay()
+        # Only now (PENDING) may tasks be enqueued.
+        for task in job.tasks.filter(status=AnalysisTask.Status.PENDING):
+            if not task.is_queued:
+                task.delay()
 
 
 @app.task(queue="llm")

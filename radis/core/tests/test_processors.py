@@ -251,15 +251,81 @@ def test_process_task_default_implementation():
 
 
 @pytest.mark.django_db
-def test_start_assertion_error_on_invalid_task_status():
+def test_start_clears_old_message_when_claiming():
+    # A task reset by the sweep carries "The worker ... was terminated."; once it runs again
+    # and succeeds, that old message must not stick to it.
+    user = UserFactory.create()
+    job = ExtractionJobFactory.create(owner=user, status=AnalysisJob.Status.IN_PROGRESS)
+    task = ExtractionTaskFactory.create(
+        job=job,
+        status=AnalysisTask.Status.PENDING,
+        message="The worker processing this task was terminated.",
+    )
+
+    processor = AnalysisTaskProcessor(task)
+    with patch.object(processor, "process_task"):
+        processor.start()
+
+    task.refresh_from_db()
+    assert task.status == AnalysisTask.Status.SUCCESS
+    assert task.message == ""
+
+
+@pytest.mark.django_db
+def test_start_skips_task_not_pending():
     user = UserFactory.create()
     job = ExtractionJobFactory.create(owner=user, status=AnalysisJob.Status.PENDING)
     task = ExtractionTaskFactory.create(job=job, status=AnalysisTask.Status.SUCCESS)
 
     processor = AnalysisTaskProcessor(task)
 
-    with pytest.raises(AssertionError):
+    with patch.object(processor, "process_task") as mock_process_task:
+        processor.start()  # must not raise
+
+    task.refresh_from_db()
+    assert task.status == AnalysisTask.Status.SUCCESS
+    mock_process_task.assert_not_called()
+
+
+@pytest.mark.django_db
+def test_start_skips_stale_in_progress_task():
+    user = UserFactory.create()
+    job = ExtractionJobFactory.create(owner=user, status=AnalysisJob.Status.IN_PROGRESS)
+    task = ExtractionTaskFactory.create(job=job, status=AnalysisTask.Status.IN_PROGRESS)
+
+    processor = AnalysisTaskProcessor(task)
+
+    with (
+        patch.object(processor, "process_task") as mock_process_task,
+        patch("radis.core.processors.logger") as mock_logger,
+    ):
         processor.start()
+
+    task.refresh_from_db()
+    # Resetting stale tasks is the sweep's job; the processor must not touch it.
+    assert task.status == AnalysisTask.Status.IN_PROGRESS
+    mock_process_task.assert_not_called()
+    mock_logger.warning.assert_called_once()
+
+
+@pytest.mark.django_db
+def test_start_cancels_in_progress_task_under_canceling_job():
+    user = UserFactory.create()
+    job = ExtractionJobFactory.create(owner=user, status=AnalysisJob.Status.CANCELING)
+    task = ExtractionTaskFactory.create(job=job, status=AnalysisTask.Status.IN_PROGRESS)
+
+    processor = AnalysisTaskProcessor(task)
+
+    with (
+        patch.object(processor, "process_task") as mock_process_task,
+        patch.object(job, "update_job_state") as mock_update_job_state,
+    ):
+        processor.start()
+
+    task.refresh_from_db()
+    assert task.status == AnalysisTask.Status.CANCELED
+    mock_process_task.assert_not_called()
+    mock_update_job_state.assert_called_once()
 
 
 @pytest.mark.django_db

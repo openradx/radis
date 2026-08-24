@@ -148,12 +148,16 @@ class SubscriptionTaskProcessor(AnalysisTaskProcessor):
                         extraction_response, get_output_field_name(field), None
                     )
 
-            SubscribedItem.objects.create(
-                subscription=task.job.subscription,
-                job=task.job,
+            # get_or_create, not create: after a crash or when two runs of this task overlap,
+            # the report may already be in the inbox (exists() above is not race-safe).
+            SubscribedItem.objects.get_or_create(
+                subscription=subscription,
                 report=report,
-                filter_results=filter_results or None,
-                extraction_results=extraction_results or None,
+                defaults={
+                    "job": task.job,
+                    "filter_results": filter_results or None,
+                    "extraction_results": extraction_results or None,
+                },
             )
             logger.debug(f"Report {report.pk} was accepted by subscription {subscription.pk}")
         finally:

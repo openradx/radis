@@ -114,3 +114,42 @@ def test_label_result_is_stale_after_report_update():
     result.refresh_from_db()
 
     assert result.is_stale
+
+
+@pytest.mark.django_db
+def test_raw_queue_row_delete_nulls_labeling_task_fk(settings):
+    settings.PROCRASTINATE_READONLY_MODELS = False
+    from django.db import connection
+    from procrastinate.contrib.django.models import ProcrastinateJob
+
+    from radis.labels.factories import LabelingJobFactory, LabelingTaskFactory
+
+    row = ProcrastinateJob.objects.create(
+        queue_name="llm",
+        task_name="radis.labels.tasks.process_labeling_task",
+        priority=0,
+        args={},
+        status="todo",
+        attempts=0,
+        abort_requested=False,
+    )
+    job_row = ProcrastinateJob.objects.create(
+        queue_name="default",
+        task_name="radis.labels.tasks.process_labeling_job",
+        priority=0,
+        args={},
+        status="todo",
+        attempts=0,
+        abort_requested=False,
+    )
+    job = LabelingJobFactory.create(queued_job=job_row)
+    task = LabelingTaskFactory.create(job=job, queued_job=row)
+
+    # Procrastinate deletes rows via raw SQL, bypassing Django's SET_NULL.
+    with connection.cursor() as cursor:
+        cursor.execute("DELETE FROM procrastinate_jobs WHERE id IN (%s, %s)", [row.pk, job_row.pk])
+
+    task.refresh_from_db()
+    job.refresh_from_db()
+    assert task.queued_job_id is None
+    assert job.queued_job_id is None  # the job-level FK is covered by the same migration

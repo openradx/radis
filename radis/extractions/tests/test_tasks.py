@@ -1,7 +1,12 @@
+from unittest.mock import patch
+
 import pytest
 from adit_radis_shared.accounts.factories import GroupFactory, UserFactory
+from procrastinate.contrib.django.models import ProcrastinateJob
 
+from radis.core.models import AnalysisJob, AnalysisTask
 from radis.extractions import site as extraction_site
+from radis.extractions.factories import ExtractionJobFactory, ExtractionTaskFactory
 from radis.extractions.models import ExtractionInstance, ExtractionJob, ExtractionTask
 from radis.extractions.site import ExtractionRetrievalProvider
 from radis.extractions.tasks import process_extraction_job
@@ -53,6 +58,77 @@ def test_process_extraction_job_only_enqueues_tasks_after_job_is_pending(monkeyp
 
     assert enqueue_job_statuses  # at least one task was enqueued
     assert all(status == ExtractionJob.Status.PENDING for status in enqueue_job_statuses)
+
+
+def _dummy_provider(doc_ids: list[str]) -> ExtractionRetrievalProvider:
+    return ExtractionRetrievalProvider(
+        name="dummy",
+        count=lambda _search: len(doc_ids),
+        retrieve=lambda _search: doc_ids,
+        max_results=100,
+    )
+
+
+@pytest.mark.django_db
+def test_refired_prep_job_in_preparing_rebuilds_partial_tasks(monkeypatch, settings):
+    """A crash during preparation leaves a partial task set. Running the prep again must
+    not accept it as complete: it drops the leftovers and prepares all batches."""
+    settings.EXTRACTION_TASK_BATCH_SIZE = 2
+    user = UserFactory.create(is_active=True)
+    group = GroupFactory.create()
+    doc_ids = [f"DOC-{i}" for i in range(5)]  # 3 batches of size 2
+    for doc_id in doc_ids:
+        ReportFactory.create(document_id=doc_id)
+    monkeypatch.setattr(extraction_site, "extraction_retrieval_provider", _dummy_provider(doc_ids))
+
+    job = ExtractionJobFactory.create(
+        owner=user, group=group, query="test", status=AnalysisJob.Status.PREPARING
+    )
+    # Leftover from the crashed attempt: only the first batch was created.
+    partial_task = ExtractionTaskFactory.create(job=job, status=AnalysisTask.Status.PENDING)
+
+    with patch.object(ExtractionTask, "delay", autospec=True) as mock_delay:
+        process_extraction_job(int(job.pk))
+
+    job.refresh_from_db()
+    assert job.status == AnalysisJob.Status.PENDING
+    assert not ExtractionTask.objects.filter(pk=partial_task.pk).exists()
+    assert job.tasks.count() == 3
+    assert ExtractionInstance.objects.filter(task__job=job).count() == 5
+    assert mock_delay.call_count == 3
+
+
+@pytest.mark.django_db
+def test_pending_job_with_tasks_only_enqueues_them(monkeypatch):
+    """A crash after preparation finished (job PENDING, tasks created but not all
+    enqueued) must not rebuild: existing tasks are kept and enqueued."""
+    monkeypatch.setattr(
+        extraction_site,
+        "extraction_retrieval_provider",
+        _dummy_provider(["MUST-NOT-BE-RETRIEVED"]),
+    )
+    user = UserFactory.create()
+    job = ExtractionJobFactory.create(owner=user, status=AnalysisJob.Status.PENDING)
+    task = ExtractionTaskFactory.create(job=job, status=AnalysisTask.Status.PENDING)
+
+    with patch.object(ExtractionTask, "delay", autospec=True) as mock_delay:
+        process_extraction_job(int(job.pk))
+
+    job.refresh_from_db()
+    assert job.status == AnalysisJob.Status.PENDING
+    assert list(job.tasks.values_list("pk", flat=True)) == [task.pk]
+    mock_delay.assert_called_once()
+
+
+@pytest.mark.django_db
+def test_extraction_prep_job_in_unexpected_status_is_ignored():
+    user = UserFactory.create()
+    job = ExtractionJobFactory.create(owner=user, status=AnalysisJob.Status.SUCCESS)
+
+    process_extraction_job(int(job.pk))  # must not raise
+
+    job.refresh_from_db()
+    assert job.status == AnalysisJob.Status.SUCCESS
 
 
 @pytest.mark.django_db
@@ -112,3 +188,42 @@ def test_process_extraction_job_with_no_language_matches_each_documents_own_conf
     # query still reaches the document written in that language.
     assert matched_document_ids("effusion") == {english.document_id}
     assert matched_document_ids("Pleuraerguss") == {german.document_id}
+
+
+@pytest.mark.django_db(transaction=True)
+def test_crash_while_enqueueing_rolls_back_the_pending_flip(monkeypatch, settings):
+    """The PENDING flip and the task enqueues commit together. If the worker dies mid-loop,
+    nothing is committed: the job is still PREPARING and the re-run rebuilds from scratch,
+    instead of a half-enqueued PENDING job whose remaining tasks nothing would ever enqueue."""
+    settings.PROCRASTINATE_READONLY_MODELS = False
+    settings.EXTRACTION_TASK_BATCH_SIZE = 2
+    user = UserFactory.create(is_active=True)
+    group = GroupFactory.create()
+    doc_ids = [f"DOC-{i}" for i in range(4)]  # 2 batches of size 2
+    for doc_id in doc_ids:
+        ReportFactory.create(document_id=doc_id)
+    monkeypatch.setattr(extraction_site, "extraction_retrieval_provider", _dummy_provider(doc_ids))
+
+    job = ExtractionJobFactory.create(owner=user, group=group, status=ExtractionJob.Status.PENDING)
+
+    real_delay = ExtractionTask.delay
+    calls = {"n": 0}
+
+    def dies_on_second_enqueue(self):
+        calls["n"] += 1
+        if calls["n"] == 2:
+            raise RuntimeError("worker killed mid-enqueue")
+        real_delay(self)
+
+    monkeypatch.setattr(ExtractionTask, "delay", dies_on_second_enqueue, raising=True)
+
+    with pytest.raises(RuntimeError):
+        process_extraction_job(int(job.pk))
+
+    job.refresh_from_db()
+    assert job.status == ExtractionJob.Status.PREPARING  # the flip rolled back
+    assert not job.tasks.filter(queued_job__isnull=False).exists()  # so did the first enqueue
+    task_pks = list(job.tasks.values_list("pk", flat=True))
+    assert not ProcrastinateJob.objects.filter(
+        task_name="radis.extractions.tasks.process_extraction_task", args__task_id__in=task_pks
+    ).exists()

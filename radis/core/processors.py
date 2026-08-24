@@ -34,7 +34,23 @@ class AnalysisTaskProcessor:
             job.update_job_state()
             return
 
-        assert task.status == task.Status.PENDING
+        # Claim the task in one UPDATE: it succeeds only while the task is still PENDING, so
+        # if the same task is delivered twice only the first delivery runs it. A task left
+        # IN_PROGRESS by a killed worker is reset by the sweep in recovery.py, not here.
+        now = timezone.now()
+        task_model = type(task)
+        # message="" drops what an earlier run left behind (e.g. the sweep's "worker was
+        # terminated" note), so a run that succeeds does not keep showing an old message.
+        claimed = task_model.objects.filter(pk=task.pk, status=AnalysisTask.Status.PENDING).update(
+            status=AnalysisTask.Status.IN_PROGRESS, started_at=now, message=""
+        )
+        if not claimed:
+            logger.warning("Task %s was not PENDING, skipping.", task)
+            return
+        # Keep the in-memory task in sync with the UPDATE above.
+        task.status = AnalysisTask.Status.IN_PROGRESS
+        task.started_at = now
+        task.message = ""
 
         # When the first task is going to be processed then the
         # status of the job switches from PENDING to IN_PROGRESS
@@ -44,11 +60,6 @@ class AnalysisTaskProcessor:
             job.save()
 
         assert job.status == job.Status.IN_PROGRESS
-
-        # Prepare the task itself
-        task.status = AnalysisTask.Status.IN_PROGRESS
-        task.started_at = timezone.now()
-        task.save()
 
         try:
             self.process_task(task)
