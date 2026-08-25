@@ -530,24 +530,28 @@ EMBEDDINGS_TASK_MAX_ATTEMPTS = 5
 EMBEDDINGS_TASK_EXPONENTIAL_WAIT_SECONDS = 6
 
 # Hybrid search tuning
-HYBRID_VECTOR_TOP_K = 500
+HYBRID_VECTOR_TOP_K = _optional_env("HYBRID_VECTOR_TOP_K", int, 500)
 HYBRID_FTS_MAX_RESULTS = 10_000
 HYBRID_RRF_K = 60
 # pgvector's hnsw.ef_search (default 40) is both the recall knob and a hard cap on
-# the rows a single HNSW index scan emits, so it must at least match the slice the
-# vector retriever takes; anything lower silently truncates the vector half of the
-# fusion to ~ef_search candidates. The server rejects values above 1000.
-HYBRID_HNSW_EF_SEARCH = max(HYBRID_VECTOR_TOP_K, 40)
-# Applied as libpq connection options rather than as a database- or server-level
-# default: the app carries the setting into every environment it connects to (dev,
-# tests, CI, a restored or externally managed database), and max() above keeps it
-# coupled to the slice it must cover — both would silently drift if the value lived
-# in the database or the compose file. iterative_scan resumes a filtered scan (the
-# group/language filters apply after the index scan) until the LIMIT is satisfied;
-# strict_order keeps emission ordered by distance, which the (distance, report_id)
-# ORDER BY relies on (Incremental Sort over the scan's presorted key).
+# the rows a single HNSW index scan emits, so it is derived from the top-K slice
+# instead of being its own setting — an independently configured value could drift
+# below the slice and silently truncate the vector half of the fusion to
+# ~ef_search candidates. Clamped to the server's 1..1000 range, because an
+# out-of-range connect-time value fails GUC validation and would put the scan
+# back at the default; depth past 1000 still works, as strict-order iterative
+# scan resumes the scan until the LIMIT is satisfied — which is also what keeps
+# the post-scan group/language filters from starving the candidate list, while
+# preserving the distance ordering the (distance, report_id) ORDER BY relies on
+# (Incremental Sort over the scan's presorted key).
+#
+# Attached as libpq connection options rather than as a database- or server-level
+# default, so the app carries the setting into every environment it connects to
+# (dev, tests, CI, a restored database); production.py extends this dict the same
+# way for the database password.
 DATABASES["default"].setdefault("OPTIONS", {})["options"] = (
-    f"-c hnsw.ef_search={HYBRID_HNSW_EF_SEARCH} -c hnsw.iterative_scan=strict_order"
+    f"-c hnsw.ef_search={min(max(HYBRID_VECTOR_TOP_K, 40), 1000)} "
+    "-c hnsw.iterative_scan=strict_order"
 )
 
 # Chat

@@ -392,8 +392,8 @@ def _fuse_hybrid(search: Search, caller: str) -> _FusedHybrid:
         vec_qs = _exclude_negations(vec_qs, search.query, configs)
         # hnsw.ef_search must cover this slice and hnsw.iterative_scan keeps the
         # post-scan group/language filters from starving it; both ride along as
-        # connection options on every Django connection (see
-        # settings.HYBRID_HNSW_EF_SEARCH).
+        # connection options derived from HYBRID_VECTOR_TOP_K (see the DATABASES
+        # options in settings).
         vec_rows = list(
             vec_qs.distinct()
             .exclude(embedding__isnull=True)

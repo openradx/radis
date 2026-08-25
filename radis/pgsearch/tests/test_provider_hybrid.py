@@ -504,6 +504,8 @@ def test_connection_carries_hnsw_gucs(db, settings):
     hybrid fusion."""
     with connection.cursor() as cursor:
         cursor.execute("SHOW hnsw.ef_search")
-        assert cursor.fetchone()[0] == str(settings.HYBRID_HNSW_EF_SEARCH)
+        # Restates the derivation on purpose: ef_search must track the top-K
+        # slice (clamped to the server's 1..1000 range), never diverge from it.
+        assert cursor.fetchone()[0] == str(min(max(settings.HYBRID_VECTOR_TOP_K, 40), 1000))
         cursor.execute("SHOW hnsw.iterative_scan")
         assert cursor.fetchone()[0] == "strict_order"
