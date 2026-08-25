@@ -538,6 +538,17 @@ HYBRID_RRF_K = 60
 # vector retriever takes; anything lower silently truncates the vector half of the
 # fusion to ~ef_search candidates. The server rejects values above 1000.
 HYBRID_HNSW_EF_SEARCH = max(HYBRID_VECTOR_TOP_K, 40)
+# Applied as libpq connection options rather than as a database- or server-level
+# default: the app carries the setting into every environment it connects to (dev,
+# tests, CI, a restored or externally managed database), and max() above keeps it
+# coupled to the slice it must cover — both would silently drift if the value lived
+# in the database or the compose file. iterative_scan resumes a filtered scan (the
+# group/language filters apply after the index scan) until the LIMIT is satisfied;
+# strict_order keeps emission ordered by distance, which the (distance, report_id)
+# ORDER BY relies on (Incremental Sort over the scan's presorted key).
+DATABASES["default"].setdefault("OPTIONS", {})["options"] = (
+    f"-c hnsw.ef_search={HYBRID_HNSW_EF_SEARCH} -c hnsw.iterative_scan=strict_order"
+)
 
 # Chat
 CHAT_GENERATE_TITLE_SYSTEM_PROMPT = """

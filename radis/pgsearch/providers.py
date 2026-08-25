@@ -9,7 +9,6 @@ import openai
 from django.conf import settings
 from django.contrib.postgres.search import SearchHeadline, SearchQuery, SearchRank
 from django.core.cache import cache
-from django.db import connection, transaction
 from django.db.models import Case, F, FloatField, Q, TextField, Value, When
 from pgvector.django import CosineDistance
 
@@ -391,29 +390,17 @@ def _fuse_hybrid(search: Search, caller: str) -> _FusedHybrid:
     if query_vec is not None:
         vec_qs = ReportSearchIndex.objects.filter(filter_query)
         vec_qs = _exclude_negations(vec_qs, search.query, configs)
-        # hnsw.ef_search bounds how many rows one HNSW index scan can emit, so it
-        # must cover the slice taken below or the scan returns far fewer candidates
-        # than asked for. The group/language filters are applied after the scan,
-        # which can starve the candidate list further; iterative_scan resumes the
-        # scan until the LIMIT is satisfied, and strict_order keeps emission
-        # ordered by distance, which the (distance, report_id) ORDER BY relies on
-        # (Incremental Sort over the scan's presorted key). set_config(..., true)
-        # is transaction-scoped, so neither setting leaks to later queries on the
-        # connection.
-        with transaction.atomic():
-            with connection.cursor() as cursor:
-                cursor.execute(
-                    "SELECT set_config('hnsw.ef_search', %s, true), "
-                    "set_config('hnsw.iterative_scan', 'strict_order', true)",
-                    [str(settings.HYBRID_HNSW_EF_SEARCH)],
-                )
-            vec_rows = list(
-                vec_qs.distinct()
-                .exclude(embedding__isnull=True)
-                .annotate(distance=CosineDistance("embedding", query_vec))
-                .order_by("distance", "report_id")
-                .values_list("report_id", "distance")[: settings.HYBRID_VECTOR_TOP_K]
-            )
+        # hnsw.ef_search must cover this slice and hnsw.iterative_scan keeps the
+        # post-scan group/language filters from starving it; both ride along as
+        # connection options on every Django connection (see
+        # settings.HYBRID_HNSW_EF_SEARCH).
+        vec_rows = list(
+            vec_qs.distinct()
+            .exclude(embedding__isnull=True)
+            .annotate(distance=CosineDistance("embedding", query_vec))
+            .order_by("distance", "report_id")
+            .values_list("report_id", "distance")[: settings.HYBRID_VECTOR_TOP_K]
+        )
         for i, (rid, dist) in enumerate(vec_rows):
             vec_rank[rid] = i + 1
             vec_distance[rid] = float(dist)
