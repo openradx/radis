@@ -503,6 +503,11 @@ def test_connection_carries_hnsw_gucs(db, settings):
     connection without these options silently truncates the vector half of the
     hybrid fusion."""
     with connection.cursor() as cursor:
+        # Force pgvector's library to load: hnsw.iterative_scan below is only
+        # defined once it has, since it is not in the connection options and a
+        # connection that has run no vector operation yet would error the SHOW
+        # with "unrecognized configuration parameter".
+        cursor.execute("SELECT '[1]'::vector(1)")
         cursor.execute("SHOW hnsw.ef_search")
         # Restates the derivation on purpose: ef_search must track the top-K
         # slice, never diverge from it.
