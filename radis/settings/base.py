@@ -530,9 +530,14 @@ EMBEDDINGS_TASK_MAX_ATTEMPTS = 5
 EMBEDDINGS_TASK_EXPONENTIAL_WAIT_SECONDS = 6
 
 # Hybrid search tuning
-HYBRID_VECTOR_TOP_K = 100
+HYBRID_VECTOR_TOP_K = 500
 HYBRID_FTS_MAX_RESULTS = 10_000
 HYBRID_RRF_K = 60
+# pgvector's hnsw.ef_search (default 40) is both the recall knob and a hard cap on
+# the rows a single HNSW index scan emits, so it must at least match the slice the
+# vector retriever takes; anything lower silently truncates the vector half of the
+# fusion to ~ef_search candidates. The server rejects values above 1000.
+HYBRID_HNSW_EF_SEARCH = max(HYBRID_VECTOR_TOP_K, 40)
 
 # Chat
 CHAT_GENERATE_TITLE_SYSTEM_PROMPT = """

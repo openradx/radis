@@ -3,7 +3,9 @@ from unittest.mock import patch
 
 import pytest
 from django.contrib.auth.models import Group
+from django.db import connection
 from django.test import override_settings
+from django.test.utils import CaptureQueriesContext
 
 from radis.core.utils.embedding_client import EmbeddingClientError
 from radis.core.utils.model_spec import parse_model_spec
@@ -492,3 +494,22 @@ def test_openai_rate_limit_error_in_retrieve_falls_back_to_fts(group, reports_wi
 
     # No exception escaped; FTS-only retrieve returned something.
     assert result is not None
+
+
+def test_vector_query_sets_hnsw_gucs(group, reports_with_embeddings, settings):
+    """The vector side must raise hnsw.ef_search to cover the TOP_K slice
+    (pgvector's default of 40 caps how many rows one index scan emits) and turn
+    on strict-order iterative scan so post-scan filters cannot starve the
+    candidate list. Both are transaction-scoped."""
+    dim = settings.EMBEDDINGS_DIM
+    with patch("radis.pgsearch.providers.EmbeddingClient") as MockClient:
+        MockClient.return_value.__enter__.return_value = MockClient.return_value
+        MockClient.return_value.__exit__.return_value = None
+        MockClient.return_value.embed_query.return_value = _unit_vec(0, dim)
+        with CaptureQueriesContext(connection) as ctx:
+            search(_make_search("pneumothorax", group.pk))
+
+    guc_queries = [q["sql"] for q in ctx.captured_queries if "hnsw.ef_search" in q["sql"]]
+    assert len(guc_queries) == 1
+    assert str(settings.HYBRID_HNSW_EF_SEARCH) in guc_queries[0]
+    assert "strict_order" in guc_queries[0]
