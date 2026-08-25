@@ -533,25 +533,34 @@ EMBEDDINGS_TASK_EXPONENTIAL_WAIT_SECONDS = 6
 HYBRID_VECTOR_TOP_K = _optional_env("HYBRID_VECTOR_TOP_K", int, 500)
 HYBRID_FTS_MAX_RESULTS = 10_000
 HYBRID_RRF_K = 60
-# pgvector's hnsw.ef_search (default 40) is both the recall knob and a hard cap on
-# the rows a single HNSW index scan emits, so it is derived from the top-K slice
-# instead of being its own setting — an independently configured value could drift
-# below the slice and silently truncate the vector half of the fusion to
-# ~ef_search candidates. Clamped to the server's 1..1000 range, because an
-# out-of-range connect-time value fails GUC validation and would put the scan
-# back at the default; depth past 1000 still works, as strict-order iterative
-# scan resumes the scan until the LIMIT is satisfied — which is also what keeps
-# the post-scan group/language filters from starving the candidate list, while
-# preserving the distance ordering the (distance, report_id) ORDER BY relies on
-# (Incremental Sort over the scan's presorted key).
+# HYBRID_VECTOR_TOP_K caps the vector half of the fusion; it is not a quota. The
+# HNSW scan makes one pass over the corpus-wide nearest neighbours and the
+# group/language/negation filters then shrink those candidates, so the semantic
+# list is the accessible subset of the corpus's TOP_K nearest and may be shorter
+# than TOP_K. Deliberately no iterative scan to top the list back up: one uniform
+# relevance bar for every group, and one bounded pass instead of digging through
+# up to hnsw.max_scan_tuples inaccessible neighbours under a selective filter.
+#
+# pgvector's hnsw.ef_search (default 40) is both the recall knob and a hard cap
+# on the rows that single pass emits, so it is derived from the top-K slice
+# instead of being its own setting — an independently configured value could
+# drift below the slice and silently truncate the vector half to ~ef_search
+# candidates. The server rejects values above 1000, which therefore also bounds
+# the top-K a single pass can deliver — checked here so a bigger value is a boot
+# error naming the setting, not a silently under-filled slice.
 #
 # Attached as libpq connection options rather than as a database- or server-level
 # default, so the app carries the setting into every environment it connects to
 # (dev, tests, CI, a restored database); production.py extends this dict the same
 # way for the database password.
+if not 1 <= HYBRID_VECTOR_TOP_K <= 1000:
+    raise ImproperlyConfigured(
+        f"HYBRID_VECTOR_TOP_K={HYBRID_VECTOR_TOP_K} must be between 1 and 1000: a "
+        "single HNSW pass cannot emit more rows than hnsw.ef_search, whose server "
+        "maximum is 1000."
+    )
 DATABASES["default"].setdefault("OPTIONS", {})["options"] = (
-    f"-c hnsw.ef_search={min(max(HYBRID_VECTOR_TOP_K, 40), 1000)} "
-    "-c hnsw.iterative_scan=strict_order"
+    f"-c hnsw.ef_search={max(HYBRID_VECTOR_TOP_K, 40)}"
 )
 
 # Chat

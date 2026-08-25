@@ -390,10 +390,12 @@ def _fuse_hybrid(search: Search, caller: str) -> _FusedHybrid:
     if query_vec is not None:
         vec_qs = ReportSearchIndex.objects.filter(filter_query)
         vec_qs = _exclude_negations(vec_qs, search.query, configs)
-        # hnsw.ef_search must cover this slice and hnsw.iterative_scan keeps the
-        # post-scan group/language filters from starving it; both ride along as
-        # connection options derived from HYBRID_VECTOR_TOP_K (see the DATABASES
-        # options in settings).
+        # One pass over the corpus-wide nearest neighbours: hnsw.ef_search rides
+        # along as a connection option derived from HYBRID_VECTOR_TOP_K (see the
+        # DATABASES options in settings) so the scan can emit the whole slice.
+        # The filters above then shrink it — the vector candidates are the
+        # accessible subset of the corpus's TOP_K nearest, deliberately not
+        # topped back up by an iterative scan.
         vec_rows = list(
             vec_qs.distinct()
             .exclude(embedding__isnull=True)

@@ -505,7 +505,10 @@ def test_connection_carries_hnsw_gucs(db, settings):
     with connection.cursor() as cursor:
         cursor.execute("SHOW hnsw.ef_search")
         # Restates the derivation on purpose: ef_search must track the top-K
-        # slice (clamped to the server's 1..1000 range), never diverge from it.
-        assert cursor.fetchone()[0] == str(min(max(settings.HYBRID_VECTOR_TOP_K, 40), 1000))
+        # slice, never diverge from it.
+        assert cursor.fetchone()[0] == str(max(settings.HYBRID_VECTOR_TOP_K, 40))
+        # One-pass semantics is deliberate: TOP_K caps the vector candidates and
+        # the filters may shrink the list below it — the scan must not resume to
+        # top it back up.
         cursor.execute("SHOW hnsw.iterative_scan")
-        assert cursor.fetchone()[0] == "strict_order"
+        assert cursor.fetchone()[0] == "off"
