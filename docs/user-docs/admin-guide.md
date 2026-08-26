@@ -4,30 +4,50 @@ The Admin Guide is intended for system administrators and technical staff respon
 
 ## Installation
 
+On the server RADIS lives in a production folder that holds the checkout and the `.env` file. The name is up to you; `radis_prod` below is only an example, use whatever you called your production folder wherever this guide says "production folder":
+
 ```terminal
-Clone the repository: git clone https://github.com/openradx/radis.git
-cd radis
+git clone https://github.com/openradx/radis.git radis_prod
+cd radis_prod  # or whatever you named your production folder
 uv sync
-cp ./example.env ./.env  # copy example environment to .env
-uv run cli stack-deploy  # builds and starts Docker containers
+cp ./example.env ./.env  # set ENVIRONMENT=production and adjust the variables (see below)
+uv run cli compose-pull  # pulls the Docker image (RADIS_IMAGE, default ghcr.io/openradx/radis:latest)
+uv run cli stack-deploy  # starts the Docker Swarm stack
 ```
 
-Before the first deployment, edit `.env` and set at least the secrets, `DJANGO_ALLOWED_HOSTS`, and the LLM endpoint (see [LLM and Embeddings Configuration](#llm-and-embeddings-configuration)). RADIS refuses to start without `LLM_BASE_URL` and `LLM_DEFAULT_MODEL`.
+`stack-deploy` refuses to run unless `ENVIRONMENT=production` is set in `.env`. It does not build anything; the stack runs the pre-built image named by `RADIS_IMAGE`.
+
+### Environment Variables
+
+All settings are read from `.env`; the comments in `example.env` describe every variable. For production at least set:
+
+- `ENVIRONMENT=production`
+- Secrets: `DJANGO_SECRET_KEY`, `POSTGRES_PASSWORD`, `TOKEN_AUTHENTICATION_SALT`, `SUPERUSER_PASSWORD`, `SUPERUSER_AUTH_TOKEN` (generate with `uv run cli generate-django-secret-key`, `generate-secure-password`, `generate-auth-token`)
+- Hosts: `DJANGO_ALLOWED_HOSTS`, `DJANGO_CSRF_TRUSTED_ORIGINS`, `SITE_DOMAIN`, `SITE_NAME`
+- LLM: `LLM_BASE_URL`, `LLM_DEFAULT_MODEL` (both required, RADIS refuses to start without them; see [LLM and Embeddings Configuration](#llm-and-embeddings-configuration)). The `host.docker.internal` default from `example.env` is a development convenience that is not injected into the production stack, so point `LLM_BASE_URL` at an endpoint the stack's nodes can reach. `EMBEDDINGS_MODEL` is optional; leave it empty for full-text search only
+- SSL: `SSL_SERVER_CERT_FILE`, `SSL_SERVER_KEY_FILE`, `SSL_SERVER_CHAIN_FILE` (`uv run cli generate-certificate-chain` builds the chain from your CA-signed certificate)
+- Email: `DJANGO_EMAIL_URL`, `DJANGO_SERVER_EMAIL`, `DJANGO_ADMIN_EMAIL`, `DJANGO_ADMIN_FULL_NAME`, `SUPPORT_EMAIL`
+- Folders: `BACKUP_DIR` (see [Backups](../backups.md))
+
+Optional tuning: `RADIS_IMAGE` and `STACK_NAME` (a second stack such as staging on the same host), `BACKUP_CRON` and `BACKUP_ENABLED`, `TIME_ZONE`, the `EMBEDDINGS_*` group (see [Embeddings](#embeddings-hybrid-search)), the `LABELING_*` group (see [Auto-Labeling](#auto-labeling)), `ANALYSIS_STALLED_WORKER_GRACE_SECONDS` and `ANALYSIS_SWEEP_CRON` (see [Background Workers](#background-workers-and-crash-recovery)), `OTEL_EXPORTER_OTLP_ENDPOINT`, and `HTTP_PROXY`/`HTTPS_PROXY`/`NO_PROXY` behind a proxy.
+
+!!! warning "No quotes in .env"
+    Values must not be wrapped in quotes; Docker Swarm treats them as part of the value, and `stack-deploy` refuses to run when it finds any.
 
 ## Updating RADIS
 
 Follow these steps to safely update your RADIS installation:
 
 1. **Verify no active jobs**
-2. **Enable maintenance mode**: In Django Admin, navigate to **Common** → **Project Settings** and check the "Maintenance mode" checkbox, then save
-3. Navigate to Production folder
+2. **Enable maintenance mode**: In Django Admin, navigate to **Common** → **Project settings**, check "Maintenance" and save
+3. **Navigate to the production folder** (e.g. `radis_prod`, or whatever you named it)
 4. **Backup database**: Run `uv run cli db-backup` to create a database backup
 5. **Remove stack**: Run `uv run cli stack-rm` to remove all Docker containers and services
 6. **Pull latest changes**: Run `git pull origin main` to fetch the latest code updates
-7. **Update environment**: Compare `example.env` with your `.env` file and add any new environment variables or update changed values. Pay particular attention to the `LLM_*`, `EMBEDDINGS_*`, `LABELING_*`, and `ANALYSIS_*` groups, which are explained below
+7. **Update environment**: Compare `example.env` with your `.env` file and add any new environment variables or update changed values. Pay particular attention to the `LLM_*`, `EMBEDDINGS_*`, `LABELING_*`, and `ANALYSIS_*` groups, which are explained below. Keep `STACK_NAME` unchanged, otherwise a second stack is deployed next to the old one
 8. **Pull Docker images**: Run `uv run cli compose-pull` to download the latest Docker images
-9. **Deploy stack**: Run `uv run cli stack-deploy` to rebuild and start all services with the updated code
-10. **Disable maintenance mode**: In Django Admin, navigate to **Common** → **Project Settings** and uncheck the "Maintenance mode" checkbox, then save
+9. **Deploy stack**: Run `uv run cli stack-deploy` to start all services with the updated image
+10. **Disable maintenance mode**: Uncheck "Maintenance" in **Project settings** and save
 
 Depending on what changed, one of these follow-up steps may be needed after the stack is up:
 
