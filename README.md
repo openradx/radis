@@ -35,17 +35,18 @@ The detailed documentation of RADIS can be found at <https://openradx.github.io/
 ## Features
 
 - **Intuitive Web Interface**: Simplified access to radiology reports stored in the application database through a user-friendly web portal.
-- **Advanced Text Search**: Robust search functionality combining semantic analysis and traditional keyword-based methods for precise report retrieval.
+- **Advanced Text Search**: Full-text search with boolean operators and metadata filters, optionally combined with semantic search when an embedding model is configured.
 - **Seamless PACS Viewer Integration**: Direct access to PACS viewers with deep linking to relevant studies, leveraging the viewer's capabilities for a smooth workflow.
-- **AI-Powered Search and Filtering**: Integration of large language models (LLMs) to enhance report discovery and filter options based on contextual understanding.
+- **Automated Labeling**: Large language models (LLMs) assign administrator-defined labels to reports, shown as badges and usable as a search filter.
+- **Structured Data Extraction**: Extraction jobs pull typed fields (text, numbers, booleans, selections) out of thousands of reports at once, with results exportable as CSV.
+- **Smart Notification System**: Subscription service that notifies users of new reports matching specific criteria, with optional LLM-based filter questions and data extraction per report.
+- **Report Chat**: Ask an AI assistant questions about an individual report in natural language.
 - **Bookmarking and Collection Management**: Organize reports into customizable collections with an intuitive bookmarking service for quick access and review.
 - **Custom Report Notes**: Allow users to append personalized notes to reports for additional context or annotations.
-- **Smart Notification System**: Subscription service that notifies users of new reports matching specific criteria, ensuring timely updates.
+- **API and Python Client**: Programmatic access to reports and search through a REST API and the `radis-client` library.
 
 ## Planned
 
-- **Automated Report Classification and Organization**: Leverage LLMs to intelligently classify, tag, and organize reports based on content and metadata.
-- **Developer-Friendly API Access**: Provide programmatic access to application features through a comprehensive API, with an optional Python client for seamless integration into workflows.
 - **Report Quality Assurance**: Tools to review and assess reports for consistency, completeness, and content accuracy, ensuring high-quality documentation.
 
 ## API Client
