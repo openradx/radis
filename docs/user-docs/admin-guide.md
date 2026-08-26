@@ -34,6 +34,27 @@ Optional tuning: `RADIS_IMAGE` and `STACK_NAME` (a second stack such as staging 
 !!! warning "No quotes in .env"
     Values must not be wrapped in quotes; Docker Swarm treats them as part of the value, and `stack-deploy` refuses to run when it finds any.
 
+### Email
+
+RADIS sends mail for finished jobs, account registrations awaiting approval, subscription notifications, and critical server errors:
+
+- `DJANGO_EMAIL_URL`: SMTP server as a URL, e.g. `smtp://user:password@mail.example.com:587?tls=True`. Only used in production; in development mails are printed to the `web` log instead
+- `DJANGO_SERVER_EMAIL`: Sender address of all mail
+- `DJANGO_ADMIN_EMAIL`, `DJANGO_ADMIN_FULL_NAME`: Receive critical error reports and the "account awaiting approval" mails
+- `SUPPORT_EMAIL`: Shown to users as the address to contact for help
+
+Subjects are prefixed with `[RADIS]`. To check the settings, run the `send_test_mail` management command (optionally with a recipient address; it defaults to `DJANGO_ADMIN_EMAIL`).
+
+### Running Management Commands
+
+Some sections below ask you to run a management command (`embed_pending`, `labels_status`, `sweep_stale_tasks`, `send_test_mail`). They run inside the `web` container. In production the stack runs under Docker Swarm, so find the container first:
+
+```terminal
+docker exec -it $(docker ps -q -f name=radis_prod_web | head -n1) ./manage.py labels_status
+```
+
+`radis_prod` is the stack name (`STACK_NAME`, default `radis_prod`). In development `docker compose exec web ./manage.py labels_status` does the same.
+
 ## Updating RADIS
 
 Follow these steps to safely update your RADIS installation:
@@ -41,7 +62,7 @@ Follow these steps to safely update your RADIS installation:
 1. **Verify no active jobs**
 2. **Enable maintenance mode**: In Django Admin, navigate to **Common** → **Project settings**, check "Maintenance" and save
 3. **Navigate to the production folder** (e.g. `radis_prod`, or whatever you named it)
-4. **Backup database**: Run `uv run cli db-backup` to create a database backup
+4. **Backup database**: Run `uv run cli db-backup` to create a database backup (see [Backups](../backups.md))
 5. **Remove stack**: Run `uv run cli stack-rm` to remove all Docker containers and services
 6. **Pull latest changes**: Run `git pull origin main` to fetch the latest code updates
 7. **Update environment**: Compare `example.env` with your `.env` file and add any new environment variables or update changed values. Pay particular attention to the `LLM_*`, `EMBEDDINGS_*`, `LABELING_*`, and `ANALYSIS_*` groups, which are explained below. Keep `STACK_NAME` unchanged, otherwise a second stack is deployed next to the old one
@@ -65,7 +86,7 @@ All AI features (chats, extractions, subscriptions, labeling, query generation) 
 Set these in `.env`:
 
 - `LLM_BASE_URL` (required): Base URL of the endpoint, e.g. `http://llm.internal:11434/v1`
-- `LLM_API_KEY`: API key for the endpoint. Many self-hosted providers ignore it, but it must be set
+- `LLM_API_KEY`: API key for the endpoint. Optional; many self-hosted providers ignore it
 - `LLM_DEFAULT_MODEL` (required): The model every feature uses unless overridden
 - `LLM_CHATS_MODEL`, `LLM_QUERY_GENERATION_MODEL`, `LLM_EXTRACTIONS_MODEL`, `LLM_SUBSCRIPTIONS_MODEL`, `LLM_LABELING_MODEL`: Per-feature overrides. Leave blank to use the default model. Useful to spend a stronger model where it matters (e.g. labeling) and a fast one for chat
 
@@ -89,13 +110,11 @@ By default RADIS runs full-text search only. Setting `EMBEDDINGS_MODEL` switches
 - `EMBEDDINGS_QUERY_INSTRUCTION`: Model-specific instruction prefix for search queries (some models, e.g. Qwen3-Embedding, want one)
 - `EMBEDDINGS_QUERY_CACHE_TIMEOUT_SECONDS`: How long a query's vector stays cached (default 900 s). Lower it temporarily after swapping the model, or the old vectors keep serving stale results for up to this long
 
-New and updated reports are embedded automatically by the `embeddings_worker` service. Reports that existed before the model was configured have no vector and are found by full-text search only until you backfill them:
+New and updated reports are embedded automatically by the `embeddings_worker` service. Reports that existed before the model was configured have no vector and are found by full-text search only until you backfill them with the `embed_pending` management command (see [Running Management Commands](#running-management-commands)). It is idempotent and resumable, refuses to start while another backfill is running or `EMBEDDINGS_MODEL` is empty, and takes `--limit` and `--subjob-size` options; `embed_cancel` stops a running backfill.
 
-```terminal
-docker compose exec web ./manage.py embed_pending
-```
+The same is available in Django Admin under **Pgsearch** → **Report search indexes**: the page shows the state of the embedding pipeline, has a **Cancel queued backfill** button, and offers the actions "Enqueue embedding for selected rows (NULL only)" and "Clear embeddings (NULL them)" on selected reports. **Embedding backfill runs** lists past and current backfills.
 
-The command is idempotent and resumable; `embed_cancel` stops a running backfill. When the embedding service is unreachable or rate limiting, searches silently fall back to full-text results and a warning is logged in the `web` service.
+When the embedding service is unreachable or rate limiting, searches silently fall back to full-text results and a warning is logged in the `web` service.
 
 See the [Contributing guide](../dev-docs/contributing.md) for how to run Ollama with a chat and an embedding model, and the troubleshooting sections there for connection problems.
 
@@ -138,7 +157,7 @@ RADIS uses a group-based permission system:
 
 Each user has an **active group** that determines which reports they can currently access:
 
-- Only reports associated with the active group are visible in searches and collections
+- Only reports associated with the active group are visible in searches and report views. Collections are per user and not filtered by group: a report bookmarked while one group was active stays visible in the collection after switching to another
 - This ensures proper data isolation between different departments or projects
 - Users need an active group to create subscriptions and extraction jobs; the job or subscription is bound to that group
 
@@ -146,7 +165,7 @@ Each user has an **active group** that determines which reports they can current
 
 ### Report Import and Management
 
-Administrators can import reports programmatically via the RADIS API or using the RADIS Client library. See the **RADIS Client** section below for details.
+Administrators can import reports programmatically via the RADIS API or using the RADIS Client library. The reports API only accepts tokens of staff users. See the **RADIS Client** section below for details.
 
 Every import or update of a report re-indexes it for search, queues it for embedding (if configured), and marks its labels for re-labeling on the next scan (see below). This also applies to updates that do not change the report text, so avoid re-pushing an unchanged corpus if you want to keep LLM load down.
 
@@ -166,7 +185,7 @@ RADIS can label reports automatically with an LLM. Labels are defined system-wid
 2. Navigate to **Labels** → **Labels** and add labels to the group. Write the description as the definition you would give a radiologist; it is sent to the LLM verbatim
 3. Run a backfill (see below) so that existing reports are labeled
 
-Editing a label description, a group, or its gate question makes the existing results of that label or group **stale**. Stale results keep surfacing (with a greyed-out badge) until they are regenerated. Deactivating a label stops new classifications, but results already assigned remain visible on the reports.
+Saving a label (any field, not only the description) makes its existing results **stale**; saving a group (e.g. its gate question) makes the group's gate answers stale, but not the results of its labels. Stale results keep surfacing (with a greyed-out badge) until a backfill regenerates them; the periodic scan only picks up changed reports, not changed labels. Deactivating a label stops new classifications, but results already assigned remain visible on the reports.
 
 ### Backfill and Periodic Scan
 
@@ -177,11 +196,7 @@ Labeling runs as background jobs on the `llm` queue:
 
 The **Labeling jobs** page shows all jobs with their trigger (Periodic scan or Manual backfill) and status; a job can be canceled from its detail page. **Label results**, **Gate answers**, and **Labeling tasks** are available read-only for inspection. A task ends with status Warning when some of its reports could not be labeled and Failure when none could, which usually points to an LLM outage.
 
-To check the corpus-wide state (checkpoint, per-label and per-gate counts, stale counts):
-
-```terminal
-docker compose exec web ./manage.py labels_status
-```
+To check the corpus-wide state (checkpoint, per-label and per-gate counts, stale counts), run the `labels_status` management command (see [Running Management Commands](#running-management-commands)). The checkpoint alone is also visible in Django Admin under **Labels** → **Labeling scan checkpoints**.
 
 Tuning variables in `.env`: `LABELING_TASK_BATCH_SIZE`, `LABELING_LLM_CONCURRENCY_LIMIT`, `LABELING_GATE_BATCH_SIZE`, `LABELING_JOB_PRIORITY`, and the optional prompt overrides `LABELING_SYSTEM_PROMPT` and `LABELING_GATE_SYSTEM_PROMPT`. Use `LLM_LABELING_MODEL` to run labeling on a different model than the other features.
 
@@ -191,7 +206,7 @@ Users create extraction jobs through a wizard (see the [User Guide](user-guide.m
 
 ### Verifying Jobs
 
-Jobs created by regular users start in the **Unverified** state and are not processed until a staff user opens the job page and clicks **Verify Job**. Jobs created by staff users are queued immediately. Staff users see all users' jobs by appending `?all=` to the job list URL.
+Jobs created by regular users start in the **Unverified** state and are not processed until a staff user opens the job page and clicks **Verify Job**. Jobs created by staff users are queued immediately. Staff users see all users' jobs by appending `?all=1` to the job list URL.
 
 ### Managing Extractions
 
@@ -201,9 +216,9 @@ Jobs created by regular users start in the **Unverified** state and are not proc
 
 Each job may cover at most 25,000 reports; the wizard refuses larger result sets.
 
-### Granting Urgent Priority Permission
+### Urgent Priority
 
-The permission `extractions | extraction job | Can analyze urgently` allows a job to be processed before regular jobs. The `urgent` flag itself can currently only be set on a job in Django Admin.
+A job whose **urgent** flag is set is queued ahead of regular jobs. The flag can only be set in Django Admin, and only takes effect on jobs that are not queued yet (e.g. still Unverified), because the priority is fixed when the job is queued. The permission `Can analyze urgently` that exists on subscription jobs is not checked anywhere.
 
 ## Subscription Management
 
@@ -215,17 +230,15 @@ Subscriptions are refreshed at the top of every hour. Each refresh looks at the 
 2. **View All Subscriptions**: Click on a subscription entry to view its full details, including its owner, group, and "last refreshed" timestamp. Changing "last refreshed" changes which reports the next refresh treats as new
 3. **Delete a Subscription**: Subscriptions can be removed if necessary using the Delete action. This also deletes the inbox items collected so far
 
-Staff users can open any user's inbox and its CSV export from the subscription list.
+The subscription list only shows a user's own subscriptions. Staff users can still open any user's inbox and its CSV export by URL (the subscription ID is shown in Django Admin).
+
+A refresh only considers reports of the owner's **current** active group, not the group the subscription was created in. A subscription silently stops collecting reports while its owner has another group active.
 
 ## Background Workers and Crash Recovery
 
 Extraction, subscription, and labeling jobs are processed by the `default_worker` and `llm_worker` services; embeddings by `embeddings_worker`. Check their logs (`docker compose logs llm_worker`) when jobs do not progress.
 
-When a worker container is killed mid-task (crash, out-of-memory, redeploy), the affected tasks are repaired automatically: each worker sweeps stale tasks on startup, and a periodic sweep (`ANALYSIS_SWEEP_CRON`, default every minute) requeues tasks whose worker has been silent for longer than `ANALYSIS_STALLED_WORKER_GRACE_SECONDS` (default 30; never set it lower). No manual step is needed after a deploy; to run the sweep by hand:
-
-```terminal
-docker compose exec web ./manage.py sweep_stale_tasks
-```
+When a worker container is killed mid-task (crash, out-of-memory, redeploy), the affected tasks are repaired automatically: `default_worker` and `llm_worker` sweep stale tasks on startup, and a periodic sweep (`ANALYSIS_SWEEP_CRON`, default every minute) requeues tasks whose worker has been silent for longer than `ANALYSIS_STALLED_WORKER_GRACE_SECONDS` (default 30; never set it lower). Embedding subjobs are not analysis tasks; `embeddings_worker` runs no sweep, and interrupted subjobs are retried by the task queue itself. On every deploy the `init` service additionally runs `retry_stalled_jobs`, which re-enqueues queue jobs left behind by dead workers. No manual step is needed after a deploy; to run the sweep by hand, run the `sweep_stale_tasks` management command (see [Running Management Commands](#running-management-commands)).
 
 ## System Announcements
 
@@ -242,7 +255,7 @@ System administrators can inform users about important updates, maintenance sche
 ### Announcement Display
 
 - Announcements appear prominently on the main/home page
-- All logged-in users will see the announcement when they access RADIS
+- Everyone who opens the home page sees the announcement, including visitors who are not logged in
 
 #### Example Announcements
 
@@ -263,17 +276,18 @@ jobs with multiple output fields. Check out the user guide for more details.
 
 ## RADIS Client
 
-RADIS Client is a Python library for programmatic access to RADIS features without using the web interface.
+RADIS Client is a Python library to create, retrieve, update and delete reports without using the web interface. The reports API is restricted to staff users, so the token must belong to a staff account.
 
 ### Creating API Tokens
 
 To create an API token for programmatic access:
 
-1. **Navigate** to **Token Authentication** by going to **"Profile"** --> **"Manage API Token"**
-2. **Description** & **Expiry Time** : Add a description (optional) and expiry time for the token.
+1. **Navigate** to **Token Authentication** by going to **"Profile"** --> **"Manage API Tokens"**
+2. **Description** & **Expiry Time** : Add a description (optional) and choose an expiry time of 1, 7, 30 or 90 days. "Never" is only offered to users with the permission `token_authentication | token | Can generate never expiring token`.
 3. **Click** on **"Generate Token"**.
 4. This token will only be visible once, so make sure to copy it now and store it in a safe place. As you will not be able to see it again, you will have to generate a new token if you lose it.
 
 ### Revoking Tokens
 
-- **Admins** can revoke tokens by navigating to **Django Admin** --> **Token Authentication**
+- **Users** delete their own tokens on the same **Manage API Tokens** page
+- **Admins** can revoke any token by navigating to **Django Admin** --> **Token Authentication**
