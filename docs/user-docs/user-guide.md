@@ -111,7 +111,7 @@ Set up subscriptions to be notified when new reports match your criteria. RADIS 
 1. Navigate to the "Subscriptions" section
 2. Click "Add Subscription"
 3. Enter a **Name** for the subscription
-4. Narrow down the reports with the filters on the right: Language, Modalities, Study Description, Patient Sex, and Age Range. The Patient ID field is shown too but currently has no effect on the refresh
+4. Narrow down the reports with the filters on the right: Patient ID, Language, Modalities, Study Description, Patient Sex, and Age Range
 5. Optionally add up to three **Filter Questions**. Each is a yes/no question about the report (e.g. "Does the report describe a new pulmonary nodule?") together with the answer that should be accepted (Yes or No). A report only enters your inbox when the AI's answer to every question matches
 6. Optionally add up to ten **Extraction Fields** to have data extracted from every matching report. Each field has a Name, a Description telling the AI what to extract, and an Output Type (Text, Numeric, Boolean, or Selection with a fixed list of options). Use the `[ ]` toggle next to the type to collect multiple values per report
 7. Check "Notify me via mail of new reports" if you want an email whenever a refresh finds new reports

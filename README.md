@@ -43,7 +43,7 @@ The detailed documentation of RADIS can be found at <https://openradx.github.io/
 - **Report Chat**: Ask an AI assistant questions about an individual report in natural language.
 - **Bookmarking and Collection Management**: Organize reports into customizable collections with an intuitive bookmarking service for quick access and review.
 - **Custom Report Notes**: Allow users to append personalized notes to reports for additional context or annotations.
-- **API and Python Client**: Programmatic access to reports and search through a REST API and the `radis-client` library.
+- **API and Python Client**: Programmatic access to reports through a REST API and the `radis-client` library.
 
 ## Planned
 
@@ -51,13 +51,13 @@ The detailed documentation of RADIS can be found at <https://openradx.github.io/
 
 ## API Client
 
-[RADIS Client](https://pypi.org/project/radis-client/) is a Python library to search for reports on RADIS in a programmatic way. It also allows admins to feed new reports to RADIS.
+[RADIS Client](https://pypi.org/project/radis-client/) is a Python library for admins to feed reports to RADIS and to retrieve, update or delete them programmatically.
 
 ## Architectural overview
 
 RADIS employs a sophisticated multi-container architecture, optimized for local deployment using Docker Swarm mode—a feature included with all Docker installations. This local-first approach ensures compliance with the strict data security requirements inherent in hospital and research environments where sensitive patient or research data is managed. By leveraging Docker Swarm, RADIS offers seamless scalability, allowing services to be easily adjusted to meet the specific computational demands of the deployment site. To simplify the setup process, RADIS provides intuitive deployment scripts, ensuring accessibility for users with varying levels of technical expertise.
 
-The RADIS web service is built on the robust Django Python framework, with data securely stored in a PostgreSQL database. By default, RADIS harnesses PostgreSQL’s powerful full-text search capabilities, enhanced by the pg_search and pg_vector extensions, to deliver hybrid search functionality. Its modular architecture enables effortless integration with other advanced text and vector search systems, such as Vespa or ElasticSearch, through easily implementable plugins.
+The RADIS web service is built on the robust Django Python framework, with data securely stored in a PostgreSQL database. By default, RADIS uses PostgreSQL's built-in full-text search, combined with vector search through the pg_vector extension when an embedding model is configured. Other search systems, such as Vespa or ElasticSearch, can be plugged in through the search provider interface.
 
 To deliver a dynamic and responsive web interface, RADIS integrates modern JavaScript libraries HTMX and Alpine.js. For resource-intensive operations—such as batch evaluations or filtering large datasets—RADIS relies on Procrastinate, a Python-based distributed task processing library. This ensures long-running tasks are executed efficiently in the background, minimizing disruptions to user workflows while maximizing system performance.
 
