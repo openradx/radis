@@ -15,7 +15,7 @@ RADIS acts as a centralized repository for radiology reports, providing powerful
 
 ## Functionalities Overview
 
-When you log into RADIS, you'll see the main/homepage with several sections:
+After logging in, the menu at the top of every page leads to these sections:
 
 - **Search**: Search for reports using text queries and filters
 - **Collections**: Organize reports into custom collections
@@ -44,9 +44,9 @@ The search feature is the core of RADIS, allowing you to find relevant reports q
 - **Phrases**: Use quotes for exact matches (e.g., `"lung cancer"`)
 - **Grouping**: Use parentheses to combine operators (e.g., `(fracture OR lesion) NOT metastasis`)
 
-Operators must be written in capital letters; `or`, `and`, and `not` in lowercase are treated as ordinary search terms. A minus sign in front of a term does not exclude it, and `field:value` syntax is not supported — use the filters instead.
+Operators must be written in capital letters; `or`, `and`, and `not` in lowercase are treated as ordinary search terms. A minus sign in front of a term does not exclude it, wildcards such as `pneumo*` are not supported (the `*` is dropped), and `field:value` syntax is not supported — the whole `field:value` token is removed; use the filters instead. A query is required (filters alone do not search) and may be at most 200 characters long.
 
-If your query contains mistakes such as unbalanced quotes or parentheses, RADIS repairs it and shows a "Fixed invalid query" notice above the results with the query it actually ran.
+If your query contains mistakes such as unbalanced quotes or parentheses, unsupported characters, or stray operators, RADIS repairs it and shows a "Fixed invalid query" notice above the results with the query it actually ran.
 
 #### Semantic Search
 
@@ -66,14 +66,16 @@ Use "Reset filters" to clear all filters at once.
 
 #### Search Results
 
-Each result shows the patient age and sex, modalities, and study description, followed by a highlighted excerpt of the report. Click "Show full report" to read the entire text. Each result panel has buttons to open the report details, add the report to a collection, add a note, start a chat about the report, and open the study in your PACS viewer.
+Each result shows the patient age and sex, modalities, study description and the scores that determined its rank, followed by a highlighted excerpt of the report. Click "Show full report" to read the entire text. Results are paginated; the page size can be changed below the list. Each result panel has buttons to open the report details, add the report to a collection, add a note, start a chat about the report, and open the study in your PACS viewer.
+
+The report details page shows all metadata of a report (document ID, patient, study, accession number, modalities, additional metadata), its labels, and the full text. The arrows next to the Patient ID open a list of the same patient's earlier reports, later reports, or all reports.
 
 ### 2. Labels
 
 Administrators can define labels (e.g. "Pulmonary nodule" or "Fracture") that RADIS assigns to reports automatically using AI. Each label is classified as Present, Likely, or Possible when the report supports it; reports where the label is absent or not mentioned carry no badge.
 
 - Labels appear as badges on the report detail page, grouped by their label group. Hover over a badge to see whether the finding is Present, Likely, or Possible
-- A greyed-out badge means the report or the label definition changed since the label was assigned; it will be refreshed by the next labeling run
+- A greyed-out badge means the report or the label definition changed since the label was assigned. A changed report is re-labeled by the next nightly run; a changed label definition is only refreshed when an administrator runs a backfill
 - Use the **Labels** filter in the search to find all reports carrying a label. Selecting several labels finds reports that carry any of them
 
 Labels cannot be edited by users. If a label seems wrong or missing, contact your administrator.
@@ -83,9 +85,9 @@ Labels cannot be edited by users. If a label seems wrong or missing, contact you
 Collections allow you to organize reports for easy access:
 
 1. Go to the "Collections" section to view your collections
-2. Click "Create Collection" to create a new collection
-3. Add reports to collections by clicking the collection button on report panels
-4. View collection contents by clicking on the collection name
+2. Click "Add new collection" to create a new collection
+3. Add reports to collections by clicking the collection button on report panels. The same dialog removes a report from a collection again and preselects the collection you used last
+4. View collection contents by clicking on the collection name. A collection page has buttons to rename, export (as an Excel spreadsheet with the report metadata and text), or delete the collection
 
 Collections are useful for:
 
@@ -97,9 +99,9 @@ Collections are useful for:
 
 Add personal notes to reports for additional context:
 
-1. Open a report detail view
-2. Click the notes button to add or edit notes
-3. View all your notes in the "Notes" section
+1. Click the note button on any report panel (in search results, collections, subscription inboxes, or the report details) to add or edit your note
+2. Save a note with empty text to delete it
+3. View and search all your notes in the "Notes" section
 4. Notes are private to your user account
 
 ### 5. Subscriptions
@@ -109,7 +111,7 @@ Set up subscriptions to be notified when new reports match your criteria. RADIS 
 1. Navigate to the "Subscriptions" section
 2. Click "Add Subscription"
 3. Enter a **Name** for the subscription
-4. Narrow down the reports with the filters on the right: Patient ID, Language, Modalities, Study Description, Patient Sex, and Age Range
+4. Narrow down the reports with the filters on the right: Language, Modalities, Study Description, Patient Sex, and Age Range. The Patient ID field is shown too but currently has no effect on the refresh
 5. Optionally add up to three **Filter Questions**. Each is a yes/no question about the report (e.g. "Does the report describe a new pulmonary nodule?") together with the answer that should be accepted (Yes or No). A report only enters your inbox when the AI's answer to every question matches
 6. Optionally add up to ten **Extraction Fields** to have data extracted from every matching report. Each field has a Name, a Description telling the AI what to extract, and an Output Type (Text, Numeric, Boolean, or Selection with a fixed list of options). Use the `[ ]` toggle next to the type to collect multiple values per report
 7. Check "Notify me via mail of new reports" if you want an email whenever a refresh finds new reports
@@ -123,7 +125,7 @@ The subscription list shows how many reports each subscription has collected, wi
 
 - Each matched report is shown with its header, a preview of the text, and — if you defined extraction fields — the extracted values
 - Sort by arrival or study date, and narrow the list with the filters on the side (Patient ID, Study Description, Study Date, Modalities)
-- Click "Download Extractions as CSV" to export the extracted values of the listed reports as a spreadsheet
+- Click "Download Extractions as CSV" to export the extracted values as a spreadsheet. Only reports with extracted values are included, so the file is empty for a subscription without extraction fields
 - Opening the inbox marks its reports as seen
 
 Use the "Edit" and "Delete" buttons on the subscription page to change or remove a subscription. Changes apply to future refreshes only; reports already in the inbox stay there.
@@ -139,7 +141,7 @@ Extraction jobs let you pull structured data out of many reports at once. Creati
 - **Output Type**: Text, Numeric, Boolean, or Selection. For Selection, enter the allowed options (up to seven)
 - The **`[ ]` toggle** next to the type switches the field to an array, so multiple values of that type are returned per report (e.g. a list of all affected vertebrae)
 
-**Step 2 – Search query.** Enter a job title. RADIS generates a search query from your field descriptions, which you can edit or replace. Apply filters (Language, Modalities, Study Date, Study Description, Patient Sex, Age Range) to narrow down the reports. A live counter shows how many reports the job will process; a job may cover at most 25,000 reports. Click "Preview Search Results" to open the matching reports in the regular search view in a new tab.
+**Step 2 – Search query.** Enter a job title. Unless your administrator has turned this off, RADIS generates a search query from your field descriptions, which you can edit or replace. Apply filters (Language, Modalities, Study Date, Study Description, Patient Sex, Age Range) to narrow down the reports. A live counter shows how many reports the job will process; a job may cover at most 25,000 reports. Click "Preview Search Results" to open the matching reports in the regular search view in a new tab.
 
 **Step 3 – Review & submit.** Check the summary, optionally tick "Notify me via Email when job is finished", and click "Create Extraction Job".
 
@@ -147,20 +149,22 @@ Jobs of regular users start in the "Unverified" state and are queued once an adm
 
 - Click **View Results** to browse the extracted values in a table with one column per field
 - Click **Download CSV** to export the table
-- Use the control panel to cancel a running job, resume a canceled one, or retry failed tasks
+- Use the control panel to cancel a running job, resume a canceled one, retry failed tasks, or delete the job. Administrators additionally see buttons to verify a job and to restart it entirely
+- Click a task to see its reports and the extracted values per report
 
-The "Extractions" menu item opens the wizard directly; click "Previous Jobs" in the wizard (or "Job List" on a job page) to see all your jobs.
+The "Extractions" menu item opens the wizard directly; click "Previous Jobs" in step 2 of the wizard (or "Job List" on a job page) to see all your jobs. Administrators can lock the Extractions section temporarily, e.g. during maintenance; you then see a notice instead of the wizard.
 
 ### 7. Chats (AI Assistant)
 
-If enabled, the Chats feature provides an interactive AI assistant:
+The Chats feature provides an interactive AI assistant:
 
 - Start a chat from a report panel to ask questions about that report in natural language
-- Get contextual answers based on report content
-- Useful for exploring report data interactively
+- Click "New chat" in the "Chats" section for a general conversation that is not tied to a report
+- The "Chats" section lists your previous chats with automatically generated titles; you can delete a single chat or clear all of them
+- A message may be at most 1,000 characters long
 
 ## RADIS Client
 
-RADIS Client is a Python library that provides programmatic access to RADIS features without using the web interface.
+RADIS Client is a Python library to create, retrieve, update and delete reports without using the web interface. It does not search reports; use the web interface for that.
 
-To use the RADIS Client, you must have an API token provided by an administrator. For instructions on generating an API token, refer to the [Admin Guide](admin-guide.md).
+The reports API is restricted to staff users, so you need an API token of a staff account. For instructions on generating an API token, refer to the [Admin Guide](admin-guide.md#creating-api-tokens).
