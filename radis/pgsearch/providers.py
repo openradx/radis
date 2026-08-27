@@ -1,6 +1,7 @@
 import hashlib
 import json
 import logging
+import time
 import unicodedata
 from collections.abc import Iterator
 from typing import Literal, NamedTuple, cast
@@ -341,6 +342,13 @@ class _FusedHybrid(NamedTuple):
     query_str: str
 
 
+def _query_log_id(query_str: str) -> str:
+    """Short stable identifier for a query in log lines. Search text can contain
+    patient identifiers, so timing logs carry a hash that correlates repeated
+    searches without recording what was searched."""
+    return hashlib.sha256(query_str.encode()).hexdigest()[:8]
+
+
 def _fuse_hybrid(search: Search, caller: str) -> _FusedHybrid:
     """Run both retrievers and fuse them with RRF.
 
@@ -349,6 +357,7 @@ def _fuse_hybrid(search: Search, caller: str) -> _FusedHybrid:
     ``NOT``) and enforces the top-level negations on its candidates; the FTS
     half consumes the full boolean tsquery. Returns the fused, ordered report
     ids plus the per-id scores/distances and the query metadata callers reuse."""
+    started = time.perf_counter()
     query_str = _build_query_string(search.query)
     configs = _language_configs(search.filters)
     filter_query = _build_filter_query(search.filters)
@@ -382,11 +391,19 @@ def _fuse_hybrid(search: Search, caller: str) -> _FusedHybrid:
     # docs/superpowers/specs/hybrid-search.md §7.8).
     query_text = QueryParser.unparse_for_embedding(search.query)
     query_vec: list[float] | None = None
+    embed_started = time.perf_counter()
     if settings.EMBEDDINGS_MODEL is not None and query_text.strip():
         query_vec = _embed_query_cached(query_text, caller)
+    embed_ms = (time.perf_counter() - embed_started) * 1000
+    # A configured model that produced no vector means the embedding service is
+    # failing or rate limited right now: worth surfacing in the timing line.
+    degraded = (
+        settings.EMBEDDINGS_MODEL is not None and bool(query_text.strip()) and query_vec is None
+    )
 
     vec_rank: dict[int, int] = {}
     vec_distance: dict[int, float] = {}
+    vec_started = time.perf_counter()
     if query_vec is not None:
         vec_qs = ReportSearchIndex.objects.filter(filter_query)
         vec_qs = _exclude_negations(vec_qs, search.query, configs)
@@ -400,10 +417,12 @@ def _fuse_hybrid(search: Search, caller: str) -> _FusedHybrid:
         for i, (rid, dist) in enumerate(vec_rows):
             vec_rank[rid] = i + 1
             vec_distance[rid] = float(dist)
+    vec_ms = (time.perf_counter() - vec_started) * 1000
 
     # FTS side: bounded set, ts_rank only (no headline at this stage). An empty
     # ``configs`` means an empty corpus (Report.language is a required FK), and
     # an empty match_q would match every row rather than none, so skip it.
+    fts_started = time.perf_counter()
     fts_rows = (
         []
         if not configs
@@ -416,12 +435,35 @@ def _fuse_hybrid(search: Search, caller: str) -> _FusedHybrid:
             .values("report_id", "rank")[: settings.HYBRID_FTS_MAX_RESULTS]
         )
     )
+    fts_ms = (time.perf_counter() - fts_started) * 1000
     fts_rank = {row["report_id"]: i + 1 for i, row in enumerate(fts_rows)}
 
     # Fusion.
+    fuse_started = time.perf_counter()
     ordered_pairs = rrf_fuse(vec_rank, fts_rank, k=settings.HYBRID_RRF_K)
     rrf_score_by_id = dict(ordered_pairs)
     ordered_ids = list(rrf_score_by_id)
+    fuse_ms = (time.perf_counter() - fuse_started) * 1000
+    # One line per fusion, so per-arm cost is attributable in production logs
+    # without extra tooling: the FTS arm ranks every match of the query, the
+    # vec arm is one HNSW beam pass, embed covers the query embedding (or its
+    # cache hit), fuse is the in-process RRF.
+    logger.info(
+        "hybrid fusion timings: caller=%s query=%s degraded=%s "
+        "fts_ms=%.0f fts_rows=%d embed_ms=%.0f vec_ms=%.0f vec_rows=%d "
+        "fuse_ms=%.0f fused=%d total_ms=%.0f",
+        caller,
+        _query_log_id(query_str),
+        degraded,
+        fts_ms,
+        len(fts_rows),
+        embed_ms,
+        vec_ms,
+        len(vec_rank),
+        fuse_ms,
+        len(ordered_ids),
+        (time.perf_counter() - started) * 1000,
+    )
     total_relation: Literal["exact", "at_least", "approximately"] = (
         "at_least"
         if (

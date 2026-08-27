@@ -492,3 +492,21 @@ def test_openai_rate_limit_error_in_retrieve_falls_back_to_fts(group, reports_wi
 
     # No exception escaped; FTS-only retrieve returned something.
     assert result is not None
+
+
+def test_fusion_timings_are_logged(group, reports_with_embeddings, settings, caplog):
+    dim = settings.EMBEDDINGS_DIM
+    with patch("radis.pgsearch.providers.EmbeddingClient") as MockClient:
+        MockClient.return_value.__enter__.return_value = MockClient.return_value
+        MockClient.return_value.__exit__.return_value = None
+        MockClient.return_value.embed_query.return_value = _unit_vec(0, dim)
+        with caplog.at_level(logging.INFO, logger="radis.pgsearch.providers"):
+            search(_make_search("pneumothorax", group.pk))
+
+    lines = [r.message for r in caplog.records if "hybrid fusion timings" in r.message]
+    assert len(lines) == 1
+    for key in ("fts_ms=", "fts_rows=", "embed_ms=", "vec_ms=", "fuse_ms=", "total_ms="):
+        assert key in lines[0]
+    # The query is logged as a hash, never as the search text.
+    assert "pneumothorax" not in lines[0]
+
