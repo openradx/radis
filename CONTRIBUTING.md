@@ -1,6 +1,6 @@
 # Contributing to Our Project
 
-We're excited that you're interested in contributing to our project! This document outlines the
+Thank you for contributing to RADIS. This document outlines the
 guidelines for contributing to our codebase. We follow the Google Python Style Guide to maintain
 consistency and readability across our project.
 
@@ -17,7 +17,7 @@ cp ./example.env ./.env  # adjust the environment variables to your needs
 uv run cli compose-up -- --watch
 ```
 
-The development server of the example project will be started on <http://localhost:8000>
+The development server is then available on <http://localhost:8000>
 
 File changes will be automatically detected and the servers will be restarted. When library
 dependencies are changed, the containers will automatically be rebuilt and restarted.
