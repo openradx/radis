@@ -66,6 +66,7 @@ class LexemeRank(models.Model):
     by the ORM -- rows follow ``ReportSearchIndex.search_vector`` writes."""
 
     report = models.ForeignKey(Report, on_delete=models.CASCADE, related_name="lexeme_ranks")
+    report_id: int
     lexeme = models.TextField()
     rank = models.FloatField()
 
