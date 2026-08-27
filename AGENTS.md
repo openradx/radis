@@ -155,6 +155,9 @@ Labeling uses the shared core LLM client (`radis.core.utils.llm_client`); its ti
 - **Comments**: only where the code cannot speak for itself; explain *why*, not *what*
 - **No history in comments**: describe the code as it is, not how it changed — that
   belongs in the commit message (docstrings too)
+- **Keep the docs in sync**: when a change adds a feature or alters behaviour that the
+  docs describe (`README.md`, `docs/`, this file, in-app help templates), update them in
+  the same PR
 
 ## Key Dependencies
 
