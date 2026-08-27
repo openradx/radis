@@ -1,6 +1,7 @@
 import hashlib
 import json
 import logging
+import time
 import unicodedata
 from collections.abc import Iterator
 from dataclasses import asdict
@@ -392,6 +393,13 @@ def _bm25_fts_rows(
     ]
 
 
+def _query_log_id(query_str: str) -> str:
+    """Short stable identifier for a query in log lines. Search text can contain
+    patient identifiers, so timing logs carry a hash that correlates repeated
+    searches without recording what was searched."""
+    return hashlib.sha256(query_str.encode()).hexdigest()[:8]
+
+
 # Bumped whenever the cached payload's shape changes, so entries written by an
 # older code version are missed rather than misread.
 _FUSED_CACHE_SCHEMA = 1
@@ -469,10 +477,19 @@ def _fuse_hybrid(search: Search, caller: str) -> _FusedHybrid:
     timeout = settings.HYBRID_FUSED_CACHE_TIMEOUT_SECONDS
     if timeout <= 0:
         return _fuse_hybrid_uncached(search, caller)[0]
+    started = time.perf_counter()
     key = _fused_cache_key(search)
     cached = cache.get(key)
     if cached is not None:
-        return _fused_from_cached(cached)
+        fused = _fused_from_cached(cached)
+        logger.info(
+            "hybrid fusion cache hit: caller=%s query=%s fused=%d total_ms=%.1f",
+            caller,
+            _query_log_id(fused.query_str),
+            len(fused.ordered_ids),
+            (time.perf_counter() - started) * 1000,
+        )
+        return fused
     fused, degraded = _fuse_hybrid_uncached(search, caller)
     if not degraded:
         cache.set(key, _fused_to_cached(fused), timeout=timeout)
@@ -488,6 +505,7 @@ def _fuse_hybrid_uncached(search: Search, caller: str) -> tuple[_FusedHybrid, bo
     half consumes the full boolean tsquery. Returns the fused, ordered report
     ids plus the per-id scores/distances and the query metadata callers reuse,
     and whether the result is degraded (vector half skipped by a failure)."""
+    started = time.perf_counter()
     query_str = _build_query_string(search.query)
     configs = _language_configs(search.filters)
     filter_query = _build_filter_query(search.filters)
@@ -521,8 +539,10 @@ def _fuse_hybrid_uncached(search: Search, caller: str) -> tuple[_FusedHybrid, bo
     # docs/superpowers/specs/hybrid-search.md §7.8).
     query_text = QueryParser.unparse_for_embedding(search.query)
     query_vec: list[float] | None = None
+    embed_started = time.perf_counter()
     if settings.EMBEDDINGS_MODEL is not None and query_text.strip():
         query_vec = _embed_query_cached(query_text, caller)
+    embed_ms = (time.perf_counter() - embed_started) * 1000
     # A configured model that produced no vector means the embedding service is
     # failing or rate limited right now; the caller must not cache this result.
     degraded = (
@@ -531,6 +551,7 @@ def _fuse_hybrid_uncached(search: Search, caller: str) -> tuple[_FusedHybrid, bo
 
     vec_rank: dict[int, int] = {}
     vec_distance: dict[int, float] = {}
+    vec_started = time.perf_counter()
     if query_vec is not None:
         vec_qs = ReportSearchIndex.objects.filter(filter_query)
         vec_qs = _exclude_negations(vec_qs, search.query, configs)
@@ -553,10 +574,12 @@ def _fuse_hybrid_uncached(search: Search, caller: str) -> tuple[_FusedHybrid, bo
         for i, (rid, dist) in enumerate(vec_rows):
             vec_rank[rid] = i + 1
             vec_distance[rid] = float(dist)
+    vec_ms = (time.perf_counter() - vec_started) * 1000
 
     # FTS side: bounded set, ts_rank only (no headline at this stage). An empty
     # ``configs`` means an empty corpus (Report.language is a required FK), and
     # an empty match_q would match every row rather than none, so skip it.
+    fts_started = time.perf_counter()
     if not configs:
         fts_rows = []
     elif settings.HYBRID_FTS_RANKING == "bm25":
@@ -570,16 +593,39 @@ def _fuse_hybrid_uncached(search: Search, caller: str) -> tuple[_FusedHybrid, bo
             .order_by("-rank", "report_id")
             .values("report_id", "rank")[: settings.HYBRID_FTS_MAX_RESULTS]
         )
+    fts_ms = (time.perf_counter() - fts_started) * 1000
     fts_rank = {row["report_id"]: i + 1 for i, row in enumerate(fts_rows)}
 
     # Fusion.
+    fuse_started = time.perf_counter()
     ordered_pairs = rrf_fuse(vec_rank, fts_rank, k=settings.HYBRID_RRF_K)
     rrf_score_by_id = dict(ordered_pairs)
     ordered_ids = list(rrf_score_by_id)
+    fuse_ms = (time.perf_counter() - fuse_started) * 1000
     # The vector half is one complete beam pass by definition, so it never makes
     # the union a lower bound; only a truncated FTS side does.
     total_relation: Literal["exact", "at_least", "approximately"] = (
         "at_least" if len(fts_rows) >= settings.HYBRID_FTS_MAX_RESULTS else "exact"
+    )
+    # One line per uncached fusion, so per-arm cost is attributable in
+    # production logs without extra tooling: the FTS arm ranks every match of
+    # the query, the vec arm is one HNSW beam pass, embed covers the query
+    # embedding (or its cache hit), fuse is the in-process RRF.
+    logger.info(
+        "hybrid fusion timings: caller=%s query=%s degraded=%s "
+        "fts_ms=%.0f fts_rows=%d embed_ms=%.0f vec_ms=%.0f vec_rows=%d "
+        "fuse_ms=%.0f fused=%d total_ms=%.0f",
+        caller,
+        _query_log_id(query_str),
+        degraded,
+        fts_ms,
+        len(fts_rows),
+        embed_ms,
+        vec_ms,
+        len(vec_rank),
+        fuse_ms,
+        len(ordered_ids),
+        (time.perf_counter() - started) * 1000,
     )
     return _FusedHybrid(
         ordered_ids=ordered_ids,
