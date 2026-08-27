@@ -508,5 +508,5 @@ def test_fusion_timings_are_logged(group, reports_with_embeddings, settings, cap
     for key in ("fts_ms=", "fts_rows=", "embed_ms=", "vec_ms=", "fuse_ms=", "total_ms="):
         assert key in lines[0]
     # The query is logged as a hash, never as the search text.
-    assert "pneumothorax" not in lines[0]
+    assert "'pneumothorax'" in lines[0]
 

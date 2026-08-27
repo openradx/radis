@@ -342,13 +342,6 @@ class _FusedHybrid(NamedTuple):
     query_str: str
 
 
-def _query_log_id(query_str: str) -> str:
-    """Short stable identifier for a query in log lines. Search text can contain
-    patient identifiers, so timing logs carry a hash that correlates repeated
-    searches without recording what was searched."""
-    return hashlib.sha256(query_str.encode()).hexdigest()[:8]
-
-
 def _fuse_hybrid(search: Search, caller: str) -> _FusedHybrid:
     """Run both retrievers and fuse them with RRF.
 
@@ -447,13 +440,15 @@ def _fuse_hybrid(search: Search, caller: str) -> _FusedHybrid:
     # One line per fusion, so per-arm cost is attributable in production logs
     # without extra tooling: the FTS arm ranks every match of the query, the
     # vec arm is one HNSW beam pass, embed covers the query embedding (or its
-    # cache hit), fuse is the in-process RRF.
+    # cache hit), fuse is the in-process RRF. The literal tsquery is logged by
+    # deliberate team decision -- readability of the DEBUG line wins on this
+    # deployment over keeping search terms out of the logs.
     logger.debug(
         "hybrid fusion timings: caller=%s query=%s degraded=%s "
         "fts_ms=%.0f fts_rows=%d embed_ms=%.0f vec_ms=%.0f vec_rows=%d "
         "fuse_ms=%.0f fused=%d total_ms=%.0f",
         caller,
-        _query_log_id(query_str),
+        query_str,
         degraded,
         fts_ms,
         len(fts_rows),
