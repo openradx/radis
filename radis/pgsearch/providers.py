@@ -30,10 +30,11 @@ from radis.search.utils.query_parser import (
     is_search_token_char,
 )
 
-from .models import ReportSearchIndex
+from .models import LexemeRank, ReportSearchIndex
 from .utils.document_utils import AnnotatedReportSearchIndex, document_from_pgsearch_response
 from .utils.fusion import rrf_fuse, summary_with_fallback
 from .utils.language_utils import code_to_language
+from .utils.lexeme_rank import lexeme_rank_ready, resolve_single_lexeme
 
 logger = logging.getLogger(__name__)
 
@@ -184,6 +185,60 @@ def _exclude_negations(queryset, node: QueryNode, configs: list[tuple[str, list[
             Q(report__language__code__in=codes) & Q(search_vector=negative_tsquery)
         )
     return queryset
+
+
+def _single_word_query(node: QueryNode) -> str | None:
+    """The quoted raw-tsquery token when the whole query is one plain word,
+    else None. Only this shape can be served from the lexeme-rank table; any
+    operator, phrase or negation makes the score a per-query aggregate that
+    the table does not store."""
+    while isinstance(node, ParensNode):
+        node = node.expression
+    if isinstance(node, TermNode) and node.term_type == "WORD":
+        term = sanitize_term(node.value)
+        if _has_lexeme_char(term):
+            return _quote_term(term)
+    return None
+
+
+def _lexeme_rank_fts_rows(
+    node: QueryNode, configs: list[tuple[str, list[str]]], filter_query: Q
+) -> list[dict] | None:
+    """Serve the FTS arm from the precomputed lexeme-rank table, or return None
+    when this query cannot be (not a single plain word, a configuration splits
+    it into several lexemes, or the sync trigger is not installed) so the
+    caller falls back to the ts_rank scan.
+
+    Correctness relies on two invariants of the table: a row exists exactly
+    when the lexeme is in the document's tsvector (so membership equals
+    ``search_vector @@ lexeme``), and its rank is the very ts_rank value the
+    fallback would compute (so the ordering is identical, not approximate)."""
+    quoted_term = _single_word_query(node)
+    if quoted_term is None or not lexeme_rank_ready():
+        return None
+
+    lexeme_q = Q()
+    any_config_matches = False
+    for config, codes in configs:
+        kind, lexeme = resolve_single_lexeme(config, quoted_term)
+        if kind == "many":
+            return None
+        if kind == "none":
+            # A stopword under this configuration: the raw tsquery normalizes
+            # to empty and matches nothing, so the branch contributes no rows.
+            continue
+        any_config_matches = True
+        lexeme_q |= Q(report__language__code__in=codes, lexeme=lexeme)
+    if not any_config_matches:
+        return []
+
+    return list(
+        LexemeRank.objects.filter(filter_query)
+        .filter(lexeme_q)
+        .order_by("-rank", "report_id")
+        .values("report_id", "rank")
+        .distinct()[: settings.HYBRID_FTS_MAX_RESULTS]
+    )
 
 
 def _build_filter_query(filters: SearchFilters) -> Q:
@@ -404,18 +459,25 @@ def _fuse_hybrid(search: Search, caller: str) -> _FusedHybrid:
     # FTS side: bounded set, ts_rank only (no headline at this stage). An empty
     # ``configs`` means an empty corpus (Report.language is a required FK), and
     # an empty match_q would match every row rather than none, so skip it.
-    fts_rows = (
-        []
-        if not configs
-        else list(
-            ReportSearchIndex.objects.filter(filter_query)
-            .distinct()
-            .filter(match_q)
-            .annotate(rank=rank_expr)
-            .order_by("-rank", "report_id")
-            .values("report_id", "rank")[: settings.HYBRID_FTS_MAX_RESULTS]
+    # Single-word queries can skip the ts_rank scan entirely when the
+    # lexeme-rank table is enabled and maintained; every other shape (and any
+    # fast-path refusal) takes the ts_rank scan below.
+    fts_rows: list[dict] | None = None
+    if configs and settings.HYBRID_FTS_LEXEME_RANK_INDEX:
+        fts_rows = _lexeme_rank_fts_rows(search.query, configs, filter_query)
+    if fts_rows is None:
+        fts_rows = (
+            []
+            if not configs
+            else list(
+                ReportSearchIndex.objects.filter(filter_query)
+                .distinct()
+                .filter(match_q)
+                .annotate(rank=rank_expr)
+                .order_by("-rank", "report_id")
+                .values("report_id", "rank")[: settings.HYBRID_FTS_MAX_RESULTS]
+            )
         )
-    )
     fts_rank = {row["report_id"]: i + 1 for i, row in enumerate(fts_rows)}
 
     # Fusion.
