@@ -1,7 +1,7 @@
 from typing import Any
 
 from django.core.management.base import BaseCommand
-from django.db.models import F
+from django.db.models import F, Q
 
 from radis.labels.models import (
     GateAnswer,
@@ -25,7 +25,10 @@ class Command(BaseCommand):
         self.stdout.write("\nPer-label results:")
         for label in Label.objects.select_related("group").order_by("group__name", "name"):
             counts = {v.label: label.results.filter(value=v).count() for v in LabelResult.Value}
-            stale = label.results.filter(generated_at__lt=F("label__updated_at")).count()
+            stale = label.results.filter(
+                Q(generated_at__lt=F("label__updated_at"))
+                | Q(generated_at__lt=F("report__updated_at"))
+            ).count()
             summary = " · ".join(f"{n} {lbl}" for lbl, n in counts.items())
             self.stdout.write(f"  [{label.group.name}] {label.name}: {summary} · {stale} stale")
 
@@ -33,7 +36,8 @@ class Command(BaseCommand):
         for group in LabelGroup.objects.order_by("name"):
             gc = {v.label: group.gate_answers.filter(value=v).count() for v in GateAnswer.Value}
             gstale = group.gate_answers.filter(
-                generated_at__lt=F("label_group__updated_at")
+                Q(generated_at__lt=F("label_group__updated_at"))
+                | Q(generated_at__lt=F("report__updated_at"))
             ).count()
             summary = " · ".join(f"{n} {lbl}" for lbl, n in gc.items())
             self.stdout.write(f"  {group.name}: {summary} · {gstale} stale")

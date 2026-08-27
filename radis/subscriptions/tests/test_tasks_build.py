@@ -93,6 +93,37 @@ def test_last_refreshed_is_advanced(monkeypatch):
 
 
 @pytest.mark.django_db
+def test_prep_crash_before_status_write_leaves_last_refreshed_untouched(monkeypatch):
+    """If preparation crashes after last_refreshed was advanced but before the job left
+    PREPARING, last_refreshed must roll back - otherwise the next run would skip the
+    reports this run found."""
+    job = _preparing_job()
+    original_last_refreshed = job.subscription.last_refreshed
+    ReportFactory.create(document_id="S-CRASH-1")
+
+    monkeypatch.setattr(
+        subscription_site,
+        "subscription_filter_provider",
+        SubscriptionFilterProvider(name="f", filter=lambda _f: ["S-CRASH-1"]),
+    )
+
+    original_save = SubscriptionJob.save
+
+    def _raise_on_status_write(self, *args, **kwargs):
+        if self.status == SubscriptionJob.Status.PENDING:
+            raise RuntimeError("simulated crash before leaving PREPARING")
+        return original_save(self, *args, **kwargs)
+
+    monkeypatch.setattr(SubscriptionJob, "save", _raise_on_status_write, raising=True)
+
+    with pytest.raises(RuntimeError):
+        process_subscription_job(int(job.pk))
+
+    job.subscription.refresh_from_db()
+    assert job.subscription.last_refreshed == original_last_refreshed
+
+
+@pytest.mark.django_db
 def test_missing_filter_provider_raises(monkeypatch):
     job = _preparing_job()
     monkeypatch.setattr(subscription_site, "subscription_filter_provider", None)
@@ -136,3 +167,38 @@ def test_subscription_launcher_skips_subscription_with_active_job(monkeypatch):
 
     # No second job while one is still active.
     assert subscription.jobs.count() == 1
+
+
+@pytest.mark.django_db
+def test_refired_prep_job_does_not_duplicate_tasks(monkeypatch):
+    job = _preparing_job()
+    ReportFactory.create(document_id="S-REFIRE-1")
+
+    monkeypatch.setattr(
+        subscription_site,
+        "subscription_filter_provider",
+        SubscriptionFilterProvider(name="f", filter=lambda _f: ["S-REFIRE-1"]),
+    )
+    monkeypatch.setattr(SubscriptionTask, "delay", lambda self: None, raising=True)
+
+    process_subscription_job(int(job.pk))
+    assert job.tasks.count() == 1
+
+    # Simulate a crash after creating tasks but before the PENDING switch, then run again.
+    SubscriptionJob.objects.filter(pk=job.pk).update(status=SubscriptionJob.Status.PREPARING)
+    process_subscription_job(int(job.pk))
+
+    job.refresh_from_db()
+    assert job.tasks.count() == 1  # wiped and recreated, not duplicated
+
+
+@pytest.mark.django_db
+def test_prep_job_in_unexpected_status_is_ignored(monkeypatch):
+    job = _preparing_job()
+    SubscriptionJob.objects.filter(pk=job.pk).update(status=SubscriptionJob.Status.SUCCESS)
+
+    process_subscription_job(int(job.pk))  # must not raise
+
+    job.refresh_from_db()
+    assert job.status == SubscriptionJob.Status.SUCCESS
+    assert job.tasks.count() == 0

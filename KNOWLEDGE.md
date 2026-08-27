@@ -26,7 +26,11 @@
 
 ### Recovering a job stuck in CANCELING
 
-Only one labeling job may be active at a time, and `CANCELING` counts as active — so a job wedged in `CANCELING` blocks all future backfills and scan ticks (the nightly scan logs a WARNING with the blocking job's id and age). It happens when a worker dies mid-task (the task freezes at `IN_PROGRESS`) and the job is then canceled: cancel waits for the in-progress task to finish, which it never does. Such a job is neither cancelable again nor deletable in the admin; recover via `uv run cli shell`:
+Only one labeling job may be active at a time, and `CANCELING` counts as active — so a job wedged in `CANCELING` blocks all future backfills and scan ticks. It happens when a worker dies mid-task: the task freezes at `IN_PROGRESS`, and cancel then waits for it forever.
+
+Recovery is automatic: a sweep repairs stale tasks at every worker-container start and periodically in steady state (`ANALYSIS_SWEEP_CRON`, default every minute). A worker must be running on the `default` queue for the periodic sweep to tick; after a full outage the startup sweep covers it. Expect the job to drain to `CANCELED` within about a minute of the worker dying (30 s heartbeat grace + one sweep tick).
+
+For immediate manual recovery (or when no worker can run at all), use `uv run cli shell`:
 
 ```python
 from radis.core.models import AnalysisJob, AnalysisTask

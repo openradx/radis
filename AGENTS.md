@@ -139,6 +139,11 @@ Auto-labeling (`radis.labels`):
 - `LABELING_GATE_BATCH_SIZE`: Groups screened per gate batch (default `10`).
 - `LABELING_SCAN_CRON`: Cron for the periodic incremental scan (default `0 2 * * *`).
 
+Worker-crash recovery (`radis.core`):
+
+- `ANALYSIS_STALLED_WORKER_GRACE_SECONDS`: Heartbeat silence before a worker counts as dead when repairing stale analysis tasks (default `30`; must never be set below 30 — Procrastinate itself declares workers stalled at 30 s).
+- `ANALYSIS_SWEEP_CRON`: Cron for the periodic sweep that repairs tasks left `IN_PROGRESS` by killed workers (default `* * * * *`).
+
 Labeling uses the shared core LLM client (`radis.core.utils.llm_client`); its timeout, rate-limit gate, and transient-retry knobs are the global `LLM_REQUEST_TIMEOUT_SECONDS`, `LLM_RATE_LIMIT_*`, and `LLM_TRANSIENT_RETRY_*` settings.
 
 ## Code Standards
@@ -281,7 +286,7 @@ reports = response.json()
 ### Labels Not Appearing
 
 - Confirm the label exists and is `active`
-- Ensure a backfill has run or the periodic scan (`LABELING_SCAN_CRON`) has ticked since the label/report was created
+- Ensure a backfill has run or the periodic scan (`LABELING_SCAN_CRON`) has ticked since the label was created or the report was created/updated (any report update marks its labels stale and triggers re-labeling)
 - Check the group gate was answered `YES` for the report (a `NO` gate skips per-label classification)
 - Verify the result is a surfacing bucket (`PRESENT`/`LIKELY`/`POSSIBLE`); `ABSENT`/`UNMENTIONED` never surface
 - Use `uv run cli shell` + `labels_status` (or `manage.py labels_status`) to inspect corpus-wide counts and the scan checkpoint
