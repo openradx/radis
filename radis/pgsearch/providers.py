@@ -448,7 +448,7 @@ def _fuse_hybrid(search: Search, caller: str) -> _FusedHybrid:
     # without extra tooling: the FTS arm ranks every match of the query, the
     # vec arm is one HNSW beam pass, embed covers the query embedding (or its
     # cache hit), fuse is the in-process RRF.
-    logger.info(
+    logger.debug(
         "hybrid fusion timings: caller=%s query=%s degraded=%s "
         "fts_ms=%.0f fts_rows=%d embed_ms=%.0f vec_ms=%.0f vec_rows=%d "
         "fuse_ms=%.0f fused=%d total_ms=%.0f",

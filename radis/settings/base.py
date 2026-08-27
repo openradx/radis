@@ -275,6 +275,14 @@ LOGGING = {
             "level": "INFO",
             "propagate": False,
         },
+        # The per-arm fusion timing lines are DEBUG so routine operation does
+        # not carry them at INFO; this logger opts in so they still reach the
+        # console handler (which already passes DEBUG).
+        "radis.pgsearch.providers": {
+            "handlers": ["console", "mail_admins"],
+            "level": "DEBUG",
+            "propagate": False,
+        },
         "django": {
             "handlers": ["console"],
             "level": "WARNING",

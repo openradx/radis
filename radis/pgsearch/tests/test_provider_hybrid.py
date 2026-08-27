@@ -500,7 +500,7 @@ def test_fusion_timings_are_logged(group, reports_with_embeddings, settings, cap
         MockClient.return_value.__enter__.return_value = MockClient.return_value
         MockClient.return_value.__exit__.return_value = None
         MockClient.return_value.embed_query.return_value = _unit_vec(0, dim)
-        with caplog.at_level(logging.INFO, logger="radis.pgsearch.providers"):
+        with caplog.at_level(logging.DEBUG, logger="radis.pgsearch.providers"):
             search(_make_search("pneumothorax", group.pk))
 
     lines = [r.message for r in caplog.records if "hybrid fusion timings" in r.message]
