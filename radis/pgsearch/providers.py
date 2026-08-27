@@ -12,6 +12,7 @@ from django.conf import settings
 from django.contrib.postgres.search import SearchHeadline, SearchQuery, SearchRank
 from django.core.cache import cache
 from django.db.models import Case, F, FloatField, Q, TextField, Value, When
+from django.db.models.expressions import RawSQL
 from pgvector.django import CosineDistance
 
 from radis.core.utils.embedding_client import (
@@ -33,6 +34,7 @@ from radis.search.utils.query_parser import (
 )
 
 from .models import ReportSearchIndex
+from .utils.bm25_utils import bm25_index_name
 from .utils.document_utils import AnnotatedReportSearchIndex, document_from_pgsearch_response
 from .utils.fusion import rrf_fuse, summary_with_fallback
 from .utils.language_utils import code_to_language
@@ -343,6 +345,54 @@ class _FusedHybrid(NamedTuple):
     query_str: str
 
 
+def _bm25_fts_rows(
+    search: Search,
+    filter_query: Q,
+    match_q: Q,
+    configs: list[tuple[str, list[str]]],
+) -> list[dict]:
+    """FTS candidates ranked by BM25 (pg_textsearch) instead of ts_rank.
+
+    Membership is unchanged: the boolean tsquery match still gates which
+    documents qualify, so AND/OR/NOT and phrase semantics are exactly those of
+    the ts_rank path. Only the *ordering* differs — ``body <@> to_bm25query``
+    scores with corpus-level IDF out of the per-language BM25 index (see
+    sync_bm25_indexes) instead of computing ts_rank for every match. Ranking is
+    per language because BM25 statistics live per index; scores from different
+    languages are merged as-is, an approximation in a mixed corpus — the same
+    caveat the per-config ts_rank Case carries, since ts_rank values from
+    different stemmers aren't comparable either. ``<@>`` returns negative
+    scores (more negative = better), hence ascending order and the sign flip.
+    """
+    text = QueryParser.unparse_for_embedding(search.query)
+    if not text.strip():
+        return []
+    scored: list[tuple[float, int]] = []
+    for _config, codes in configs:
+        for code in codes:
+            rows = (
+                ReportSearchIndex.objects.filter(filter_query)
+                .distinct()
+                .filter(match_q)
+                .filter(report__language__code=code)
+                .annotate(
+                    score=RawSQL(
+                        "reports_report.body <@> to_bm25query(%s, %s)",
+                        (text, bm25_index_name(code)),
+                        output_field=FloatField(),
+                    )
+                )
+                .order_by("score", "report_id")
+                .values_list("report_id", "score")[: settings.HYBRID_FTS_MAX_RESULTS]
+            )
+            scored.extend((score, rid) for rid, score in rows)
+    scored.sort()
+    return [
+        {"report_id": rid, "rank": -score}
+        for score, rid in scored[: settings.HYBRID_FTS_MAX_RESULTS]
+    ]
+
+
 def _query_log_id(query_str: str) -> str:
     """Short stable identifier for a query in log lines. Search text can contain
     patient identifiers, so timing logs carry a hash that correlates repeated
@@ -369,6 +419,7 @@ def _fused_cache_key(search: Search) -> str:
             "query": QueryParser.unparse(search.query),
             "filters": asdict(search.filters),
             "fts_max": settings.HYBRID_FTS_MAX_RESULTS,
+            "fts_ranking": settings.HYBRID_FTS_RANKING,
             "rrf_k": settings.HYBRID_RRF_K,
             "ef_search": settings.HYBRID_HNSW_EF_SEARCH,
             "embeddings": None
@@ -529,10 +580,12 @@ def _fuse_hybrid_uncached(search: Search, caller: str) -> tuple[_FusedHybrid, bo
     # ``configs`` means an empty corpus (Report.language is a required FK), and
     # an empty match_q would match every row rather than none, so skip it.
     fts_started = time.perf_counter()
-    fts_rows = (
-        []
-        if not configs
-        else list(
+    if not configs:
+        fts_rows = []
+    elif settings.HYBRID_FTS_RANKING == "bm25":
+        fts_rows = _bm25_fts_rows(search, filter_query, match_q, configs)
+    else:
+        fts_rows = list(
             ReportSearchIndex.objects.filter(filter_query)
             .distinct()
             .filter(match_q)
@@ -540,7 +593,6 @@ def _fuse_hybrid_uncached(search: Search, caller: str) -> tuple[_FusedHybrid, bo
             .order_by("-rank", "report_id")
             .values("report_id", "rank")[: settings.HYBRID_FTS_MAX_RESULTS]
         )
-    )
     fts_ms = (time.perf_counter() - fts_started) * 1000
     fts_rank = {row["report_id"]: i + 1 for i, row in enumerate(fts_rows)}
 
