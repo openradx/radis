@@ -557,6 +557,14 @@ if not 1 <= HYBRID_HNSW_EF_SEARCH <= 1000:
 DATABASES["default"].setdefault("OPTIONS", {})["options"] = (
     f"-c hnsw.ef_search={HYBRID_HNSW_EF_SEARCH}"
 )
+# How long a query's fused RRF union (ordered ids and scores) stays cached, in
+# seconds. Pagination re-runs the whole fusion for every page, and ranking every
+# FTS match of a common term costs seconds on a large corpus, so page 2..n and
+# repeated searches reuse the cached union instead. The trade is freshness:
+# reports created or updated within the TTL appear in a cached query's results
+# only after it expires. 0 disables the cache. Degraded FTS-only results
+# (configured embedding model, no vector) are never cached.
+HYBRID_FUSED_CACHE_TIMEOUT_SECONDS = _optional_env("HYBRID_FUSED_CACHE_TIMEOUT_SECONDS", int, 300)
 
 # Chat
 CHAT_GENERATE_TITLE_SYSTEM_PROMPT = """

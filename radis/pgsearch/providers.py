@@ -1,8 +1,10 @@
 import hashlib
 import json
 import logging
+import time
 import unicodedata
 from collections.abc import Iterator
+from dataclasses import asdict
 from typing import Literal, NamedTuple, cast
 
 import openai
@@ -341,14 +343,118 @@ class _FusedHybrid(NamedTuple):
     query_str: str
 
 
+def _query_log_id(query_str: str) -> str:
+    """Short stable identifier for a query in log lines. Search text can contain
+    patient identifiers, so timing logs carry a hash that correlates repeated
+    searches without recording what was searched."""
+    return hashlib.sha256(query_str.encode()).hexdigest()[:8]
+
+
+# Bumped whenever the cached payload's shape changes, so entries written by an
+# older code version are missed rather than misread.
+_FUSED_CACHE_SCHEMA = 1
+
+
+def _fused_cache_key(search: Search) -> str:
+    """Fingerprint of everything that determines the fused union.
+
+    Same discipline as `_embed_query_cached`: a shared cache backend (production
+    uses the database) outlives process restarts and config changes, so the
+    fusion/beam settings and the embedding configuration are part of the key,
+    not just the query and filters."""
+    spec = settings.EMBEDDINGS_MODEL
+    fingerprint = json.dumps(
+        {
+            "schema": _FUSED_CACHE_SCHEMA,
+            "query": QueryParser.unparse(search.query),
+            "filters": asdict(search.filters),
+            "fts_max": settings.HYBRID_FTS_MAX_RESULTS,
+            "rrf_k": settings.HYBRID_RRF_K,
+            "ef_search": settings.HYBRID_HNSW_EF_SEARCH,
+            "embeddings": None
+            if spec is None
+            else [
+                settings.EMBEDDINGS_BASE_URL,
+                spec.model,
+                spec.params,
+                settings.EMBEDDINGS_QUERY_INSTRUCTION,
+                settings.EMBEDDINGS_DIM,
+            ],
+        },
+        sort_keys=True,
+        default=str,  # date/datetime filter values
+    )
+    return "pgsearch-fused-" + hashlib.sha256(fingerprint.encode()).hexdigest()
+
+
+def _fused_to_cached(fused: _FusedHybrid) -> dict:
+    """Plain-dict payload instead of pickling the NamedTuple, so a cached entry
+    never carries a stale class shape across deploys."""
+    return {
+        "ids": list(fused.rrf_score_by_id.keys()),
+        "scores": list(fused.rrf_score_by_id.values()),
+        "dist_ids": list(fused.vec_distance.keys()),
+        "dists": list(fused.vec_distance.values()),
+        "total_relation": fused.total_relation,
+        "configs": fused.configs,
+        "query_str": fused.query_str,
+    }
+
+
+def _fused_from_cached(cached: dict) -> _FusedHybrid:
+    rrf_score_by_id = dict(zip(cached["ids"], cached["scores"], strict=True))
+    return _FusedHybrid(
+        ordered_ids=list(rrf_score_by_id),
+        rrf_score_by_id=rrf_score_by_id,
+        vec_distance=dict(zip(cached["dist_ids"], cached["dists"], strict=True)),
+        total_relation=cached["total_relation"],
+        configs=[(config, list(codes)) for config, codes in cached["configs"]],
+        query_str=cached["query_str"],
+    )
+
+
 def _fuse_hybrid(search: Search, caller: str) -> _FusedHybrid:
+    """Cached front of `_fuse_hybrid_uncached`.
+
+    Pagination re-runs the whole fusion for every page, and ranking every FTS
+    match of a common term costs seconds on a large corpus, so the fused union
+    is cached per query fingerprint and page 2..n (and repeated searches) reuse
+    it. Degraded FTS-only results — a configured embedding model that produced
+    no vector — are never cached, so an embedding outage cannot pin searches to
+    FTS-only for the TTL. New or updated reports enter a cached query's results
+    only after the TTL expires."""
+    timeout = settings.HYBRID_FUSED_CACHE_TIMEOUT_SECONDS
+    if timeout <= 0:
+        return _fuse_hybrid_uncached(search, caller)[0]
+    started = time.perf_counter()
+    key = _fused_cache_key(search)
+    cached = cache.get(key)
+    if cached is not None:
+        fused = _fused_from_cached(cached)
+        logger.info(
+            "hybrid fusion cache hit: caller=%s query=%s fused=%d total_ms=%.1f",
+            caller,
+            _query_log_id(fused.query_str),
+            len(fused.ordered_ids),
+            (time.perf_counter() - started) * 1000,
+        )
+        return fused
+    fused, degraded = _fuse_hybrid_uncached(search, caller)
+    if not degraded:
+        cache.set(key, _fused_to_cached(fused), timeout=timeout)
+    return fused
+
+
+def _fuse_hybrid_uncached(search: Search, caller: str) -> tuple[_FusedHybrid, bool]:
     """Run both retrievers and fuse them with RRF.
 
     Shared by search(), retrieve() and count() so all three describe the same
     union. The vector half embeds only the positive branches (§7.8 strips
     ``NOT``) and enforces the top-level negations on its candidates; the FTS
     half consumes the full boolean tsquery. Returns the fused, ordered report
-    ids plus the per-id scores/distances and the query metadata callers reuse."""
+    ids plus the per-id scores/distances and the query metadata callers reuse,
+    and whether the result is degraded (vector half skipped by a failure)."""
+    started = time.perf_counter()
     query_str = _build_query_string(search.query)
     configs = _language_configs(search.filters)
     filter_query = _build_filter_query(search.filters)
@@ -382,11 +488,19 @@ def _fuse_hybrid(search: Search, caller: str) -> _FusedHybrid:
     # docs/superpowers/specs/hybrid-search.md §7.8).
     query_text = QueryParser.unparse_for_embedding(search.query)
     query_vec: list[float] | None = None
+    embed_started = time.perf_counter()
     if settings.EMBEDDINGS_MODEL is not None and query_text.strip():
         query_vec = _embed_query_cached(query_text, caller)
+    embed_ms = (time.perf_counter() - embed_started) * 1000
+    # A configured model that produced no vector means the embedding service is
+    # failing or rate limited right now; the caller must not cache this result.
+    degraded = (
+        settings.EMBEDDINGS_MODEL is not None and bool(query_text.strip()) and query_vec is None
+    )
 
     vec_rank: dict[int, int] = {}
     vec_distance: dict[int, float] = {}
+    vec_started = time.perf_counter()
     if query_vec is not None:
         vec_qs = ReportSearchIndex.objects.filter(filter_query)
         vec_qs = _exclude_negations(vec_qs, search.query, configs)
@@ -409,10 +523,12 @@ def _fuse_hybrid(search: Search, caller: str) -> _FusedHybrid:
         for i, (rid, dist) in enumerate(vec_rows):
             vec_rank[rid] = i + 1
             vec_distance[rid] = float(dist)
+    vec_ms = (time.perf_counter() - vec_started) * 1000
 
     # FTS side: bounded set, ts_rank only (no headline at this stage). An empty
     # ``configs`` means an empty corpus (Report.language is a required FK), and
     # an empty match_q would match every row rather than none, so skip it.
+    fts_started = time.perf_counter()
     fts_rows = (
         []
         if not configs
@@ -425,16 +541,39 @@ def _fuse_hybrid(search: Search, caller: str) -> _FusedHybrid:
             .values("report_id", "rank")[: settings.HYBRID_FTS_MAX_RESULTS]
         )
     )
+    fts_ms = (time.perf_counter() - fts_started) * 1000
     fts_rank = {row["report_id"]: i + 1 for i, row in enumerate(fts_rows)}
 
     # Fusion.
+    fuse_started = time.perf_counter()
     ordered_pairs = rrf_fuse(vec_rank, fts_rank, k=settings.HYBRID_RRF_K)
     rrf_score_by_id = dict(ordered_pairs)
     ordered_ids = list(rrf_score_by_id)
+    fuse_ms = (time.perf_counter() - fuse_started) * 1000
     # The vector half is one complete beam pass by definition, so it never makes
     # the union a lower bound; only a truncated FTS side does.
     total_relation: Literal["exact", "at_least", "approximately"] = (
         "at_least" if len(fts_rows) >= settings.HYBRID_FTS_MAX_RESULTS else "exact"
+    )
+    # One line per uncached fusion, so per-arm cost is attributable in
+    # production logs without extra tooling: the FTS arm ranks every match of
+    # the query, the vec arm is one HNSW beam pass, embed covers the query
+    # embedding (or its cache hit), fuse is the in-process RRF.
+    logger.info(
+        "hybrid fusion timings: caller=%s query=%s degraded=%s "
+        "fts_ms=%.0f fts_rows=%d embed_ms=%.0f vec_ms=%.0f vec_rows=%d "
+        "fuse_ms=%.0f fused=%d total_ms=%.0f",
+        caller,
+        _query_log_id(query_str),
+        degraded,
+        fts_ms,
+        len(fts_rows),
+        embed_ms,
+        vec_ms,
+        len(vec_rank),
+        fuse_ms,
+        len(ordered_ids),
+        (time.perf_counter() - started) * 1000,
     )
     return _FusedHybrid(
         ordered_ids=ordered_ids,
@@ -443,7 +582,7 @@ def _fuse_hybrid(search: Search, caller: str) -> _FusedHybrid:
         total_relation=total_relation,
         configs=configs,
         query_str=query_str,
-    )
+    ), degraded
 
 
 def search(search: Search) -> SearchResult:
