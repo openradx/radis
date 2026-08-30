@@ -267,7 +267,7 @@ postgres:
     - -c
     - max_worker_processes=${POSTGRES_MAX_WORKER_PROCESSES:-8}
     - -c
-    - shared_buffers=${POSTGRES_SHARED_BUFFERS:-512MB}
+    - shared_buffers=${POSTGRES_SHARED_BUFFERS:-128MB}
 ```
 
 | variable | default | stock | rationale |
@@ -275,10 +275,18 @@ postgres:
 | `POSTGRES_MAX_PARALLEL_WORKERS_PER_GATHER` | `4` | 2 | measured 606 ms → 421 ms |
 | `POSTGRES_MAX_PARALLEL_WORKERS` | `8` | 8 | unchanged default; exposed so larger hosts can raise all three coherently |
 | `POSTGRES_MAX_WORKER_PROCESSES` | `8` | 8 | as above |
-| `POSTGRES_SHARED_BUFFERS` | `512MB` | 128MB | hygiene against a multi-GB database |
+| `POSTGRES_SHARED_BUFFERS` | `128MB` | 128MB | unchanged default; exposed because the right value is a fraction of the host's RAM |
 
-Only the first changes behaviour out of the box. All four go in `example.env`
-with the guidance below, and in the environment-variable section of `CLAUDE.md`.
+Only the first changes behaviour out of the box; the other three keep PostgreSQL's
+own defaults and exist so operators can raise them coherently.
+
+**None of them go in `example.env`.** The project already distinguishes the two
+kinds of variable: things a deployer *chooses* are listed there (ports,
+`EXAMPLE_REPORTS_LANGUAGE`, `REMOTE_DEBUGGING_PORT`), while tuning knobs with a
+sensible default are compose-only overrides (`EMBEDDINGS_WORKER_CONCURRENCY`,
+`WAIT_POSTGRES_TIMEOUT`, `RADIS_IMAGE`). These are the second kind. They are
+documented in `docs/user-docs/admin-guide.md`, which is where operator-facing
+guidance lives, and listed in the environment-variable section of `CLAUDE.md`.
 
 Measured at 5M on `findings`:
 
@@ -296,9 +304,13 @@ Measured at 5M on `findings`:
   degrades gracefully to fewer workers rather than queueing. They are exposed so
   that an operator raising `per_gather` on a larger host raises all three
   together, which is the only case where they bind.
-- **`shared_buffers`** raised from the stock 128 MB, as general hygiene against a
-  multi-GB database. Labelled honestly: the 343 ms figure came from a warm *OS*
-  page cache, so no specific gain is attributed to this. Guidance is ~25% of RAM.
+- **`shared_buffers` default is left at PostgreSQL's own 128 MB.** Raising it is
+  standard advice for a multi-GB database, but the 343 ms figure came from a warm
+  *OS* page cache, so no measured gain can be attributed to it — and a raised
+  default would break small installs, where 512 MB of shared memory on a 1 GB
+  container fails to start or thrashes. Exposed as an override with ~25%-of-RAM
+  guidance in the admin guide; not changed by default, for the same reason
+  `work_mem` is not.
 - **`work_mem` deliberately not raised.** It mattered only because `.distinct()`
   forced an external merge sort; without it the sort is a 26 kB top-N heapsort.
   Raising it is per-connection-per-node memory risk for zero measured benefit.
