@@ -253,8 +253,32 @@ the duration and the flag has to be removed later anyway.
 
 ### 4.5 PostgreSQL configuration
 
-Delivered as `-c` GUCs on the `postgres` service's `command:`, driven by env vars
-with defaults documented in `example.env` and `CLAUDE.md`.
+Delivered as `-c` GUCs on the `postgres` service's `command:` in
+`docker-compose.base.yml`, substituted from `.env`:
+
+```yaml
+postgres:
+  command:
+    - postgres
+    - -c
+    - max_parallel_workers_per_gather=${POSTGRES_MAX_PARALLEL_WORKERS_PER_GATHER:-4}
+    - -c
+    - max_parallel_workers=${POSTGRES_MAX_PARALLEL_WORKERS:-8}
+    - -c
+    - max_worker_processes=${POSTGRES_MAX_WORKER_PROCESSES:-8}
+    - -c
+    - shared_buffers=${POSTGRES_SHARED_BUFFERS:-512MB}
+```
+
+| variable | default | stock | rationale |
+| --- | --- | --- | --- |
+| `POSTGRES_MAX_PARALLEL_WORKERS_PER_GATHER` | `4` | 2 | measured 606 ms → 421 ms |
+| `POSTGRES_MAX_PARALLEL_WORKERS` | `8` | 8 | unchanged default; exposed so larger hosts can raise all three coherently |
+| `POSTGRES_MAX_WORKER_PROCESSES` | `8` | 8 | as above |
+| `POSTGRES_SHARED_BUFFERS` | `512MB` | 128MB | hygiene against a multi-GB database |
+
+Only the first changes behaviour out of the box. All four go in `example.env`
+with the guidance below, and in the environment-variable section of `CLAUDE.md`.
 
 Measured at 5M on `findings`:
 
@@ -265,10 +289,13 @@ Measured at 5M on `findings`:
 | 6 | 379 ms |
 | 8 | 343 ms |
 
-- **`max_parallel_workers_per_gather` = 4**, with `max_worker_processes` and
-  `max_parallel_workers` raised to match — all three are needed, since the
-  cluster-wide caps default to 8 and would otherwise throttle it. 4 captures most
-  of the available gain while leaving cores for concurrent searches.
+- **`max_parallel_workers_per_gather` = 4** captures most of the available gain
+  while leaving cores for concurrent searches. The cluster-wide caps
+  (`max_parallel_workers`, `max_worker_processes`, both 8 by default) are *not* a
+  throttle at this value — 8 covers two concurrent parallel searches, and a third
+  degrades gracefully to fewer workers rather than queueing. They are exposed so
+  that an operator raising `per_gather` on a larger host raises all three
+  together, which is the only case where they bind.
 - **`shared_buffers`** raised from the stock 128 MB, as general hygiene against a
   multi-GB database. Labelled honestly: the 343 ms figure came from a warm *OS*
   page cache, so no specific gain is attributed to this. Guidance is ~25% of RAM.
