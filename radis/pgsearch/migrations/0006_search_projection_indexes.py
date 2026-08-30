@@ -28,4 +28,14 @@ class Migration(migrations.Migration):
             "SELECT gin_clean_pending_list('pgsearch_re_search__b0f715_gin');",
             reverse_sql="ALTER INDEX pgsearch_re_search__b0f715_gin SET (fastupdate = on);",
         ),
+        migrations.RunSQL(
+            # Required, not hygiene: the ten projection columns and the two
+            # indexes above carry no statistics, and the single-table query
+            # shape this whole change exists for depends on the planner
+            # choosing a parallel sequential scan with a top-N heapsort.
+            # ANALYZE is legal inside a transaction block, so this migration
+            # stays atomic.
+            "ANALYZE pgsearch_reportsearchindex;",
+            reverse_sql=migrations.RunSQL.noop,
+        ),
     ]
