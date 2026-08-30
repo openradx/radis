@@ -196,3 +196,59 @@ def test_backfill_fills_rows_that_predate_the_projection():
     assert index.modality_codes == ["MR"]
     assert index.language_code == "en"
     assert index.patient_id == report.patient_id
+
+
+def test_migration_backfill_executes_the_chunked_update():
+    """Verify the migration's backfill() actually executes and fills the projection.
+
+    This test exercises the literal SQL in 0005_search_projection_backfill.py,
+    not sync_projection(). It ensures group_ids and other access control fields
+    are restored by the migration's own UPDATE statement.
+    """
+    language = LanguageFactory.create(code="en")
+    report = ReportFactory.create(language=language, modalities=["CT"])
+    group = GroupFactory.create()
+    report.groups.add(group)
+
+    # Verify projection is populated first
+    index = ReportSearchIndex.objects.get(report=report)
+    assert index.group_ids == [group.pk], "Setup: projection should be populated"
+    assert index.language_code == "en"
+
+    # Clear projection fields to simulate a row predating the feature
+    ReportSearchIndex.objects.filter(report=report).update(
+        group_ids=[],
+        modality_codes=[],
+        language_code=None,
+        patient_sex=None,
+        patient_age=None,
+        patient_id=None,
+        study_datetime=None,
+        study_description=None,
+        report_created_at=None,
+        report_updated_at=None,
+    )
+
+    # Import and call the migration's backfill function
+    import importlib
+
+    from django.db import connection
+
+    migration_module = importlib.import_module(
+        "radis.pgsearch.migrations.0005_search_projection_backfill"
+    )
+
+    # Create a minimal schema_editor-like object that the backfill function needs
+    class MinimalSchemaEditor:
+        def __init__(self, connection):
+            self.connection = connection
+
+    schema_editor = MinimalSchemaEditor(connection)
+    migration_module.backfill(None, schema_editor)
+
+    # Verify the projection is now restored by the migration's SQL
+    index.refresh_from_db()
+    assert index.group_ids == [group.pk], "Migration backfill should restore group_ids"
+    assert index.modality_codes == ["CT"], "Migration backfill should restore modality_codes"
+    assert index.language_code == "en", "Migration backfill should restore language_code"
+    assert index.patient_id == report.patient_id
