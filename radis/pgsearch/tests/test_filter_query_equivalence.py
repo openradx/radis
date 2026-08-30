@@ -311,3 +311,21 @@ def test_date_range_boundary_matches_legacy_in_non_utc_timezone():
 
     assert new_ids == legacy_ids
     assert new_ids == {boundary["midnight"].pk, boundary["late"].pk}
+
+
+def test_filter_query_plan_is_single_table(corpus):
+    """The candidate query must not join the membership table or deduplicate."""
+    from django.db import connection
+
+    filters = SearchFilters(group=corpus["group_a"].pk, language="en")
+    queryset = ReportSearchIndex.objects.filter(_build_filter_query(filters)).values_list(
+        "report_id", flat=True
+    )
+    sql, params = queryset.query.sql_with_params()
+
+    with connection.cursor() as cursor:
+        cursor.execute(f"EXPLAIN {sql}", params)
+        plan = "\n".join(row[0] for row in cursor.fetchall())
+
+    assert "reports_report_groups" not in plan, plan
+    assert "Unique" not in plan, plan
