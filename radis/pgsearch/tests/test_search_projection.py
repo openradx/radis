@@ -174,3 +174,25 @@ def test_bulk_upsert_populates_the_projection():
     assert index.language_code == "en"
     assert index.group_ids == [group.pk]
     assert index.modality_codes == ["CT"]
+
+
+def test_backfill_fills_rows_that_predate_the_projection():
+    """Simulates a row written before the projection existed."""
+    language = LanguageFactory.create(code="en")
+    report = ReportFactory.create(language=language, modalities=["MR"])
+    group = GroupFactory.create()
+    report.groups.add(group)
+
+    ReportSearchIndex.objects.filter(report=report).update(
+        group_ids=[], modality_codes=[], language_code=None, patient_id=None
+    )
+
+    from radis.pgsearch.utils.projection import sync_projection
+
+    sync_projection([report.pk])
+
+    index = ReportSearchIndex.objects.get(report=report)
+    assert index.group_ids == [group.pk]
+    assert index.modality_codes == ["MR"]
+    assert index.language_code == "en"
+    assert index.patient_id == report.patient_id
