@@ -6,16 +6,115 @@ its correctness has its own tests here.
 """
 
 import pytest
+from adit_radis_shared.accounts.factories import GroupFactory
+from django.db import connection
 
 from radis.pgsearch.models import ReportSearchIndex
 from radis.reports.factories import LanguageFactory, ReportFactory
+from radis.reports.models import Report
 
 pytestmark = pytest.mark.django_db
 
 
 def test_new_index_row_defaults_to_empty_arrays():
-    report = ReportFactory.create(language=LanguageFactory.create(code="en"))
+    # modalities=[] is explicit: ReportFactory attaches a random non-empty set
+    # by default, and the modality_codes trigger added in this module would
+    # otherwise correctly mirror it, defeating the point of this test.
+    report = ReportFactory.create(language=LanguageFactory.create(code="en"), modalities=[])
     index = ReportSearchIndex.objects.get(report=report)
 
     assert index.group_ids == []
     assert index.modality_codes == []
+
+
+def test_adding_a_group_updates_the_projection():
+    report = ReportFactory.create(language=LanguageFactory.create(code="en"))
+    group = GroupFactory.create()
+
+    report.groups.add(group)
+
+    index = ReportSearchIndex.objects.get(report=report)
+    assert index.group_ids == [group.pk]
+
+
+def test_removing_a_group_updates_the_projection():
+    """The leak direction: a report removed from a group must stop being visible."""
+    report = ReportFactory.create(language=LanguageFactory.create(code="en"))
+    group = GroupFactory.create()
+    report.groups.add(group)
+
+    report.groups.remove(group)
+
+    index = ReportSearchIndex.objects.get(report=report)
+    assert index.group_ids == []
+
+
+def test_raw_sql_membership_write_updates_the_projection():
+    """The whole reason for triggers over m2m_changed: writers that bypass the ORM."""
+    report = ReportFactory.create(language=LanguageFactory.create(code="en"))
+    group = GroupFactory.create()
+
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "INSERT INTO reports_report_groups (report_id, group_id) VALUES (%s, %s)",
+            [report.pk, group.pk],
+        )
+
+    index = ReportSearchIndex.objects.get(report=report)
+    assert index.group_ids == [group.pk]
+
+
+def test_bulk_membership_insert_updates_every_affected_row():
+    """Statement-level triggers fail classically by processing only one transition row.
+
+    This is the shape reports/api/viewsets.py:229 uses for bulk upsert.
+    """
+    language = LanguageFactory.create(code="en")
+    reports = [ReportFactory.create(language=language) for _ in range(5)]
+    group = GroupFactory.create()
+
+    through = Report.groups.through
+    through.objects.bulk_create(
+        [through(report_id=report.pk, group_id=group.pk) for report in reports]
+    )
+
+    for report in reports:
+        index = ReportSearchIndex.objects.get(report=report)
+        assert index.group_ids == [group.pk], f"report {report.pk} was not updated"
+
+
+def test_deleting_a_report_does_not_error():
+    """Deleting a Report cascades to both the membership rows and the index row,
+    firing the membership trigger against a row that may already be gone. The
+    spec calls that harmless in either cascade order; this pins it."""
+    report = ReportFactory.create(language=LanguageFactory.create(code="en"))
+    report.groups.add(GroupFactory.create())
+    report_pk = report.pk
+
+    report.delete()
+
+    assert not ReportSearchIndex.objects.filter(report_id=report_pk).exists()
+
+
+def test_updating_a_report_updates_the_mirrored_scalars():
+    report = ReportFactory.create(language=LanguageFactory.create(code="en"))
+
+    report.patient_id = "CHANGED-123"
+    report.save()
+
+    index = ReportSearchIndex.objects.get(report=report)
+    assert index.patient_id == "CHANGED-123"
+
+
+def test_patient_age_is_mirrored():
+    """patient_age is a stored generated column. A BEFORE trigger would read NULL
+    here; this test is what pins the triggers to AFTER."""
+    report = ReportFactory.create(language=LanguageFactory.create(code="en"))
+
+    report.patient_id = "TOUCH"
+    report.save()
+
+    index = ReportSearchIndex.objects.get(report=report)
+    report.refresh_from_db()
+    assert index.patient_age == report.patient_age
+    assert index.patient_age is not None
