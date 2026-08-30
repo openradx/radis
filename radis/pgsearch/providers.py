@@ -182,9 +182,7 @@ def _exclude_negations(queryset, node: QueryNode, configs: list[tuple[str, list[
         return queryset
     for config, codes in configs:
         negative_tsquery = SearchQuery(negative_query_str, search_type="raw", config=config)
-        queryset = queryset.exclude(
-            Q(report__language__code__in=codes) & Q(search_vector=negative_tsquery)
-        )
+        queryset = queryset.exclude(Q(language_code__in=codes) & Q(search_vector=negative_tsquery))
     return queryset
 
 
@@ -373,7 +371,7 @@ def _fuse_hybrid(search: Search, caller: str) -> _FusedHybrid:
     # A document matches only under the configuration it was indexed with.
     match_q = Q()
     for config, codes in configs:
-        match_q |= Q(report__language__code__in=codes, search_vector=tsqueries[config])
+        match_q |= Q(language_code__in=codes, search_vector=tsqueries[config])
 
     # Rank strictly under the document's own configuration. Do not swap this for
     # Greatest over all configurations: a foreign config's ts_rank is not
@@ -382,7 +380,7 @@ def _fuse_hybrid(search: Search, caller: str) -> _FusedHybrid:
     rank_expr = Case(
         *[
             When(
-                report__language__code__in=codes,
+                language_code__in=codes,
                 then=SearchRank(F("search_vector"), tsqueries[config]),
             )
             for config, codes in configs
@@ -488,17 +486,14 @@ def search(search: Search) -> SearchResult:
     # highlights/scores nothing. A one-branch Case is legal (unlike Greatest),
     # so this covers the single-configuration case too with no special-casing.
     summary_expr = Case(
-        *[
-            When(report__language__code__in=codes, then=_headline(config))
-            for config, codes in configs
-        ],
+        *[When(language_code__in=codes, then=_headline(config)) for config, codes in configs],
         default=Value(""),
         output_field=TextField(),
     )
     rank_expr = Case(
         *[
             When(
-                report__language__code__in=codes,
+                language_code__in=codes,
                 then=SearchRank(F("search_vector"), tsqueries[config]),
             )
             for config, codes in configs

@@ -270,6 +270,25 @@ def test_date_range_boundary_matches_legacy():
     assert new_ids == {boundary["midnight"].pk, boundary["late"].pk}
 
 
+def test_no_report_traversal_remains_in_the_candidate_query():
+    """Any report__ lookup re-adds a join and the multi-second query shape."""
+    import inspect
+
+    from radis.pgsearch import providers
+
+    source = inspect.getsource(providers)
+    offending = [
+        line.strip()
+        for line in source.splitlines()
+        if "report__" in line
+        and "report__body" not in line  # hydration headline, deliberately joined
+        and "report__document_id" not in line  # filter(), deliberately joined
+        and not line.strip().startswith("#")
+    ]
+
+    assert offending == [], f"report__ traversals left in the hot path: {offending}"
+
+
 def test_date_range_boundary_matches_legacy_in_non_utc_timezone():
     """Same boundary check under a timezone hours away from UTC.
 
