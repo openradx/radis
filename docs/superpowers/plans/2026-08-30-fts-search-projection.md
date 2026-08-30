@@ -1272,7 +1272,11 @@ def test_filter_query_plan_is_single_table(corpus):
         plan = "\n".join(row[0] for row in cursor.fetchall())
 
     assert "reports_report_groups" not in plan, plan
-    assert "Unique" not in plan, plan
+    # Not `"Unique" not in plan`: Postgres implements SELECT DISTINCT as
+    # HashAggregate rather than Sort+Unique once the row count is non-trivial,
+    # so an operator-name check passes with the regression present at scale.
+    # Django emits the DISTINCT keyword unconditionally, so check the SQL.
+    assert "DISTINCT" not in sql, sql
 ```
 
 - [ ] **Step 2: Run test to verify it passes**

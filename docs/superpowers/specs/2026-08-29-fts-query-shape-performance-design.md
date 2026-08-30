@@ -437,9 +437,18 @@ with several matching modalities, appears exactly once.
 
 **Plan-shape assertion instead of timing.** Wall-clock assertions are flaky in
 CI; structure is not. Run `EXPLAIN` on the generated FTS query and assert the
-plan contains no join against `reports_report_groups` and no `Unique` node. This
-deterministically catches someone reintroducing a `report__` traversal and
-silently restoring the 13-second path.
+plan contains no join against `reports_report_groups`, and assert the compiled
+SQL contains no `DISTINCT` keyword. This deterministically catches someone
+reintroducing a `report__` traversal and silently restoring the slow path.
+
+Do **not** assert on the absence of a `Unique` node: PostgreSQL implements
+`SELECT DISTINCT` as either `Sort`+`Unique` or `HashAggregate` depending on
+cardinality estimates, and measurement at 3, 1,000 and 100,000 rows — with the
+same GIN array-containment pattern this design uses — produced `HashAggregate`
+in every non-trivial case. An operator-name assertion therefore passes with the
+regression present at exactly the scale it exists to protect. The `DISTINCT`
+keyword is emitted unconditionally by Django whenever `.distinct()` is called,
+so a SQL-text check is scale-independent.
 
 **`patient_age` mirrors `Report.patient_age` exactly.** Verified that this is
 the trap it guards: a BEFORE trigger on a stored generated column reads `NULL`
