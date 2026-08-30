@@ -5,9 +5,12 @@ candidate query can stay single-table. group_ids is access-control data, so
 its correctness has its own tests here.
 """
 
+import importlib
+
 import pytest
 from adit_radis_shared.accounts.factories import GroupFactory
 from django.db import connection
+from django.test.utils import CaptureQueriesContext
 
 from radis.pgsearch.models import ReportSearchIndex
 from radis.pgsearch.utils.indexing import bulk_upsert_report_search_indexes
@@ -15,6 +18,15 @@ from radis.reports.factories import LanguageFactory, ModalityFactory, ReportFact
 from radis.reports.models import Report
 
 pytestmark = pytest.mark.django_db
+
+BACKFILL_MIGRATION = "radis.pgsearch.migrations.0005_search_projection_backfill"
+
+
+class _MinimalSchemaEditor:
+    """What the migration's backfill() uses of a real schema editor."""
+
+    def __init__(self, connection):
+        self.connection = connection
 
 
 def test_new_index_row_defaults_to_empty_arrays():
@@ -103,6 +115,43 @@ def test_bulk_membership_insert_updates_every_affected_row():
     for report in reports:
         index = ReportSearchIndex.objects.get(report=report)
         assert index.group_ids == [group.pk], f"report {report.pk} was not updated"
+
+
+def test_bulk_membership_delete_updates_every_affected_row():
+    """The removal direction, in the shape reports/api/viewsets.py:217 uses.
+
+    That endpoint clears a whole batch's memberships with a single
+    ``filter(report_id__in=...).delete()``, so the DELETE trigger's OLD
+    transition table carries many rows at once -- and a statement-level trigger
+    that only processes one of them leaves every other report readable by a
+    group it was just removed from. Each report keeps a second group so the
+    assertion pins a recomputed aggregate rather than a blanket reset.
+    """
+    language = LanguageFactory.create(code="en")
+    reports = [ReportFactory.create(language=language) for _ in range(5)]
+    removed_group = GroupFactory.create(name="removed")
+    kept_group = GroupFactory.create(name="kept")
+
+    through = Report.groups.through
+    through.objects.bulk_create(
+        [
+            through(report_id=report.pk, group_id=group.pk)
+            for report in reports
+            for group in (removed_group, kept_group)
+        ]
+    )
+    for report in reports:
+        assert ReportSearchIndex.objects.get(report=report).group_ids == sorted(
+            [removed_group.pk, kept_group.pk]
+        ), "setup: both groups should be mirrored"
+
+    through.objects.filter(
+        report_id__in=[report.pk for report in reports], group_id=removed_group.pk
+    ).delete()
+
+    for report in reports:
+        index = ReportSearchIndex.objects.get(report=report)
+        assert index.group_ids == [kept_group.pk], f"report {report.pk} was not updated"
 
 
 def test_deleting_a_report_does_not_error():
@@ -198,25 +247,33 @@ def test_backfill_fills_rows_that_predate_the_projection():
     assert index.patient_id == report.patient_id
 
 
-def test_migration_backfill_executes_the_chunked_update():
-    """Verify the migration's backfill() actually executes and fills the projection.
+def test_migration_backfill_executes_the_chunked_update(monkeypatch):
+    """Verify the migration's own SQL fills the projection, across several chunks.
 
-    This test exercises the literal SQL in 0005_search_projection_backfill.py,
-    not sync_projection(). It ensures group_ids and other access control fields
-    are restored by the migration's own UPDATE statement.
+    This exercises the literal SQL and the loop in
+    0005_search_projection_backfill.py, not sync_projection(). CHUNK_SIZE is
+    50,000 in production, so a handful of reports would run the loop body
+    exactly once and an off-by-one in the ``low``/``high`` arithmetic -- the
+    kind that silently skips whole id ranges -- would not show. Patching it to
+    1 puts each report in its own chunk.
+
+    The reports are given explicit ids 1..3 because the loop always starts at
+    id 0: with the sequence wherever the rest of the suite left it, a chunk
+    size of 1 would otherwise run one empty iteration per id below the first
+    report.
     """
+    assert not Report.objects.exists(), "this test needs the reports table to itself"
+
     language = LanguageFactory.create(code="en")
-    report = ReportFactory.create(language=language, modalities=["CT"])
     group = GroupFactory.create()
-    report.groups.add(group)
+    reports = [
+        ReportFactory.create(id=report_id, language=language, modalities=["CT"])
+        for report_id in (1, 2, 3)
+    ]
+    for report in reports:
+        report.groups.add(group)
 
-    # Verify projection is populated first
-    index = ReportSearchIndex.objects.get(report=report)
-    assert index.group_ids == [group.pk], "Setup: projection should be populated"
-    assert index.language_code == "en"
-
-    # Clear projection fields to simulate a row predating the feature
-    ReportSearchIndex.objects.filter(report=report).update(
+    ReportSearchIndex.objects.update(
         group_ids=[],
         modality_codes=[],
         language_code=None,
@@ -229,29 +286,22 @@ def test_migration_backfill_executes_the_chunked_update():
         report_updated_at=None,
     )
 
-    # Import and call the migration's backfill function
-    import importlib
+    migration_module = importlib.import_module(BACKFILL_MIGRATION)
+    monkeypatch.setattr(migration_module, "CHUNK_SIZE", 1)
 
-    from django.db import connection
+    with CaptureQueriesContext(connection) as captured:
+        migration_module.backfill(None, _MinimalSchemaEditor(connection))
 
-    migration_module = importlib.import_module(
-        "radis.pgsearch.migrations.0005_search_projection_backfill"
-    )
+    statements = [query["sql"] for query in captured.captured_queries]
+    chunk_updates = [sql for sql in statements if sql.lstrip().startswith("UPDATE")]
+    assert len(chunk_updates) == 3, statements
 
-    # Create a minimal schema_editor-like object that the backfill function needs
-    class MinimalSchemaEditor:
-        def __init__(self, connection):
-            self.connection = connection
-
-    schema_editor = MinimalSchemaEditor(connection)
-    migration_module.backfill(None, schema_editor)
-
-    # Verify the projection is now restored by the migration's SQL
-    index.refresh_from_db()
-    assert index.group_ids == [group.pk], "Migration backfill should restore group_ids"
-    assert index.modality_codes == ["CT"], "Migration backfill should restore modality_codes"
-    assert index.language_code == "en", "Migration backfill should restore language_code"
-    assert index.patient_id == report.patient_id
+    for report in reports:
+        index = ReportSearchIndex.objects.get(report=report)
+        assert index.group_ids == [group.pk], f"report {report.pk} was not backfilled"
+        assert index.modality_codes == ["CT"]
+        assert index.language_code == "en"
+        assert index.patient_id == report.patient_id
 
 
 def test_projection_indexes_exist():
