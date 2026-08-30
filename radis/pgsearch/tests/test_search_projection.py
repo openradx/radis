@@ -143,7 +143,18 @@ def test_patient_age_is_mirrored():
 
 
 def test_creation_populates_the_mirrored_scalars():
-    report = ReportFactory.create(language=LanguageFactory.create(code="de"))
+    """Build + explicit save() is a single INSERT with no follow-up UPDATE.
+
+    ReportFactory.create() would not pin this: its post_generation hooks
+    (modalities, the metadata RelatedFactoryList) make factory_boy issue an
+    implicit extra save() afterwards, which fires the AFTER UPDATE trigger
+    from migration 0004 and would populate these scalars regardless of
+    whether the signal's own sync_projection() call exists. build() skips
+    those hooks, so the only thing that can fill the scalars here is the
+    signal's sync_projection() call on creation.
+    """
+    report = ReportFactory.build(language=LanguageFactory.create(code="de"))
+    report.save()
 
     index = ReportSearchIndex.objects.get(report=report)
     assert index.language_code == "de"
