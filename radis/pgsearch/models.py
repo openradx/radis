@@ -58,6 +58,8 @@ class ReportSearchIndex(models.Model):
                 condition=models.Q(embedding__isnull=True),
                 name="pgsearch_pending_embedding_idx",
             ),
+            GinIndex(fields=["group_ids"], name="pgsearch_group_ids_gin"),
+            models.Index(fields=["report_updated_at"], name="pgsearch_report_updated_at_idx"),
         ]
 
     def __str__(self) -> str:

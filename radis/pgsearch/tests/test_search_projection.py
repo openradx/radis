@@ -252,3 +252,14 @@ def test_migration_backfill_executes_the_chunked_update():
     assert index.modality_codes == ["CT"], "Migration backfill should restore modality_codes"
     assert index.language_code == "en", "Migration backfill should restore language_code"
     assert index.patient_id == report.patient_id
+
+
+def test_projection_indexes_exist():
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT indexname FROM pg_indexes WHERE tablename = 'pgsearch_reportsearchindex'"
+        )
+        names = {row[0] for row in cursor.fetchall()}
+
+    assert "pgsearch_group_ids_gin" in names
+    assert "pgsearch_report_updated_at_idx" in names
