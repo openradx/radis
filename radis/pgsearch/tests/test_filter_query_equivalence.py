@@ -314,7 +314,19 @@ def test_date_range_boundary_matches_legacy_in_non_utc_timezone():
 
 
 def test_filter_query_plan_is_single_table(corpus):
-    """The candidate query must not join the membership table or deduplicate."""
+    """The candidate query must not join the membership table or deduplicate.
+
+    The join check inspects the ``EXPLAIN`` plan, which is sound regardless of
+    corpus size: Django only emits ``reports_report_groups`` into the SQL when a
+    lookup traverses ``report__groups``, and no planner choice can inject it
+    otherwise. The dedup check inspects the compiled SQL text for the
+    ``DISTINCT`` keyword instead of looking for a physical operator name (e.g.
+    ``Unique``) in the plan -- the planner is free to implement ``DISTINCT`` as
+    a ``Sort`` + ``Unique`` or as a ``HashAggregate`` depending on cost
+    estimates, and at realistic corpus sizes it picks ``HashAggregate``, so a
+    plan-based check would silently miss a reintroduced ``.distinct()`` at
+    scale even though it would catch it on this test's tiny fixture.
+    """
     from django.db import connection
 
     filters = SearchFilters(group=corpus["group_a"].pk, language="en")
@@ -323,9 +335,10 @@ def test_filter_query_plan_is_single_table(corpus):
     )
     sql, params = queryset.query.sql_with_params()
 
+    assert "DISTINCT" not in sql, sql
+
     with connection.cursor() as cursor:
         cursor.execute(f"EXPLAIN {sql}", params)
         plan = "\n".join(row[0] for row in cursor.fetchall())
 
     assert "reports_report_groups" not in plan, plan
-    assert "Unique" not in plan, plan
