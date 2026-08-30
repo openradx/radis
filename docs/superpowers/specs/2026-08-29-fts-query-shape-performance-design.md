@@ -63,7 +63,7 @@ Recorded because each is the obvious question a reviewer will raise.
 | candidate | result |
 | --- | --- |
 | Lower `HYBRID_FTS_MAX_RESULTS` | No effect (1M rig). `LIMIT 100` and `LIMIT 10000` both 1.05 s. Under `ts_rank` the pool size is free; it only becomes load-bearing with a pruning index. |
-| Raise `work_mem` | No effect (1M rig) (1.41 s at 256 MB vs 1.44 s at 4 MB). The spill is a symptom, not the cause. |
+| Raise `work_mem` | No effect on the 1M rig: 1.41 s at 256 MB vs 1.44 s at 4 MB. The spill is a symptom, not the cause. |
 | Rewrite the joins as `EXISTS` | Worse: 1.55 s vs 1.05 s (1M rig). The planner still hashes. |
 | Materialised id-only CTE, joins on narrow rows, then rank | Worse: 11,460 ms for `findings`, 3,089 ms for `pneumonia` at 5M. The joins are still over 5,001,000 rows. **This was the only way to avoid duplicating access-control data without changing the domain model (see §6), and it does not work.** |
 | `strip()`ped second tsvector for ranking | Rejected (1M rig). 1.4x faster but collapses `ts_rank` to **1 distinct value** across 200,000 matching rows — `strip()` removes the positions that encode term frequency, so the ordering becomes a no-op. |
@@ -248,9 +248,10 @@ gets its own test.
 traverse `report__language__code` and become `language_code` on the row. The
 vector half also sheds its `.distinct()` (6.5 ms → 1.0 ms).
 
-The FTS candidate query then compiles to the shape below, measured at **401 ms**
-with `LIMIT 10000` and `max_parallel_workers_per_gather = 4` — confirming that
-the production pool size costs nothing on this shape, not just on the old one:
+The FTS candidate query then compiles to the shape below, measured on the 5M rig
+at **401 ms** with `LIMIT 10000` and `max_parallel_workers_per_gather = 4` —
+confirming the production pool size costs nothing on this shape, not just the old
+one:
 
 ```sql
 SELECT report_id,
@@ -464,8 +465,8 @@ four consumers and should pass unchanged.
   call.
 - **`HYBRID_FTS_MAX_RESULTS`** stays at 10,000. Measured free under `ts_rank` on
   both shapes: `LIMIT 100` and `LIMIT 10000` were indistinguishable on the old
-  joined query, and `LIMIT 25` (421 ms) and `LIMIT 10000` (401 ms) are
-  indistinguishable on the new single-table one. It would only become
+  joined query, and on the 5M rig `LIMIT 25` (421 ms) and `LIMIT 10000` (401 ms)
+  are indistinguishable on the new single-table one. It would only become
   load-bearing with a pruning index.
 - **`Report.groups` → `ArrayField`.** Would remove the redundancy altogether and
   speed up `Report.objects.filter(groups=...)` elsewhere, at the cost of FK
