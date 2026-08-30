@@ -98,13 +98,26 @@ it is.
 
 Indexes — two, chosen from which callers actually populate which filters:
 
-- **`GinIndex` on `group_ids`.** Every search filters on it. It earns its keep
-  only where groups genuinely partition the corpus; in a single-group install it
-  matches every row and the planner will ignore it, which is fine.
-- **btree on `report_updated_at`.** Subscriptions call `filter()` with
-  `updated_after` (`subscriptions/tasks.py`), which has no tsquery to drive it —
-  unindexed that is a full-table scan on every subscription refresh, once per
-  subscription.
+- **`GinIndex` on `group_ids` — measured.** On the 5M rig with the corpus split
+  94.9% / 5% / 0.1% across three groups, comparing the planner's choice against
+  the same query with index scans forced off:
+
+  | group holds | with index | forced scan | gain |
+  | --- | --- | --- | --- |
+  | 0.1% (5,001 reports) | 2–3 ms | 345 ms | ~170x |
+  | 5% (250,050) | 119–141 ms | 342–357 ms | ~2.9x |
+  | 94.9% (4,745,949) | 448–452 ms | 444–487 ms | none |
+
+  It pays wherever a group holds a minority of the corpus, and costs nothing
+  where it does not — at 94.9% the planner abandons it unprompted. Carrying cost
+  is negligible: 6 MB, 1.2 s to build, because a handful of distinct group ids
+  means a handful of posting lists.
+- **btree on `report_updated_at` — reasoned, not measured.** Subscriptions call
+  `filter()` with `updated_after` (`subscriptions/tasks.py`), which has no
+  tsquery to compete with, so a selective range over a timestamp is the textbook
+  index case; unindexed it is a full-table scan on every subscription refresh,
+  once per subscription. Worth confirming during implementation with the same
+  force-the-plan technique used for `group_ids` above.
 
 Deliberately **not** indexed:
 
