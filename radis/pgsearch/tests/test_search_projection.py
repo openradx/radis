@@ -10,7 +10,7 @@ from adit_radis_shared.accounts.factories import GroupFactory
 from django.db import connection
 
 from radis.pgsearch.models import ReportSearchIndex
-from radis.reports.factories import LanguageFactory, ReportFactory
+from radis.reports.factories import LanguageFactory, ModalityFactory, ReportFactory
 from radis.reports.models import Report
 
 pytestmark = pytest.mark.django_db
@@ -47,6 +47,27 @@ def test_removing_a_group_updates_the_projection():
 
     index = ReportSearchIndex.objects.get(report=report)
     assert index.group_ids == []
+
+
+def test_adding_a_modality_updates_the_projection():
+    report = ReportFactory.create(language=LanguageFactory.create(code="en"), modalities=[])
+    modality = ModalityFactory.create(code="CT")
+
+    report.modalities.add(modality)
+
+    index = ReportSearchIndex.objects.get(report=report)
+    assert index.modality_codes == ["CT"]
+
+
+def test_removing_a_modality_updates_the_projection():
+    report = ReportFactory.create(language=LanguageFactory.create(code="en"), modalities=[])
+    modality = ModalityFactory.create(code="CT")
+    report.modalities.add(modality)
+
+    report.modalities.remove(modality)
+
+    index = ReportSearchIndex.objects.get(report=report)
+    assert index.modality_codes == []
 
 
 def test_raw_sql_membership_write_updates_the_projection():
