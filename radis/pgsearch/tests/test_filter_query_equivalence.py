@@ -4,19 +4,27 @@ _build_filter_query_legacy is the pre-change implementation kept as a reference
 oracle. Delete both it and this module once the change has settled in production.
 """
 
-from datetime import date, timedelta
+from datetime import date, datetime, time, timedelta
 
 import pytest
 from adit_radis_shared.accounts.factories import GroupFactory
 from django.db.models import Q
+from django.test import override_settings
 from django.utils import timezone
 
+from radis.labels.factories import LabelFactory, LabelResultFactory
+from radis.labels.models import LabelResult
 from radis.pgsearch.models import ReportSearchIndex
 from radis.pgsearch.providers import _build_filter_query
 from radis.reports.factories import LanguageFactory, ReportFactory
 from radis.search.site import SearchFilters
 
 pytestmark = pytest.mark.django_db
+
+# A fixed calendar day used for the date-boundary tests below, well away from
+# any of the corpus fixture's "N days ago" reports so it can't accidentally
+# overlap with those.
+BOUNDARY_DAY = date(2026, 3, 10)
 
 
 def _build_filter_query_legacy(filters: SearchFilters) -> Q:
@@ -40,6 +48,18 @@ def _build_filter_query_legacy(filters: SearchFilters) -> Q:
         fq &= Q(report__patient_age__lte=filters.patient_age_till)
     if filters.patient_id:
         fq &= Q(report__patient_id=filters.patient_id)
+    if filters.created_after:
+        fq &= Q(report__created_at__gte=filters.created_after)
+    if filters.created_before:
+        fq &= Q(report__created_at__lte=filters.created_before)
+    if filters.labels:
+        from radis.reports.models import Report
+
+        surfacing_report_ids = Report.objects.filter(
+            label_results__label__name__in=filters.labels,
+            label_results__value__in=LabelResult.SURFACING_VALUES,
+        ).values("pk")
+        fq &= Q(report__in=surfacing_report_ids)
     if filters.updated_after:
         fq &= Q(report__updated_at__gte=filters.updated_after)
     return fq
@@ -66,6 +86,8 @@ def corpus():
         modalities=["CT"],
     )
     first.groups.add(group_a)
+    pneumonia = LabelFactory.create(name="pneumonia")
+    LabelResultFactory.create(report=first, label=pneumonia, value=LabelResult.Value.PRESENT)
 
     second = ReportFactory.create(
         language=language_de,
@@ -79,7 +101,52 @@ def corpus():
 
     orphan = ReportFactory.create(language=language_en, patient_sex="M", patient_id="P3")
 
-    return {"group_a": group_a, "group_b": group_b, "orphan": orphan}
+    return {"group_a": group_a, "group_b": group_b, "orphan": orphan, "first": first}
+
+
+def _make_boundary_corpus():
+    """Reports pinned to explicit local times around BOUNDARY_DAY.
+
+    "N days ago" filters (as used by the rest of this module) never land on or
+    near a report's exact date, so they cannot catch an off-by-one at the day
+    boundary or a UTC-vs-local mistake in ``_local_day_start``. These reports
+    are placed exactly where such mistakes would show: at local midnight
+    (the inclusive lower bound), at 23:30 local (deep inside the last day, but
+    the first casualty of an accidentally inclusive-upper-bound-on-exact-day
+    mistake), and at local midnight of the day *after* (which must be
+    excluded).
+
+    A plain helper rather than a fixture: the non-UTC test below must create
+    these reports *and* run the query while the same overridden ``TIME_ZONE``
+    is active, since "local midnight" is only meaningful relative to whatever
+    timezone is active at the moment ``timezone.make_aware`` runs. A fixture
+    is resolved before an ``@override_settings``-decorated test body starts,
+    which would pin the reports to the wrong timezone.
+    """
+    language_en = LanguageFactory.create(code="en")
+    group = GroupFactory.create(name="Boundary")
+
+    midnight = ReportFactory.create(
+        language=language_en,
+        study_datetime=timezone.make_aware(datetime.combine(BOUNDARY_DAY, time.min)),
+    )
+    midnight.groups.add(group)
+
+    late = ReportFactory.create(
+        language=language_en,
+        study_datetime=timezone.make_aware(datetime.combine(BOUNDARY_DAY, time(23, 30))),
+    )
+    late.groups.add(group)
+
+    next_midnight = ReportFactory.create(
+        language=language_en,
+        study_datetime=timezone.make_aware(
+            datetime.combine(BOUNDARY_DAY + timedelta(days=1), time.min)
+        ),
+    )
+    next_midnight.groups.add(group)
+
+    return {"group": group, "midnight": midnight, "late": late, "next_midnight": next_midnight}
 
 
 @pytest.mark.parametrize(
@@ -131,6 +198,21 @@ def corpus():
         ),
         pytest.param(
             lambda c: SearchFilters(
+                group=c["group_a"].pk, created_after=timezone.now() - timedelta(hours=1)
+            ),
+            id="created-after",
+        ),
+        pytest.param(
+            lambda c: SearchFilters(
+                group=c["group_a"].pk, created_before=timezone.now() + timedelta(hours=1)
+            ),
+            id="created-before",
+        ),
+        pytest.param(
+            lambda c: SearchFilters(group=c["group_a"].pk, labels=["pneumonia"]), id="labels"
+        ),
+        pytest.param(
+            lambda c: SearchFilters(
                 group=c["group_a"].pk, updated_after=timezone.now() - timedelta(hours=1)
             ),
             id="updated-after",
@@ -162,3 +244,51 @@ def test_no_duplicates_without_distinct(corpus):
     )
 
     assert len(rows) == len(set(rows))
+
+
+def test_date_range_boundary_matches_legacy():
+    """The half-open range must include local midnight and 23:30 local on the
+    selected day, and exclude local midnight of the following day.
+
+    This is the exact hazard the brief calls out: an off-by-one
+    (``__lte=_local_day_start(till)`` instead of
+    ``__lt=_local_day_start(till + 1 day)``) would silently drop the 23:30
+    report here, and an inclusive-instead-of-exclusive upper bound would wrongly
+    keep next_midnight -- neither is visible from "N days ago" filters alone.
+    """
+    boundary = _make_boundary_corpus()
+    filters = SearchFilters(
+        group=boundary["group"].pk,
+        study_date_from=BOUNDARY_DAY,
+        study_date_till=BOUNDARY_DAY,
+    )
+
+    new_ids = _ids(_build_filter_query(filters))
+    legacy_ids = _ids(_build_filter_query_legacy(filters))
+
+    assert new_ids == legacy_ids
+    assert new_ids == {boundary["midnight"].pk, boundary["late"].pk}
+
+
+def test_date_range_boundary_matches_legacy_in_non_utc_timezone():
+    """Same boundary check under a timezone hours away from UTC.
+
+    A mistake inside ``_local_day_start`` that resolved midnight in UTC rather
+    than the active timezone would only misplace the boundary here -- under
+    UTC (the default test timezone) local and UTC midnight coincide and the
+    bug is invisible. The corpus is built *inside* the override so "local
+    midnight" is pinned relative to the same timezone the query later uses.
+    """
+    with override_settings(TIME_ZONE="America/New_York"):
+        boundary = _make_boundary_corpus()
+        filters = SearchFilters(
+            group=boundary["group"].pk,
+            study_date_from=BOUNDARY_DAY,
+            study_date_till=BOUNDARY_DAY,
+        )
+
+        new_ids = _ids(_build_filter_query(filters))
+        legacy_ids = _ids(_build_filter_query_legacy(filters))
+
+    assert new_ids == legacy_ids
+    assert new_ids == {boundary["midnight"].pk, boundary["late"].pk}
