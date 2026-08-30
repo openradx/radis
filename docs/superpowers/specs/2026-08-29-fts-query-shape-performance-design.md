@@ -278,8 +278,18 @@ untouched — `page_rows` still `select_related("report")` for `ts_headline` ove
 
 1. **Add columns.** Arrays get `default=list` (`DEFAULT '{}'`, NOT NULL); scalars
    go in nullable. All are constant-default or nullable, so every `AddField` is
-   metadata-only and instant even at 5M rows. An empty `group_ids` is the
-   fail-closed value.
+   metadata-only and instant even at 5M rows. Every row therefore carries an
+   empty `group_ids` until step 3 fills it, and that empty value is fail-closed
+   in one direction only: a group-scoped search (`group=<id>`) compiles to
+   `group_ids @> ARRAY[id]` and matches nothing, but `group=None` compiles to
+   the exact match `group_ids = '{}'` and matches **every row in the archive**.
+   `group=None` is reachable — `extractions/views.py` passes it for a logged-in
+   user with no active group — so between this step and step 3 that path is
+   fail-*open*. It is contained only accidentally today (step 1 also leaves
+   `language_code` NULL corpus-wide, so the FTS half returns nothing), and the
+   vector half carries no language predicate, so on a deployment with embeddings
+   the leak is real. **The migration must therefore be run with the web tier
+   stopped**, which is what the admin guide's upgrade procedure prescribes.
 2. **Create triggers** — *before* the backfill, so reports edited during a
    multi-minute backfill still land correctly. A chunk that later reprocesses the
    same row simply rewrites the same current values.

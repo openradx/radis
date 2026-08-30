@@ -37,6 +37,14 @@ maintenance window around that, and do not shorten `WAIT_INIT_TIMEOUT` (default
 one hour, see the compose files) below the expected migration time -- the
 services that wait on `init` exit when that timeout expires.
 
+Keep the web tier stopped for the whole migration, which steps 5 and 9 above
+already do -- do not start it early to "check on progress". While that
+particular migration is between adding the projection columns and backfilling
+them, every row carries an empty group list. A search that runs with no active
+group (the extraction preview does this for a user without one) filters on
+exactly that empty list, so during the window it would match the whole archive
+instead of only the reports belonging to no group.
+
 ## Database tuning
 
 Search scans the report index table in parallel, so the number of parallel
@@ -45,7 +53,7 @@ overrides -- set them in `.env` only if the defaults do not suit your hardware.
 
 | Variable | Default | Guidance |
 | --- | --- | --- |
-| `POSTGRES_MAX_PARALLEL_WORKERS_PER_GATHER` | `4` | Measured on 8M reports: 606 ms at 2, 421 ms at 4, 343 ms at 8. Four captures most of the gain while leaving cores for concurrent searches. |
+| `POSTGRES_MAX_PARALLEL_WORKERS_PER_GATHER` | `4` | Measured on 5M reports: 606 ms at 2, 421 ms at 4, 343 ms at 8. Four captures most of the gain while leaving cores for concurrent searches. |
 | `POSTGRES_MAX_PARALLEL_WORKERS` | `8` | PostgreSQL's default. Raise together with the two others on a larger host. |
 | `POSTGRES_MAX_WORKER_PROCESSES` | `8` | As above. |
 | `POSTGRES_SHARED_BUFFERS` | `128MB` | PostgreSQL's default. Around 25% of host RAM is the usual recommendation; a value larger than the container's memory will prevent PostgreSQL from starting. |
