@@ -210,21 +210,42 @@ untouched — `page_rows` still `select_related("report")` for `ts_headline` ove
 2. **Create triggers** — *before* the backfill, so reports edited during a
    multi-minute backfill still land correctly. A chunk that later reprocesses the
    same row simply rewrites the same current values.
-3. **Backfill**, chunked by `report_id` range with one transaction per chunk
-   (hence `atomic = False`). Each chunk is a set-based `UPDATE ... FROM
-   reports_report` with two lateral `array_agg` subqueries for the arrays.
-4. **Create indexes last.** Building GIN indexes on empty columns and then
-   filling them is wasted work and leaves bloat.
+3. **Backfill**, chunked by `report_id` range (50,000 rows) with one transaction
+   per chunk (hence `atomic = False`). Each chunk is a set-based `UPDATE ... FROM
+   reports_report` with two lateral `array_agg` subqueries for the arrays. The
+   migration lowers `autovacuum_vacuum_scale_factor` on the table for the
+   duration and resets it after, so dead tuples from one chunk are reclaimed and
+   reused by the next rather than accumulating across the run. The chunk size is
+   a constant, not a setting: a migration is a historical record and should do
+   the same thing on every machine.
+4. **Create indexes last, then `VACUUM ANALYZE`.** Building GIN indexes on empty
+   columns is wasted work — but the stronger reason is that while the new columns
+   are unindexed the backfill can use HOT updates, whose old row versions are
+   reclaimed by page pruning without index cleanup. That is the main defence
+   against the bloat below, so this ordering must not be changed. The `ANALYZE`
+   is required, not hygiene: ten new columns and three new indexes carry no
+   statistics, and this design depends on the planner choosing a parallel
+   sequential scan with a top-N heapsort.
 
 **Deployment consequences.** `docker-compose.prod.yml` runs `manage.py migrate`
 in the `init` service and `web` waits on it, so the backfill blocks the deploy
 rather than serving half-projected rows — the right failure mode for
 access-control data. Deploy time therefore grows with corpus size: an estimated
 2–5 minutes at 5M, extrapolated from analogous full-table writes (44 s for a
-4M-row m2m insert, 83 s for a 4M-row tsvector update). The backfill rewrites
-every row, leaving ~6 GB of dead tuples at 5M; autovacuum reclaims the space for
-reuse but will not shrink the file, so sites with a maintenance window may want
-`VACUUM FULL` afterwards.
+4M-row m2m insert, 83 s for a 4M-row tsvector update). The backfill rewrites every row: measured, the tsvectors average 1220 bytes and
+nothing is TOASTed (`toast_heap` is 0 bytes), so the whole row is rewritten, not
+just the new columns. Left unchecked that is ~6 GB of dead tuples at 5M, and
+since the hot path is a sequential scan it reads them — roughly halving the gain
+until the space is reused. Steps 3 and 4 are what keep it below that.
+
+**Do not run `VACUUM FULL` from the migration, and do not recommend it blindly.**
+It rebuilds every index on the table, including `pgsearch_embedding_hnsw`; on a
+deployment with embeddings populated that is an HNSW rebuild over millions of
+vectors — plausibly hours, under an ACCESS EXCLUSIVE lock — and it needs peak
+disk for old plus new (~19 GB at 5M). Sites that want the space returned should
+run it deliberately in a maintenance window knowing that cost, or use `pg_repack`
+if they have it. This design requires neither. Most sites will not need it: an
+archive that keeps growing refills the freed space on its own.
 
 An online alternative — resumable backfill command plus a feature flag on the
 query path — was considered and rejected: it doubles the query-layer code for
