@@ -37,9 +37,9 @@ FTS candidate query joins `reports_report`, `reports_report_groups` and
 `reports_language`, then applies `SELECT DISTINCT`. Two consequences:
 
 - The planner builds a hash table over the matched rows **carrying
-  `search_vector`**, because `ts_rank` above the join still needs it. On the 1M rig (§8),
-  730k matches, that hash table was 1.2 GB and spilled into 256 batches,
-  writing ~1.2 GB of temp files at the default `work_mem`.
+  `search_vector`**, because `ts_rank` above the join still needs it. On the 1M
+  rig (§8) with 730k matches that hash table was 1.2 GB, spilling into 256
+  batches and writing ~1.2 GB of temp files at the default `work_mem`.
 - `SELECT DISTINCT` blocks the top-N heapsort, forcing a full external merge sort
   of every matching row before `LIMIT` can apply.
 
@@ -58,7 +58,7 @@ Recorded because each is the obvious question a reviewer will raise.
 | Lower `HYBRID_FTS_MAX_RESULTS` | No effect (1M rig). `LIMIT 100` and `LIMIT 10000` both 1.05 s. Under `ts_rank` the pool size is free; it only becomes load-bearing with a pruning index. |
 | Raise `work_mem` | No effect (1M rig) (1.41 s at 256 MB vs 1.44 s at 4 MB). The spill is a symptom, not the cause. |
 | Rewrite the joins as `EXISTS` | Worse: 1.55 s vs 1.05 s (1M rig). The planner still hashes. |
-| Materialised id-only CTE, joins on narrow rows, then rank | Worse: 11,460 ms for `findings`, 3,089 ms for `pneumonia` at 5M. The joins are still over 5,001,000 rows. **This was the only way to avoid duplicating access-control data, and it does not work.** |
+| Materialised id-only CTE, joins on narrow rows, then rank | Worse: 11,460 ms for `findings`, 3,089 ms for `pneumonia` at 5M. The joins are still over 5,001,000 rows. **This was the only way to avoid duplicating access-control data without changing the domain model (see §6), and it does not work.** |
 | `strip()`ped second tsvector for ranking | Rejected (1M rig). 1.4x faster but collapses `ts_rank` to **1 distinct value** across 200,000 matching rows — `strip()` removes the positions that encode term frequency, so the ordering becomes a no-op. |
 | Restricting recall ("rank only the most recent N", "refuse broad queries") | Withdrawn. No production search engine restricts recall; they restrict pagination depth and count precision. Not needed here anyway. |
 
@@ -112,9 +112,11 @@ Deliberately **not** indexed:
   a quarter of the corpus, never selective enough to beat a sequential scan, and
   GIN carries real write cost. Note array operators (`@>`, `&&`) evaluate fine
   per row without any index; an index only enables *index scans*.
-- **`study_datetime`.** Worth revisiting once §4.3's sargability fix lands, but a
-  date filter always co-occurs with a tsquery, so the planner will usually prefer
-  the scan regardless. Left out until a measurement justifies it.
+- **`study_datetime`.** §4.3 converts the date filters to half-open ranges, which
+  would make an index on this column *usable* — but the point of that change is
+  removing five million per-row timezone conversions, and it stands on its own
+  without an index. A date filter always co-occurs with a tsquery, so the planner
+  will usually prefer the scan anyway. Left out until a measurement justifies it.
 - **`patient_id`, `report_created_at`.** No caller sets `patient_id`,
   `created_after` or `created_before` — they exist on `SearchFilters` and are
   handled in `_build_filter_query`, but nothing populates them. The columns are
@@ -140,10 +142,12 @@ Three **statement-level** triggers using transition tables:
 | `reports_report_groups` | AFTER INSERT, DELETE | `group_ids` |
 | `reports_report_modalities` | AFTER INSERT, DELETE | `modality_codes` |
 
-Statement-level, not row-level: `bulk_upsert_report_search_indexes` writes in
-5000-row chunks, and row-level triggers would fire 5000 times per statement.
-With `REFERENCING NEW TABLE AS ...` each statement costs one set-based
-`UPDATE ... FROM`.
+Statement-level, not row-level: the bulk-upsert API endpoint writes membership
+rows with `group_through.objects.bulk_create(...)` and
+`modality_through.objects.bulk_create(...)` (`reports/api/viewsets.py:215,229`),
+so one statement can carry a whole batch. Row-level triggers would fire once per
+row; with `REFERENCING NEW TABLE AS ...` each statement costs one set-based
+`UPDATE ... FROM` instead.
 
 The `reports_report` trigger guards its write with `IS DISTINCT FROM` across the
 mirrored columns so unrelated `Report.save()` calls do not rewrite projection
@@ -165,6 +169,13 @@ installed via `RunSQL` in `reports/migrations/0011`.
 **Triggers must be AFTER, not BEFORE.** PostgreSQL does not expose stored
 generated column values to BEFORE triggers, so a BEFORE trigger would mirror
 `patient_age` as NULL.
+
+**Two edges the triggers deliberately do not cover.** Deleting a `Report`
+cascades to both the membership rows and the projection row; the resulting
+membership-delete trigger is a zero-row `UPDATE` against an already-deleted
+projection row, which is harmless in either cascade order. And `Language.code` is
+treated as immutable — no trigger watches `reports_language`, so renaming a code
+would strand `language_code` values until the backfill is re-run.
 
 **Reconciliation.** A `check_search_projection` management command verifies the
 projection against its sources with one set-based query per column and reports
@@ -201,8 +212,10 @@ timezone that breaks silently if `TIME_ZONE` changes. Storing a precomputed loca
 `study_date` column was rejected for baking `TIME_ZONE` into data, which a
 timezone change would then require a backfill to correct.
 
-**`.distinct()` is removed unconditionally.** It exists only because the `groups`
-and `modalities` joins can duplicate rows. With no joins there is nothing to
+**`.distinct()` is removed unconditionally.** It exists because the `modalities`
+join duplicates a report that matches on more than one modality (the `groups`
+join cannot, since `filters.group` is a single value against a `unique_together`
+through table). With no joins there is nothing to
 deduplicate. Worth ~30% on its own (1.44 s → 1.04 s at 1M).
 
 **Access-control edge case.** `filters.group=None` is documented as fail-closed:
@@ -215,7 +228,9 @@ gets its own test.
 traverse `report__language__code` and become `language_code` on the row. The
 vector half also sheds its `.distinct()` (6.5 ms → 1.0 ms).
 
-The FTS candidate query then compiles to the shape measured at 404 ms:
+The FTS candidate query then compiles to the shape below, measured at **401 ms**
+with `LIMIT 10000` and `max_parallel_workers_per_gather = 4` — confirming that
+the production pool size costs nothing on this shape, not just on the old one:
 
 ```sql
 SELECT report_id,
@@ -260,7 +275,7 @@ untouched — `page_rows` still `select_related("report")` for `ts_headline` ove
    are unindexed the backfill can use HOT updates, whose old row versions are
    reclaimed by page pruning without index cleanup. That is the main defence
    against the bloat below, so this ordering must not be changed. The `ANALYZE`
-   is required, not hygiene: ten new columns and three new indexes carry no
+   is required, not hygiene: ten new columns and two new indexes carry no
    statistics, and this design depends on the planner choosing a parallel
    sequential scan with a top-N heapsort.
 
@@ -269,7 +284,9 @@ in the `init` service and `web` waits on it, so the backfill blocks the deploy
 rather than serving half-projected rows — the right failure mode for
 access-control data. Deploy time therefore grows with corpus size: an estimated
 2–5 minutes at 5M, extrapolated from analogous full-table writes (44 s for a
-4M-row m2m insert, 83 s for a 4M-row tsvector update). The backfill rewrites every row: measured, the tsvectors average 1220 bytes and
+4M-row m2m insert, 83 s for a 4M-row tsvector update).
+
+The backfill rewrites every row: measured, the tsvectors average 1220 bytes and
 nothing is TOASTed (`toast_heap` is 0 bytes), so the whole row is rewritten, not
 just the new columns. Left unchecked that is ~6 GB of dead tuples at 5M, and
 since the hot path is a sequential scan it reads them — roughly halving the gain
@@ -376,9 +393,10 @@ combinations. Highest-value test in the change: it catches
   still updates the projection. This test is the justification for choosing
   triggers over signals and should exist to defend that decision.
 
-**Bulk correctness:** a `groups.set()` spanning many reports in one statement
-updates all of them. Statement-level triggers have a classic failure mode where
-only one row is processed; this pins it.
+**Bulk correctness:** a `bulk_create` of many rows into the `groups` through
+model — the shape the bulk-upsert endpoint uses — updates the projection for
+*every* affected report. Statement-level triggers have a classic failure mode
+where only one row of the transition table is processed; this pins it.
 
 **No duplicates without `.distinct()`:** a report in several matching groups, or
 with several matching modalities, appears exactly once.
@@ -389,8 +407,10 @@ plan contains no join against `reports_report_groups` and no `Unique` node. This
 deterministically catches someone reintroducing a `report__` traversal and
 silently restoring the 13-second path.
 
-**`patient_age` is mirrored non-null**, which fails if the triggers are ever
-converted to BEFORE.
+**`patient_age` mirrors `Report.patient_age` exactly.** Verified that this is
+the trap it guards: a BEFORE trigger on a stored generated column reads `NULL`
+where the committed value was 42, so converting the triggers to BEFORE would
+silently null this column out.
 
 Existing search, extraction and subscription tests are the regression net for the
 four consumers and should pass unchanged.
@@ -407,16 +427,20 @@ four consumers and should pass unchanged.
   `reports_report`. What BM25 still offers that PostgreSQL FTS cannot: IDF, term
   frequency saturation and length normalisation.
 - **#287 impact-ordered lexeme ranks.** Likely unnecessary once plain `ts_rank`
-  handles 5M matches in 343 ms. Recommendation only; closing it is its author's
+  handles 5M matches in ~400 ms. Recommendation only; closing it is its author's
   call.
-- **`HYBRID_FTS_MAX_RESULTS`** stays at 10,000 — measured free under `ts_rank`.
+- **`HYBRID_FTS_MAX_RESULTS`** stays at 10,000. Measured free under `ts_rank` on
+  both shapes: `LIMIT 100` and `LIMIT 10000` were indistinguishable on the old
+  joined query, and `LIMIT 25` (421 ms) and `LIMIT 10000` (401 ms) are
+  indistinguishable on the new single-table one. It would only become
+  load-bearing with a pruning index.
 - **`Report.groups` → `ArrayField`.** Would remove the redundancy altogether and
   speed up `Report.objects.filter(groups=...)` elsewhere, at the cost of FK
   integrity on an access-control field. A domain change, deliberately not bundled
   into a search-performance change.
 - **Result-page N+1s.** Measured at ~134 SQL queries per 25-result page
   (`document.full_report` twice per row via `search/site.py`, `can_view_report`,
-  the collections count, the notes lookup). Once the scan is 343 ms this is
+  the collections count, the notes lookup). Once the scan is ~400 ms this is
   proportionally significant, and it is the recommended next piece of work — but
   it is a different subsystem.
 - **#282 (`hnsw.ef_search`) and #284 (fused result cache).** Independent,
@@ -436,7 +460,10 @@ four consumers and should pass unchanged.
 
 ## 8. Measurement rig
 
-All figures above come from two throwaway corpora built from
+The BM25 figures in §6 additionally required a custom PostgreSQL image
+(`pgvector/pgvector:pg17` plus `pg_textsearch` v1.4.0), and the vector-half
+figures come from a third throwaway corpus of 200,000 rows with 1024-dimension
+embeddings and an HNSW index. Everything else comes from two corpora built from
 `samples/reports_en.json` (1000 real-shaped report bodies, cycled with a unique
 md5 suffix per report):
 
