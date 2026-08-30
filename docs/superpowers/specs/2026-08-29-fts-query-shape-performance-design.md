@@ -456,6 +456,14 @@ plan contains no join against `reports_report_groups`, and assert the compiled
 SQL contains no `DISTINCT` keyword. This deterministically catches someone
 reintroducing a `report__` traversal and silently restoring the slow path.
 
+Assert on the *candidate queryset the provider runs* — filter, tsquery match,
+rank annotation, ordering and bound — and not on one rebuilt from
+`_build_filter_query` alone. The `.distinct()` calls this change removes never
+lived in the filter builder, so a test that rebuilds only that half cannot fail
+however the production query changes. Keeping the candidate query in one named
+function (`_fts_candidate_queryset`) is what makes the real thing reachable from
+a test.
+
 
 Do **not** assert on the absence of a `Unique` node: PostgreSQL implements
 `SELECT DISTINCT` as either `Sort`+`Unique` or `HashAggregate` depending on

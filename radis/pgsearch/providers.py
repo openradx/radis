@@ -344,26 +344,17 @@ def _embed_query_cached(query_text: str, caller: str) -> list[float] | None:
     return vec
 
 
-class _FusedHybrid(NamedTuple):
-    ordered_ids: list[int]
-    rrf_score_by_id: dict[int, float]
-    vec_distance: dict[int, float]
-    total_relation: Literal["exact", "at_least", "approximately"]
-    configs: list[tuple[str, list[str]]]
-    query_str: str
+def _fts_candidate_queryset(filter_query: Q, configs: list[tuple[str, list[str]]], query_str: str):
+    """The FTS candidate query: the single-table scan this whole design exists for.
 
-
-def _fuse_hybrid(search: Search, caller: str) -> _FusedHybrid:
-    """Run both retrievers and fuse them with RRF.
-
-    Shared by search(), retrieve() and count() so all three describe the same
-    union. The vector half embeds only the positive branches (§7.8 strips
-    ``NOT``) and enforces the top-level negations on its candidates; the FTS
-    half consumes the full boolean tsquery. Returns the fused, ordered report
-    ids plus the per-id scores/distances and the query metadata callers reuse."""
-    query_str = _build_query_string(search.query)
-    configs = _language_configs(search.filters)
-    filter_query = _build_filter_query(search.filters)
+    Kept as its own function rather than inlined in ``_fuse_hybrid`` so that
+    ``test_fts_candidate_query_is_single_table`` can assert on the SQL and the
+    ``EXPLAIN`` plan of exactly the queryset production runs -- filters, tsquery
+    match, rank annotation, ordering and bound included, not a re-creation of
+    it. Everything referenced here must be a column on ``ReportSearchIndex``
+    itself: one lookup or annotation traversing the ``report`` relation restores
+    the joins and the multi-second query shape (see migration 0003).
+    """
     tsqueries = {
         config: SearchQuery(query_str, search_type="raw", config=config) for config, _ in configs
     }
@@ -388,6 +379,38 @@ def _fuse_hybrid(search: Search, caller: str) -> _FusedHybrid:
         default=Value(0.0),
         output_field=FloatField(),
     )
+
+    # No .distinct(): with no joins there is nothing to deduplicate, and it
+    # would block the top-N heapsort that keeps this query sub-second.
+    return (
+        ReportSearchIndex.objects.filter(filter_query)
+        .filter(match_q)
+        .annotate(rank=rank_expr)
+        .order_by("-rank", "report_id")
+        .values("report_id", "rank")[: settings.HYBRID_FTS_MAX_RESULTS]
+    )
+
+
+class _FusedHybrid(NamedTuple):
+    ordered_ids: list[int]
+    rrf_score_by_id: dict[int, float]
+    vec_distance: dict[int, float]
+    total_relation: Literal["exact", "at_least", "approximately"]
+    configs: list[tuple[str, list[str]]]
+    query_str: str
+
+
+def _fuse_hybrid(search: Search, caller: str) -> _FusedHybrid:
+    """Run both retrievers and fuse them with RRF.
+
+    Shared by search(), retrieve() and count() so all three describe the same
+    union. The vector half embeds only the positive branches (§7.8 strips
+    ``NOT``) and enforces the top-level negations on its candidates; the FTS
+    half consumes the full boolean tsquery. Returns the fused, ordered report
+    ids plus the per-id scores/distances and the query metadata callers reuse."""
+    query_str = _build_query_string(search.query)
+    configs = _language_configs(search.filters)
+    filter_query = _build_filter_query(search.filters)
 
     # Vector side: skipped entirely when no embedding model is configured (FTS-only
     # deployment), and when stripping NOT branches leaves nothing to embed (see
@@ -416,15 +439,7 @@ def _fuse_hybrid(search: Search, caller: str) -> _FusedHybrid:
     # ``configs`` means an empty corpus (Report.language is a required FK), and
     # an empty match_q would match every row rather than none, so skip it.
     fts_rows = (
-        []
-        if not configs
-        else list(
-            ReportSearchIndex.objects.filter(filter_query)
-            .filter(match_q)
-            .annotate(rank=rank_expr)
-            .order_by("-rank", "report_id")
-            .values("report_id", "rank")[: settings.HYBRID_FTS_MAX_RESULTS]
-        )
+        [] if not configs else list(_fts_candidate_queryset(filter_query, configs, query_str))
     )
     fts_rank = {row["report_id"]: i + 1 for i, row in enumerate(fts_rows)}
 

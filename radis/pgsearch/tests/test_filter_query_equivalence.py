@@ -15,9 +15,15 @@ from django.utils import timezone
 from radis.labels.factories import LabelFactory, LabelResultFactory
 from radis.labels.models import LabelResult
 from radis.pgsearch.models import ReportSearchIndex
-from radis.pgsearch.providers import _build_filter_query
+from radis.pgsearch.providers import (
+    _build_filter_query,
+    _build_query_string,
+    _fts_candidate_queryset,
+    _language_configs,
+)
 from radis.reports.factories import LanguageFactory, ReportFactory
 from radis.search.site import SearchFilters
+from radis.search.utils.query_parser import QueryParser
 
 pytestmark = pytest.mark.django_db
 
@@ -313,26 +319,58 @@ def test_date_range_boundary_matches_legacy_in_non_utc_timezone():
     assert new_ids == {boundary["midnight"].pk, boundary["late"].pk}
 
 
-def test_filter_query_plan_is_single_table(corpus):
-    """The candidate query must not join the membership table or deduplicate.
+def _candidate_queryset(filters: SearchFilters, query: str = "pneumonia"):
+    """The FTS candidate queryset ``_fuse_hybrid`` actually runs.
+
+    Built by calling the same production helpers in the same order the provider
+    does, so a regression introduced anywhere along that path -- the filter, the
+    tsquery match, the rank annotation, the ordering or the bound -- shows up
+    here. A test that assembled its own queryset from ``_build_filter_query``
+    alone could not fail, because the ``.distinct()`` calls this change removed
+    never lived there.
+    """
+    node, _fixes = QueryParser().parse(query)
+    assert node is not None
+    return _fts_candidate_queryset(
+        _build_filter_query(filters),
+        _language_configs(filters),
+        _build_query_string(node),
+    )
+
+
+@pytest.mark.parametrize(
+    "language",
+    ["en", ""],
+    ids=["single-config", "every-config"],
+)
+def test_fts_candidate_query_is_single_table(corpus, language):
+    """The candidate query must touch no table but the search index, and must
+    not deduplicate.
+
+    This is the guard against silently restoring the 8-second query shape, so
+    it asserts on the real candidate queryset rather than on a re-creation of
+    its filter half.
 
     The join check inspects the ``EXPLAIN`` plan, which is sound regardless of
-    corpus size: Django only emits ``reports_report_groups`` into the SQL when a
-    lookup traverses ``report__groups``, and no planner choice can inject it
-    otherwise. The dedup check inspects the compiled SQL text for the
-    ``DISTINCT`` keyword instead of looking for a physical operator name (e.g.
-    ``Unique``) in the plan -- the planner is free to implement ``DISTINCT`` as
-    a ``Sort`` + ``Unique`` or as a ``HashAggregate`` depending on cost
-    estimates, and at realistic corpus sizes it picks ``HashAggregate``, so a
-    plan-based check would silently miss a reintroduced ``.distinct()`` at
-    scale even though it would catch it on this test's tiny fixture.
+    corpus size: Django only emits ``reports_report``, ``reports_language`` or
+    ``reports_report_groups`` into the SQL when a lookup or an annotation
+    traverses ``report__``, and no planner choice can inject them otherwise.
+    Both parametrisations matter: without a language filter the match and rank
+    expressions carry one branch per text-search configuration in the corpus,
+    which is where a ``report__language__code`` traversal is most tempting.
+
+    The dedup check inspects the compiled SQL text for the ``DISTINCT`` keyword
+    instead of looking for a physical operator name (e.g. ``Unique``) in the
+    plan -- the planner is free to implement ``DISTINCT`` as a ``Sort`` +
+    ``Unique`` or as a ``HashAggregate`` depending on cost estimates, and at
+    realistic corpus sizes it picks ``HashAggregate``, so a plan-based check
+    would silently miss a reintroduced ``.distinct()`` at scale even though it
+    would catch it on this test's tiny fixture.
     """
     from django.db import connection
 
-    filters = SearchFilters(group=corpus["group_a"].pk, language="en")
-    queryset = ReportSearchIndex.objects.filter(_build_filter_query(filters)).values_list(
-        "report_id", flat=True
-    )
+    filters = SearchFilters(group=corpus["group_a"].pk, language=language)
+    queryset = _candidate_queryset(filters)
     sql, params = queryset.query.sql_with_params()
 
     assert "DISTINCT" not in sql, sql
@@ -341,4 +379,7 @@ def test_filter_query_plan_is_single_table(corpus):
         cursor.execute(f"EXPLAIN {sql}", params)
         plan = "\n".join(row[0] for row in cursor.fetchall())
 
-    assert "reports_report_groups" not in plan, plan
+    # "reports_report" also covers "reports_report_groups" and
+    # "reports_report_modalities".
+    for table in ("reports_report", "reports_language", "reports_modality"):
+        assert table not in plan, plan
