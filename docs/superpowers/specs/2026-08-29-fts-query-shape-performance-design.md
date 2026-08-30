@@ -96,11 +96,31 @@ benefit, and `check_search_projection` guards against drift instead.
 unqualified `created_at` on this table would be ambiguous about whose timestamp
 it is.
 
-Indexes: `GinIndex` on `group_ids` and `modality_codes` (the containment and
-overlap operators are unusable without them), btree on `study_datetime`. Nothing
-else — the remaining predicates ride the sequential scan, exactly as they do
-today, since `reports_report` carries no index on `patient_id`, `patient_sex` or
-`study_datetime` either.
+Indexes — two, chosen from which callers actually populate which filters:
+
+- **`GinIndex` on `group_ids`.** Every search filters on it. It earns its keep
+  only where groups genuinely partition the corpus; in a single-group install it
+  matches every row and the planner will ignore it, which is fine.
+- **btree on `report_updated_at`.** Subscriptions call `filter()` with
+  `updated_after` (`subscriptions/tasks.py`), which has no tsquery to drive it —
+  unindexed that is a full-table scan on every subscription refresh, once per
+  subscription.
+
+Deliberately **not** indexed:
+
+- **`modality_codes`.** With four or five modality codes a filter selects roughly
+  a quarter of the corpus, never selective enough to beat a sequential scan, and
+  GIN carries real write cost. Note array operators (`@>`, `&&`) evaluate fine
+  per row without any index; an index only enables *index scans*.
+- **`study_datetime`.** Worth revisiting once §4.3's sargability fix lands, but a
+  date filter always co-occurs with a tsquery, so the planner will usually prefer
+  the scan regardless. Left out until a measurement justifies it.
+- **`patient_id`, `report_created_at`.** No caller sets `patient_id`,
+  `created_after` or `created_before` — they exist on `SearchFilters` and are
+  handled in `_build_filter_query`, but nothing populates them. The columns are
+  still needed for the filter code; indexes are not.
+- **`patient_sex`, `patient_age`, `language_code`, `study_description`.** Low
+  selectivity, or `icontains`, which a btree cannot serve anyway.
 
 `body`, `pacs_name` and `document_id` stay on `Report`.
 
@@ -160,9 +180,26 @@ after a restore or bulk import.
 | `Q(report__groups=filters.group)` | `Q(group_ids__contains=[filters.group])` |
 | `Q(report__language__code=...)` | `Q(language_code=...)` |
 | `Q(report__modalities__code__in=...)` | `Q(modality_codes__overlap=...)` |
-| `Q(report__patient_sex=...)`, age, dates, description, patient_id | same, unprefixed |
+| `Q(report__patient_sex=...)`, age, description, patient_id | same, unprefixed |
+| `Q(report__study_datetime__date__gte=<date>)` | `Q(study_datetime__gte=<start of that local day>)` |
+| `Q(report__study_datetime__date__lte=<date>)` | `Q(study_datetime__lt=<start of the following local day>)` |
 | `Q(report__created_at__gte=...)` | `Q(report_created_at__gte=...)` |
 | labels | unchanged — `report_id__in=<subquery>`, no join |
+
+**The date filters become half-open ranges.** Django's `__date` lookup compiles
+to `(study_datetime AT TIME ZONE 'Europe/Berlin')::date >= …` — a function over
+the column, which no plain btree can serve, and which is evaluated once per row.
+On the sequential scan that dominates our plans that is five million timezone
+conversions and date casts per query, for a predicate that is equivalent to a
+comparison against two timestamps.
+
+Computing the day boundaries in Python instead is exactly equivalent in meaning,
+removes the per-row conversion, and makes the predicate sargable. A functional
+index matching Django's expression was rejected: it would restore sargability but
+leave the per-row cost untouched on the seq-scan path, and it hardcodes a
+timezone that breaks silently if `TIME_ZONE` changes. Storing a precomputed local
+`study_date` column was rejected for baking `TIME_ZONE` into data, which a
+timezone change would then require a backfill to correct.
 
 **`.distinct()` is removed unconditionally.** It exists only because the `groups`
 and `modalities` joins can duplicate rows. With no joins there is nothing to
