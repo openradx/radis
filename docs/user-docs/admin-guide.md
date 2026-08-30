@@ -27,6 +27,19 @@ Follow these steps to safely update your RADIS installation:
 9. **Deploy stack**: Run `uv run cli stack-deploy` to rebuild and start all services with the updated code
 10. **Disable maintenance mode**: In Django Admin, navigate to **Common** → **Project Settings** and uncheck the "Maintenance mode" checkbox, then save
 
+## Database tuning
+
+Search scans the report index table in parallel, so the number of parallel
+workers is the one PostgreSQL setting worth revisiting. These are optional
+overrides -- set them in `.env` only if the defaults do not suit your hardware.
+
+| Variable | Default | Guidance |
+| --- | --- | --- |
+| `POSTGRES_MAX_PARALLEL_WORKERS_PER_GATHER` | `4` | Measured on 8M reports: 606 ms at 2, 421 ms at 4, 343 ms at 8. Four captures most of the gain while leaving cores for concurrent searches. |
+| `POSTGRES_MAX_PARALLEL_WORKERS` | `8` | PostgreSQL's default. Raise together with the two others on a larger host. |
+| `POSTGRES_MAX_WORKER_PROCESSES` | `8` | As above. |
+| `POSTGRES_SHARED_BUFFERS` | `128MB` | PostgreSQL's default. Around 25% of host RAM is the usual recommendation; a value larger than the container's memory will prevent PostgreSQL from starting. |
+
 ## User and Group Management
 
 Administrators can create users by navigating to the Django Admin section. Alternatively, users can self-register, after which an administrator must approve and activate their account.
