@@ -10,6 +10,7 @@ from adit_radis_shared.accounts.factories import GroupFactory
 from django.db import connection
 
 from radis.pgsearch.models import ReportSearchIndex
+from radis.pgsearch.utils.indexing import bulk_upsert_report_search_indexes
 from radis.reports.factories import LanguageFactory, ModalityFactory, ReportFactory
 from radis.reports.models import Report
 
@@ -139,3 +140,26 @@ def test_patient_age_is_mirrored():
     report.refresh_from_db()
     assert index.patient_age == report.patient_age
     assert index.patient_age is not None
+
+
+def test_creation_populates_the_mirrored_scalars():
+    report = ReportFactory.create(language=LanguageFactory.create(code="de"))
+
+    index = ReportSearchIndex.objects.get(report=report)
+    assert index.language_code == "de"
+    assert index.patient_id == report.patient_id
+
+
+def test_bulk_upsert_populates_the_projection():
+    language = LanguageFactory.create(code="en")
+    report = ReportFactory.create(language=language, modalities=["CT"])
+    group = GroupFactory.create()
+    report.groups.add(group)
+    ReportSearchIndex.objects.filter(report=report).delete()
+
+    bulk_upsert_report_search_indexes([report.pk])
+
+    index = ReportSearchIndex.objects.get(report=report)
+    assert index.language_code == "en"
+    assert index.group_ids == [group.pk]
+    assert index.modality_codes == ["CT"]
