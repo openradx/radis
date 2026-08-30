@@ -3,6 +3,9 @@
 **Status:** design, not yet implemented
 **Branch:** `fts-query-shape-performance`
 **Supersedes:** parts of `hybrid-search.md` §7 (the FTS candidate query and its filter construction)
+**Design target:** 8 million reports. The largest known deployment is ~15M; past
+roughly 8M the working set stops fitting comfortably in page cache on ordinary
+hardware and the conclusions in §2 need re-measuring (see §8).
 
 ## 1. Problem
 
@@ -44,10 +47,14 @@ FTS candidate query joins `reports_report`, `reports_report_groups` and
   of every matching row before `LIMIT` can apply.
 
 Removing both makes the query a single-table parallel sequential scan with a
-26 kB top-N heapsort. On the same 5M corpus, `findings` goes from **13,440 ms to
-~600 ms** at stock parallelism, and to **~420 ms** with
-`max_parallel_workers_per_gather` raised to 4 (§4.5). The plan verified in §4.3
-ran in 404 ms at 8 workers.
+26 kB top-N heapsort. Measured at the 8M design target — same table, same four
+workers on both sides — `findings` goes from **8,388 ms to 882 ms, about 9.5x**.
+
+Parallelism is a separate and additive lever worth a further ~1.4x (§4.5). An
+earlier draft of this document claimed 33x by comparing the old shape at two
+workers against the new shape at eight, crediting the query-shape change with a
+gain that was partly parallelism and partly a smaller corpus. The controlled
+comparison above is the one to trust.
 
 ## 3. Ruled out, with measurements
 
@@ -295,15 +302,28 @@ untouched — `page_rows` still `select_related("report")` for `ts_headline` ove
 **Deployment consequences.** `docker-compose.prod.yml` runs `manage.py migrate`
 in the `init` service and `web` waits on it, so the backfill blocks the deploy
 rather than serving half-projected rows — the right failure mode for
-access-control data. Deploy time therefore grows with corpus size: an estimated
-2–5 minutes at 5M, extrapolated from analogous full-table writes (44 s for a
-4M-row m2m insert, 83 s for a 4M-row tsvector update).
+access-control data. Deploy time therefore grows with corpus size: **measured at
+9 min 20 s for 8M reports**, in 50,000-row chunks. That extrapolates to roughly
+18 minutes at 15M. Adding the ten columns is genuinely free (1.3 ms, confirming
+the metadata-only claim); the nine minutes is the row rewrite.
 
-The backfill rewrites every row: measured, the tsvectors average 1220 bytes and
-nothing is TOASTed (`toast_heap` is 0 bytes), so the whole row is rewritten, not
-just the new columns. Left unchecked that is ~6 GB of dead tuples at 5M, and
-since the hot path is a sequential scan it reads them — roughly halving the gain
-until the space is reused. Steps 3 and 4 are what keep it below that.
+Roughly ten minutes of announced downtime for a one-time migration has been
+accepted for this deployment, which is what keeps the blocking approach below.
+A site that cannot take that window needs the online alternative instead.
+
+The backfill rewrites every row: the tsvectors average 1220 bytes and nothing is
+TOASTed (`toast_heap` is 0 bytes), so the whole row is rewritten, not just the
+new columns. Measured at 8M, the heap goes **10 GB → 21 GB** with 7,988,672 dead
+tuples, and a plain `VACUUM` clears every dead tuple while leaving the file at
+**21 GB** for ~11 GB of live data.
+
+Chunking and creating indexes last (steps 3 and 4) did **not** prevent this — the
+rows grow by ~120 bytes, so most updated tuples cannot fit back into their
+original page and HOT does not apply. The doubling should be treated as expected,
+not as something the migration avoids. The consequence is a sequential scan
+reading roughly twice what it needs to, and the 882 ms in §2 already includes that
+penalty; on a compacted table the same query would land nearer 450–650 ms. It
+resolves on its own as the archive grows into the free space.
 
 **Do not run `VACUUM FULL` from the migration, and do not recommend it blindly.**
 It rebuilds every index on the table, including `pgsearch_embedding_hnsw`; on a
@@ -440,7 +460,7 @@ four consumers and should pass unchanged.
   `reports_report`. What BM25 still offers that PostgreSQL FTS cannot: IDF, term
   frequency saturation and length normalisation.
 - **#287 impact-ordered lexeme ranks.** Likely unnecessary once plain `ts_rank`
-  handles 5M matches in ~400 ms. Recommendation only; closing it is its author's
+  handles 8M matches in ~880 ms. Recommendation only; closing it is its author's
   call.
 - **`HYBRID_FTS_MAX_RESULTS`** stays at 10,000. Measured free under `ts_rank` on
   both shapes: `LIMIT 100` and `LIMIT 10000` were indistinguishable on the old
@@ -453,7 +473,7 @@ four consumers and should pass unchanged.
   into a search-performance change.
 - **Result-page N+1s.** Measured at ~134 SQL queries per 25-result page
   (`document.full_report` twice per row via `search/site.py`, `can_view_report`,
-  the collections count, the notes lookup). Once the scan is ~400 ms this is
+  the collections count, the notes lookup). Once the scan is ~880 ms this is
   proportionally significant, and it is the recommended next piece of work — but
   it is a different subsystem.
 - **#282 (`hnsw.ef_search`) and #284 (fused result cache).** Independent,
@@ -463,8 +483,9 @@ four consumers and should pass unchanged.
 
 ## 7. Success criteria
 
-- `findings` (5,001,000 matches) drops from 13,440 ms to under 500 ms at the
-  SQL level on the reference corpus, with `max_parallel_workers_per_gather` = 4.
+- At the 8M design target with `max_parallel_workers_per_gather` = 4, the FTS
+  candidate query drops from ~8,400 ms to under 1,000 ms immediately after the
+  backfill, bloat included (measured: 8,388 ms → 882 ms).
 - The FTS candidate query plan contains no join to `reports_report_groups` and
   no `Unique` node.
 - `check_search_projection` reports zero drift after the backfill and after a
@@ -480,12 +501,17 @@ embeddings and an HNSW index. Everything else comes from two corpora built from
 `samples/reports_en.json` (1000 real-shaped report bodies, cycled with a unique
 md5 suffix per report):
 
+- **8M rig (the design target):** the 5M rig grown to 8,001,000 reports, 10 GB
+  `pgsearch_reportsearchindex` heap before the backfill and 21 GB after. All §2
+  and §7 figures come from here.
 - **5M rig:** the dev stack database, 5,001,000 reports, ~15 GB, 6.3 GB
   `pgsearch_reportsearchindex` heap, average tsvector 1220 bytes.
 - **1M rig:** a standalone container, 1,000,000 reports, 730,000 matching
   `pneumonia`, average tsvector 1607 bytes.
 
-Both on stock PostgreSQL 17 settings (`shared_buffers` 128 MB, `work_mem` 4 MB,
+The benchmark host is a 31 GB Linux VM; the production target is a 128 GB M4 Max,
+so an 11 GB live working set stays cached on both and these figures are a floor
+rather than a ceiling. All rigs on stock PostgreSQL 17 settings (`shared_buffers` 128 MB, `work_mem` 4 MB,
 `max_parallel_workers_per_gather` 2) on a 16-core host, unless a measurement
 states otherwise.
 
