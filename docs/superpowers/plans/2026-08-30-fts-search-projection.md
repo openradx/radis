@@ -520,7 +520,12 @@ def create_or_update_report_search_index(sender, instance, created, **kwargs):
         # they stay empty here and the migration 0004 triggers fill them.
         sync_projection([instance.pk])
         return
-    instance.search_index.save()
+
+    # update_fields is required, not an optimisation: OneToOneField caches the
+    # index on the report instance, so instance.search_index is often the stale
+    # object from creation time. A bare save() writes all of its fields back,
+    # clobbering the projection columns the AFTER UPDATE trigger just set.
+    instance.search_index.save(update_fields=["search_vector"])
 ```
 
 In `radis/pgsearch/utils/indexing.py`, add the import and call `sync_projection` once per chunk, immediately after the existing `cursor.execute(...)` block that sets `search_vector`:
