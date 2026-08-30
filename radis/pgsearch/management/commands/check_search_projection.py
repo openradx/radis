@@ -45,6 +45,18 @@ LEFT JOIN LATERAL (
 """
 
 
+# Informational, not drift: an index row is created by a signal or by the bulk
+# indexing path, so a report can legitimately be waiting for one. The number is
+# only meaningful over time -- a few hundred that drain are normal, tens of
+# thousands that never move mean indexing is stuck.
+MISSING_INDEX_ROWS_SQL = """
+SELECT count(*)
+  FROM reports_report r
+  LEFT JOIN pgsearch_reportsearchindex rsi ON rsi.report_id = r.id
+ WHERE rsi.report_id IS NULL
+"""
+
+
 class Command(BaseCommand):
     help = "Verify the ReportSearchIndex search projection against its sources."
 
@@ -53,6 +65,14 @@ class Command(BaseCommand):
             cursor.execute(DRIFT_SQL)
             columns = [column.name for column in cursor.description]
             counts = dict(zip(columns, cursor.fetchone(), strict=True))
+
+            cursor.execute(MISSING_INDEX_ROWS_SQL)
+            missing_index_rows = cursor.fetchone()[0]
+
+        self.stdout.write(
+            f"Reports without a search index row: {missing_index_rows} "
+            "(indexing is deferred, so a number that keeps falling is normal)"
+        )
 
         drifted = {name: count for name, count in counts.items() if count}
         if drifted:
