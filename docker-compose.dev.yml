@@ -26,6 +26,10 @@ services:
     profiles:
       - never
 
+  # In development `web` runs the migrations the workers below wait for, so
+  # WAIT_INIT_TIMEOUT must outlast the longest migration here too (the search
+  # projection backfill takes about ten minutes at 8M reports). There is no
+  # restart policy in dev, so a timeout leaves the worker containers exited.
   web:
     <<: *default-app
     image: radis_dev-web:latest
@@ -52,7 +56,7 @@ services:
     command: >
       bash -c "
         wait-for-it -s postgres.local:5432 -t ${WAIT_POSTGRES_TIMEOUT:-180} &&
-        wait-for-it -s web.local:8000 -t 300 &&
+        wait-for-it -s web.local:8000 -t ${WAIT_INIT_TIMEOUT:-3600} &&
         ./manage.py sweep_stale_tasks &&
         ./manage.py bg_worker -l debug -q default --autoreload
       "
@@ -63,7 +67,7 @@ services:
     command: >
       bash -c "
         wait-for-it -s postgres.local:5432 -t ${WAIT_POSTGRES_TIMEOUT:-180} &&
-        wait-for-it -s web.local:8000 -t 300 &&
+        wait-for-it -s web.local:8000 -t ${WAIT_INIT_TIMEOUT:-3600} &&
         ./manage.py sweep_stale_tasks &&
         ./manage.py bg_worker -l debug -q llm --autoreload
       "

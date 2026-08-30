@@ -27,6 +27,16 @@ Follow these steps to safely update your RADIS installation:
 9. **Deploy stack**: Run `uv run cli stack-deploy` to rebuild and start all services with the updated code
 10. **Disable maintenance mode**: In Django Admin, navigate to **Common** → **Project Settings** and uncheck the "Maintenance mode" checkbox, then save
 
+Step 9 can take much longer than usual when a release ships a data migration.
+The `init` service runs `manage.py migrate` and every other service waits for it
+to finish, so the stack stays unavailable for the whole migration. The release
+that added the search projection to the report search index is the current
+example: it rewrites every row of that table, measured at about **ten minutes
+for 8 million reports** and proportionally longer on a larger archive. Plan the
+maintenance window around that, and do not shorten `WAIT_INIT_TIMEOUT` (default
+one hour, see the compose files) below the expected migration time -- the
+services that wait on `init` exit when that timeout expires.
+
 ## Database tuning
 
 Search scans the report index table in parallel, so the number of parallel

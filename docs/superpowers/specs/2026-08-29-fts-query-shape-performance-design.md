@@ -308,6 +308,11 @@ access-control data. Deploy time therefore grows with corpus size: **measured at
 18 minutes at 15M. Adding the ten columns is genuinely free (1.3 ms, confirming
 the metadata-only claim); the nine minutes is the row rewrite.
 
+Every service that waits on `init` must therefore tolerate a wait that long:
+they wait with `wait-for-it -t ${WAIT_INIT_TIMEOUT:-3600}` in both compose
+files, because the previous fixed `-t 300` timed out mid-backfill and left the
+containers exited after a technically successful migration.
+
 Roughly ten minutes of announced downtime for a one-time migration has been
 accepted for this deployment, which is what keeps the blocking approach below.
 A site that cannot take that window needs the online alternative instead.
@@ -440,6 +445,7 @@ CI; structure is not. Run `EXPLAIN` on the generated FTS query and assert the
 plan contains no join against `reports_report_groups`, and assert the compiled
 SQL contains no `DISTINCT` keyword. This deterministically catches someone
 reintroducing a `report__` traversal and silently restoring the slow path.
+
 
 Do **not** assert on the absence of a `Unique` node: PostgreSQL implements
 `SELECT DISTINCT` as either `Sort`+`Unique` or `HashAggregate` depending on
