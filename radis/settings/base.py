@@ -533,6 +533,12 @@ EMBEDDINGS_TASK_EXPONENTIAL_WAIT_SECONDS = 6
 HYBRID_VECTOR_TOP_K = 100
 HYBRID_FTS_MAX_RESULTS = 10_000
 HYBRID_RRF_K = 60
+# Serve the FTS arm of single-word queries from the precomputed lexeme-rank
+# table (an impact-ordered posting list) instead of running ts_rank over every
+# matching row. Opt-in: enabling it requires `manage.py sync_lexeme_ranks` once
+# (installs the sync trigger and backfills; the table costs storage and write
+# amplification). Multi-word queries always keep the ts_rank path.
+HYBRID_FTS_LEXEME_RANK_INDEX = env.bool("HYBRID_FTS_LEXEME_RANK_INDEX", default=False)
 
 # Chat
 CHAT_GENERATE_TITLE_SYSTEM_PROMPT = """

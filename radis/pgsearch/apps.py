@@ -2,7 +2,7 @@ import logging
 
 from django.apps import AppConfig
 from django.conf import settings
-from django.core.checks import Error, register
+from django.core.checks import Error, Tags, register
 
 logger = logging.getLogger(__name__)
 
@@ -102,6 +102,43 @@ def check_embeddings_dimensions_param(app_configs, **kwargs):
                 "let the client truncate to EMBEDDINGS_DIM, or set EMBEDDINGS_DIM to "
                 "match the 'dimensions' value."
             ),
+        )
+    ]
+
+
+@register(Tags.database)
+def check_lexeme_rank_trigger(app_configs, databases=None, **kwargs):
+    """Fail loudly (at `migrate` / `check --database`) when the lexeme-rank fast
+    path is enabled but nothing maintains its table. The provider also probes
+    for the trigger at runtime and falls back to ts_rank, so this check is what
+    turns that silent degradation into an operator-visible error."""
+    if not settings.HYBRID_FTS_LEXEME_RANK_INDEX:
+        return []
+    if not databases or "default" not in databases:
+        return []
+
+    from django.db import connections
+
+    from .models import LexemeRank
+    from .utils.lexeme_rank import TRIGGER_NAME, trigger_installed
+
+    with connections["default"].cursor() as cursor:
+        cursor.execute("SELECT to_regclass(%s)", [LexemeRank._meta.db_table])
+        row = cursor.fetchone()
+        if row is None or row[0] is None:
+            # Table not migrated yet: this run of `migrate` is about to create
+            # it, and sync_lexeme_ranks is the documented next step.
+            return []
+        if trigger_installed(cursor):
+            return []
+
+    return [
+        Error(
+            f"HYBRID_FTS_LEXEME_RANK_INDEX is enabled but the {TRIGGER_NAME} trigger "
+            "is not installed, so the lexeme-rank table would go stale and searches "
+            "fall back to the ts_rank path.",
+            id="pgsearch.E006",
+            hint="Run `./manage.py sync_lexeme_ranks` (or disable the flag).",
         )
     ]
 

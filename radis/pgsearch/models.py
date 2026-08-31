@@ -56,6 +56,35 @@ class ReportSearchIndex(models.Model):
         super().save(*args, **kwargs)
 
 
+class LexemeRank(models.Model):
+    """One row per (report, lexeme) with the exact ``ts_rank`` value the FTS
+    arm computes for a single-term query of that lexeme -- an impact-ordered
+    posting list. Serves the single-word fast path behind
+    ``HYBRID_FTS_LEXEME_RANK_INDEX``; multi-term queries cannot use it (their
+    combined score exists only per query) and keep the ``ts_rank`` path.
+    Maintained by a database trigger installed by ``sync_lexeme_ranks``, not
+    by the ORM -- rows follow ``ReportSearchIndex.search_vector`` writes."""
+
+    report = models.ForeignKey(Report, on_delete=models.CASCADE, related_name="lexeme_ranks")
+    report_id: int
+    lexeme = models.TextField()
+    rank = models.FloatField()
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["report", "lexeme"], name="pgsearch_lexemerank_uniq"),
+        ]
+        indexes = [
+            # The impact order: (lexeme, rank DESC, report) serves "top N
+            # reports for one lexeme" as a bounded index-range walk that
+            # matches the fast path's ORDER BY exactly.
+            models.Index(fields=["lexeme", "-rank", "report"], name="pgsearch_lexeme_rank_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"Lexeme rank of report {self.report_id}"
+
+
 class EmbeddingBackfillRun(models.Model):
     """One operator-triggered embedding backfill (`embed_pending` or the
     admin enqueue action). At most one run is active at a time, enforced by
