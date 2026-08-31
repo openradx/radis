@@ -58,6 +58,49 @@ overrides -- set them in `.env` only if the defaults do not suit your hardware.
 | `POSTGRES_MAX_WORKER_PROCESSES` | `8` | As above. |
 | `POSTGRES_SHARED_BUFFERS` | `128MB` | PostgreSQL's default. Around 25% of host RAM is the usual recommendation; a value larger than the container's memory will prevent PostgreSQL from starting. |
 
+### Reclaiming space after the search-projection migration
+
+The release that added the search projection rewrites every row of the report
+index table, which roughly doubles it on disk -- measured at 8 million reports,
+the table grew from 10 GB to 21 GB. Autovacuum reclaims the dead rows within
+minutes and no action is needed to keep the database healthy, but reclaiming
+them does not shrink the file: the space is marked reusable and stays allocated.
+
+Search scans that table, so until the space is reused the scan reads about twice
+the pages it needs to. How much that costs depends on whether the inflated table
+still fits the host's page cache:
+
+- **It fits.** Expect roughly the page-count ratio, near 1.9x on the scan. At
+  8 million reports the inflated table is about 27 GB including indexes, so any
+  host with 64 GB or more stays in this case.
+- **It does not fit.** The scan starts reading from disk and the penalty grows
+  well beyond 2x. On a 31 GB test host with about 20 GB of page cache, a query
+  matching every report took 2,550 ms inflated against 870 ms compacted.
+
+**This resolves on its own.** New reports are written into the freed space, so a
+growing archive returns to its normal size without intervention. On most
+installations that is the right thing to do: wait.
+
+If search is measurably slow and you do not want to wait, the table can be
+compacted -- but read this first, because the cheap-looking option is a trap
+when embeddings are in use:
+
+- **With `EMBEDDINGS_MODEL` set** (the normal production setup), do **not** run
+  `VACUUM FULL`, and never inside a deployment window. It rebuilds every index on
+  the table, including the HNSW vector index, which means building an HNSW graph
+  over millions of vectors while holding an `ACCESS EXCLUSIVE` lock. That can run
+  for hours with search unavailable throughout. Use
+  [`pg_repack`](https://reorg.github.io/pg_repack/) instead: it performs the same
+  compaction without holding a long exclusive lock.
+- **With `EMBEDDINGS_MODEL` empty** (full-text search only), the HNSW rebuild is
+  a no-op and `VACUUM FULL pgsearch_reportsearchindex;` is cheap -- 3 minutes for
+  8 million reports. It still takes an `ACCESS EXCLUSIVE` lock, so run it in a
+  maintenance window, and make sure the filesystem has room for a second copy of
+  the table while it runs.
+
+A plain `VACUUM` is not an alternative for this: it reclaims dead rows, which
+autovacuum has already done, and leaves the file at its inflated size.
+
 ## User and Group Management
 
 Administrators can create users by navigating to the Django Admin section. Alternatively, users can self-register, after which an administrator must approve and activate their account.
