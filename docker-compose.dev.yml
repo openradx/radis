@@ -27,9 +27,8 @@ services:
       - never
 
   # In development `web` runs the migrations the workers below wait for, so
-  # WAIT_INIT_TIMEOUT must outlast the longest migration here too (the search
-  # projection backfill takes about ten minutes at 8M reports). There is no
-  # restart policy in dev, so a timeout leaves the worker containers exited.
+  # their WAIT_INIT_TIMEOUT must outlast the longest migration too. Dev has no
+  # restart policy, so a timeout leaves the worker containers exited.
   web:
     <<: *default-app
     image: radis_dev-web:latest
