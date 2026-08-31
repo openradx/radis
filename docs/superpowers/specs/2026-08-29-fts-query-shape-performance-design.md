@@ -342,10 +342,20 @@ tuples, and a plain `VACUUM` clears every dead tuple while leaving the file at
 Chunking and creating indexes last (steps 3 and 4) did **not** prevent this — the
 rows grow by ~120 bytes, so most updated tuples cannot fit back into their
 original page and HOT does not apply. The doubling should be treated as expected,
-not as something the migration avoids. The consequence is a sequential scan
-reading roughly twice what it needs to, and the 882 ms in §2 already includes that
-penalty; on a compacted table the same query would land nearer 450–650 ms. It
-resolves on its own as the archive grows into the free space.
+not as something the migration avoids. The consequence is worse than the linear
+2x it looks like, because the inflated table stops fitting the page cache.
+Measured on the 8M rig: at a 22 GB heap (27 GB total) `findings` took
+**2,550 ms** and `pneumonia` **3,271 ms**; after a `VACUUM FULL` took the heap to
+11 GB (13 GB total) the same queries took **870 ms** and **818 ms** — about 2.9x,
+on a 31 GB host with ~20 GB of page cache.
+
+The 882 ms in §2 therefore describes the *compacted* state, not the bloated one.
+An earlier draft of this section claimed the reverse and predicted 450–650 ms
+after compaction; compaction was measured at 870 ms, so that prediction was
+wrong in both directions. The penalty resolves on its own as the archive grows
+into the free space. A site whose post-migration table no longer fits RAM will
+see the bloated figures until then, and can reclaim the space sooner only with
+the caveats below.
 
 **Do not run `VACUUM FULL` from the migration, and do not recommend it blindly.**
 It rebuilds every index on the table, including `pgsearch_embedding_hnsw`; on a
