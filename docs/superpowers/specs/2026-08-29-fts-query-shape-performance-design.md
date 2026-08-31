@@ -67,6 +67,7 @@ Recorded because each is the obvious question a reviewer will raise.
 | Rewrite the joins as `EXISTS` | Worse: 1.55 s vs 1.05 s (1M rig). The planner still hashes. |
 | Materialised id-only CTE, joins on narrow rows, then rank | Worse: 11,460 ms for `findings`, 3,089 ms for `pneumonia` at 5M. The joins are still over 5,001,000 rows. **This was the only way to avoid duplicating access-control data without changing the domain model (see §6), and it does not work.** |
 | `strip()`ped second tsvector for ranking | Rejected (1M rig). 1.4x faster but collapses `ts_rank` to **1 distinct value** across 200,000 matching rows — `strip()` removes the positions that encode term frequency, so the ordering becomes a no-op. |
+| Lowering `autovacuum_vacuum_scale_factor` during the backfill | Dropped, unmeasured. The intent was for one chunk's dead tuples to be reused by the next, but rows grow ~120 bytes so new versions rarely fit the freed slots, and a cost-throttled autovacuum cannot keep pace with a chunk every few seconds. The 10 GB → 21 GB doubling in §4.4 was measured without it and is expected regardless. A site that hits steady-state bloat can `ALTER TABLE ... SET` it without a migration. |
 | Restricting recall ("rank only the most recent N", "refuse broad queries") | Withdrawn. No production search engine restricts recall; they restrict pagination depth and count precision. Not needed here anyway. |
 
 ## 4. Design
@@ -294,27 +295,32 @@ untouched — `page_rows` still `select_related("report")` for `ts_headline` ove
    multi-minute backfill still land correctly. A chunk that later reprocesses the
    same row simply rewrites the same current values.
 3. **Backfill**, chunked by `report_id` range (50,000 rows) with one transaction
-   per chunk (hence `atomic = False`). Each chunk is a set-based `UPDATE ... FROM
-   reports_report` with two lateral `array_agg` subqueries for the arrays. The
-   migration lowers `autovacuum_vacuum_scale_factor` on the table for the
-   duration and resets it after, so dead tuples from one chunk are reclaimed and
-   reused by the next rather than accumulating across the run. The chunk size is
-   a constant, not a setting: a migration is a historical record and should do
-   the same thing on every machine.
-4. **Create indexes last, then `VACUUM ANALYZE`.** Building GIN indexes on empty
+   per chunk (hence `atomic = False`). Each chunk locks its rows (`SELECT ...
+   FOR UPDATE`) and then applies a set-based `UPDATE ... FROM reports_report`
+   with two lateral `array_agg` subqueries for the arrays. The lock pass closes
+   an EvalPlanQual window under READ COMMITTED, where a stale aggregate could
+   silently restore a group a concurrent trigger had just removed. The chunk
+   size is a constant, not a setting: a migration is a historical record and
+   should do the same thing on every machine.
+4. **Create indexes last, then `ANALYZE`.** Building GIN indexes on empty
    columns is wasted work — but the stronger reason is that while the new columns
    are unindexed the backfill can use HOT updates, whose old row versions are
    reclaimed by page pruning without index cleanup. That is the main defence
    against the bloat below, so this ordering must not be changed. The `ANALYZE`
    is required, not hygiene: ten new columns and two new indexes carry no
    statistics, and this design depends on the planner choosing a parallel
-   sequential scan with a top-N heapsort.
+   sequential scan with a top-N heapsort. No `VACUUM` alongside it: it cannot
+   run inside a transaction block, so it would cost this migration its
+   atomicity; it does not shrink the file (see below); and rewriting every row
+   puts the table far past the autovacuum threshold, so autovacuum does the
+   same work unattended minutes later.
 
 **Deployment consequences.** `docker-compose.prod.yml` runs `manage.py migrate`
 in the `init` service and `web` waits on it, so the backfill blocks the deploy
 rather than serving half-projected rows — the right failure mode for
 access-control data. Deploy time therefore grows with corpus size: **measured at
-9 min 20 s for 8M reports**, in 50,000-row chunks. That extrapolates to roughly
+9 min 20 s for 8M reports**, in 50,000-row chunks — a floor, since that run
+predates the per-chunk lock pass in step 3. That extrapolates to roughly
 18 minutes at 15M. Adding the ten columns is genuinely free (1.3 ms, confirming
 the metadata-only claim); the nine minutes is the row rewrite.
 

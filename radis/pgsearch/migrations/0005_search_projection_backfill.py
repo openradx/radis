@@ -1,7 +1,7 @@
 """Backfill the ReportSearchIndex search projection for existing rows.
 
 atomic = False so each chunk commits on its own: at the 8M design target this
-runs for about nine and a half minutes, and one transaction that long would
+runs for roughly ten minutes, and one transaction that long would
 pin an equally long-lived snapshot.
 
 Runs after the triggers (0004) on purpose. A report edited during the backfill
