@@ -417,7 +417,6 @@ def test_sync_projection_blocks_a_concurrent_trigger_write():
     assert not worker.is_alive(), "the concurrent writer never finished"
     assert outcome["result"] == "blocked", outcome
 
-    # The lock was the only obstacle: the same removal goes through now.
     report.groups.remove(group)
     assert ReportSearchIndex.objects.get(report=report).group_ids == []
 

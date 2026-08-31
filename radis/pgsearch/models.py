@@ -25,11 +25,10 @@ class ReportSearchIndex(models.Model):
     # Search projection: mirrors of the Report fields the scan filters on, so
     # the FTS candidate query stays single-table. Maintained by the triggers in
     # migration 0004 and populated on creation by signals.py / indexing.py.
-    # Every column is either nullable (the scalars) or NOT NULL with a constant
-    # default (the two arrays, DEFAULT '{}'); both forms keep the AddField in
-    # migration 0003 metadata-only on a large table. The scalars stay nullable
-    # rather than being tightened afterwards, which would cost a validating
-    # table scan for no benefit -- check_search_projection guards against drift.
+    # The scalars are nullable and the arrays NOT NULL with a constant default,
+    # which is what keeps adding a column here metadata-only on a large table.
+    # Tightening them afterwards would cost a validating scan for no benefit:
+    # check_search_projection guards against drift.
     group_ids = ArrayField(models.IntegerField(), default=list)
     modality_codes = ArrayField(models.CharField(max_length=16), default=list)
     language_code = models.CharField(max_length=10, null=True)  # noqa: DJ001
