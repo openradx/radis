@@ -172,8 +172,9 @@ def register_app():
             name="PG Search",
             search=search,
             # Deliberate cap on how many fused RRF results are paginated for
-            # viewing — not the true union size.
-            max_results=max(settings.HYBRID_VECTOR_TOP_K, settings.HYBRID_FTS_MAX_RESULTS),
+            # viewing — not the true union size (the vector side can add up to
+            # a beam pass of semantic-only results beyond the FTS matches).
+            max_results=settings.HYBRID_FTS_MAX_RESULTS,
         )
     )
 
