@@ -352,10 +352,11 @@ on a 31 GB host with ~20 GB of page cache.
 The 882 ms in §2 therefore describes the *compacted* state, not the bloated one.
 An earlier draft of this section claimed the reverse and predicted 450–650 ms
 after compaction; compaction was measured at 870 ms, so that prediction was
-wrong in both directions. The penalty resolves on its own as the archive grows
-into the free space. A site whose post-migration table no longer fits RAM will
-see the bloated figures until then, and can reclaim the space sooner only with
-the caveats below.
+wrong in both directions. The free space is only consumed by net new inserts (an update frees its own old
+version), so it amounts to one full copy of the table waiting on roughly as many
+new reports as the archive already holds -- many years at hospital ingest rates.
+Treat the penalty as persistent until the table is compacted deliberately, with
+the caveats below, rather than as something that decays.
 
 **Do not run `VACUUM FULL` from the migration, and do not recommend it blindly.**
 It rebuilds every index on the table, including `pgsearch_embedding_hnsw`; on a
@@ -363,8 +364,10 @@ deployment with embeddings populated that is an HNSW rebuild over millions of
 vectors — plausibly hours, under an ACCESS EXCLUSIVE lock — and it needs peak
 disk for old plus new (~19 GB at 5M). Sites that want the space returned should
 run it deliberately in a maintenance window knowing that cost, or use `pg_repack`
-if they have it. This design requires neither. Most sites will not need it: an
-archive that keeps growing refills the freed space on its own.
+if they have it. This design requires neither to be correct, but a deployment
+with embeddings populated should expect to run `pg_repack` once after the
+migration: `VACUUM FULL` is an HNSW rebuild there, and waiting for organic
+refill is a multi-year proposition.
 
 An online alternative — resumable backfill command plus a feature flag on the
 query path — was considered and rejected: it doubles the query-layer code for

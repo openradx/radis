@@ -77,13 +77,16 @@ still fits the host's page cache:
   well beyond 2x. On a 31 GB test host with about 20 GB of page cache, a query
   matching every report took 2,550 ms inflated against 870 ms compacted.
 
-**This resolves on its own.** New reports are written into the freed space, so a
-growing archive returns to its normal size without intervention. On most
-installations that is the right thing to do: wait.
+**Do not expect this to resolve on its own within any useful timeframe.** The
+backfill leaves free space equal to roughly one full copy of the table, and only
+*net new* reports consume it -- an update frees its own old row version, so
+report edits are space-neutral. Refilling an 8-million-row archive therefore
+takes on the order of 8 million new reports, which at typical hospital volumes is
+many years. Emptied pages stay part of the table and are still read by every
+scan.
 
-If search is measurably slow and you do not want to wait, the table can be
-compacted -- but read this first, because the cheap-looking option is a trap
-when embeddings are in use:
+Plan to compact the table once after this migration -- but read this first,
+because the obvious tool is a trap when embeddings are in use:
 
 - **With `EMBEDDINGS_MODEL` set** (the normal production setup), do **not** run
   `VACUUM FULL`, and never inside a deployment window. It rebuilds every index on
