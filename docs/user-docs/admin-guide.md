@@ -85,24 +85,70 @@ takes on the order of 8 million new reports, which at typical hospital volumes i
 many years. Emptied pages stay part of the table and are still read by every
 scan.
 
-Plan to compact the table once after this migration -- but read this first,
-because the obvious tool is a trap when embeddings are in use:
+Plan to compact the table once after this migration. The tool is
+`VACUUM FULL pgsearch_reportsearchindex;`, and it needs a maintenance window.
 
-- **With `EMBEDDINGS_MODEL` set** (the normal production setup), do **not** run
-  `VACUUM FULL`, and never inside a deployment window. It rebuilds every index on
-  the table, including the HNSW vector index, which means building an HNSW graph
-  over millions of vectors while holding an `ACCESS EXCLUSIVE` lock. That can run
-  for hours with search unavailable throughout. Use
-  [`pg_repack`](https://reorg.github.io/pg_repack/) instead: it performs the same
-  compaction without holding a long exclusive lock.
-- **With `EMBEDDINGS_MODEL` empty** (full-text search only), the HNSW rebuild is
-  a no-op and `VACUUM FULL pgsearch_reportsearchindex;` is cheap -- 3 minutes for
-  8 million reports. It still takes an `ACCESS EXCLUSIVE` lock, so run it in a
-  maintenance window, and make sure the filesystem has room for a second copy of
-  the table while it runs.
+**Do not bolt this onto the upgrade window.** Nothing is broken in the meantime
+-- the system is fully functional, search is just slower -- so deploy the release
+first, bring the stack back up, and schedule the compaction separately. That way
+a long compaction never blocks a release.
 
-A plain `VACUUM` is not an alternative for this: it reclaims dead rows, which
-autovacuum has already done, and leaves the file at its inflated size.
+**Budget the time realistically.** Copying the table is the quick part. The cost
+is dominated by rebuilding the HNSW vector index, because `VACUUM FULL` relocates
+every row and so invalidates and rebuilds every index on the table. Building an
+HNSW graph over millions of vectors takes hours, and `VACUUM FULL` holds an
+`ACCESS EXCLUSIVE` lock for the whole operation, so search is unavailable
+throughout. With `EMBEDDINGS_MODEL` empty there is no HNSW index to rebuild and
+the whole thing takes minutes instead (measured: 3 minutes for 8 million
+reports).
+
+Nothing is recomputed and nothing is lost. Embeddings are stored data and are
+copied across as they are -- the embedding service is never called, and the index
+is rebuilt from the vectors already in the table.
+
+Before starting:
+
+- **Free disk.** Both copies of the table exist at once, so the filesystem needs
+  room for the compacted table on top of the inflated one.
+- **Raise `maintenance_work_mem`** for the session. pgvector builds the HNSW
+  graph in memory when it fits and falls back to a much slower on-disk path when
+  it does not. At 8 million rows and 1024 dimensions the vectors alone are tens of
+  gigabytes, so the default leaves you on the slow path. Set it as high as the
+  host can spare, for example `SET maintenance_work_mem = '32GB';` in the same
+  session as the `VACUUM FULL`.
+- **Enable maintenance mode** so users get an explanation rather than timeouts.
+
+If hours of unavailable search is not acceptable, there are two ways to shorten
+it, both optional:
+
+- **Rebuild the vector index separately.** Drop the HNSW index first, run
+  `VACUUM FULL` (now minutes, since only small indexes are rebuilt), bring the
+  stack back up, then recreate the index without blocking:
+
+  ```sql
+  DROP INDEX pgsearch_embedding_hnsw;
+  VACUUM FULL pgsearch_reportsearchindex;
+  -- bring the stack back up here, then:
+  CREATE INDEX CONCURRENTLY pgsearch_embedding_hnsw
+    ON pgsearch_reportsearchindex USING hnsw (embedding vector_cosine_ops)
+    WITH (m = 16, ef_construction = 64);
+  ```
+
+  This trades hours of full downtime for minutes of downtime plus hours of
+  degraded semantic search: without the index, vector similarity falls back to an
+  exact scan over every row, which is very slow on a large archive. Full-text
+  search is unaffected. Keep the index name and definition exactly as above, or
+  Django's migration state will no longer match the database. If
+  `CREATE INDEX CONCURRENTLY` fails it leaves an invalid index behind -- drop it
+  and retry.
+- **Use [`pg_repack`](https://reorg.github.io/pg_repack/)**, which does the same
+  compaction against a shadow copy while the table stays online, taking a brief
+  exclusive lock only at the swap. It is not part of the PostgreSQL image RADIS
+  ships, so this means building or installing the extension and its client binary
+  first.
+
+A plain `VACUUM` is not an alternative for any of this: it reclaims dead rows,
+which autovacuum has already done, and leaves the file at its inflated size.
 
 ## User and Group Management
 

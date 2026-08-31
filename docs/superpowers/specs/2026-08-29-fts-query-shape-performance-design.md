@@ -365,9 +365,11 @@ vectors — plausibly hours, under an ACCESS EXCLUSIVE lock — and it needs pea
 disk for old plus new (~19 GB at 5M). Sites that want the space returned should
 run it deliberately in a maintenance window knowing that cost, or use `pg_repack`
 if they have it. This design requires neither to be correct, but a deployment
-with embeddings populated should expect to run `pg_repack` once after the
-migration: `VACUUM FULL` is an HNSW rebuild there, and waiting for organic
-refill is a multi-year proposition.
+with embeddings populated should expect to compact once after the migration,
+since waiting for organic refill is a multi-year proposition. The accepted
+approach for this deployment is a `VACUUM FULL` in its own maintenance window,
+scheduled separately from the release. The admin guide carries the procedure and
+the options for shortening the outage.
 
 An online alternative — resumable backfill command plus a feature flag on the
 query path — was considered and rejected: it doubles the query-layer code for
