@@ -42,7 +42,7 @@ uv run cli db-backup                 # Backup database
 ### Tech Stack
 
 - **Backend**: Python 3.12+, Django 6.0+, PostgreSQL 17
-- **Search**: pg_vector (semantic), pg_search (full-text), hybrid ranking
+- **Search**: PostgreSQL full-text search (tsvector), pg_vector (semantic), hybrid RRF ranking
 - **Async**: Daphne (ASGI), Django Channels, Procrastinate (task queue)
 - **Frontend**: Django templates, Cotton components, HTMX, Alpine.js, Bootstrap 5
 - **LLM**: External OpenAI-compatible API endpoint
@@ -86,7 +86,7 @@ Analysis operations follow a Job -> Task pattern (similar to ADIT):
 - **default_worker**: General background task processor (Procrastinate queue: `default`)
 - **llm_worker**: LLM-specific task processor (Procrastinate queue: `llm`)
 - **embeddings_worker**: Embedding task processor (Procrastinate queue: `embeddings`)
-- **postgres**: PostgreSQL 17 with pg_vector and pg_search extensions (port 5432)
+- **postgres**: PostgreSQL 17 with the pg_vector extension (port 5432)
 
 ### LLM Endpoint
 
@@ -155,6 +155,9 @@ Labeling uses the shared core LLM client (`radis.core.utils.llm_client`); its ti
 - **Comments**: only where the code cannot speak for itself; explain *why*, not *what*
 - **No history in comments**: describe the code as it is, not how it changed — that
   belongs in the commit message (docstrings too)
+- **Keep the docs in sync**: when a change adds a feature or alters behaviour that the
+  docs describe (`README.md`, `docs/`, this file, in-app help templates), update them in
+  the same PR
 
 ## Key Dependencies
 
@@ -219,7 +222,7 @@ reports = response.json()
 
 ### Search Not Returning Expected Results
 
-- Check PostgreSQL extensions are installed: `pg_vector`, `pg_search`
+- Check the `vector` extension is installed in PostgreSQL
 - Verify report has `body` text indexed
 - Check search provider is configured in settings
 - Review QueryParser syntax for complex queries

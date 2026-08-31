@@ -6,14 +6,15 @@ consistency and readability across our project.
 Code Style
 We adhere to the Google Python Style [Guide](https://google.github.io/styleguide/pyguide.html).
 
-This repository includes a [Dev Container](https://code.visualstudio.com/docs/devcontainers/create-dev-container).
-If you open the project in VS Code after cloning, you should see a prompt:
+This repository includes a [Dev Container](https://code.visualstudio.com/docs/devcontainers/create-dev-container)
+with Python, uv and the Docker CLI. If you open the project in VS Code after cloning, you should see a prompt:
 
 “Reopen in Dev Container”
 
-Click it, and VS Code will automatically build and open the development environment.
-
-The development server of the example project will be started on <http://localhost:8000>
+Click it, and VS Code builds and opens the development environment. The dev container does not
+run Docker itself: it talks to the Docker daemon of your machine, so the RADIS containers started
+below run on your host next to the dev container. Docker Desktop, OrbStack or a native Docker
+installation is required either way.
 
 ## Getting Started
 
@@ -25,7 +26,7 @@ cp ./example.env ./.env  # adjust the environment variables to your needs
 uv run cli compose-up -- --watch
 ```
 
-File changes will be automatically detected and the servers will be restarted. When library dependencies are changed, the containers will automatically be rebuilt and restarted.
+The development server is then available on <http://localhost:8000>. File changes are detected automatically and the servers restart. When library dependencies change, the containers are rebuilt and restarted.
 
 ### LLM Setup
 
@@ -190,9 +191,8 @@ uv run cli compose-up  # restart containers (migrations run automatically)
 - For major database schema changes, consider backing up first: `uv run cli db-backup`
 
 !!! note "Development vs Production"
-
-**Development**: Use `uv run cli compose-up` for local development
-**Production**: Use `uv run cli stack-deploy` for production deployment with Docker Swarm
+    **Development**: Use `uv run cli compose-up` for local development.
+    **Production**: Use `uv run cli stack-deploy` for production deployment with Docker Swarm.
 
 ## Reporting Issues
 
