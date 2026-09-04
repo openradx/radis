@@ -11,7 +11,7 @@
     <form action="{% url 'subscription_update' object.id %}" method="post">
         {% csrf_token %}
         {% crispy form %}
-        <div class="d-flex gap-2 ">
+        <div class="d-flex gap-2">
             <a href="{% url 'subscription_detail' object.id %}"
                class="btn btn-secondary">Cancel</a>
             <button type="submit" class="btn btn-primary">Update Subscription</button>

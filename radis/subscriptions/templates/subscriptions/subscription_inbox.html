@@ -1,4 +1,4 @@
-{% extends 'subscriptions/subscription_layout.html' %}
+{% extends "subscriptions/subscription_layout.html" %}
 {% load crispy from crispy_forms_tags %}
 {% load bootstrap_icon from common_extras %}
 {% block title %}
@@ -13,20 +13,16 @@
             {# Sorting Controls and Download Button #}
             <div class="mb-3 d-flex justify-content-between align-items-center">
                 <div class="btn-group btn-group-sm" role="group" aria-label="Sort options">
-                    <a href="?sort_by=created_at&order=desc{% if request.GET.per_page %}&per_page={{ request.GET.per_page }}{% endif %}{% for key, value in request.GET.items %}{% if key != 'sort_by' and key != 'order' and key != 'page' and key != 'per_page' %}&{{ key }}={{ value }}{% endif %}{% endfor %}"
-                       class="btn btn-outline-secondary {% if current_sort_by == 'created_at' and current_order == 'desc' %}active{% endif %}">
+                    <a href="?sort_by=created_at&order=desc{% if request.GET.per_page %}&per_page={{ request.GET.per_page }}{% endif %}{% for key, value in request.GET.items %}{% if key != 'sort_by' and key != 'order' and key != 'page' and key != 'per_page' %}&{{ key }}={{ value }}{% endif %}{% endfor %}" class="btn btn-outline-secondary {% if current_sort_by == 'created_at' and current_order == 'desc' %}active{% endif %}">
                         Newest First
                     </a>
-                    <a href="?sort_by=created_at&order=asc{% if request.GET.per_page %}&per_page={{ request.GET.per_page }}{% endif %}{% for key, value in request.GET.items %}{% if key != 'sort_by' and key != 'order' and key != 'page' and key != 'per_page' %}&{{ key }}={{ value }}{% endif %}{% endfor %}"
-                       class="btn btn-outline-secondary {% if current_sort_by == 'created_at' and current_order == 'asc' %}active{% endif %}">
+                    <a href="?sort_by=created_at&order=asc{% if request.GET.per_page %}&per_page={{ request.GET.per_page }}{% endif %}{% for key, value in request.GET.items %}{% if key != 'sort_by' and key != 'order' and key != 'page' and key != 'per_page' %}&{{ key }}={{ value }}{% endif %}{% endfor %}" class="btn btn-outline-secondary {% if current_sort_by == 'created_at' and current_order == 'asc' %}active{% endif %}">
                         Oldest First
                     </a>
-                    <a href="?sort_by=study_date&order=desc{% if request.GET.per_page %}&per_page={{ request.GET.per_page }}{% endif %}{% for key, value in request.GET.items %}{% if key != 'sort_by' and key != 'order' and key != 'page' and key != 'per_page' %}&{{ key }}={{ value }}{% endif %}{% endfor %}"
-                       class="btn btn-outline-secondary {% if current_sort_by == 'study_date' and current_order == 'desc' %}active{% endif %}">
+                    <a href="?sort_by=study_date&order=desc{% if request.GET.per_page %}&per_page={{ request.GET.per_page }}{% endif %}{% for key, value in request.GET.items %}{% if key != 'sort_by' and key != 'order' and key != 'page' and key != 'per_page' %}&{{ key }}={{ value }}{% endif %}{% endfor %}" class="btn btn-outline-secondary {% if current_sort_by == 'study_date' and current_order == 'desc' %}active{% endif %}">
                         Study Date (Newest)
                     </a>
-                    <a href="?sort_by=study_date&order=asc{% if request.GET.per_page %}&per_page={{ request.GET.per_page }}{% endif %}{% for key, value in request.GET.items %}{% if key != 'sort_by' and key != 'order' and key != 'page' and key != 'per_page' %}&{{ key }}={{ value }}{% endif %}{% endfor %}"
-                       class="btn btn-outline-secondary {% if current_sort_by == 'study_date' and current_order == 'asc' %}active{% endif %}">
+                    <a href="?sort_by=study_date&order=asc{% if request.GET.per_page %}&per_page={{ request.GET.per_page }}{% endif %}{% for key, value in request.GET.items %}{% if key != 'sort_by' and key != 'order' and key != 'page' and key != 'per_page' %}&{{ key }}={{ value }}{% endif %}{% endfor %}" class="btn btn-outline-secondary {% if current_sort_by == 'study_date' and current_order == 'asc' %}active{% endif %}">
                         Study Date (Oldest)
                     </a>
                 </div>

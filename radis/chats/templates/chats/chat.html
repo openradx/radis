@@ -8,17 +8,17 @@
             <c-page-heading title="New Chat" />
         {% else %}
             <c-page-heading title="Chat: {{ chat.title }}">
-            <c-slot name="right">
-            <form action="{% url 'chat_delete' chat.id %}" method="post">
-                {% csrf_token %}
-                <button type="submit"
-                        class="btn btn-danger"
-                        onclick="return confirm(`Really delete this chat '{{ chat.pk }}'?`)">
-                    {% bootstrap_icon "trash" %}
-                    Delete
-                </button>
-            </form>
-            </c-slot>
+                <c-slot name="right">
+                    <form action="{% url 'chat_delete' chat.id %}" method="post">
+                        {% csrf_token %}
+                        <button type="submit"
+                                class="btn btn-danger"
+                                onclick="return confirm(`Really delete this chat '{{ chat.pk }}'?`)">
+                            {% bootstrap_icon "trash" %}
+                            Delete
+                        </button>
+                    </form>
+                </c-slot>
             </c-page-heading>
         {% endif %}
     </div>
@@ -43,7 +43,8 @@
                                     @click.prevent="full=false"
                                     x-cloak
                                     x-show="full">[Collapse text]</button>
-                            <a href="{% url 'report_detail' report.id %}" title="Report details">{% bootstrap_icon "box-arrow-in-down-right" %}</a>
+                            <a href="{% url 'report_detail' report.id %}"
+                               title="Report details">{% bootstrap_icon "box-arrow-in-down-right" %}</a>
                         </div>
                     </div>
                 </div>
