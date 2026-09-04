@@ -9,12 +9,12 @@
 {% endblock title %}
 {% block heading %}
     <c-page-heading title="Extraction Job">
-    <c-slot name="right">
-    <a href="{% url 'extraction_job_list' %}" class="btn btn-secondary">
-        {% bootstrap_icon "list" %}
-        Job List
-    </a>
-    </c-slot>
+        <c-slot name="right">
+            <a href="{% url 'extraction_job_list' %}" class="btn btn-secondary">
+                {% bootstrap_icon "list" %}
+                Job List
+            </a>
+        </c-slot>
     </c-page-heading>
 {% endblock heading %}
 {% block content %}
@@ -134,23 +134,23 @@
     </ul>
     {% if not job.is_preparing %}
         <c-table-heading title="Extraction Tasks">
-        <c-slot name="left">
-        <div class="d-flex gap-2">
-            <a href="{% url 'extraction_result_list' job.id %}"
-               class="btn btn-sm btn-primary">
-                {% bootstrap_icon "eye" %}
-                View Results
-            </a>
-            <a href="{% url 'extraction_result_download' job.id %}"
-               class="btn btn-sm btn-success">
-                {% bootstrap_icon "download" %}
-                Download CSV
-            </a>
-        </div>
-        </c-slot>
-        <c-slot name="right">
-        {% crispy filter.form %}
-        </c-slot>
+            <c-slot name="left">
+                <div class="d-flex gap-2">
+                    <a href="{% url 'extraction_result_list' job.id %}"
+                       class="btn btn-sm btn-primary">
+                        {% bootstrap_icon "eye" %}
+                        View Results
+                    </a>
+                    <a href="{% url 'extraction_result_download' job.id %}"
+                       class="btn btn-sm btn-success">
+                        {% bootstrap_icon "download" %}
+                        Download CSV
+                    </a>
+                </div>
+            </c-slot>
+            <c-slot name="right">
+                {% crispy filter.form %}
+            </c-slot>
         </c-table-heading>
         {% render_table table %}
     {% else %}

@@ -5,23 +5,23 @@
 {% endblock title %}
 {% block heading %}
     <c-page-heading title="Subscription {{ subscription.name }}">
-    <c-slot name="right">
-    <a href="{% url 'subscription_update' subscription.id %}"
-       class="btn btn-primary">
-        {% bootstrap_icon "pencil" %}
-        Edit
-    </a>
-    <form action="{% url 'subscription_delete' subscription.id %}"
-          method="post">
-        {% csrf_token %}
-        <button type="submit"
-                class="btn btn-danger"
-                onclick="return confirm(`Really delete subscription '{{ subscription.name }}'?`)">
-            {% bootstrap_icon "trash" %}
-            Delete
-        </button>
-    </form>
-    </c-slot>
+        <c-slot name="right">
+            <a href="{% url 'subscription_update' subscription.id %}"
+               class="btn btn-primary">
+                {% bootstrap_icon "pencil" %}
+                Edit
+            </a>
+            <form action="{% url 'subscription_delete' subscription.id %}"
+                  method="post">
+                {% csrf_token %}
+                <button type="submit"
+                        class="btn btn-danger"
+                        onclick="return confirm(`Really delete subscription '{{ subscription.name }}'?`)">
+                    {% bootstrap_icon "trash" %}
+                    Delete
+                </button>
+            </form>
+        </c-slot>
     </c-page-heading>
 {% endblock heading %}
 {% block content %}

@@ -204,6 +204,14 @@ REGISTRATION_FORM = "adit_radis_shared.accounts.forms.RegistrationForm"
 ACCOUNT_ACTIVATION_DAYS = 14
 REGISTRATION_OPEN = True
 
+# The mailers available for sending email, overridden per environment.
+MAILERS = {
+    "default": {
+        "BACKEND": "django.core.mail.backends.smtp.EmailBackend",
+        "OPTIONS": {"host": "localhost", "port": 25},
+    },
+}
+
 EMAIL_SUBJECT_PREFIX = "[RADIS] "
 
 # An Email address used by the RADIS server to notify about finished jobs and
