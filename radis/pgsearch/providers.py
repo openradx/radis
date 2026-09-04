@@ -3,6 +3,7 @@ import json
 import logging
 import unicodedata
 from collections.abc import Iterator
+from datetime import date, datetime, time, timedelta
 from typing import Literal, NamedTuple, cast
 
 import openai
@@ -10,6 +11,7 @@ from django.conf import settings
 from django.contrib.postgres.search import SearchHeadline, SearchQuery, SearchRank
 from django.core.cache import cache
 from django.db.models import Case, F, FloatField, Q, TextField, Value, When
+from django.utils import timezone
 from pgvector.django import CosineDistance
 
 from radis.core.utils.embedding_client import (
@@ -180,48 +182,58 @@ def _exclude_negations(queryset, node: QueryNode, configs: list[tuple[str, list[
         return queryset
     for config, codes in configs:
         negative_tsquery = SearchQuery(negative_query_str, search_type="raw", config=config)
-        queryset = queryset.exclude(
-            Q(report__language__code__in=codes) & Q(search_vector=negative_tsquery)
-        )
+        queryset = queryset.exclude(Q(language_code__in=codes) & Q(search_vector=negative_tsquery))
     return queryset
 
 
+def _local_day_start(day: date) -> datetime:
+    """Midnight of ``day`` in the active timezone, as an aware datetime."""
+    return timezone.make_aware(datetime.combine(day, time.min))
+
+
 def _build_filter_query(filters: SearchFilters) -> Q:
-    # Group-scoped access control: a report is only visible to a group when its
-    # ``groups`` M2M includes that group. This mirrors the report access model
-    # used everywhere else (e.g. ``Report.objects.filter(groups=active_group)``
-    # in radis.reports.views.ReportListView/ReportDetailView and the
-    # ``groups=active_group`` lookup in radis.chats.views). ``SearchView``
-    # supplies ``group=active_group.pk``; the extraction search preview may pass
-    # ``group=None`` when the user has no active group, which is fail-closed:
-    # ``Q(report__groups=None)`` becomes ``groups__isnull=True`` and matches only
-    # reports assigned to no group at all. The filter stays unconditional; without
-    # it the search would leak reports belonging only to other groups.
-    fq = Q(report__groups=filters.group)
+    # Every predicate here is a column on ReportSearchIndex itself -- the search
+    # projection (see migration 0003) mirrors the Report fields search filters
+    # on, so the candidate query stays single-table. Reintroducing a ``report__``
+    # traversal restores the join and the multi-second query shape it caused;
+    # test_filter_query_plan_is_single_table guards against that.
+    #
+    # Group-scoped access control. ``SearchView`` supplies
+    # ``group=active_group.pk``; the extraction preview may pass ``group=None``
+    # when the user has no active group, which is fail-closed: an empty
+    # ``group_ids`` matches only reports assigned to no group at all.
+    if filters.group is None:
+        fq = Q(group_ids=[])
+    else:
+        fq = Q(group_ids__contains=[filters.group])
 
     # Apply hard filter criteria
     if filters.patient_sex:
-        fq &= Q(report__patient_sex=filters.patient_sex)
+        fq &= Q(patient_sex=filters.patient_sex)
     if filters.language:
-        fq &= Q(report__language__code=filters.language)
+        fq &= Q(language_code=filters.language)
     if filters.modalities:
-        fq &= Q(report__modalities__code__in=filters.modalities)
+        fq &= Q(modality_codes__overlap=filters.modalities)
+    # Half-open ranges rather than ``__date``: Django compiles that lookup to
+    # ``(study_datetime AT TIME ZONE ...)::date``, a function over the column
+    # evaluated once per row -- millions of timezone conversions per query on
+    # the sequential scan, for a predicate equal to two timestamp comparisons.
     if filters.study_date_from:
-        fq &= Q(report__study_datetime__date__gte=filters.study_date_from)
+        fq &= Q(study_datetime__gte=_local_day_start(filters.study_date_from))
     if filters.study_date_till:
-        fq &= Q(report__study_datetime__date__lte=filters.study_date_till)
+        fq &= Q(study_datetime__lt=_local_day_start(filters.study_date_till + timedelta(days=1)))
     if filters.study_description:
-        fq &= Q(report__study_description__icontains=filters.study_description)
+        fq &= Q(study_description__icontains=filters.study_description)
     if filters.patient_age_from is not None:
-        fq &= Q(report__patient_age__gte=filters.patient_age_from)
+        fq &= Q(patient_age__gte=filters.patient_age_from)
     if filters.patient_age_till is not None:
-        fq &= Q(report__patient_age__lte=filters.patient_age_till)
+        fq &= Q(patient_age__lte=filters.patient_age_till)
     if filters.patient_id:
-        fq &= Q(report__patient_id=filters.patient_id)
+        fq &= Q(patient_id=filters.patient_id)
     if filters.created_after:
-        fq &= Q(report__created_at__gte=filters.created_after)
+        fq &= Q(report_created_at__gte=filters.created_after)
     if filters.created_before:
-        fq &= Q(report__created_at__lte=filters.created_before)
+        fq &= Q(report_created_at__lte=filters.created_before)
     if filters.labels:
         from radis.labels.models import LabelResult
         from radis.reports.models import Report
@@ -230,9 +242,9 @@ def _build_filter_query(filters: SearchFilters) -> Q:
             label_results__label__name__in=filters.labels,
             label_results__value__in=LabelResult.SURFACING_VALUES,
         ).values("pk")
-        fq &= Q(report__in=surfacing_report_ids)
+        fq &= Q(report_id__in=surfacing_report_ids)
     if filters.updated_after:
-        fq &= Q(report__updated_at__gte=filters.updated_after)
+        fq &= Q(report_updated_at__gte=filters.updated_after)
 
     return fq
 
@@ -332,6 +344,53 @@ def _embed_query_cached(query_text: str, caller: str) -> list[float] | None:
     return vec
 
 
+def _fts_candidate_queryset(filter_query: Q, configs: list[tuple[str, list[str]]], query_str: str):
+    """The FTS candidate query: the single-table scan this whole design exists for.
+
+    Kept as its own function rather than inlined in ``_fuse_hybrid`` so that
+    ``test_fts_candidate_query_is_single_table`` can assert on the SQL and the
+    ``EXPLAIN`` plan of exactly the queryset production runs -- filters, tsquery
+    match, rank annotation, ordering and bound included, not a re-creation of
+    it. Everything referenced here must be a column on ``ReportSearchIndex``
+    itself: one lookup or annotation traversing the ``report`` relation restores
+    the joins and the multi-second query shape (see migration 0003).
+    """
+    tsqueries = {
+        config: SearchQuery(query_str, search_type="raw", config=config) for config, _ in configs
+    }
+
+    # A document matches only under the configuration it was indexed with.
+    match_q = Q()
+    for config, codes in configs:
+        match_q |= Q(language_code__in=codes, search_vector=tsqueries[config])
+
+    # Rank strictly under the document's own configuration. Do not swap this for
+    # Greatest over all configurations: a foreign config's ts_rank is not
+    # reliably ~0 (a term whose stem equals itself scores the same under every
+    # config), and Greatest would also need a special case for one branch.
+    rank_expr = Case(
+        *[
+            When(
+                language_code__in=codes,
+                then=SearchRank(F("search_vector"), tsqueries[config]),
+            )
+            for config, codes in configs
+        ],
+        default=Value(0.0),
+        output_field=FloatField(),
+    )
+
+    # No .distinct(): with no joins there is nothing to deduplicate, and it
+    # would block the top-N heapsort that keeps this query sub-second.
+    return (
+        ReportSearchIndex.objects.filter(filter_query)
+        .filter(match_q)
+        .annotate(rank=rank_expr)
+        .order_by("-rank", "report_id")
+        .values("report_id", "rank")[: settings.HYBRID_FTS_MAX_RESULTS]
+    )
+
+
 class _FusedHybrid(NamedTuple):
     ordered_ids: list[int]
     rrf_score_by_id: dict[int, float]
@@ -352,30 +411,6 @@ def _fuse_hybrid(search: Search, caller: str) -> _FusedHybrid:
     query_str = _build_query_string(search.query)
     configs = _language_configs(search.filters)
     filter_query = _build_filter_query(search.filters)
-    tsqueries = {
-        config: SearchQuery(query_str, search_type="raw", config=config) for config, _ in configs
-    }
-
-    # A document matches only under the configuration it was indexed with.
-    match_q = Q()
-    for config, codes in configs:
-        match_q |= Q(report__language__code__in=codes, search_vector=tsqueries[config])
-
-    # Rank strictly under the document's own configuration. Do not swap this for
-    # Greatest over all configurations: a foreign config's ts_rank is not
-    # reliably ~0 (a term whose stem equals itself scores the same under every
-    # config), and Greatest would also need a special case for one branch.
-    rank_expr = Case(
-        *[
-            When(
-                report__language__code__in=codes,
-                then=SearchRank(F("search_vector"), tsqueries[config]),
-            )
-            for config, codes in configs
-        ],
-        default=Value(0.0),
-        output_field=FloatField(),
-    )
 
     # Vector side: skipped entirely when no embedding model is configured (FTS-only
     # deployment), and when stripping NOT branches leaves nothing to embed (see
@@ -391,8 +426,7 @@ def _fuse_hybrid(search: Search, caller: str) -> _FusedHybrid:
         vec_qs = ReportSearchIndex.objects.filter(filter_query)
         vec_qs = _exclude_negations(vec_qs, search.query, configs)
         vec_rows = list(
-            vec_qs.distinct()
-            .exclude(embedding__isnull=True)
+            vec_qs.exclude(embedding__isnull=True)
             .annotate(distance=CosineDistance("embedding", query_vec))
             .order_by("distance", "report_id")
             .values_list("report_id", "distance")[: settings.HYBRID_VECTOR_TOP_K]
@@ -405,16 +439,7 @@ def _fuse_hybrid(search: Search, caller: str) -> _FusedHybrid:
     # ``configs`` means an empty corpus (Report.language is a required FK), and
     # an empty match_q would match every row rather than none, so skip it.
     fts_rows = (
-        []
-        if not configs
-        else list(
-            ReportSearchIndex.objects.filter(filter_query)
-            .distinct()
-            .filter(match_q)
-            .annotate(rank=rank_expr)
-            .order_by("-rank", "report_id")
-            .values("report_id", "rank")[: settings.HYBRID_FTS_MAX_RESULTS]
-        )
+        [] if not configs else list(_fts_candidate_queryset(filter_query, configs, query_str))
     )
     fts_rank = {row["report_id"]: i + 1 for i, row in enumerate(fts_rows)}
 
@@ -476,17 +501,14 @@ def search(search: Search) -> SearchResult:
     # highlights/scores nothing. A one-branch Case is legal (unlike Greatest),
     # so this covers the single-configuration case too with no special-casing.
     summary_expr = Case(
-        *[
-            When(report__language__code__in=codes, then=_headline(config))
-            for config, codes in configs
-        ],
+        *[When(language_code__in=codes, then=_headline(config)) for config, codes in configs],
         default=Value(""),
         output_field=TextField(),
     )
     rank_expr = Case(
         *[
             When(
-                report__language__code__in=codes,
+                language_code__in=codes,
                 then=SearchRank(F("search_vector"), tsqueries[config]),
             )
             for config, codes in configs

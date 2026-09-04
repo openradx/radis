@@ -8,6 +8,7 @@ from radis.reports.models import Report
 
 from ..models import ReportSearchIndex
 from .language_utils import code_to_language
+from .projection import sync_projection
 
 logger = logging.getLogger(__name__)
 
@@ -70,3 +71,5 @@ def bulk_upsert_report_search_indexes(
                     """,
                     [config, config_ids],
                 )
+
+        sync_projection(chunk)
