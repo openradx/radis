@@ -95,7 +95,7 @@ default-groups = ["dev", "client", "docs"]
 constraint-dependencies = ["autobahn<25.11.1"]
 
 [tool.uv.sources]
-adit-radis-shared = { git = "https://github.com/openradx/adit-radis-shared.git", tag = "0.27.0" }
+adit-radis-shared = { git = "https://github.com/openradx/adit-radis-shared.git", tag = "0.28.0" }
 radis-client = { path = "./radis-client", editable = true }
 
 [tool.pyright]
