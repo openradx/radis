@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import math
 
-import httpx
+import httpx2
 import openai
 from django.conf import settings
 
@@ -42,11 +42,11 @@ class EmbeddingClientError(Exception):
     layer, the rate-limit gate) match on the SDK types directly."""
 
 
-def _build_http_client() -> httpx.Client:
-    """Indirection so tests can swap in an httpx.MockTransport. The returned
+def _build_http_client() -> httpx2.Client:
+    """Indirection so tests can swap in an httpx2.MockTransport. The returned
     client is passed to openai.OpenAI(http_client=...); the SDK applies
     EMBEDDINGS_REQUEST_TIMEOUT_SECONDS per request, so no timeout is set here."""
-    return httpx.Client()
+    return httpx2.Client()
 
 
 def _l2_normalize(vec: list[float]) -> list[float]:
