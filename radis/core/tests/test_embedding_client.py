@@ -1,6 +1,6 @@
 import json
 
-import httpx
+import httpx2
 import pytest
 from django.test import override_settings
 
@@ -21,14 +21,14 @@ def _patched_settings():
 
 
 def _install_transport(monkeypatch, handler):
-    """Swap in an httpx.MockTransport via the module's _build_http_client seam.
+    """Swap in an httpx2.MockTransport via the module's _build_http_client seam.
     The returned client gets passed to openai.OpenAI(http_client=...)."""
     from radis.core.utils import embedding_client as ec
 
     monkeypatch.setattr(
         ec,
         "_build_http_client",
-        lambda: httpx.Client(transport=httpx.MockTransport(handler)),
+        lambda: httpx2.Client(transport=httpx2.MockTransport(handler)),
     )
 
 
@@ -51,11 +51,11 @@ def test_embed_documents_posts_payload_and_normalizes(monkeypatch):
 
     seen = {}
 
-    def handler(request: httpx.Request) -> httpx.Response:
+    def handler(request: httpx2.Request) -> httpx2.Response:
         seen["url"] = str(request.url)
         seen["auth"] = request.headers.get("authorization")
         seen["body"] = json.loads(request.content)
-        return httpx.Response(
+        return httpx2.Response(
             200,
             json={
                 "object": "list",
@@ -90,9 +90,9 @@ def test_embed_query_prepends_instruction(monkeypatch):
 
     seen = {}
 
-    def handler(request: httpx.Request) -> httpx.Response:
+    def handler(request: httpx2.Request) -> httpx2.Response:
         seen["body"] = json.loads(request.content)
-        return httpx.Response(
+        return httpx2.Response(
             200,
             json={
                 "object": "list",
@@ -118,8 +118,8 @@ def test_embed_query_prepends_instruction(monkeypatch):
 def test_dim_too_small_raises(monkeypatch):
     from radis.core.utils import embedding_client as ec
 
-    def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        return httpx2.Response(
             200,
             json={
                 "object": "list",
@@ -145,8 +145,8 @@ def test_dim_too_small_raises(monkeypatch):
 def test_oversized_embedding_truncates_and_renormalizes(monkeypatch):
     from radis.core.utils import embedding_client as ec
 
-    def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        return httpx2.Response(
             200,
             json={
                 "object": "list",
@@ -176,8 +176,8 @@ def test_5xx_propagates_as_typed_openai_error(monkeypatch):
 
     from radis.core.utils import embedding_client as ec
 
-    def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(503, text="service unavailable")
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        return httpx2.Response(503, text="service unavailable")
 
     _install_transport(monkeypatch, handler)
     with pytest.raises(openai.InternalServerError):
@@ -199,8 +199,8 @@ def test_429_propagates_as_typed_rate_limit_error(monkeypatch):
 
     from radis.core.utils import embedding_client as ec
 
-    def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(429, json={"error": {"message": "slow down"}})
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        return httpx2.Response(429, json={"error": {"message": "slow down"}})
 
     _install_transport(monkeypatch, handler)
     with pytest.raises(openai.RateLimitError):
@@ -222,8 +222,8 @@ def test_400_propagates_as_typed_bad_request_error(monkeypatch):
 
     from radis.core.utils import embedding_client as ec
 
-    def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        return httpx2.Response(
             400,
             json={"error": {"message": "invalid model", "param": "model", "code": 400}},
         )
@@ -248,8 +248,8 @@ def test_embed_query_runs_through_gate_with_query_budget(monkeypatch):
 
     monkeypatch.setattr(ec, "run_through_gate", fake_run_through_gate)
 
-    def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, json={"data": [{"embedding": [1.0, 0.0, 0.0, 0.0]}]})
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        return httpx2.Response(200, json={"data": [{"embedding": [1.0, 0.0, 0.0, 0.0]}]})
 
     _install_transport(monkeypatch, handler)
 
@@ -284,8 +284,8 @@ def test_429_through_real_gate_raises_rate_limited_and_arms_gate(monkeypatch):
     # Undo the autouse passthrough: this test exercises the real gate wiring.
     monkeypatch.setattr(ec, "run_through_gate", run_through_gate)
 
-    def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        return httpx2.Response(
             429,
             headers={"retry-after": "30"},
             json={"error": {"message": "slow down"}},
@@ -321,8 +321,8 @@ def test_context_manager_closes_underlying_http_client(monkeypatch):
 
     closed = {"value": False}
 
-    def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        return httpx2.Response(
             200,
             json={
                 "object": "list",
@@ -332,7 +332,7 @@ def test_context_manager_closes_underlying_http_client(monkeypatch):
             },
         )
 
-    real_client = httpx.Client(transport=httpx.MockTransport(handler))
+    real_client = httpx2.Client(transport=httpx2.MockTransport(handler))
     original_close = real_client.close
 
     def tracking_close():
@@ -360,9 +360,9 @@ def test_model_spec_parameters_reach_the_request_body(monkeypatch):
 
     seen = {}
 
-    def handler(request: httpx.Request) -> httpx.Response:
+    def handler(request: httpx2.Request) -> httpx2.Response:
         seen["body"] = json.loads(request.content)
-        return httpx.Response(
+        return httpx2.Response(
             200,
             json={
                 "object": "list",
