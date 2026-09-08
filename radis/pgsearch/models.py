@@ -1,4 +1,5 @@
 from django.conf import settings
+from django.contrib.postgres.fields import ArrayField
 from django.contrib.postgres.indexes import GinIndex
 from django.contrib.postgres.search import SearchVector, SearchVectorField
 from django.db import models
@@ -21,6 +22,24 @@ class ReportSearchIndex(models.Model):
     search_vector = SearchVectorField(null=True)
     embedding = VectorField(dimensions=settings.EMBEDDINGS_DIM, null=True)
 
+    # Search projection: mirrors of the Report fields the scan filters on, so
+    # the FTS candidate query stays single-table. Maintained by the triggers in
+    # migration 0004 and populated on creation by signals.py / indexing.py.
+    # The scalars are nullable and the arrays NOT NULL with a constant default,
+    # which is what keeps adding a column here metadata-only on a large table.
+    # Tightening them afterwards would cost a validating scan for no benefit:
+    # check_search_projection guards against drift.
+    group_ids = ArrayField(models.IntegerField(), default=list)
+    modality_codes = ArrayField(models.CharField(max_length=16), default=list)
+    language_code = models.CharField(max_length=10, null=True)  # noqa: DJ001
+    patient_sex = models.CharField(max_length=1, null=True)  # noqa: DJ001
+    patient_age = models.IntegerField(null=True)
+    patient_id = models.CharField(max_length=64, null=True)  # noqa: DJ001
+    study_datetime = models.DateTimeField(null=True)
+    study_description = models.CharField(max_length=64, blank=True, null=True)  # noqa: DJ001
+    report_created_at = models.DateTimeField(null=True)
+    report_updated_at = models.DateTimeField(null=True)
+
     class Meta:
         verbose_name = "Report search index"
         verbose_name_plural = "Report search indexes"
@@ -41,6 +60,8 @@ class ReportSearchIndex(models.Model):
                 condition=models.Q(embedding__isnull=True),
                 name="pgsearch_pending_embedding_idx",
             ),
+            GinIndex(fields=["group_ids"], name="pgsearch_group_ids_gin"),
+            models.Index(fields=["report_updated_at"], name="pgsearch_report_updated_at_idx"),
         ]
 
     def __str__(self) -> str:
