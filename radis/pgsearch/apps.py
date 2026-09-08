@@ -157,9 +157,7 @@ def register_app():
     from radis.search.site import SearchProvider, register_search_provider
     from radis.subscriptions.site import (
         SubscriptionFilterProvider,
-        SubscriptionRetrievalProvider,
         register_subscription_filter_provider,
-        register_subscription_retrieval_provider,
     )
 
     from .providers import count, filter, retrieve, search
@@ -186,12 +184,6 @@ def register_app():
         )
     )
 
-    register_subscription_retrieval_provider(
-        SubscriptionRetrievalProvider(
-            name="PG Search",
-            retrieve=retrieve,
-        )
-    )
     register_subscription_filter_provider(
         SubscriptionFilterProvider(
             name="PG Search",
