@@ -146,6 +146,17 @@ Worker-crash recovery (`radis.core`):
 
 Labeling uses the shared core LLM client (`radis.core.utils.llm_client`); its timeout, rate-limit gate, and transient-retry knobs are the global `LLM_REQUEST_TIMEOUT_SECONDS`, `LLM_RATE_LIMIT_*`, and `LLM_TRANSIENT_RETRY_*` settings.
 
+PostgreSQL parallelism (compose-only overrides, not in `example.env` — set in `.env`
+only to override the compose file's default):
+
+- `POSTGRES_MAX_PARALLEL_WORKERS_PER_GATHER`: Parallel workers per query node scanning
+  the report index (default `4`, raised from PostgreSQL's own default of `2`)
+- `POSTGRES_MAX_PARALLEL_WORKERS`, `POSTGRES_MAX_WORKER_PROCESSES`: Cluster-wide worker
+  pool sizes (each defaults to `8`, PostgreSQL's own default). Raise together with
+  `POSTGRES_MAX_PARALLEL_WORKERS_PER_GATHER` on a larger host
+- `POSTGRES_SHARED_BUFFERS`: PostgreSQL's shared memory buffer (default `128MB`,
+  PostgreSQL's own default)
+
 ## Code Standards
 
 - **Style Guide**: Google Python Style Guide
