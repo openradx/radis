@@ -115,10 +115,12 @@ Five call sites, each a one-line `.live()` (or the equivalent
 `report__withdrawn_at__isnull=True` across a relation):
 
 1. `reports.views.ReportDetailView.get_queryset()` — a withdrawn report 404s;
-   `ReportBodyView` inherits the queryset.
+   `ReportBodyView` inherits the queryset, and `ReportListView` (the browse
+   page) filters `.live()` as well.
 2. `collections.views.CollectionDetailView.get_queryset()`
    (`collection.reports.live()`). Where a visible report count is rendered,
-   count `.live()` too, so number and list agree.
+   count `.live()` too, so number and list agree. The Excel export
+   (`export_collection`) iterates the same live set.
 3. `notes.views` — `NoteListView` filters across the relation, and the
    per-report views (`NoteEditView`, `NoteAvailableBadgeView`) look the
    report up `.live()` and 404 when it is withdrawn.
