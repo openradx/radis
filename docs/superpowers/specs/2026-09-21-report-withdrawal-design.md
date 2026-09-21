@@ -210,7 +210,7 @@ bulk-withdraws thousands.
   withdrawn, and flags it in the response; the withdrawal fields are not
   writable through the serializer; the bulk-upsert summary lists withdrawn
   ids; `GET` still returns withdrawn reports for admins.
-- **Views**: all five direct-read surfaces hide a withdrawn report, and it
+- **Views**: all six direct-read surfaces hide a withdrawn report, and it
   reappears after restore.
 - **Admin**: the reason is mandatory; withdraw sets the fields and writes a
   `LogEntry`; restore clears them; the dedicated page lists only withdrawn
