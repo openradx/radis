@@ -7,12 +7,16 @@
         {# The crispy layout's HTML includes resolve `form` from the outer #}
         {# context (like the loop below provides), so it must be set here too. #}
         {% with form=formset.empty_form %}
-            <c-formset-form>{% crispy form %}</c-formset-form>
+            <c-formset-form>
+                {% crispy form %}
+            </c-formset-form>
         {% endwith %}
     </template>
     <div class="formset-forms">
         {% for form in formset %}
-            <c-formset-form>{% crispy form %}</c-formset-form>
+            <c-formset-form>
+                {% crispy form %}
+            </c-formset-form>
         {% endfor %}
     </div>
     {% if add_form_label %}

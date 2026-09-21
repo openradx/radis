@@ -442,11 +442,11 @@ def test_openai_rate_limit_error_falls_back_to_fts(group, reports_with_embedding
     """A 429 from the embedding service on the read path must trigger the FTS
     fallback, not bubble to the search view. This is the typed-openai parallel
     of test_embedding_failure_falls_back_to_fts."""
-    import httpx
+    import httpx2
     import openai
 
     r0, _, r2 = reports_with_embeddings
-    response = httpx.Response(429, request=httpx.Request("POST", "http://x"))
+    response = httpx2.Response(429, request=httpx2.Request("POST", "http://x"))
     rate_limit_exc = openai.RateLimitError(message="slow down", response=response, body=None)
     with patch("radis.pgsearch.providers.EmbeddingClient") as MockClient:
         MockClient.return_value.__enter__.return_value = MockClient.return_value
@@ -478,11 +478,11 @@ def test_rate_limited_falls_back_to_fts(group, reports_with_embeddings):
 
 def test_openai_rate_limit_error_in_retrieve_falls_back_to_fts(group, reports_with_embeddings):
     """Same parallel for retrieve()."""
-    import httpx
+    import httpx2
     import openai
 
     r0, _, r2 = reports_with_embeddings
-    response = httpx.Response(429, request=httpx.Request("POST", "http://x"))
+    response = httpx2.Response(429, request=httpx2.Request("POST", "http://x"))
     rate_limit_exc = openai.RateLimitError(message="slow down", response=response, body=None)
     with patch("radis.pgsearch.providers.EmbeddingClient") as MockClient:
         MockClient.return_value.__enter__.return_value = MockClient.return_value

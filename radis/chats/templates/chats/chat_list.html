@@ -6,21 +6,21 @@
 {% endblock title %}
 {% block heading %}
     <c-page-heading title="Chats">
-    <c-slot name="right">
-    <form action="{% url 'chat_clear_all' %}" method="post">
-        {% csrf_token %}
-        <button type="submit"
-                class="btn btn-danger"
-                onclick="return confirm(`Really delete all chats?`)">
-            {% bootstrap_icon "trash" %}
-            Clear all
-        </button>
-    </form>
-    <a href="{% url 'chat_create' %}" class="btn btn-primary">
-        {% bootstrap_icon "plus-lg" %}
-        New chat
-    </a>
-    </c-slot>
+        <c-slot name="right">
+            <form action="{% url 'chat_clear_all' %}" method="post">
+                {% csrf_token %}
+                <button type="submit"
+                        class="btn btn-danger"
+                        onclick="return confirm(`Really delete all chats?`)">
+                    {% bootstrap_icon "trash" %}
+                    Clear all
+                </button>
+            </form>
+            <a href="{% url 'chat_create' %}" class="btn btn-primary">
+                {% bootstrap_icon "plus-lg" %}
+                New chat
+            </a>
+        </c-slot>
     </c-page-heading>
 {% endblock heading %}
 {% block content %}

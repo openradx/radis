@@ -41,7 +41,7 @@ uv run cli db-backup                 # Backup database
 
 ### Tech Stack
 
-- **Backend**: Python 3.12+, Django 6.0+, PostgreSQL 17
+- **Backend**: Python 3.12+, Django 6.1+, PostgreSQL 17
 - **Search**: PostgreSQL full-text search (tsvector), pg_vector (semantic), hybrid RRF ranking
 - **Async**: Daphne (ASGI), Django Channels, Procrastinate (task queue)
 - **Frontend**: Django templates, Cotton components, HTMX, Alpine.js, Bootstrap 5
