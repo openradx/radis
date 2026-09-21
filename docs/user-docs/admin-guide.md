@@ -288,3 +288,35 @@ To create an API token for programmatic access:
 ### Revoking Tokens
 
 - **Admins** can revoke tokens by navigating to **Django Admin** --> **Token Authentication**
+
+## Withdrawing Reports
+
+Withdrawing takes a report out of circulation without deleting it: it
+disappears from search, report lists, collections, notes, chats and
+subscription inboxes, and running extraction or subscription jobs skip it. The
+report row itself is kept and can be restored at any time.
+
+### Withdraw
+
+1. **Navigate** to **Django Admin** --> **Reports**.
+2. **Select** the reports to withdraw using the checkboxes.
+3. **Choose** the action **"Withdraw selected reports"** and click **"Go"**.
+4. **Enter a reason** on the confirmation page and confirm. The reason, the
+   acting user and the timestamp are stored on the report.
+
+### Restore
+
+1. **Navigate** to **Django Admin** --> **Withdrawn reports** (the dedicated
+   listing; it shows who withdrew each report, when and why).
+2. **Select** the reports and run **"Restore selected reports"**.
+3. Restored reports reappear everywhere immediately. Restoring clears the
+   stored reason/user/timestamp; the admin log keeps a record of both actions.
+
+### Withdrawn Reports and the API
+
+The REST API (admin-only) still returns withdrawn reports and marks them with
+the read-only fields `withdrawn` and `withdrawn_at`. An upsert
+(`PUT ...?upsert=true` or bulk upsert) that targets a withdrawn report updates
+its content but does **not** restore it -- re-imports never undo a withdrawal.
+The bulk upsert response lists the affected ids under `"withdrawn"`. Hard
+deletion via the API or admin remains available and is unaffected.
