@@ -2,6 +2,7 @@ from functools import cached_property
 from typing import TYPE_CHECKING
 
 from adit_radis_shared.common.models import AppSettings
+from django.conf import settings
 from django.contrib.auth.models import Group
 from django.db import models
 
@@ -37,6 +38,22 @@ class Modality(models.Model):
 
     def __str__(self) -> str:
         return self.code
+
+
+class ReportQuerySet(models.QuerySet["Report"]):
+    def live(self) -> "ReportQuerySet":
+        """Reports in circulation. Every user-facing read surface filters on
+        this; the admin and ingest paths deliberately use the unfiltered
+        default manager (see the withdrawal design spec, decision 4)."""
+        return self.filter(withdrawn_at__isnull=True)
+
+
+class ReportManager(models.Manager["Report"]):
+    def get_queryset(self) -> ReportQuerySet:
+        return ReportQuerySet(self.model, using=self._db)
+
+    def live(self) -> ReportQuerySet:
+        return self.get_queryset().live()
 
 
 class Report(models.Model):
@@ -81,6 +98,22 @@ class Report(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    # Withdrawal takes a report out of circulation without deleting it.
+    # withdrawn_at IS the state flag: NULL means live. who/why describe only
+    # the current withdrawal; restoring blanks all three (the admin log keeps
+    # the breadcrumbs).
+    withdrawn_at = models.DateTimeField(null=True, blank=True)
+    withdrawn_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+    )
+    withdrawal_reason = models.TextField(blank=True, default="")
+
+    objects: ReportManager = ReportManager()
+
     metadata: models.QuerySet["Metadata"]
     label_results: models.QuerySet["LabelResult"]
 
@@ -93,6 +126,10 @@ class Report(models.Model):
     @property
     def modality_codes(self) -> list[str]:
         return [modality.code for modality in self.modalities.all()]
+
+    @property
+    def is_withdrawn(self) -> bool:
+        return self.withdrawn_at is not None
 
     @cached_property
     def surfacing_label_results(self):
