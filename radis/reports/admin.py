@@ -1,10 +1,14 @@
 import logging
 
+from django import forms
 from django.contrib import admin, messages
+from django.contrib.admin import helpers
 from django.db import transaction
 from django.db.models.query import QuerySet
 from django.http.request import HttpRequest
 from django.http.response import HttpResponse
+from django.template.response import TemplateResponse
+from django.utils import timezone
 
 from radis.labels.models import LabelResult
 
@@ -72,8 +76,19 @@ class LabelResultInline(admin.TabularInline):
         return False
 
 
+class WithdrawReportsForm(forms.Form):
+    reason = forms.CharField(
+        label="Reason for withdrawal",
+        widget=forms.Textarea(attrs={"rows": 3}),
+    )
+
+
 class ReportAdmin(admin.ModelAdmin):
     inlines = [MetadataInline, LabelResultInline]
+    list_display = ("__str__", "is_withdrawn_display")
+    list_filter = (("withdrawn_at", admin.EmptyFieldListFilter),)
+    readonly_fields = ("withdrawn_at", "withdrawn_by", "withdrawal_reason")
+    actions = ("withdraw_selected",)
 
     def delete_model(self, request: HttpRequest, obj: Report) -> None:
         # Called when deleting a single report (from the admin form view)
@@ -112,6 +127,44 @@ class ReportAdmin(admin.ModelAdmin):
             lambda: [handler.handle([obj]) for handler in reports_updated_handlers]
         )
         return super().response_change(request, obj)
+
+    @admin.display(boolean=True, description="Withdrawn")
+    def is_withdrawn_display(self, obj: Report) -> bool:
+        return obj.is_withdrawn
+
+    @admin.action(description="Withdraw selected reports", permissions=["change"])
+    def withdraw_selected(
+        self, request: HttpRequest, queryset: QuerySet[Report]
+    ) -> HttpResponse | None:
+        queryset = queryset.filter(withdrawn_at__isnull=True)
+        form = WithdrawReportsForm(request.POST if "apply" in request.POST else None)
+        if "apply" in request.POST and form.is_valid():
+            reason = form.cleaned_data["reason"]
+            reports = list(queryset)
+            # update() on purpose: the projection trigger is the only sync a
+            # state flip needs; skipping post_save keeps re-embedding and
+            # label staleness out of it.
+            queryset.update(
+                withdrawn_at=timezone.now(),
+                withdrawn_by=request.user,
+                withdrawal_reason=reason,
+            )
+            for report in reports:
+                self.log_change(request, report, f"Withdrawn: {reason}")
+            self.message_user(request, f"Withdrew {len(reports)} report(s).", messages.SUCCESS)
+            return None
+        return TemplateResponse(
+            request,
+            "admin/reports/report/withdraw_selected_confirmation.html",
+            {
+                **self.admin_site.each_context(request),
+                "title": "Withdraw reports",
+                "queryset": queryset,
+                "form": form,
+                "opts": self.model._meta,
+                "action_checkbox_name": helpers.ACTION_CHECKBOX_NAME,
+            },
+        )
 
 
 admin.site.register(Report, ReportAdmin)
