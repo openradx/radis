@@ -292,9 +292,10 @@ To create an API token for programmatic access:
 ## Withdrawing Reports
 
 Withdrawing takes a report out of circulation without deleting it: it
-disappears from search, report lists, collections, notes, chats and
-subscription inboxes, and running extraction or subscription jobs skip it. The
-report row itself is kept and can be restored at any time.
+disappears from search, report lists, collections, notes, chats,
+subscription inboxes and extraction results, and running extraction or
+subscription jobs skip it. The report row itself is kept and can be restored
+at any time.
 
 ### Withdraw
 

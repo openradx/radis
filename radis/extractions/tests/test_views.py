@@ -2,6 +2,7 @@ import pytest
 from adit_radis_shared.accounts.factories import GroupFactory, UserFactory
 from django.contrib.auth.models import Permission
 from django.test import Client, override_settings
+from django.utils import timezone
 
 from radis.core.models import AnalysisTask
 from radis.extractions.factories import (
@@ -12,6 +13,7 @@ from radis.extractions.factories import (
 )
 from radis.extractions.models import ExtractionJob
 from radis.reports.factories import LanguageFactory, ReportFactory
+from radis.reports.models import Report
 
 
 def create_test_extraction_job(owner=None, group=None):
@@ -218,6 +220,28 @@ def test_extraction_result_list_view(client: Client):
     assert response.status_code == 200
 
 
+@pytest.mark.django_db
+def test_extraction_result_list_view_hides_withdrawn_reports(client: Client):
+    user = UserFactory.create(is_active=True)
+    job = create_test_extraction_job(owner=user)
+    task = create_test_extraction_task(job=job)
+    language = LanguageFactory.create(code="en")
+    live_report = ReportFactory.create(language=language)
+    withdrawn_report = ReportFactory.create(language=language)
+    live_instance = ExtractionInstanceFactory.create(task=task, report=live_report)
+    withdrawn_instance = ExtractionInstanceFactory.create(task=task, report=withdrawn_report)
+    Report.objects.filter(pk=withdrawn_report.pk).update(withdrawn_at=timezone.now())
+    client.force_login(user)
+
+    response = client.get(f"/extractions/jobs/{job.pk}/results/")
+
+    assert response.status_code == 200
+    assert live_instance in response.context["table"].data
+    assert withdrawn_instance not in response.context["table"].data
+    # The instance row survives; only the listing hides it.
+    assert task.instances.count() == 2
+
+
 @override_settings(DEBUG_TOOLBAR_CONFIG={"SHOW_TOOLBAR_CALLBACK": _hide_toolbar})
 @pytest.mark.django_db
 def test_extraction_result_download_view(client: Client):
@@ -309,6 +333,28 @@ def test_extraction_task_detail_view(client: Client):
     client.force_login(user)
     response = client.get(f"/extractions/tasks/{task.pk}/")
     assert response.status_code == 200
+
+
+@pytest.mark.django_db
+def test_extraction_task_detail_view_hides_withdrawn_reports(client: Client):
+    user = UserFactory.create(is_active=True)
+    job = create_test_extraction_job(owner=user)
+    task = create_test_extraction_task(job=job)
+    language = LanguageFactory.create(code="en")
+    live_report = ReportFactory.create(language=language)
+    withdrawn_report = ReportFactory.create(language=language)
+    live_instance = ExtractionInstanceFactory.create(task=task, report=live_report)
+    withdrawn_instance = ExtractionInstanceFactory.create(task=task, report=withdrawn_report)
+    Report.objects.filter(pk=withdrawn_report.pk).update(withdrawn_at=timezone.now())
+    client.force_login(user)
+
+    response = client.get(f"/extractions/tasks/{task.pk}/")
+
+    assert response.status_code == 200
+    assert live_instance in response.context["table"].data
+    assert withdrawn_instance not in response.context["table"].data
+    # The instance row survives; only the listing hides it.
+    assert task.instances.count() == 2
 
 
 @pytest.mark.django_db
@@ -418,6 +464,27 @@ def test_extraction_instance_detail_view(client: Client):
 
     response = client.get(f"/extractions/instances/{instance.pk}/")
     assert response.status_code == 200
+
+
+@pytest.mark.django_db
+def test_extraction_instance_detail_view_404s_for_withdrawn_report(client: Client):
+    user = UserFactory.create(is_active=True)
+    client.force_login(user)
+
+    job = create_test_extraction_job(owner=user)
+    task = create_test_extraction_task(job=job)
+    language = LanguageFactory.create(code="en")
+    live_report = ReportFactory.create(language=language)
+    withdrawn_report = ReportFactory.create(language=language)
+    live_instance = ExtractionInstanceFactory.create(task=task, report=live_report)
+    withdrawn_instance = ExtractionInstanceFactory.create(task=task, report=withdrawn_report)
+    Report.objects.filter(pk=withdrawn_report.pk).update(withdrawn_at=timezone.now())
+
+    live_response = client.get(f"/extractions/instances/{live_instance.pk}/")
+    withdrawn_response = client.get(f"/extractions/instances/{withdrawn_instance.pk}/")
+
+    assert live_response.status_code == 200
+    assert withdrawn_response.status_code == 404
 
 
 @pytest.mark.django_db

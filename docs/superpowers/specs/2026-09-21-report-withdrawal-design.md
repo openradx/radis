@@ -111,7 +111,7 @@ subscription refreshes all exclude withdrawn reports with no per-caller work.
 
 ### 5.2 Direct-read surfaces
 
-Five call sites, each a one-line `.live()` (or the equivalent
+Six call sites, each a one-line `.live()` (or the equivalent
 `report__withdrawn_at__isnull=True` across a relation):
 
 1. `reports.views.ReportDetailView.get_queryset()` — a withdrawn report 404s;
@@ -128,6 +128,11 @@ Five call sites, each a one-line `.live()` (or the equivalent
    `.live()`; the chat list hides chats whose report is withdrawn.
 5. Subscriptions inbox — `SubscribedItem` listings filter across the
    relation. Items stay in the database and reappear on restore.
+6. Extraction results — `ExtractionInstance.text` is a verbatim copy of the
+   report body, so the task detail listing, the instance detail page, the
+   result list and the CSV export all filter
+   `report__withdrawn_at__isnull=True`. Instance rows survive and reappear
+   on restore.
 
 ### 5.3 Worker re-checks
 
