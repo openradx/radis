@@ -42,6 +42,13 @@ def test_new_index_row_defaults_to_empty_arrays():
     assert index.modality_codes == []
 
 
+def test_new_index_row_defaults_to_not_withdrawn():
+    report = ReportFactory.create(language=LanguageFactory.create(code="en"))
+    index = ReportSearchIndex.objects.get(report=report)
+
+    assert index.withdrawn is False
+
+
 def test_adding_a_group_updates_the_projection():
     report = ReportFactory.create(language=LanguageFactory.create(code="en"))
     group = GroupFactory.create()
