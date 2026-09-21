@@ -18,7 +18,7 @@ class ReportListView(LoginRequiredMixin, PageSizeSelectMixin, FilterView):
     request: AuthenticatedHttpRequest
 
     def get_queryset(self) -> QuerySet[Report]:
-        return Report.objects.filter(groups=self.request.user.active_group).order_by(
+        return Report.objects.live().filter(groups=self.request.user.active_group).order_by(
             "-study_datetime"
         )
 
@@ -36,7 +36,7 @@ class ReportDetailView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
     def get_queryset(self) -> QuerySet[Report]:
         active_group = self.request.user.active_group
         assert active_group
-        return super().get_queryset().filter(groups=active_group)
+        return Report.objects.live().filter(groups=active_group)
 
 
 class ReportBodyView(ReportDetailView):
