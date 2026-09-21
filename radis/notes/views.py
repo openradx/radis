@@ -49,13 +49,12 @@ class NoteEditView(LoginRequiredMixin, HtmxOnlyMixin, UpdateView):
     template_name = "notes/_note_edit.html"
     request: AuthenticatedHttpRequest
 
-    def dispatch(self, request, *args, **kwargs):
-        # Creating or editing a note must not resurrect access to a withdrawn
-        # report; the guard covers GET (dialog) and POST (save) alike.
-        get_object_or_404(Report.objects.live(), pk=self.kwargs["report_id"])
-        return super().dispatch(request, *args, **kwargs)
-
     def get_object(self, queryset: QuerySet[Note] | None = None) -> Note | None:
+        # Creating or editing a note must not resurrect access to a withdrawn
+        # report; get_object runs on both GET and POST, after the auth and
+        # htmx mixins, and before any mutation.
+        get_object_or_404(Report.objects.live(), pk=self.kwargs["report_id"])
+
         if queryset is None:
             queryset = self.get_queryset()
 
