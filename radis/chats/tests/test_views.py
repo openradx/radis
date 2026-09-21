@@ -18,11 +18,13 @@ import pytest
 from adit_radis_shared.accounts.factories import UserFactory
 from channels.db import database_sync_to_async
 from django.http import HttpResponse
-from django.test import AsyncClient
+from django.test import AsyncClient, Client
 from django.urls import reverse
+from django.utils import timezone
 
 from radis.chats.models import Chat, ChatMessage, ChatRole
 from radis.reports.factories import ReportFactory
+from radis.reports.models import Report
 
 # HTMX marker header. Passed via ``headers=`` so the test client sets HTTP_HX_REQUEST,
 # which the views require (a missing header raises SuspiciousOperation -> 400).
@@ -328,3 +330,49 @@ async def test_create_chat_renders_an_error_when_the_provider_rejects_the_reques
     context = render_mock.call_args.args[2]
     assert context["error"]
     assert "busy" not in context["error"]
+
+
+# --------------------------------------------------------------------------- #
+# Withdrawn reports
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.django_db
+def test_chat_list_hides_chats_on_withdrawn_reports(client: Client):
+    user = UserFactory.create(is_active=True)
+    Chat.objects.create(owner=user, title="general chat")
+    report = ReportFactory.create()
+    Chat.objects.create(owner=user, title="report chat", report=report)
+    Report.objects.filter(pk=report.pk).update(withdrawn_at=timezone.now())
+    client.force_login(user)
+
+    response = client.get(reverse("chat_list"))
+
+    content = response.content.decode()
+    assert "general chat" in content
+    assert "report chat" not in content
+
+
+@pytest.mark.django_db
+def test_chat_detail_404s_when_report_withdrawn(client: Client):
+    user = UserFactory.create(is_active=True)
+    report = ReportFactory.create()
+    chat = Chat.objects.create(owner=user, title="report chat", report=report)
+    Report.objects.filter(pk=report.pk).update(withdrawn_at=timezone.now())
+    client.force_login(user)
+
+    response = client.get(reverse("chat_detail", args=[chat.pk]))
+
+    assert response.status_code == 404
+
+
+@pytest.mark.django_db
+def test_chat_detail_still_serves_reportless_chats(client: Client):
+    user = UserFactory.create(is_active=True)
+    chat = Chat.objects.create(owner=user, title="general chat")
+    client.force_login(user)
+
+    with _stub_render():
+        response = client.get(reverse("chat_detail", args=[chat.pk]))
+
+    assert response.status_code == 200
