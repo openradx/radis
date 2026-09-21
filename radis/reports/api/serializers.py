@@ -46,6 +46,7 @@ class ReportSerializer(serializers.ModelSerializer):
     language = LanguageSerializer()
     metadata = MetadataSerializer(many=True)
     modalities = ModalitySerializer(many=True)
+    withdrawn = serializers.BooleanField(source="is_withdrawn", read_only=True)
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
@@ -64,6 +65,9 @@ class ReportSerializer(serializers.ModelSerializer):
     class Meta:
         model = Report
         fields = "__all__"
+        # Withdrawal is an admin-page action; no API write can set or clear it
+        # (spec decision 1: an upsert updates content but never restores).
+        read_only_fields = ("withdrawn_at", "withdrawn_by", "withdrawal_reason")
 
     def _strip_unique_validator(self, field_name: str) -> None:
         field = self.fields.get(field_name)
