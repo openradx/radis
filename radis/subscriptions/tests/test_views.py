@@ -67,6 +67,28 @@ def test_subscription_list_view_filters_by_owner(client: Client):
 
 
 @pytest.mark.django_db
+def test_subscription_list_view_counts_exclude_withdrawn_reports(client: Client):
+    user = UserFactory.create(is_active=True)
+    subscription = create_test_subscription(owner=user)
+    live_report = ReportFactory.create(language=LanguageFactory.create(code="en"))
+    withdrawn_report = ReportFactory.create(language=LanguageFactory.create(code="en"))
+    SubscribedItem.objects.create(subscription=subscription, report=live_report)
+    SubscribedItem.objects.create(subscription=subscription, report=withdrawn_report)
+    Report.objects.filter(pk=withdrawn_report.pk).update(withdrawn_at=timezone.now())
+    client.force_login(user)
+
+    response = client.get("/subscriptions/")
+
+    assert response.status_code == 200
+    table_data = list(response.context["table"].data)
+    annotated = next(s for s in table_data if s.pk == subscription.pk)
+    assert annotated.num_reports == 1
+    assert annotated.num_new_reports == 1
+    # Both item rows survive; only the counts hide the withdrawn one.
+    assert subscription.items.count() == 2
+
+
+@pytest.mark.django_db
 def test_subscription_create_view_get(client: Client):
     user = UserFactory.create(is_active=True)
     group = GroupFactory.create()
