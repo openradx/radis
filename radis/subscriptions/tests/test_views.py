@@ -3,16 +3,18 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from adit_radis_shared.accounts.factories import GroupFactory, UserFactory
 from django.test import Client
+from django.urls import reverse
+from django.utils import timezone
 
 from radis.extractions.factories import OutputFieldFactory
 from radis.reports.factories import LanguageFactory, ReportFactory
-from radis.reports.models import Modality
+from radis.reports.models import Modality, Report
 from radis.subscriptions.factories import (
     FilterQuestionFactory,
     SubscribedItemFactory,
     SubscriptionFactory,
 )
-from radis.subscriptions.models import Subscription
+from radis.subscriptions.models import SubscribedItem, Subscription
 
 
 def create_test_subscription(owner=None, group=None, name=None):
@@ -769,3 +771,22 @@ def test_staff_inbox_visit_does_not_update_owners_last_viewed_at(client: Client)
 
     subscription.refresh_from_db()
     assert subscription.last_viewed_at is None
+
+
+@pytest.mark.django_db
+def test_subscription_inbox_hides_withdrawn_reports(client: Client):
+    user = UserFactory.create(is_active=True)
+    subscription = SubscriptionFactory.create(owner=user)
+    live = ReportFactory.create(language=LanguageFactory.create(code="en"))
+    withdrawn = ReportFactory.create(language=LanguageFactory.create(code="en"))
+    live_item = SubscribedItem.objects.create(subscription=subscription, report=live)
+    SubscribedItem.objects.create(subscription=subscription, report=withdrawn)
+    Report.objects.filter(pk=withdrawn.pk).update(withdrawn_at=timezone.now())
+    client.force_login(user)
+
+    response = client.get(reverse("subscription_inbox", args=[subscription.pk]))
+
+    assert response.status_code == 200
+    assert list(response.context["object_list"]) == [live_item]
+    # The inbox row survives for when the report is restored.
+    assert SubscribedItem.objects.filter(subscription=subscription).count() == 2

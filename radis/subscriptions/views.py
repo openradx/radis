@@ -260,6 +260,7 @@ class SubscriptionInboxView(
         ordering = self.get_ordering()
         return (
             SubscribedItem.objects.filter(subscription_id=subscription.pk)
+            .filter(report__withdrawn_at__isnull=True)
             .select_related("subscription")
             .prefetch_related(
                 "report",
@@ -347,6 +348,7 @@ class SubscriptionInboxDownloadView(LoginRequiredMixin, RelatedFilterMixin, Deta
         ordering = self.get_ordering()
         return (
             SubscribedItem.objects.filter(subscription_id=subscription.pk)
+            .filter(report__withdrawn_at__isnull=True)
             .exclude(extraction_results__isnull=True)  # Only items with results
             .exclude(extraction_results={})  # Only items with non-empty results
             .select_related("subscription")

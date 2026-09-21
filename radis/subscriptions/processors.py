@@ -42,7 +42,11 @@ class SubscriptionTaskProcessor(AnalysisTaskProcessor):
         futures: list[Future] = []
         with ThreadPoolExecutor(max_workers=settings.EXTRACTION_LLM_CONCURRENCY_LIMIT) as executor:
             try:
-                for report in task.reports.filter(groups=active_group):
+                # live(): a report can be withdrawn between the refresh that
+                # selected it and this task running -- never gate or email it.
+                for report in (
+                    task.reports.live().filter(groups=active_group)  # type: ignore[attr-defined]
+                ):
                     future = executor.submit(self.process_report, report, task)
                     futures.append(future)
 
