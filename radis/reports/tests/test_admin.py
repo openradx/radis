@@ -3,6 +3,7 @@ from datetime import timedelta
 import pytest
 from django.contrib.admin import helpers
 from django.contrib.admin.models import CHANGE, LogEntry
+from django.contrib.contenttypes.models import ContentType
 from django.urls import reverse
 from django.utils import timezone
 
@@ -143,5 +144,9 @@ def test_restore_action_clears_state_logs_and_resyncs_projection(admin_client):
     assert report.withdrawn_by is None
     assert report.withdrawal_reason == ""
     assert ReportSearchIndex.objects.get(report=report).withdrawn is False
-    logs = LogEntry.objects.filter(object_id=str(report.pk), action_flag=CHANGE)
+    logs = LogEntry.objects.filter(
+        object_id=str(report.pk),
+        action_flag=CHANGE,
+        content_type=ContentType.objects.get_for_model(Report),
+    )
     assert any("Restored" in entry.change_message for entry in logs)

@@ -193,13 +193,15 @@ class WithdrawnReportAdmin(ReportAdmin):
 
     @admin.action(description="Restore selected reports", permissions=["change"])
     def restore_selected(self, request: HttpRequest, queryset: QuerySet[Report]) -> None:
-        reports = list(queryset)
+        report_ids = list(queryset.values_list("pk", flat=True))
         # update() for the same reason as withdraw_selected: the projection
         # trigger is the only sync a state flip needs.
         queryset.update(withdrawn_at=None, withdrawn_by=None, withdrawal_reason="")
-        for report in reports:
+        # Log against the concrete model: an entry stamped with the proxy's
+        # content type never surfaces in the report's admin history.
+        for report in Report.objects.filter(pk__in=report_ids):
             self.log_change(request, report, "Restored from withdrawal")
-        self.message_user(request, f"Restored {len(reports)} report(s).", messages.SUCCESS)
+        self.message_user(request, f"Restored {len(report_ids)} report(s).", messages.SUCCESS)
 
 
 admin.site.register(WithdrawnReport, WithdrawnReportAdmin)
