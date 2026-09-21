@@ -26,6 +26,6 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name='report',
             name='withdrawn_by',
-            field=models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='+', to=settings.AUTH_USER_MODEL),
+            field=models.ForeignKey(blank=True, db_index=False, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='+', to=settings.AUTH_USER_MODEL),
         ),
     ]

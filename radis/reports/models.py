@@ -109,6 +109,10 @@ class Report(models.Model):
         blank=True,
         on_delete=models.SET_NULL,
         related_name="+",
+        # db_index=False: the default FK index would make 0014 a locking
+        # full-table index build. ~All rows are NULL here; SET_NULL
+        # maintenance on rare user deletion can seq-scan instead.
+        db_index=False,
     )
     withdrawal_reason = models.TextField(blank=True, default="")
 
