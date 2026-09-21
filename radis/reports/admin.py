@@ -12,7 +12,7 @@ from django.utils import timezone
 
 from radis.labels.models import LabelResult
 
-from .models import Language, Metadata, Modality, Report, ReportsAppSettings
+from .models import Language, Metadata, Modality, Report, ReportsAppSettings, WithdrawnReport
 from .site import reports_created_handlers, reports_deleted_handlers, reports_updated_handlers
 
 logger = logging.getLogger(__name__)
@@ -168,3 +168,38 @@ class ReportAdmin(admin.ModelAdmin):
 
 
 admin.site.register(Report, ReportAdmin)
+
+
+class WithdrawnReportAdmin(ReportAdmin):
+    """Inherits ReportAdmin so hard delete keeps firing the index-cleanup
+    handlers and the change form keeps its read-only withdrawal fields."""
+
+    list_display = (
+        "document_id",
+        "patient_id",
+        "study_description",
+        "withdrawn_at",
+        "withdrawn_by",
+        "withdrawal_reason",
+    )
+    list_filter = ()
+    actions = ("restore_selected",)
+
+    def get_queryset(self, request: HttpRequest) -> QuerySet[Report]:
+        return super().get_queryset(request).filter(withdrawn_at__isnull=False)
+
+    def has_add_permission(self, request: HttpRequest) -> bool:
+        return False
+
+    @admin.action(description="Restore selected reports", permissions=["change"])
+    def restore_selected(self, request: HttpRequest, queryset: QuerySet[Report]) -> None:
+        reports = list(queryset)
+        # update() for the same reason as withdraw_selected: the projection
+        # trigger is the only sync a state flip needs.
+        queryset.update(withdrawn_at=None, withdrawn_by=None, withdrawal_reason="")
+        for report in reports:
+            self.log_change(request, report, "Restored from withdrawal")
+        self.message_user(request, f"Restored {len(reports)} report(s).", messages.SUCCESS)
+
+
+admin.site.register(WithdrawnReport, WithdrawnReportAdmin)

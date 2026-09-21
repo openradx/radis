@@ -98,3 +98,50 @@ def test_withdraw_action_skips_already_withdrawn_reports(admin_client):
     assert already.withdrawal_reason == "original reason"
     assert already.withdrawn_at == original_time
     assert fresh.withdrawal_reason == "new reason"
+
+
+WITHDRAWN_CHANGELIST_URL = reverse("admin:reports_withdrawnreport_changelist")
+
+
+def withdraw(report: Report) -> None:
+    Report.objects.filter(pk=report.pk).update(
+        withdrawn_at=timezone.now(), withdrawal_reason="test reason"
+    )
+
+
+def test_withdrawn_listing_shows_only_withdrawn_reports(admin_client):
+    live = create_report()
+    gone = create_report()
+    withdraw(gone)
+
+    response = admin_client.get(WITHDRAWN_CHANGELIST_URL)
+
+    content = response.content.decode()
+    assert gone.document_id in content
+    assert live.document_id not in content
+
+
+def test_withdrawn_listing_has_no_add_button(admin_client):
+    response = admin_client.get(reverse("admin:reports_withdrawnreport_add"))
+
+    assert response.status_code == 403
+
+
+def test_restore_action_clears_state_logs_and_resyncs_projection(admin_client):
+    report = create_report()
+    withdraw(report)
+
+    response = admin_client.post(
+        WITHDRAWN_CHANGELIST_URL,
+        {"action": "restore_selected", helpers.ACTION_CHECKBOX_NAME: [str(report.pk)]},
+        follow=True,
+    )
+
+    assert response.status_code == 200
+    report.refresh_from_db()
+    assert not report.is_withdrawn
+    assert report.withdrawn_by is None
+    assert report.withdrawal_reason == ""
+    assert ReportSearchIndex.objects.get(report=report).withdrawn is False
+    logs = LogEntry.objects.filter(object_id=str(report.pk), action_flag=CHANGE)
+    assert any("Restored" in entry.change_message for entry in logs)

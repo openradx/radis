@@ -153,6 +153,15 @@ class Report(models.Model):
         )
 
 
+class WithdrawnReport(Report):
+    """Withdrawn reports as their own admin entry -- the dedicated listing
+    the restore action lives on."""
+
+    class Meta:
+        proxy = True
+        verbose_name = "Withdrawn report"
+
+
 class Metadata(models.Model):
     report = models.ForeignKey(Report, on_delete=models.CASCADE, related_name="metadata")
     key = models.CharField(max_length=64)
