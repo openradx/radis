@@ -119,6 +119,16 @@ class Report(models.Model):
 
     class Meta:
         ordering = ["-created_at", "document_id"]
+        indexes = [
+            # Partial: only withdrawn rows enter it, so the withdrawn-reports
+            # admin listing never scans the archive and live-report writes
+            # don't pay for it.
+            models.Index(
+                fields=["withdrawn_at"],
+                condition=models.Q(withdrawn_at__isnull=False),
+                name="reports_report_withdrawn_idx",
+            ),
+        ]
 
     def __str__(self) -> str:
         return f"Report {self.document_id} [{self.pk}]"
