@@ -145,7 +145,7 @@ class CollectionDetailView(
         return ["collections/collection_detail.html"]
 
     def get_queryset(self) -> QuerySet[Report]:
-        return cast(Collection, self.object).reports.all()
+        return cast(Collection, self.object).reports.live()  # type: ignore[attr-defined]
 
     def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
         context = super().get_context_data(**kwargs)
