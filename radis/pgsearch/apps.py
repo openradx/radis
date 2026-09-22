@@ -2,7 +2,7 @@ import logging
 
 from django.apps import AppConfig
 from django.conf import settings
-from django.core.checks import Error, register
+from django.core.checks import Error, Tags, register
 
 logger = logging.getLogger(__name__)
 
@@ -104,6 +104,61 @@ def check_embeddings_dimensions_param(app_configs, **kwargs):
             ),
         )
     ]
+
+
+@register(Tags.database)
+def check_bm25_ranking_prerequisites(app_configs, databases=None, **kwargs):
+    """When HYBRID_FTS_RANKING='bm25', the pg_textsearch extension and one BM25
+    index per Language row must exist — a missing piece would otherwise surface
+    as an opaque SQL error on the first search instead of at deploy time. Runs
+    as a database check (during migrate), which is when the init container can
+    still fail loudly."""
+    if settings.HYBRID_FTS_RANKING != "bm25":
+        return []
+    if databases is not None and "default" not in databases:
+        return []
+
+    from django.db import connection
+
+    from radis.reports.models import Language, Report
+
+    from .utils.bm25_utils import bm25_index_name
+
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT 1 FROM pg_extension WHERE extname = 'pg_textsearch'")
+        if cursor.fetchone() is None:
+            return [
+                Error(
+                    "HYBRID_FTS_RANKING='bm25' but the pg_textsearch extension is not "
+                    "installed in the database.",
+                    id="pgsearch.E004",
+                    hint=(
+                        "Use a postgres image that ships pg_textsearch (see "
+                        "docker/postgres/Dockerfile) and run `manage.py sync_bm25_indexes`."
+                    ),
+                )
+            ]
+        cursor.execute(
+            "SELECT indexname FROM pg_indexes WHERE tablename = %s",
+            [Report._meta.db_table],
+        )
+        existing = {row[0] for row in cursor.fetchall()}
+
+    missing = sorted(
+        bm25_index_name(code)
+        for code in Language.objects.values_list("code", flat=True)
+        if bm25_index_name(code) not in existing
+    )
+    if missing:
+        return [
+            Error(
+                f"HYBRID_FTS_RANKING='bm25' but BM25 indexes are missing: "
+                f"{', '.join(missing)}.",
+                id="pgsearch.E005",
+                hint="Run `manage.py sync_bm25_indexes`.",
+            )
+        ]
+    return []
 
 
 def _index_reports(reports):

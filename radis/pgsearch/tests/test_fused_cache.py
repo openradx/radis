@@ -185,3 +185,25 @@ def test_zero_timeout_disables_the_cache(group, reports, settings):
         mocked.stop()
 
     assert _ran_fusion(ctx.captured_queries)
+
+
+def test_fusion_timings_are_logged(group, reports, settings, caplog):
+    import logging
+
+    mocked, _ = _mock_embedding(settings.EMBEDDINGS_DIM)
+    try:
+        with caplog.at_level(logging.INFO, logger="radis.pgsearch.providers"):
+            search(_make_search("pneumothorax", group.pk))
+            search(_make_search("pneumothorax", group.pk))
+    finally:
+        mocked.stop()
+
+    timing_lines = [r.message for r in caplog.records if "hybrid fusion timings" in r.message]
+    hit_lines = [r.message for r in caplog.records if "hybrid fusion cache hit" in r.message]
+    assert len(timing_lines) == 1  # only the uncached run measures the arms
+    assert len(hit_lines) == 1
+    line = timing_lines[0]
+    for key in ("fts_ms=", "fts_rows=", "embed_ms=", "vec_ms=", "fuse_ms=", "total_ms="):
+        assert key in line
+    # The query is logged as a hash, never as the search text.
+    assert "pneumothorax" not in line

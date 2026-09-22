@@ -565,6 +565,18 @@ DATABASES["default"].setdefault("OPTIONS", {})["options"] = (
 # only after it expires. 0 disables the cache. Degraded FTS-only results
 # (configured embedding model, no vector) are never cached.
 HYBRID_FUSED_CACHE_TIMEOUT_SECONDS = _optional_env("HYBRID_FUSED_CACHE_TIMEOUT_SECONDS", int, 300)
+# How the FTS half of the fusion ranks its matches. "ts_rank" is PostgreSQL's
+# built-in ranking: no extension needed, but every match is scored per query —
+# seconds for a common term on a large corpus — and it carries no corpus-level
+# IDF. "bm25" ranks via the pg_textsearch extension (index-backed BM25): needs
+# the extension in the postgres image (docker/postgres/Dockerfile) and one
+# partial index per language (manage.py sync_bm25_indexes); membership still
+# comes from the boolean tsquery match either way, only the ordering changes.
+HYBRID_FTS_RANKING = _optional_env("HYBRID_FTS_RANKING", str, "ts_rank")
+if HYBRID_FTS_RANKING not in ("ts_rank", "bm25"):
+    raise ImproperlyConfigured(
+        f"HYBRID_FTS_RANKING={HYBRID_FTS_RANKING!r} must be 'ts_rank' or 'bm25'."
+    )
 
 # Chat
 CHAT_GENERATE_TITLE_SYSTEM_PROMPT = """
