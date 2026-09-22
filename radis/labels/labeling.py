@@ -13,6 +13,7 @@ from .utils.prompts import render_gate_prompt, render_label_prompt
 from .utils.schemas import (
     build_gate_schema,
     build_label_classification_schema,
+    gate_field_name,
 )
 
 logger = logging.getLogger(__name__)
@@ -63,7 +64,7 @@ def label_report(report_id: int) -> None:
         parsed = client.extract_data(render_gate_prompt(report.body), schema)
         result_map = parsed.model_dump()
         for g in gate_batch:
-            new_gate_results[g.id] = str(result_map[g.name])
+            new_gate_results[g.id] = str(result_map[gate_field_name(g)])
 
     # Phase 2 — process each group.
     for group in active_groups:
