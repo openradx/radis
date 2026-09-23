@@ -40,8 +40,33 @@ services:
   postgres:
     image: pgvector/pgvector:pg17@sha256:cf134a767f474095eeba57e0117be8e568e011a63f33fbf252f14c9b760f8e6f
     hostname: postgres.local
+    command:
+      - postgres
+      - -c
+      - max_parallel_workers_per_gather=${POSTGRES_MAX_PARALLEL_WORKERS_PER_GATHER:-4}
+      - -c
+      - max_parallel_workers=${POSTGRES_MAX_PARALLEL_WORKERS:-8}
+      - -c
+      - max_worker_processes=${POSTGRES_MAX_WORKER_PROCESSES:-8}
+      - -c
+      - shared_buffers=${POSTGRES_SHARED_BUFFERS:-128MB}
+      - -c
+      - maintenance_work_mem=${POSTGRES_MAINTENANCE_WORK_MEM:-64MB}
+      - -c
+      - max_parallel_maintenance_workers=${POSTGRES_MAX_PARALLEL_MAINTENANCE_WORKERS:-2}
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      # PostgreSQL's parallel workers exchange data through dynamic shared
+      # memory in /dev/shm, and Docker's default segment is only 64 MB.
+      # Parallel maintenance (index builds, e.g. the HNSW rebuild in pgsearch
+      # migration 0005) pre-allocates its whole maintenance_work_mem budget
+      # there, so size this at least as large as POSTGRES_MAINTENANCE_WORK_MEM.
+      # A tmpfs size is a cap, not a reservation. Bytes, because
+      # `docker stack deploy` rejects unit suffixes here (default: 1 GiB).
+      - type: tmpfs
+        target: /dev/shm
+        tmpfs:
+          size: ${POSTGRES_SHM_SIZE_BYTES:-1073741824}
 
 volumes:
   postgres_data:
