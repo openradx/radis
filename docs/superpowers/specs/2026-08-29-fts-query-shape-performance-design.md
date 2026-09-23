@@ -339,10 +339,9 @@ into the HNSW index (~143 ms and ~2,160 buffers per embedded row measured on
 staging: ~68 hours for 1.7M vectors). The backfill therefore drops the HNSW
 index first and 0006 rebuilds it from the stored vectors in one bulk build
 (7m36s at 1.7M with 16GB maintenance_work_mem and 7 parallel workers). The
-build honors the server's own maintenance settings -- raising them for the
-window, like sizing the container's `/dev/shm` to match (Docker's 64 MB
-default cannot be fixed from inside PostgreSQL), is a deployment concern, not
-repo configuration; the admin guide carries the recipe.
+build honors the server settings, tunable through the compose GUC knobs
+`POSTGRES_MAINTENANCE_WORK_MEM` / `POSTGRES_MAX_PARALLEL_MAINTENANCE_WORKERS`,
+with `/dev/shm` sized to match (`POSTGRES_SHM_SIZE_BYTES`).
 
 The backfill rewrites every row: the tsvectors average 1220 bytes and nothing is
 TOASTed (`toast_heap` is 0 bytes), so the whole row is rewritten, not just the

@@ -37,24 +37,13 @@ larger archive. On an archive **with embeddings** the migration first drops the
 vector index and rebuilds it afterwards from the stored vectors (nothing is
 re-embedded) -- without that, every rewritten row would also pay an insert into
 the vector index (~143 ms per embedded row: days, not minutes). For a large
-embedded archive raise the server's maintenance settings for the migration
-window so the rebuild runs in memory (a 1.7M-vector archive rebuilt in under
-8 minutes with 16GB and 7 workers):
-
-```sql
-ALTER SYSTEM SET maintenance_work_mem = '16GB';
-ALTER SYSTEM SET max_parallel_maintenance_workers = 7;
-SELECT pg_reload_conf();
--- afterwards: ALTER SYSTEM RESET maintenance_work_mem; (and the workers), then reload again
-```
-
-and give the postgres container a `/dev/shm` at least as large as that memory
-value -- the parallel build pre-allocates its whole budget there, Docker's
-default is only 64 MB, and this cannot be changed from inside PostgreSQL. Use
-your own compose override or, on Swarm,
-`docker service update --mount-add type=tmpfs,dst=/dev/shm,tmpfs-size=<bytes> <postgres-service>`.
-Other parallel queries can fail with "could not resize shared memory segment"
-while the build runs. Plan the
+embedded archive raise `POSTGRES_MAINTENANCE_WORK_MEM` and
+`POSTGRES_MAX_PARALLEL_MAINTENANCE_WORKERS` in `.env` for the migration window
+so the rebuild runs in memory (a 1.7M-vector archive rebuilt in under 8
+minutes with `16GB` and 7 workers), and size `POSTGRES_SHM_SIZE_BYTES` at
+least as large as that memory value -- the parallel build pre-allocates it in
+`/dev/shm`, and other parallel queries can fail with "could not resize shared
+memory segment" while it runs. Plan the
 maintenance window around all of that, and do not shorten `WAIT_INIT_TIMEOUT`
 (default one hour, see the compose files) below the expected migration time --
 the services that wait on `init` exit when that timeout expires.
