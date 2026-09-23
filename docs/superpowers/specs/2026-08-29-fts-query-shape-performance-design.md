@@ -333,6 +333,16 @@ Roughly ten minutes of announced downtime for a one-time migration has been
 accepted for this deployment, which is what keeps the blocking approach below.
 A site that cannot take that window needs the online alternative instead.
 
+The ten-minute figure was measured on rigs built **without embeddings**. On an
+embedded corpus every rewritten row is a non-HOT update that would also insert
+into the HNSW index (~143 ms and ~2,160 buffers per embedded row measured on
+staging: ~68 hours for 1.7M vectors). The backfill therefore drops the HNSW
+index first and 0006 rebuilds it from the stored vectors in one bulk build
+(7m36s at 1.7M with 16GB maintenance_work_mem and 7 parallel workers), tunable
+via `PGSEARCH_HNSW_REBUILD_MAINTENANCE_WORK_MEM` /
+`PGSEARCH_HNSW_REBUILD_PARALLEL_WORKERS`, with `/dev/shm` sized to match
+(`POSTGRES_SHM_SIZE_BYTES` in the compose files).
+
 The backfill rewrites every row: the tsvectors average 1220 bytes and nothing is
 TOASTed (`toast_heap` is 0 bytes), so the whole row is rewritten, not just the
 new columns. Measured at 8M, the heap goes **10 GB → 21 GB** with 7,988,672 dead

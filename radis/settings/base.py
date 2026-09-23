@@ -534,6 +534,18 @@ HYBRID_VECTOR_TOP_K = 100
 HYBRID_FTS_MAX_RESULTS = 10_000
 HYBRID_RRF_K = 60
 
+# Session knobs for the HNSW rebuild in pgsearch migration 0006 (the projection
+# backfill drops the embedding index and 0006 recreates it from the stored
+# vectors). A bulk build assembles the graph in maintenance_work_mem; on a large
+# embedded corpus raise both so it fits and parallelizes (a 1.7M-vector corpus
+# built in 7m36s with 16GB and 7 workers). FTS-only installs never notice them.
+PGSEARCH_HNSW_REBUILD_MAINTENANCE_WORK_MEM = env.str(
+    "PGSEARCH_HNSW_REBUILD_MAINTENANCE_WORK_MEM", default="2GB"
+)
+PGSEARCH_HNSW_REBUILD_PARALLEL_WORKERS = env.int(
+    "PGSEARCH_HNSW_REBUILD_PARALLEL_WORKERS", default=2
+)
+
 # Chat
 CHAT_GENERATE_TITLE_SYSTEM_PROMPT = """
 Summarize the following conversation in $num_words words or less and in the same language as
