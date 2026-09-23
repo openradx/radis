@@ -52,6 +52,16 @@ services:
       - shared_buffers=${POSTGRES_SHARED_BUFFERS:-128MB}
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      # PostgreSQL's parallel workers exchange data through dynamic shared
+      # memory in /dev/shm, and Docker's default segment is 64 MB. Parallel
+      # maintenance (the HNSW rebuild in pgsearch migration 0006) pre-allocates
+      # its whole budget there, so size this at least as large as
+      # PGSEARCH_HNSW_REBUILD_MAINTENANCE_WORK_MEM. Bytes, because
+      # `docker stack deploy` rejects unit suffixes here (default: 1 GiB).
+      - type: tmpfs
+        target: /dev/shm
+        tmpfs:
+          size: ${POSTGRES_SHM_SIZE_BYTES:-1073741824}
 
 volumes:
   postgres_data:

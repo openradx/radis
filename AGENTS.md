@@ -128,6 +128,13 @@ Hybrid search embeddings (`radis.pgsearch`):
   swap — cached query vectors otherwise keep serving stale results for up to this long
 - `EMBEDDINGS_BATCH_SIZE`, `EMBEDDINGS_SUBJOB_SIZE`, `EMBEDDINGS_WORKER_CONCURRENCY`:
   Throughput tuning
+- `PGSEARCH_HNSW_REBUILD_MAINTENANCE_WORK_MEM` (default `2GB`),
+  `PGSEARCH_HNSW_REBUILD_PARALLEL_WORKERS` (default `2`): session knobs for the
+  HNSW rebuild in pgsearch migration 0006 (the projection backfill drops the
+  embedding index and 0006 recreates it from the stored vectors). Raise on a
+  large embedded corpus so the graph builds in memory; irrelevant for FTS-only
+  installs. Size `POSTGRES_SHM_SIZE_BYTES` (below) at least as large as the
+  memory value
 
 Auto-labeling (`radis.labels`):
 
@@ -156,6 +163,11 @@ only to override the compose file's default):
   `POSTGRES_MAX_PARALLEL_WORKERS_PER_GATHER` on a larger host
 - `POSTGRES_SHARED_BUFFERS`: PostgreSQL's shared memory buffer (default `128MB`,
   PostgreSQL's own default)
+- `POSTGRES_SHM_SIZE_BYTES`: tmpfs size of the container's `/dev/shm` in bytes
+  (default `1073741824` = 1 GiB; Docker's own default of 64 MB is too small for
+  parallel queries). Parallel maintenance pre-allocates its whole
+  `maintenance_work_mem` budget here — for the pgsearch 0006 HNSW rebuild set
+  it at least as large as `PGSEARCH_HNSW_REBUILD_MAINTENANCE_WORK_MEM`
 
 ## Code Standards
 

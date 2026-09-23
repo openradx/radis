@@ -1,6 +1,6 @@
 """The projection duplicates access-control data, so operators need a way to
-prove it still matches its sources -- after a restore, a bulk import, or a
-Language.code rename, which no trigger covers."""
+prove it still matches its sources -- after a restore, a bulk import, or any
+writer the triggers still miss (0004's docstring lists them)."""
 
 from io import StringIO
 
@@ -11,8 +11,8 @@ from django.core.management.base import CommandError
 from django.utils import timezone
 
 from radis.pgsearch.models import ReportSearchIndex
-from radis.reports.factories import LanguageFactory, ReportFactory
-from radis.reports.models import Report
+from radis.reports.factories import LanguageFactory, ModalityFactory, ReportFactory
+from radis.reports.models import Language, Modality, Report
 
 pytestmark = pytest.mark.django_db
 
@@ -68,3 +68,17 @@ def test_check_detects_withdrawn_drift():
 
     with pytest.raises(CommandError, match="withdrawn"):
         call_command("check_search_projection")
+
+
+def test_reports_no_drift_after_code_renames():
+    """The 0007 triggers keep the mirrors current through code renames, so the
+    checker must come back clean afterwards."""
+    language = LanguageFactory.create(code="en")
+    report = ReportFactory.create(language=language, modalities=[])
+    modality = ModalityFactory.create(code="CT")
+    report.modalities.add(modality)
+
+    Language.objects.filter(pk=language.pk).update(code="en-gb")
+    Modality.objects.filter(pk=modality.pk).update(code="CTA")
+
+    call_command("check_search_projection", stdout=StringIO())

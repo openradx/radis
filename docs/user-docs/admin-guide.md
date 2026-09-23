@@ -32,10 +32,20 @@ The `init` service runs `manage.py migrate` and every other service waits for it
 to finish, so the stack stays unavailable for the whole migration. The release
 that added the search projection to the report search index is the current
 example: it rewrites every row of that table, measured at about **ten minutes
-for 8 million reports** and proportionally longer on a larger archive. Plan the
-maintenance window around that, and do not shorten `WAIT_INIT_TIMEOUT` (default
-one hour, see the compose files) below the expected migration time -- the
-services that wait on `init` exit when that timeout expires.
+for 8 million reports** without embeddings and proportionally longer on a
+larger archive. On an archive **with embeddings** the migration first drops the
+vector index and rebuilds it afterwards from the stored vectors (nothing is
+re-embedded) -- without that, every rewritten row would also pay an insert into
+the vector index (~143 ms per embedded row: days, not minutes). For a large
+embedded archive raise `PGSEARCH_HNSW_REBUILD_MAINTENANCE_WORK_MEM` and
+`PGSEARCH_HNSW_REBUILD_PARALLEL_WORKERS` so the rebuild runs in memory (a
+1.7M-vector archive rebuilt in under 8 minutes with 16GB and 7 workers), and
+size `POSTGRES_SHM_SIZE_BYTES` at least as large as that memory value -- the
+parallel build pre-allocates it in `/dev/shm`, and other parallel queries can
+fail with "could not resize shared memory segment" while it runs. Plan the
+maintenance window around all of that, and do not shorten `WAIT_INIT_TIMEOUT`
+(default one hour, see the compose files) below the expected migration time --
+the services that wait on `init` exit when that timeout expires.
 
 Keep the web tier stopped for the whole migration, which steps 5 and 9 above
 already do -- do not start it early to "check on progress". While that

@@ -1,8 +1,19 @@
 """Backfill the ReportSearchIndex search projection for existing rows.
 
 atomic = False so each chunk commits on its own: at the 8M design target this
-runs for roughly ten minutes, and one transaction that long would
-pin an equally long-lived snapshot.
+runs for roughly ten minutes once the HNSW index is out of the way (below), and
+one transaction that long would pin an equally long-lived snapshot.
+
+The first operation drops the HNSW embedding index for the duration of the
+backfill; 0006 rebuilds it from the stored vectors. Every backfilled row is a
+full-row rewrite into pages that hold no free space -- a non-HOT update -- so
+with the index in place each embedded row would also insert into the HNSW
+graph: ~143 ms and ~2,160 buffer touches per row measured on an 8M corpus with
+1.7M vectors, which turns the ten-minute window into days. Without embeddings
+the drop and the rebuild are both effectively instant. The drop is
+database-only (model state keeps declaring the index; 0006 makes it true
+again) and IF EXISTS because atomic = False re-runs every operation after a
+failure.
 
 Runs after the triggers (0004) on purpose. A report edited during the backfill
 is corrected by its trigger, and a chunk that later reprocesses the same row
@@ -90,4 +101,10 @@ class Migration(migrations.Migration):
 
     dependencies = [("pgsearch", "0004_search_projection_triggers")]
 
-    operations = [migrations.RunPython(backfill, migrations.RunPython.noop)]
+    operations = [
+        migrations.RunSQL(
+            "DROP INDEX IF EXISTS pgsearch_embedding_hnsw;",
+            reverse_sql=migrations.RunSQL.noop,
+        ),
+        migrations.RunPython(backfill, migrations.RunPython.noop),
+    ]
