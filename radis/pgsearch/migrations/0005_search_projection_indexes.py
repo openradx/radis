@@ -7,7 +7,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('pgsearch', '0005_search_projection_backfill'),
+        ('pgsearch', '0004_search_projection_backfill'),
         ('reports', '0013_alter_report_options'),
     ]
 
@@ -28,7 +28,7 @@ class Migration(migrations.Migration):
             "SELECT gin_clean_pending_list('pgsearch_re_search__b0f715_gin');",
             reverse_sql="ALTER INDEX pgsearch_re_search__b0f715_gin SET (fastupdate = on);",
         ),
-        # Recreate the embedding index 0005 dropped, from the stored vectors:
+        # Recreate the embedding index 0004 dropped, from the stored vectors:
         # one bulk build instead of the per-row inserts the backfill would
         # otherwise have paid (7m36s versus ~68h measured at 1.7M vectors).
         # The build honors the server's maintenance_work_mem and
@@ -36,7 +36,7 @@ class Migration(migrations.Migration):
         # corpus (POSTGRES_* knobs in the compose files). IF NOT EXISTS keeps
         # re-runs and installs that never dropped it safe; the definition must
         # match the HnswIndex in ReportSearchIndex.Meta. Reverse is a no-op on
-        # purpose: unapplying 0006 then 0005 must leave the index present,
+        # purpose: unapplying 0005 then 0004 must leave the index present,
         # which is the state before 0005 dropped it.
         migrations.RunSQL(
             "CREATE INDEX IF NOT EXISTS pgsearch_embedding_hnsw "
@@ -48,7 +48,7 @@ class Migration(migrations.Migration):
             # Required, not hygiene: the projection columns and the indexes
             # above carry no statistics, and the single-table query shape
             # depends on the planner choosing a parallel sequential scan with
-            # a top-N heapsort. ANALYZE is transaction-legal, so 0006 stays atomic.
+            # a top-N heapsort. ANALYZE is transaction-legal, so this migration stays atomic.
             "ANALYZE pgsearch_reportsearchindex;",
             reverse_sql=migrations.RunSQL.noop,
         ),

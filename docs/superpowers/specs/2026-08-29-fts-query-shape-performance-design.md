@@ -337,7 +337,7 @@ The ten-minute figure was measured on rigs built **without embeddings**. On an
 embedded corpus every rewritten row is a non-HOT update that would also insert
 into the HNSW index (~143 ms and ~2,160 buffers per embedded row measured on
 staging: ~68 hours for 1.7M vectors). The backfill therefore drops the HNSW
-index first and 0006 rebuilds it from the stored vectors in one bulk build
+index first and the indexes migration rebuilds it from the stored vectors in one bulk build
 (7m36s at 1.7M with 16GB maintenance_work_mem and 7 parallel workers). The
 build honors the server settings, tunable through the compose GUC knobs
 `POSTGRES_MAINTENANCE_WORK_MEM` / `POSTGRES_MAX_PARALLEL_MAINTENANCE_WORKERS`,

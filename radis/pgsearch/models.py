@@ -24,7 +24,7 @@ class ReportSearchIndex(models.Model):
 
     # Search projection: mirrors of the Report fields the scan filters on, so
     # the FTS candidate query stays single-table. Maintained by the triggers in
-    # migration 0004 and populated on creation by signals.py / indexing.py.
+    # migration 0003 and populated on creation by signals.py / indexing.py.
     # The scalars are nullable and the arrays NOT NULL with a constant default,
     # which is what keeps adding a column here metadata-only on a large table.
     # Tightening them afterwards would cost a validating scan for no benefit:
