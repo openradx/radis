@@ -17,7 +17,7 @@ from radis.pgsearch.models import ReportSearchIndex
 from radis.pgsearch.utils.indexing import bulk_upsert_report_search_indexes
 from radis.pgsearch.utils.projection import sync_projection
 from radis.reports.factories import LanguageFactory, ModalityFactory, ReportFactory
-from radis.reports.models import Report
+from radis.reports.models import Language, Modality, Report
 
 pytestmark = pytest.mark.django_db
 
@@ -430,3 +430,32 @@ def test_projection_indexes_exist():
 
     assert "pgsearch_group_ids_gin" in names
     assert "pgsearch_report_updated_at_idx" in names
+
+
+def test_language_code_rename_updates_the_projection():
+    language = LanguageFactory.create(code="en")
+    report = ReportFactory.create(language=language)
+
+    Language.objects.filter(pk=language.pk).update(code="en-gb")
+
+    index = ReportSearchIndex.objects.get(report=report)
+    assert index.language_code == "en-gb"
+
+
+def test_modality_code_rename_updates_the_projection():
+    report = ReportFactory.create(language=LanguageFactory.create(code="en"), modalities=[])
+    modality = ModalityFactory.create(code="CT")
+    report.modalities.add(modality)
+
+    Modality.objects.filter(pk=modality.pk).update(code="CTA")
+
+    index = ReportSearchIndex.objects.get(report=report)
+    assert index.modality_codes == ["CTA"]
+
+
+def test_hnsw_index_survives_the_backfill_migrations():
+    """0005 drops the embedding index and 0006 rebuilds it; the test database
+    runs both, so the index existing here proves the whole round trip."""
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT 1 FROM pg_indexes WHERE indexname = 'pgsearch_embedding_hnsw'")
+        assert cursor.fetchone() is not None
