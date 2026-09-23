@@ -62,7 +62,7 @@ def test_bulk_upsert_creates_and_updates_reports(client: Client):
         headers={"Authorization": f"Token {token}"},
     )
     assert response.status_code == 200
-    assert response.json() == {"created": 2, "updated": 0, "invalid": 0}
+    assert response.json() == {"created": 2, "updated": 0, "invalid": 0, "withdrawn": []}
 
     assert Report.objects.count() == 2
     assert Language.objects.filter(code="en").exists()
@@ -80,7 +80,7 @@ def test_bulk_upsert_creates_and_updates_reports(client: Client):
         headers={"Authorization": f"Token {token}"},
     )
     assert response.status_code == 200
-    assert response.json() == {"created": 0, "updated": 2, "invalid": 0}
+    assert response.json() == {"created": 0, "updated": 2, "invalid": 0, "withdrawn": []}
 
     report = Report.objects.get(document_id="DOC-1")
     assert report.body == "Updated body"
@@ -140,7 +140,7 @@ def test_bulk_upsert_dedupes_payload_entries(client: Client):
         headers={"Authorization": f"Token {token}"},
     )
     assert response.status_code == 200
-    assert response.json() == {"created": 1, "updated": 0, "invalid": 0}
+    assert response.json() == {"created": 1, "updated": 0, "invalid": 0, "withdrawn": []}
 
     report = Report.objects.get(document_id="DOC-1")
     assert report.body == "Second version"

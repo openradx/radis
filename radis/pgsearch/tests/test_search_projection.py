@@ -12,6 +12,7 @@ import pytest
 from adit_radis_shared.accounts.factories import GroupFactory
 from django.db import OperationalError, connection, transaction
 from django.test.utils import CaptureQueriesContext
+from django.utils import timezone
 
 from radis.pgsearch.models import ReportSearchIndex
 from radis.pgsearch.utils.indexing import bulk_upsert_report_search_indexes
@@ -40,6 +41,13 @@ def test_new_index_row_defaults_to_empty_arrays():
 
     assert index.group_ids == []
     assert index.modality_codes == []
+
+
+def test_new_index_row_defaults_to_not_withdrawn():
+    report = ReportFactory.create(language=LanguageFactory.create(code="en"))
+    index = ReportSearchIndex.objects.get(report=report)
+
+    assert index.withdrawn is False
 
 
 def test_adding_a_group_updates_the_projection():
@@ -193,6 +201,25 @@ def test_patient_age_is_mirrored():
     assert index.patient_age is not None
 
 
+def test_withdrawing_a_report_updates_the_projection():
+    report = ReportFactory.create(language=LanguageFactory.create(code="en"))
+
+    Report.objects.filter(pk=report.pk).update(withdrawn_at=timezone.now())
+
+    index = ReportSearchIndex.objects.get(report=report)
+    assert index.withdrawn is True
+
+
+def test_restoring_a_report_updates_the_projection():
+    report = ReportFactory.create(language=LanguageFactory.create(code="en"))
+    Report.objects.filter(pk=report.pk).update(withdrawn_at=timezone.now())
+
+    Report.objects.filter(pk=report.pk).update(withdrawn_at=None)
+
+    index = ReportSearchIndex.objects.get(report=report)
+    assert index.withdrawn is False
+
+
 def test_creation_populates_the_mirrored_scalars():
     """Build + explicit save() is a single INSERT with no follow-up UPDATE.
 
@@ -245,6 +272,18 @@ def test_backfill_fills_rows_that_predate_the_projection():
     assert index.modality_codes == ["MR"]
     assert index.language_code == "en"
     assert index.patient_id == report.patient_id
+
+
+def test_sync_projection_fills_withdrawn():
+    """sync_projection must repair a corrupted withdrawn mirror, like it
+    repairs every other projection column."""
+    report = ReportFactory.create(language=LanguageFactory.create(code="en"))
+    Report.objects.filter(pk=report.pk).update(withdrawn_at=timezone.now())
+    ReportSearchIndex.objects.filter(report=report).update(withdrawn=False)
+
+    sync_projection([report.pk])
+
+    assert ReportSearchIndex.objects.get(report=report).withdrawn is True
 
 
 def test_migration_backfill_executes_the_chunked_update(monkeypatch):

@@ -3,16 +3,18 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from adit_radis_shared.accounts.factories import GroupFactory, UserFactory
 from django.test import Client
+from django.urls import reverse
+from django.utils import timezone
 
 from radis.extractions.factories import OutputFieldFactory
 from radis.reports.factories import LanguageFactory, ReportFactory
-from radis.reports.models import Modality
+from radis.reports.models import Modality, Report
 from radis.subscriptions.factories import (
     FilterQuestionFactory,
     SubscribedItemFactory,
     SubscriptionFactory,
 )
-from radis.subscriptions.models import Subscription
+from radis.subscriptions.models import SubscribedItem, Subscription
 
 
 def create_test_subscription(owner=None, group=None, name=None):
@@ -62,6 +64,28 @@ def test_subscription_list_view_filters_by_owner(client: Client):
     assert response.status_code == 200
     assert subscription1 in response.context["table"].data
     assert subscription2 not in response.context["table"].data
+
+
+@pytest.mark.django_db
+def test_subscription_list_view_counts_exclude_withdrawn_reports(client: Client):
+    user = UserFactory.create(is_active=True)
+    subscription = create_test_subscription(owner=user)
+    live_report = ReportFactory.create(language=LanguageFactory.create(code="en"))
+    withdrawn_report = ReportFactory.create(language=LanguageFactory.create(code="en"))
+    SubscribedItem.objects.create(subscription=subscription, report=live_report)
+    SubscribedItem.objects.create(subscription=subscription, report=withdrawn_report)
+    Report.objects.filter(pk=withdrawn_report.pk).update(withdrawn_at=timezone.now())
+    client.force_login(user)
+
+    response = client.get("/subscriptions/")
+
+    assert response.status_code == 200
+    table_data = list(response.context["table"].data)
+    annotated = next(s for s in table_data if s.pk == subscription.pk)
+    assert annotated.num_reports == 1
+    assert annotated.num_new_reports == 1
+    # Both item rows survive; only the counts hide the withdrawn one.
+    assert subscription.items.count() == 2
 
 
 @pytest.mark.django_db
@@ -769,3 +793,22 @@ def test_staff_inbox_visit_does_not_update_owners_last_viewed_at(client: Client)
 
     subscription.refresh_from_db()
     assert subscription.last_viewed_at is None
+
+
+@pytest.mark.django_db
+def test_subscription_inbox_hides_withdrawn_reports(client: Client):
+    user = UserFactory.create(is_active=True)
+    subscription = SubscriptionFactory.create(owner=user)
+    live = ReportFactory.create(language=LanguageFactory.create(code="en"))
+    withdrawn = ReportFactory.create(language=LanguageFactory.create(code="en"))
+    live_item = SubscribedItem.objects.create(subscription=subscription, report=live)
+    SubscribedItem.objects.create(subscription=subscription, report=withdrawn)
+    Report.objects.filter(pk=withdrawn.pk).update(withdrawn_at=timezone.now())
+    client.force_login(user)
+
+    response = client.get(reverse("subscription_inbox", args=[subscription.pk]))
+
+    assert response.status_code == 200
+    assert list(response.context["object_list"]) == [live_item]
+    # The inbox row survives for when the report is restored.
+    assert SubscribedItem.objects.filter(subscription=subscription).count() == 2

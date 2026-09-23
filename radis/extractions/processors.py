@@ -26,8 +26,11 @@ class ExtractionTaskProcessor(AnalysisTaskProcessor):
         with ThreadPoolExecutor(max_workers=settings.EXTRACTION_LLM_CONCURRENCY_LIMIT) as executor:
             try:
                 futures: list[Future] = []
-                # Skip instances an earlier run of this task (killed mid-way) already processed.
-                for instance in task.instances.filter(is_processed=False):
+                # Skip instances an earlier run of this task (killed mid-way)
+                # already processed, and reports withdrawn since job creation.
+                for instance in task.instances.filter(
+                    is_processed=False, report__withdrawn_at__isnull=True
+                ):
                     future = executor.submit(self.process_instance, instance)
                     futures.append(future)
 

@@ -6,7 +6,7 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib.messages.views import SuccessMessageMixin
 from django.core.exceptions import SuspiciousOperation
 from django.db import IntegrityError
-from django.db.models import Count, QuerySet
+from django.db.models import Count, Q, QuerySet
 from django.forms import BaseModelForm, modelform_factory
 from django.http import HttpRequest, HttpResponse
 from django.shortcuts import get_object_or_404, render
@@ -47,7 +47,7 @@ class CollectionListView(LoginRequiredMixin, SingleTableView):
         return (
             Collection.objects.filter(owner=self.request.user)
             .prefetch_related("reports")
-            .annotate(num_reports=Count("reports"))
+            .annotate(num_reports=Count("reports", filter=Q(reports__withdrawn_at__isnull=True)))
         )
 
 
@@ -145,7 +145,7 @@ class CollectionDetailView(
         return ["collections/collection_detail.html"]
 
     def get_queryset(self) -> QuerySet[Report]:
-        return cast(Collection, self.object).reports.all()
+        return cast(Collection, self.object).reports.live()  # type: ignore[attr-defined]
 
     def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
         context = super().get_context_data(**kwargs)

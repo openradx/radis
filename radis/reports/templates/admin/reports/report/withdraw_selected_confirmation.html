@@ -1,0 +1,23 @@
+{% extends "admin/base_site.html" %}
+{% load admin_urls %}
+{% block content %}
+    <p>
+        You are about to withdraw the following {{ queryset.count }} report(s).
+        They disappear from search and every user-facing page until an admin
+        restores them from the "Withdrawn reports" listing.
+    </p>
+    <ul>
+        {% for report in queryset %}<li>{{ report }}</li>{% endfor %}
+    </ul>
+    <form method="post">
+        {% csrf_token %}
+        {{ form.as_p }}
+        {% for report in queryset %}
+            <input type="hidden" name="{{ action_checkbox_name }}" value="{{ report.pk }}">
+        {% endfor %}
+        <input type="hidden" name="action" value="withdraw_selected">
+        <input type="hidden" name="apply" value="1">
+        <button type="submit" class="button">Withdraw</button>
+        <a href="{% url opts|admin_urlname:'changelist' %}" class="button cancel-link">Cancel</a>
+    </form>
+{% endblock %}

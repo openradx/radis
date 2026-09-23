@@ -2,10 +2,12 @@ import pytest
 from adit_radis_shared.accounts.factories import UserFactory
 from django.test import Client
 from django.urls import reverse
+from django.utils import timezone
 
 from radis.notes.factories import NoteFactory
 from radis.notes.models import Note
 from radis.reports.factories import LanguageFactory, ReportFactory
+from radis.reports.models import Report
 
 
 def create_test_report():
@@ -414,3 +416,54 @@ def test_note_edit_view_post_update_own_note_when_other_user_has_one():
     other_note.refresh_from_db()
     assert own_note.text == "Mine v2"
     assert other_note.text == "Theirs"
+
+
+@pytest.mark.django_db
+def test_note_list_view_hides_notes_on_withdrawn_reports(client: Client):
+    user = UserFactory.create(is_active=True)
+    live_report = create_test_report()
+    withdrawn_report = create_test_report()
+    live_note = NoteFactory.create(owner=user, report=live_report)
+    withdrawn_note = NoteFactory.create(owner=user, report=withdrawn_report)
+    Report.objects.filter(pk=withdrawn_report.pk).update(withdrawn_at=timezone.now())
+    client.force_login(user)
+
+    response = client.get(reverse("note_list"))
+
+    assert response.status_code == 200
+    assert live_note in response.context["notes"]
+    assert withdrawn_note not in response.context["notes"]
+    # The note itself survives for when the report is restored.
+    assert Note.objects.filter(pk=withdrawn_note.pk).exists()
+
+
+@pytest.mark.django_db
+def test_note_edit_view_404s_for_withdrawn_report(client: Client):
+    user = UserFactory.create(is_active=True)
+    report = create_test_report()
+    Report.objects.filter(pk=report.pk).update(withdrawn_at=timezone.now())
+    client.force_login(user)
+
+    response = client.post(
+        reverse("note_edit", args=[report.pk]),
+        {"text": "should never be saved"},
+        headers={"HX-Request": "true"},
+    )
+
+    assert response.status_code == 404
+    assert not Note.objects.filter(report=report).exists()
+
+
+@pytest.mark.django_db
+def test_note_available_badge_404s_for_withdrawn_report(client: Client):
+    user = UserFactory.create(is_active=True)
+    report = create_test_report()
+    Report.objects.filter(pk=report.pk).update(withdrawn_at=timezone.now())
+    client.force_login(user)
+
+    response = client.get(
+        reverse("note_available_badge", args=[report.pk]),
+        headers={"HX-Request": "true"},
+    )
+
+    assert response.status_code == 404

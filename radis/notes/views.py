@@ -5,7 +5,7 @@ from adit_radis_shared.common.types import AuthenticatedHttpRequest
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db.models import QuerySet
 from django.http import HttpResponse
-from django.shortcuts import render
+from django.shortcuts import get_object_or_404, render
 from django.views.generic import DetailView, UpdateView, View
 from django_filters.views import FilterView
 from django_htmx.http import trigger_client_event
@@ -25,7 +25,9 @@ class NoteListView(LoginRequiredMixin, PageSizeSelectMixin, FilterView):
     request: AuthenticatedHttpRequest
 
     def get_queryset(self) -> QuerySet[Note]:
-        return Note.objects.filter(owner=self.request.user).order_by("-pk")
+        return Note.objects.filter(
+            owner=self.request.user, report__withdrawn_at__isnull=True
+        ).order_by("-pk")
 
 
 class NoteDetailView(LoginRequiredMixin, HtmxOnlyMixin, DetailView):
@@ -33,7 +35,7 @@ class NoteDetailView(LoginRequiredMixin, HtmxOnlyMixin, DetailView):
     request: AuthenticatedHttpRequest
 
     def get_queryset(self) -> QuerySet[Note]:
-        return Note.objects.filter(owner=self.request.user)
+        return Note.objects.filter(owner=self.request.user, report__withdrawn_at__isnull=True)
 
 
 class NoteEditView(LoginRequiredMixin, HtmxOnlyMixin, UpdateView):
@@ -48,6 +50,11 @@ class NoteEditView(LoginRequiredMixin, HtmxOnlyMixin, UpdateView):
     request: AuthenticatedHttpRequest
 
     def get_object(self, queryset: QuerySet[Note] | None = None) -> Note | None:
+        # Creating or editing a note must not resurrect access to a withdrawn
+        # report; get_object runs on both GET and POST, after the auth and
+        # htmx mixins, and before any mutation.
+        get_object_or_404(Report.objects.live(), pk=self.kwargs["report_id"])
+
         if queryset is None:
             queryset = self.get_queryset()
 
@@ -84,7 +91,7 @@ class NoteEditView(LoginRequiredMixin, HtmxOnlyMixin, UpdateView):
 
 class NoteAvailableBadgeView(LoginRequiredMixin, HtmxOnlyMixin, View):
     def get(self, request: AuthenticatedHttpRequest, report_id: int) -> HttpResponse:
-        report = Report.objects.get(id=report_id)
+        report = get_object_or_404(Report.objects.live(), id=report_id)
 
         return render(
             request,

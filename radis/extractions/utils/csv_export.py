@@ -24,8 +24,9 @@ def iter_extraction_result_rows(job: ExtractionJob) -> Iterable[Sequence[str]]:
     header.extend(escape_formula(name) for name in field_names)
     yield header
 
+    # ExtractionInstance.text is a verbatim copy of the report body.
     instances = (
-        ExtractionInstance.objects.filter(task__job=job)
+        ExtractionInstance.objects.filter(task__job=job, report__withdrawn_at__isnull=True)
         .order_by("pk")
         .values_list("pk", "report_id", "is_processed", "output")
     )

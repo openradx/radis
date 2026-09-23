@@ -378,10 +378,21 @@ class ReportViewSet(
         if valid_payloads:
             created_ids, updated_ids = _bulk_upsert_reports(valid_payloads)
 
+        withdrawn_ids: list[str] = []
+        if updated_ids:
+            withdrawn_ids = sorted(
+                Report.objects.filter(
+                    document_id__in=updated_ids, withdrawn_at__isnull=False
+                ).values_list("document_id", flat=True)
+            )
+
         response_body: dict[str, Any] = {
             "created": len(created_ids),
             "updated": len(updated_ids),
             "invalid": len(errors),
+            # Ingest pipelines watch this: these reports were updated but stay
+            # out of circulation until an admin restores them.
+            "withdrawn": withdrawn_ids,
         }
         if errors:
             max_errors = 50

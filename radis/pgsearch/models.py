@@ -23,8 +23,9 @@ class ReportSearchIndex(models.Model):
     embedding = VectorField(dimensions=settings.EMBEDDINGS_DIM, null=True)
 
     # Search projection: mirrors of the Report fields the scan filters on, so
-    # the FTS candidate query stays single-table. Maintained by the triggers in
-    # migration 0003 and populated on creation by signals.py / indexing.py.
+    # the FTS candidate query stays single-table. Maintained by the projection
+    # triggers (declared in migration 0003; the report-fields function body
+    # lives in 0008) and populated on creation by signals.py / indexing.py.
     # The scalars are nullable and the arrays NOT NULL with a constant default,
     # which is what keeps adding a column here metadata-only on a large table.
     # Tightening them afterwards would cost a validating scan for no benefit:
@@ -39,6 +40,10 @@ class ReportSearchIndex(models.Model):
     study_description = models.CharField(max_length=64, blank=True, null=True)  # noqa: DJ001
     report_created_at = models.DateTimeField(null=True)
     report_updated_at = models.DateTimeField(null=True)
+    # Mirrors reports_report.withdrawn_at IS NOT NULL. A boolean, not a
+    # timestamp: the scan predicate only needs live/not-live, and a constant
+    # default keeps the AddField metadata-only.
+    withdrawn = models.BooleanField(default=False)
 
     class Meta:
         verbose_name = "Report search index"

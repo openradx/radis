@@ -16,10 +16,12 @@ from unittest.mock import MagicMock, patch
 import pytest
 from adit_radis_shared.accounts.factories import GroupFactory, UserFactory
 from adit_radis_shared.common.utils.testing_helpers import add_user_to_group
+from django.utils import timezone
 from pydantic import BaseModel, create_model
 
 from radis.core.models import AnalysisJob, AnalysisTask
 from radis.reports.factories import ReportFactory
+from radis.reports.models import Report
 from radis.subscriptions.factories import (
     FilterQuestionFactory,
     SubscriptionFactory,
@@ -259,3 +261,26 @@ def test_running_same_report_twice_creates_one_subscribed_item():
     processor.process_report(report, task)
 
     assert SubscribedItem.objects.filter(subscription=subscription, report=report).count() == 1
+
+
+@pytest.mark.django_db
+def test_process_task_skips_withdrawn_reports(monkeypatch):
+    task = _make_task_with_reports(["Is this relevant?"], num_reports=2)
+    withdrawn = task.reports.order_by("pk").first()
+    assert withdrawn is not None
+    Report.objects.filter(pk=withdrawn.pk).update(withdrawn_at=timezone.now())
+
+    processed: list[int] = []
+    monkeypatch.setattr(
+        SubscriptionTaskProcessor,
+        "process_report",
+        lambda self, report, task: processed.append(report.pk),
+    )
+    # Read before process_task(): its `finally: close_old_connections()` breaks
+    # this test's atomic-wrapped connection for any query issued after it returns.
+    live_reports = task.reports.live()  # type: ignore[attr-defined]
+    live_report_pks = set(live_reports.values_list("pk", flat=True))
+    SubscriptionTaskProcessor(task).process_task(task)
+
+    assert withdrawn.pk not in processed
+    assert set(processed) == live_report_pks

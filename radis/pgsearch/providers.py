@@ -207,6 +207,11 @@ def _build_filter_query(filters: SearchFilters) -> Q:
     else:
         fq = Q(group_ids__contains=[filters.group])
 
+    # Withdrawn reports are out of circulation (reports.Report.withdrawn_at).
+    # Excluding them here makes every provider entry point -- search(),
+    # count(), retrieve() and filter() -- fail-closed at once.
+    fq &= Q(withdrawn=False)
+
     # Apply hard filter criteria
     if filters.patient_sex:
         fq &= Q(patient_sex=filters.patient_sex)
