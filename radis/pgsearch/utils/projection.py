@@ -1,11 +1,11 @@
 """The canonical SQL that fills the ReportSearchIndex search projection.
 
-Triggers (migration 0004) maintain the projection when its sources change.
+Triggers (migration 0003) maintain the projection when its sources change.
 This module fills it when an index row is first created, which happens before
 the report's groups and modalities are attached. The backfill migration
 duplicates this statement in SQL, the same way bulk_upsert_report_search_indexes
-already duplicates the tsvector logic -- keep them in sync. The two array_agg
-trigger functions in migration 0004 and
+already duplicates the tsvector logic -- keep them in sync. The array_agg
+trigger functions in migration 0003 and
 check_search_projection.DRIFT_SQL repeat the same aggregation shape and belong
 to that set as well; the live body of pgsearch_sync_report_fields() is defined
 in migration 0008 and mirrors the scalar columns plus the withdrawn flag.

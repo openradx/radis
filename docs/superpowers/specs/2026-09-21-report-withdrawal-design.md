@@ -87,7 +87,7 @@ Migrations:
   declaration is untouched — `pgsearch_report_fields_upd` already fires on
   every `reports_report` UPDATE, with no column list. Depends on
   `pgsearch/0007` (the target column) and `reports/0014` (the source column
-  the function body reads). The reverse operation restores the 0004 function
+  the function body reads). The reverse operation restores the 0003 function
   body.
 
 The synced SQL copies documented in `radis/pgsearch/utils/projection.py` gain
@@ -190,7 +190,7 @@ the inherited index-cleanup handlers still firing.
 ### 6.3 Action mechanics
 
 Both actions use `queryset.update(...)`, not per-instance `save()`. A single
-UPDATE per batch fires the projection trigger (0004's declaration, function
+UPDATE per batch fires the projection trigger (0003's declaration, function
 body from 0008), which is the only thing that needs to happen: the projection column flips and search reacts immediately. No
 `post_save` signals and no `reports_updated_handlers` means no pointless
 re-embedding, no label-staleness churn, and no second write to the pgsearch

@@ -22,7 +22,7 @@ from radis.reports.models import Language, Modality, Report
 
 pytestmark = pytest.mark.django_db
 
-BACKFILL_MIGRATION = "radis.pgsearch.migrations.0005_search_projection_backfill"
+BACKFILL_MIGRATION = "radis.pgsearch.migrations.0004_search_projection_backfill"
 
 
 class _MinimalSchemaEditor:
@@ -226,7 +226,7 @@ def test_creation_populates_the_mirrored_scalars():
     ReportFactory.create() would not pin this: its post_generation hooks
     (modalities, the metadata RelatedFactoryList) make factory_boy issue an
     implicit extra save() afterwards, which fires the AFTER UPDATE trigger
-    from migration 0004 and would populate these scalars regardless of
+    from migration 0003 and would populate these scalars regardless of
     whether the signal's own sync_projection() call exists. build() skips
     those hooks, so the only thing that can fill the scalars here is the
     signal's sync_projection() call on creation.
@@ -290,7 +290,7 @@ def test_migration_backfill_executes_the_chunked_update(monkeypatch):
     """Verify the migration's own SQL fills the projection, across several chunks.
 
     This exercises the literal SQL and the loop in
-    0005_search_projection_backfill.py, not sync_projection(). CHUNK_SIZE is
+    0004_search_projection_backfill.py, not sync_projection(). CHUNK_SIZE is
     50,000 in production, so a handful of reports would run the loop body
     exactly once and an off-by-one in the ``low``/``high`` arithmetic -- the
     kind that silently skips whole id ranges -- would not show. Patching it to
@@ -493,7 +493,7 @@ def test_modality_code_rename_updates_the_projection():
 
 
 def test_hnsw_index_survives_the_backfill_migrations():
-    """0005 drops the embedding index and 0006 rebuilds it; the test database
+    """0004 drops the embedding index and 0005 rebuilds it; the test database
     runs both, so the index existing here proves the whole round trip."""
     with connection.cursor() as cursor:
         cursor.execute("SELECT 1 FROM pg_indexes WHERE indexname = 'pgsearch_embedding_hnsw'")

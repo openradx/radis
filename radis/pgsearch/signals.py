@@ -12,7 +12,7 @@ def create_or_update_report_search_index(sender, instance, created, **kwargs):
     if created:
         ReportSearchIndex.objects.create(report=instance)
         # Groups and modalities are attached after the Report is created, so
-        # they stay empty here and the migration 0004 triggers fill them.
+        # they stay empty here and the migration 0003 triggers fill them.
         sync_projection([instance.pk])
         return
 

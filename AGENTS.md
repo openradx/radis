@@ -158,7 +158,7 @@ only to override the compose file's default):
   PostgreSQL's own default)
 - `POSTGRES_MAINTENANCE_WORK_MEM`: memory for VACUUM and index builds (default
   `64MB`, PostgreSQL's own default). Raise for the migration window on a large
-  embedded archive so the pgsearch 0006 HNSW rebuild assembles its graph in
+  embedded archive so the pgsearch 0005 HNSW rebuild assembles its graph in
   memory (a 1.7M-vector corpus built in 7m36s with `16GB` and 7 workers), and
   for the manual rebuilds in the admin guide's compaction section
 - `POSTGRES_MAX_PARALLEL_MAINTENANCE_WORKERS`: parallel workers per index build

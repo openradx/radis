@@ -1,10 +1,10 @@
 """Extend the report-fields projection trigger with the withdrawn flag.
 
-Only the function body changes. The trigger declaration from 0004
+Only the function body changes. The trigger declaration from 0003
 (pgsearch_report_fields_upd, AFTER UPDATE ON reports_report, statement level
 with a transition table, no column list) already fires on every report update,
 so replacing the function is the whole change. The reverse operation restores
-the 0004 body, leaving a rollback exactly as 0004 defined it.
+the 0003 body, leaving a rollback exactly as 0003 defined it.
 """
 
 from django.db import migrations

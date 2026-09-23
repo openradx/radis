@@ -59,7 +59,7 @@ services:
       # PostgreSQL's parallel workers exchange data through dynamic shared
       # memory in /dev/shm, and Docker's default segment is only 64 MB.
       # Parallel maintenance (index builds, e.g. the HNSW rebuild in pgsearch
-      # migration 0006) pre-allocates its whole maintenance_work_mem budget
+      # migration 0005) pre-allocates its whole maintenance_work_mem budget
       # there, so size this at least as large as POSTGRES_MAINTENANCE_WORK_MEM.
       # A tmpfs size is a cap, not a reservation. Bytes, because
       # `docker stack deploy` rejects unit suffixes here (default: 1 GiB).

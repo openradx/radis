@@ -6,7 +6,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('pgsearch', '0006_search_projection_indexes'),
+        ('pgsearch', '0005_search_projection_indexes'),
     ]
 
     operations = [

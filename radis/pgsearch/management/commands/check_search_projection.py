@@ -3,8 +3,8 @@
 from django.core.management.base import BaseCommand, CommandError
 from django.db import connection
 
-# Same aggregation as utils/projection.PROJECTION_UPDATE_SQL, the 0005 backfill
-# and the trigger functions in migrations 0004 and 0008 -- four copies, keep
+# Same aggregation as utils/projection.PROJECTION_UPDATE_SQL, the 0004 backfill
+# and the trigger functions in migrations 0003 and 0008 -- four copies, keep
 # them in sync. This one is the detector: if it ever drifts in the same
 # direction as a writer, it silently agrees with the bug and reports a healthy
 # projection.

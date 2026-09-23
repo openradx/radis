@@ -71,7 +71,7 @@ def test_check_detects_withdrawn_drift():
 
 
 def test_reports_no_drift_after_code_renames():
-    """The 0007 triggers keep the mirrors current through code renames, so the
+    """The 0003 rename triggers keep the mirrors current through code renames, so the
     checker must come back clean afterwards."""
     language = LanguageFactory.create(code="en")
     report = ReportFactory.create(language=language, modalities=[])
