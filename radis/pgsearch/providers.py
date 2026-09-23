@@ -196,7 +196,7 @@ def _build_filter_query(filters: SearchFilters) -> Q:
     # projection (see migration 0003) mirrors the Report fields search filters
     # on, so the candidate query stays single-table. Reintroducing a ``report__``
     # traversal restores the join and the multi-second query shape it caused;
-    # test_filter_query_plan_is_single_table guards against that.
+    # test_fts_candidate_query_is_single_table guards against that.
     #
     # Group-scoped access control. ``SearchView`` supplies
     # ``group=active_group.pk``; the extraction preview may pass ``group=None``
