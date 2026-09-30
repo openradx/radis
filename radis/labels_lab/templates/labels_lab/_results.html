@@ -16,7 +16,7 @@
                         </div>
                     {% else %}
                         <div>
-                            Answered by <code>{{ decision.model }}</code>
+                            Answered by <code>{{ decision.model|default:"a model the response does not name" }}</code>
                             {% if decision.routing %}
                                 <span class="text-muted">
                                     (<code>{{ decision.routing.router }}</code> routed it there: {{ decision.routing.reason }})

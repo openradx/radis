@@ -36,8 +36,15 @@ class ThresholdsForm(forms.Form):
 
 
 class LabForm(ThresholdsForm):
-    text = forms.CharField()
+    # Not stripped: the models are sent the text exactly as it stands in the text box.
+    text = forms.CharField(strip=False)
     groups = forms.ModelMultipleChoiceField(queryset=groups_with_active_labels())
     model = forms.CharField()
     run_baseline = forms.BooleanField(required=False)
     extras = forms.BooleanField(required=False)
+
+    def clean_text(self) -> str:
+        text = self.cleaned_data["text"]
+        if not text.strip():
+            raise forms.ValidationError("The report text is empty.")
+        return text

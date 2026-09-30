@@ -7,6 +7,12 @@
         Choice distribution:
         {% for bucket in buckets %}<span class="badge text-bg-{{ bucket|value_color }} border">{{ bucket }}</span>{% endfor %}
         · A muted cell belongs to a column whose gate answered NO, where the pipeline would not classify the label.
+        <br />
+        Mapped with: gate YES if P(yes) ≥ {{ thresholds.gate|stringformat:"g" }}
+        · mentioned if P(addressed) ≥ {{ thresholds.addressed|stringformat:"g" }}
+        · P(present) ≥ {{ thresholds.possible|stringformat:"g" }} POSSIBLE,
+        ≥ {{ thresholds.likely|stringformat:"g" }} LIKELY,
+        ≥ {{ thresholds.present|stringformat:"g" }} PRESENT
     </div>
     {% for view in group_views %}
         <div class="card mb-3">
@@ -34,6 +40,9 @@
                                 {% else %}
                                     {% include "labels_lab/_bar.html" with label="P(yes)" p=view.gate.choice_yes %}
                                     {% include "labels_lab/_value.html" with value=view.gate.choice_value %}
+                                    {% if view.gate.choice_differs %}
+                                        <span class="badge text-bg-dark" title="Differs from the LLM">≠ LLM</span>
+                                    {% endif %}
                                 {% endif %}
                             </td>
                             <td>
@@ -42,6 +51,9 @@
                                 {% else %}
                                     {% include "labels_lab/_bar.html" with label="P(yes)" p=view.gate.noul %}
                                     {% include "labels_lab/_value.html" with value=view.gate.noul_value %}
+                                    {% if view.gate.noul_differs %}
+                                        <span class="badge text-bg-dark" title="Differs from the LLM">≠ LLM</span>
+                                    {% endif %}
                                 {% endif %}
                             </td>
                         </tr>
@@ -75,7 +87,9 @@
                                             {% endfor %}
                                         </div>
                                         {% include "labels_lab/_value.html" with value=label.choice %}
-                                        <span class="small text-muted">confidence {{ label.choice_confidence|floatformat:2 }}</span>
+                                        {% if label.choice_confidence is not None %}
+                                            <span class="small text-muted">confidence {{ label.choice_confidence|floatformat:2 }}</span>
+                                        {% endif %}
                                         {% if label.choice_differs %}
                                             <span class="badge text-bg-dark" title="Differs from the LLM">≠ LLM</span>
                                         {% endif %}

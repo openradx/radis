@@ -7,6 +7,10 @@
     {{ block.super }}
     <link rel="stylesheet" href="{% static 'labels_lab/labels_lab.css' %}" />
 {% endblock css %}
+{% block script %}
+    {{ block.super }}
+    <script src="{% static 'labels_lab/labels_lab.js' %}"></script>
+{% endblock script %}
 {% block heading %}
     <c-page-heading title="Label Lab" />
 {% endblock heading %}
@@ -49,12 +53,19 @@
                     hx-get="{% url 'labels_lab_text' %}?source=de"
                     hx-target="#lab-text-wrapper"
                     hx-swap="outerHTML">Random DE sample</button>
-            <div class="input-group input-group-sm w-auto">
+            {# Enter in here loads the report. Left alone it would submit the form and start a run. #}
+            <div class="input-group input-group-sm w-auto"
+                 x-data
+                 @keydown.enter.prevent>
                 <input type="text"
                        name="report"
                        class="form-control"
                        placeholder="Report ID or document ID"
-                       aria-label="Report ID or document ID" />
+                       aria-label="Report ID or document ID"
+                       hx-get="{% url 'labels_lab_text' %}?source=report"
+                       hx-trigger="keydown[key=='Enter']"
+                       hx-target="#lab-text-wrapper"
+                       hx-swap="outerHTML" />
                 <button type="button"
                         class="btn btn-outline-secondary"
                         hx-get="{% url 'labels_lab_text' %}?source=report"
@@ -80,6 +91,10 @@
                         </label>
                     </div>
                 {% endfor %}
+                <div class="form-text">
+                    The LLM answers the gates of all selected groups in one call, as the pipeline does for all
+                    groups. Deselecting a group changes that call.
+                </div>
             </div>
             <div class="col-md-3">
                 <label for="lab-model" class="form-label fw-semibold mb-1">Decision model</label>
@@ -106,8 +121,11 @@
                     <label class="form-check-label" for="lab-run-baseline">Run the LLM baseline</label>
                 </div>
             </div>
+            {# Enter leaves the field, which re-maps. Left alone it would submit the form and start a run. #}
             <fieldset class="col-md-4"
                       id="lab-thresholds"
+                      x-data
+                      @keydown.enter.prevent="$event.target.blur()"
                       hx-post="{% url 'labels_lab_remap' %}"
                       hx-trigger="change"
                       hx-target="#lab-mapped"
@@ -177,5 +195,8 @@
               role="status"
               aria-label="Running"></span>
     </form>
+    <div id="lab-request-error"
+         class="alert alert-danger d-none mt-3"
+         role="alert"></div>
     <div id="lab-results" class="mt-4"></div>
 {% endblock content %}

@@ -77,7 +77,12 @@ def _ask(
     client: LLMClient, calls: list[LLMCall], purpose: str, prompt: str, schema: type[BaseModel]
 ) -> dict:
     started = time.perf_counter()
-    output = client.extract_data(prompt, schema).model_dump(mode="json")
+    # Someone is waiting for the page, so a rate-limited LLM gets the short wait budget of
+    # an interactive request instead of the long one of a background task.
+    parsed = client.extract_data(
+        prompt, schema, max_wait=settings.LLM_RATE_LIMIT_INTERACTIVE_MAX_WAIT_SECONDS
+    )
+    output = parsed.model_dump(mode="json")
     calls.append(
         LLMCall(
             purpose=purpose,

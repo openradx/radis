@@ -1,11 +1,12 @@
 import json
 import logging
-from collections.abc import Iterable, Mapping
+from collections.abc import Mapping
 from dataclasses import asdict
 from typing import Any
 
 from django.conf import settings
 from django.contrib.admin.views.decorators import staff_member_required
+from django.db.models import QuerySet
 from django.http import HttpRequest, HttpResponse, HttpResponseBadRequest
 from django.shortcuts import render
 from django.views.decorators.http import require_GET, require_POST
@@ -108,12 +109,14 @@ def lab_run_view(request: HttpRequest) -> HttpResponse:
     answers = decision.response["answers"] if decision else {}
     llm_gates = baseline.gates if baseline else {}
     llm_buckets = baseline.buckets if baseline else {}
+    thresholds = form.thresholds()
 
     return render(
         request,
         "labels_lab/_results.html",
         {
-            "group_views": map_answers(groups, answers, form.thresholds(), llm_gates, llm_buckets),
+            "group_views": map_answers(groups, answers, thresholds, llm_gates, llm_buckets),
+            "thresholds": thresholds,
             # What lab_remap_view needs to map these answers again under other thresholds.
             "mapping_json": json.dumps(
                 {
@@ -141,15 +144,22 @@ def lab_remap_view(request: HttpRequest) -> HttpResponse:
 
     try:
         groups, answers, llm_gates, llm_buckets = _load_mapping(raw_mapping)
-    except (ValueError, TypeError, KeyError, AttributeError):
+    except (ValueError, TypeError, KeyError, AttributeError, OverflowError, RecursionError):
         return HttpResponseBadRequest("The mapping data of the last run is unreadable.")
 
     form = ThresholdsForm(request.POST)
     if not form.is_valid():
         return render(request, "labels_lab/_mapped.html", {"errors": _form_errors(form)})
 
-    group_views = map_answers(groups, answers, form.thresholds(), llm_gates, llm_buckets)
-    return render(request, "labels_lab/_mapped.html", {"group_views": group_views})
+    thresholds = form.thresholds()
+    return render(
+        request,
+        "labels_lab/_mapped.html",
+        {
+            "group_views": map_answers(groups, answers, thresholds, llm_gates, llm_buckets),
+            "thresholds": thresholds,
+        },
+    )
 
 
 def _offered_models() -> tuple[list[str], str | None]:
@@ -167,14 +177,20 @@ def _offered_models() -> tuple[list[str], str | None]:
 def _find_report(reference: str) -> Report | None:
     reports = Report.objects.select_related("language")
     # Longer digit strings cannot be a primary key and would overflow the lookup.
-    if reference.isdigit() and len(reference) <= 18:
+    if reference.isdecimal() and len(reference) <= 18:
         report = reports.filter(pk=int(reference)).first()
         if report is not None:
             return report
     return reports.filter(document_id=reference).first()
 
 
-def _group_specs(groups: Iterable[LabelGroup]) -> list[GroupSpec]:
+def _group_specs(groups: QuerySet[LabelGroup]) -> list[GroupSpec]:
+    """The groups with their active labels, read the way `label_report` reads them.
+
+    The labels keep whatever order that query returns them in. The LLM fills the fields of
+    its schema in order and its answers depend on it, so sorting the labels here would turn
+    the baseline into a call the pipeline never makes.
+    """
     return [
         GroupSpec(
             id=group.id,
@@ -182,10 +198,11 @@ def _group_specs(groups: Iterable[LabelGroup]) -> list[GroupSpec]:
             gate_question=group.gate_question,
             labels=tuple(
                 LabelSpec(id=label.id, name=label.name, description=label.description)
-                for label in group.labels.filter(active=True).order_by("name")
+                for label in group.labels.all()
+                if label.active
             ),
         )
-        for group in groups
+        for group in groups.prefetch_related("labels")
     ]
 
 

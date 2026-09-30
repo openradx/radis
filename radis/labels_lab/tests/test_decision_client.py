@@ -146,7 +146,9 @@ def test_an_error_response_that_is_not_json_still_raises_with_its_status():
 
 
 @lab_settings
-@pytest.mark.parametrize("transport_error", [httpx2.ConnectError, httpx2.ReadTimeout])
+@pytest.mark.parametrize(
+    "transport_error", [httpx2.ConnectError, httpx2.ReadTimeout, httpx2.DecodingError]
+)
 def test_an_unreachable_endpoint_raises_naming_the_endpoint(transport_error):
     def unreachable(request: httpx2.Request) -> httpx2.Response:
         raise transport_error("no answer", request=request)
@@ -209,3 +211,40 @@ def test_list_models_raises_when_the_server_cannot_be_reached():
 
     with pytest.raises(DecisionModelError):
         client.list_models()
+
+
+@lab_settings
+@override_settings(DECISION_MODEL_URL="http://ollaya.test:port/api/decide")
+def test_an_endpoint_url_that_cannot_be_parsed_raises_for_both_calls():
+    client, _ = _client(_decided)
+
+    with pytest.raises(DecisionModelError):
+        client.decide("Lungs are clear.", QUESTIONS, model="laya:latest")
+    with pytest.raises(DecisionModelError):
+        client.list_models()
+
+
+@lab_settings
+@pytest.mark.parametrize("body", [{"object": "list", "data": []}, {"models": "laya:en"}, []])
+def test_list_models_rejects_an_answer_without_a_list_of_models(body):
+    client, _ = _client(lambda request: httpx2.Response(200, json=body))
+
+    with pytest.raises(DecisionModelError):
+        client.list_models()
+
+
+@lab_settings
+@override_settings(DECISION_MODEL_REQUEST_TIMEOUT_SECONDS=42.0)
+def test_a_decision_may_take_as_long_as_configured_but_listing_models_may_not():
+    def answer(request: httpx2.Request) -> httpx2.Response:
+        body = {"models": []} if request.method == "GET" else DECIDE_RESPONSE
+        return httpx2.Response(200, json=body)
+
+    client, requests = _client(answer)
+
+    client.decide("Lungs are clear.", QUESTIONS, model="laya:latest")
+    client.list_models()
+
+    decide_timeout, list_timeout = (request.extensions["timeout"]["read"] for request in requests)
+    assert decide_timeout == 42.0
+    assert list_timeout < 42.0  # the lab page waits for this list before it renders

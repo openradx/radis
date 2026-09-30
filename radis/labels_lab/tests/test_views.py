@@ -8,8 +8,9 @@ from django.conf import settings
 from django.test import Client, override_settings
 
 from radis.labels.factories import LabelFactory, LabelGroupFactory
-from radis.labels.tests.helpers import FakeChatClient
+from radis.labels.labeling import label_report
 from radis.labels_lab.decision_client import Decision, DecisionModelError
+from radis.labels_lab.tests.helpers import FakeLLM
 from radis.reports.factories import ReportFactory
 
 DEFAULT_THRESHOLDS = {
@@ -55,11 +56,25 @@ def _decision_model(**kwargs):
 
 
 def _llm(gate="YES", pneumonia="PRESENT", pneumothorax="ABSENT"):
-    fake = FakeChatClient(
+    fake = FakeLLM(
         gate_values={"Chest pathology": gate},
         label_values={"pneumonia": pneumonia, "pneumothorax": pneumothorax},
     )
     return patch("radis.labels_lab.baseline.LLMClient", return_value=fake)
+
+
+class RecordingLLM:
+    """Says YES to every gate and ABSENT to every label, and keeps what it was sent."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, str]] = []
+
+    def extract_data(self, prompt, schema, max_wait=None):
+        # The schema is kept as text: the order of its fields is part of what the LLM is
+        # sent, and comparing dicts would not see it.
+        self.calls.append((prompt, json.dumps(schema.model_json_schema())))
+        value = "YES" if schema.__name__ == "GateScreening" else "ABSENT"
+        return schema.model_validate(dict.fromkeys(schema.model_fields, value))
 
 
 @contextmanager
@@ -244,9 +259,17 @@ def test_text_endpoint_leaves_the_text_alone_when_the_report_does_not_exist(
 
     content = response.content.decode()
     assert response.status_code == 200
-    assert response["HX-Retarget"] == "#lab-text-info"
+    assert (response["HX-Retarget"], response["HX-Reswap"]) == ("#lab-text-info", "innerHTML")
     assert "<textarea" not in content
     assert "nope" in content
+
+
+@pytest.mark.django_db
+def test_text_endpoint_takes_digits_that_are_no_number_for_a_document_id(staff_client: Client):
+    response = staff_client.get("/labels-lab/text/", {"source": "report", "report": "²"})
+
+    assert response.status_code == 200
+    assert response["HX-Retarget"] == "#lab-text-info"
 
 
 @pytest.mark.django_db
@@ -436,3 +459,139 @@ def test_remap_rejects_a_mapping_it_cannot_read(staff_client: Client, mapping):
     response = staff_client.post("/labels-lab/remap/", {"mapping": mapping, **DEFAULT_THRESHOLDS})
 
     assert response.status_code == 400
+
+
+@pytest.mark.django_db
+def test_run_sends_the_llm_the_calls_the_pipeline_sends_for_an_unlabeled_report(
+    staff_client: Client,
+):
+    chest = LabelGroupFactory.create(
+        name="Chest pathology", gate_question="Does this report describe imaging of the chest?"
+    )
+    # Created out of alphabetical order: the pipeline sends a group's labels in the order
+    # its query returns them, and the LLM's answers depend on that order.
+    for name in ("pneumothorax", "pleural effusion", "rib fracture", "pneumonia"):
+        LabelFactory.create(group=chest, name=name)
+    abdomen = LabelGroupFactory.create(
+        name="Acute abdomen", gate_question="Does this report describe imaging of the abdomen?"
+    )
+    LabelFactory.create(group=abdomen, name="bowel obstruction")
+    LabelFactory.create(group=abdomen, name="appendicitis")
+    LabelFactory.create(group=abdomen, name="retired finding", active=False)
+    report = ReportFactory.create(body="Lungs are clear. No free air.")
+
+    pipeline_llm = RecordingLLM()
+    with patch("radis.labels.labeling.LLMClient", return_value=pipeline_llm):
+        label_report(report.pk)
+
+    lab_llm = RecordingLLM()
+    with (
+        patch("radis.labels_lab.baseline.LLMClient", return_value=lab_llm),
+        _decision_model(response={"model": "laya:en", "answers": {}}),
+    ):
+        staff_client.post(
+            "/labels-lab/run/",
+            _run_form(chest, text=report.body, groups=[chest.id, abdomen.id]),
+        )
+
+    assert len(pipeline_llm.calls) == 3  # the gates, then the labels of each group
+    assert lab_llm.calls == pipeline_llm.calls
+
+
+@pytest.mark.django_db
+def test_run_sends_the_text_as_it_was_posted(staff_client: Client, chest):
+    group, *_ = chest
+    text = "\n  Lungs are clear.\n\n"
+
+    with _decision_model(response=_decide_response(*chest)) as decision_model, _llm():
+        staff_client.post("/labels-lab/run/", _run_form(group, text=text))
+
+    assert decision_model.calls[0]["state"] == text
+
+
+@pytest.mark.django_db
+def test_run_flags_every_answer_that_differs_from_the_llm(staff_client: Client, chest):
+    group, *_ = chest
+
+    # Both gate variants say YES and both label variants say LIKELY for pneumonia, all four
+    # against the LLM. Pneumothorax is ABSENT everywhere.
+    with _decision_model(response=_decide_response(*chest)), _llm(gate="NO"):
+        response = staff_client.post("/labels-lab/run/", _run_form(group))
+
+    assert response.content.decode().count("≠ LLM") == 4
+
+
+@pytest.mark.django_db
+def test_run_mutes_the_labels_of_a_column_whose_gate_answers_no(staff_client: Client, chest):
+    group, *_ = chest
+
+    # At 0.9 the choice gate (0.85) says NO and the noul gate (0.9127) says YES.
+    with _decision_model(response=_decide_response(*chest)), _llm(gate="NO"):
+        response = staff_client.post("/labels-lab/run/", _run_form(group, gate="0.9"))
+
+    # The LLM column and the choice column, for each of the two labels.
+    assert response.content.decode().count("opacity-50") == 4
+
+
+@pytest.mark.django_db
+def test_run_keeps_what_a_remap_needs_in_the_page(staff_client: Client, chest):
+    group, *_ = chest
+
+    with _decision_model(response=_decide_response(*chest)), _llm():
+        response = staff_client.post("/labels-lab/run/", _run_form(group))
+
+    content = response.content.decode()
+    assert 'id="lab-mapping"' in content
+    assert 'id="lab-mapped"' in content
+    assert json.loads(response.context["mapping_json"])["llm_gates"] == {str(group.id): "YES"}
+
+
+@pytest.mark.django_db
+def test_mapped_results_show_probabilities_as_precisely_as_they_are_thresholded(
+    staff_client: Client, chest
+):
+    group, pneumonia, _ = chest
+    decided = _decide_response(*chest)
+    decided["answers"][f"addressed:{pneumonia.id}"]["noul"] = 0.4989
+    with _decision_model(response=decided), _llm():
+        run = staff_client.post("/labels-lab/run/", _run_form(group))
+
+    # The remap answers with the mapped results alone, without the raw response next to them.
+    response = staff_client.post(
+        "/labels-lab/remap/", {"mapping": run.context["mapping_json"], **DEFAULT_THRESHOLDS}
+    )
+
+    [view] = response.context["group_views"]
+    assert view.labels[0].nouls_value == "UNMENTIONED"  # 0.4989 is below the 0.5 it rounds to
+    assert "0.4989" in response.content.decode()
+
+
+@pytest.mark.django_db
+def test_mapped_results_name_the_thresholds_they_were_mapped_with(staff_client: Client, chest):
+    group, *_ = chest
+    with _decision_model(response=_decide_response(*chest)), _llm():
+        run = staff_client.post("/labels-lab/run/", _run_form(group, gate="0.37"))
+    assert "0.37" in run.content.decode()
+
+    response = staff_client.post(
+        "/labels-lab/remap/",
+        {"mapping": run.context["mapping_json"], **DEFAULT_THRESHOLDS, "addressed": "0.43"},
+    )
+
+    assert "0.43" in response.content.decode()
+
+
+@pytest.mark.django_db
+def test_remap_with_invalid_thresholds_reports_them_instead_of_mapping(staff_client: Client, chest):
+    group, *_ = chest
+    with _decision_model(response=_decide_response(*chest)), _llm():
+        run = staff_client.post("/labels-lab/run/", _run_form(group))
+
+    response = staff_client.post(
+        "/labels-lab/remap/",
+        {"mapping": run.context["mapping_json"], **DEFAULT_THRESHOLDS, "possible": "0.9"},
+    )
+
+    assert response.status_code == 200
+    assert "group_views" not in response.context
+    assert "alert-danger" in response.content.decode()

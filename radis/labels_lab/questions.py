@@ -12,7 +12,6 @@ or label it belongs to:
 
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
-from typing import TypeGuard
 
 from radis.labels.utils.schemas import BucketValue, GateValue
 
@@ -67,6 +66,14 @@ class GateView:
     choice_yes: float | None
     choice_value: str | None
 
+    @property
+    def noul_differs(self) -> bool:
+        return _differs(self.llm, self.noul_value)
+
+    @property
+    def choice_differs(self) -> bool:
+        return _differs(self.llm, self.choice_value)
+
 
 @dataclass(frozen=True)
 class LabelView:
@@ -78,8 +85,14 @@ class LabelView:
     addressed: float | None
     present: float | None
     nouls_value: str | None
-    choice_differs: bool
-    nouls_differs: bool
+
+    @property
+    def choice_differs(self) -> bool:
+        return _differs(self.llm, self.choice)
+
+    @property
+    def nouls_differs(self) -> bool:
+        return _differs(self.llm, self.nouls_value)
 
 
 @dataclass(frozen=True)
@@ -193,11 +206,10 @@ def _label_view(
 ) -> LabelView:
     bucket = _mapping(answers.get(f"bucket:{label.id}"))
     choice = bucket.get("choice")
-    choice = choice if isinstance(choice, str) else None
     probabilities = {
-        str(option): float(probability)
-        for option, probability in _mapping(bucket.get("probabilities")).items()
-        if _is_number(probability)
+        str(option): probability
+        for option, value in _mapping(bucket.get("probabilities")).items()
+        if (probability := _as_float(value)) is not None
     }
 
     addressed = _number(answers.get(f"addressed:{label.id}"), "noul")
@@ -211,15 +223,18 @@ def _label_view(
     return LabelView(
         spec=label,
         llm=llm,
-        choice=choice,
+        choice=choice if isinstance(choice, str) else None,
         choice_confidence=_number(bucket, "confidence"),
         choice_probabilities=probabilities,
         addressed=addressed,
         present=present,
         nouls_value=nouls_value,
-        choice_differs=None not in (llm, choice) and choice != llm,
-        nouls_differs=None not in (llm, nouls_value) and nouls_value != llm,
     )
+
+
+def _differs(llm: str | None, value: str | None) -> bool:
+    """Whether a mapped value contradicts the LLM's. Nothing differs from a missing answer."""
+    return None not in (llm, value) and value != llm
 
 
 def _gate_value(probability: float | None, thresholds: Thresholds) -> str | None:
@@ -232,10 +247,15 @@ def _mapping(value: object) -> Mapping:
     return value if isinstance(value, Mapping) else {}
 
 
-def _is_number(value: object) -> TypeGuard[int | float]:
-    return isinstance(value, (int, float)) and not isinstance(value, bool)
+def _as_float(value: object) -> float | None:
+    # bool is an int to Python, but a true/false is no probability.
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    try:
+        return float(value)
+    except OverflowError:
+        return None
 
 
 def _number(container: object, key: str) -> float | None:
-    value = _mapping(container).get(key)
-    return float(value) if _is_number(value) else None
+    return _as_float(_mapping(container).get(key))

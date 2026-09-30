@@ -3,9 +3,9 @@ from unittest.mock import patch
 from django.test import override_settings
 
 from radis.core.utils.model_spec import ModelSpec
-from radis.labels.tests.helpers import FakeChatClient
 from radis.labels_lab.baseline import run_llm_baseline
 from radis.labels_lab.questions import GroupSpec, LabelSpec
+from radis.labels_lab.tests.helpers import FakeLLM
 
 CHEST = GroupSpec(
     id=7,
@@ -35,7 +35,7 @@ LABEL_VALUES = {"pneumonia": "LIKELY", "pneumothorax": "ABSENT", "appendicitis":
 
 def _run(groups, body="Lungs are clear."):
     """Run the baseline against an LLM that answers with the values above."""
-    client = FakeChatClient(GATE_VALUES, LABEL_VALUES)
+    client = FakeLLM(GATE_VALUES, LABEL_VALUES)
     with patch("radis.labels_lab.baseline.LLMClient", return_value=client):
         return run_llm_baseline(body, groups), client
 
@@ -92,3 +92,10 @@ def test_the_configured_labeling_model_is_reported():
     baseline, _ = _run([CHEST])
 
     assert baseline.model == "test-llm"
+
+
+@override_settings(LLM_RATE_LIMIT_INTERACTIVE_MAX_WAIT_SECONDS=7.0)
+def test_llm_calls_wait_behind_the_rate_limit_only_as_long_as_a_user_would():
+    _, client = _run([CHEST])
+
+    assert client.max_waits == [7.0, 7.0]  # the gate call and the label call

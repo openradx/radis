@@ -203,11 +203,21 @@ def test_llm_results_are_shown_and_disagreements_flagged():
     assert not pneumothorax.nouls_differs
 
 
+def test_a_gate_answer_that_differs_from_the_llm_is_flagged():
+    # The gate answers are 0.85 as choice and 0.9127 as noul, so at 0.9 only the noul says YES.
+    [group] = map_answers([CHEST], CHEST_ANSWERS, Thresholds(gate=0.9), llm_gates={7: "YES"})
+    assert (group.gate.choice_differs, group.gate.noul_differs) == (True, False)
+
+    [group] = map_answers([CHEST], CHEST_ANSWERS, Thresholds(gate=0.9), llm_gates={7: "NO"})
+    assert (group.gate.choice_differs, group.gate.noul_differs) == (False, True)
+
+
 def test_nothing_is_flagged_as_disagreement_without_an_llm_result():
     [group] = map_answers([CHEST], CHEST_ANSWERS, Thresholds())
 
     assert group.gate.llm is None
     assert all(label.llm is None for label in group.labels)
+    assert not (group.gate.choice_differs or group.gate.noul_differs)
     assert not any(label.choice_differs or label.nouls_differs for label in group.labels)
 
 
@@ -235,3 +245,27 @@ def test_missing_answers_leave_results_empty_instead_of_failing():
     assert pneumonia.nouls_value is None
     assert not pneumonia.choice_differs
     assert not pneumonia.nouls_differs
+
+
+def test_answers_of_the_wrong_shape_leave_results_empty_instead_of_failing():
+    answers = {
+        "gate_noul:7": "yes",
+        "gate_choice:7": {"type": "choice", "choice": "A", "probabilities": ["A", "B"]},
+        "bucket:3": {
+            "type": "choice",
+            "choice": 5,
+            "confidence": None,
+            "probabilities": {"PRESENT": "high", "LIKELY": 10**400, "ABSENT": 0.25},
+        },
+        "addressed:3": {"type": "noul", "noul": True},
+        "present:3": ["not", "an", "answer"],
+    }
+
+    [group] = map_answers([CHEST], answers, Thresholds())
+    pneumonia = group.labels[0]
+
+    assert (group.gate.noul, group.gate.choice_yes) == (None, None)
+    assert pneumonia.choice is None
+    assert pneumonia.choice_confidence is None
+    assert pneumonia.choice_probabilities == {"ABSENT": 0.25}
+    assert (pneumonia.addressed, pneumonia.present, pneumonia.nouls_value) == (None, None, None)

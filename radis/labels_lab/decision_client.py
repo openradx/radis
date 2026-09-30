@@ -4,6 +4,10 @@ from dataclasses import dataclass
 import httpx2
 from django.conf import settings
 
+# The lab page asks for the model list before it renders, so a server that does not answer
+# must not hold it up for as long as a decision may take.
+_MODEL_LIST_TIMEOUT_SECONDS = 5.0
+
 
 class DecisionModelError(Exception):
     """The decision-model endpoint could not be reached or did not return a decision."""
@@ -51,7 +55,7 @@ class DecisionClient:
             body["extras"] = extras
 
         started = time.perf_counter()
-        response = self._send("POST", self._url, json=body)
+        response = self._send("POST", self._url, self._timeout, json=body)
         elapsed_ms = (time.perf_counter() - started) * 1000
 
         data = self._json(response)
@@ -63,20 +67,24 @@ class DecisionClient:
 
     def list_models(self) -> list[str]:
         """The models the server offers, read from its TypeSafe-compatible model list."""
-        url = str(httpx2.URL(self._url).join("/v1/models"))
-        data = self._json(self._send("GET", url))
+        try:
+            url = str(httpx2.URL(self._url).join("/v1/models"))
+        except httpx2.InvalidURL as err:
+            raise DecisionModelError(f"{self._url!r} is not a URL: {err}") from err
+        timeout = min(self._timeout, _MODEL_LIST_TIMEOUT_SECONDS)
+        data = self._json(self._send("GET", url, timeout))
         models = data.get("models") if isinstance(data, dict) else None
         if not isinstance(models, list):
             raise DecisionModelError(f"{url} answered without a 'models' list")
         return [model["name"] for model in models if isinstance(model, dict) and "name" in model]
 
-    def _send(self, method: str, url: str, **kwargs) -> httpx2.Response:
+    def _send(self, method: str, url: str, timeout: float, **kwargs) -> httpx2.Response:
         try:
-            response = self._request(
-                method, url, headers=self._headers, timeout=self._timeout, **kwargs
-            )
-        except httpx2.TransportError as err:
-            raise DecisionModelError(f"Could not reach {url}: {type(err).__name__}: {err}") from err
+            response = self._request(method, url, headers=self._headers, timeout=timeout, **kwargs)
+        except (httpx2.HTTPError, httpx2.InvalidURL) as err:
+            raise DecisionModelError(
+                f"The request to {url} failed: {type(err).__name__}: {err}"
+            ) from err
 
         if response.is_error:
             error = self._json(response)
