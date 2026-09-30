@@ -1,0 +1,19 @@
+.lab-raw {
+  max-height: 28rem;
+  overflow: auto;
+  white-space: pre-wrap;
+}
+
+.lab-distribution {
+  height: 0.6rem;
+  max-width: 16rem;
+}
+
+.lab-bar {
+  height: 0.5rem;
+  width: 7rem;
+}
+
+.lab-bar-label {
+  width: 6.5rem;
+}

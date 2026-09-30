@@ -1,0 +1,6 @@
+{% load labels_lab_extras %}
+{% if value is None %}
+    <span class="text-muted">–</span>
+{% else %}
+    <span class="badge text-bg-{{ value|value_color }} border">{{ value }}</span>
+{% endif %}

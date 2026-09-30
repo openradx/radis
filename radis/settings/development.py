@@ -31,3 +31,8 @@ if env.bool("FORCE_DEBUG_TOOLBAR", default=True):
     DEBUG_TOOLBAR_CONFIG = {"SHOW_TOOLBAR_CALLBACK": lambda _: True}
 
 LOGGING["loggers"]["radis"]["level"] = "DEBUG"  # noqa: F405
+
+# Label lab (radis.labels_lab): a staff-only page that runs one report through the LLM
+# labeling prompts and through a decision model, side by side, to evaluate the latter (#323).
+# The production settings do not install it, so a deployment never serves it.
+INSTALLED_APPS += ["radis.labels_lab.apps.LabelsLabConfig"]  # noqa: F405

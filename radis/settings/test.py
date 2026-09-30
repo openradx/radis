@@ -21,3 +21,6 @@ EMBEDDINGS_MODEL = None
 # No real backups as a side effect of tests that run the worker (the periodic
 # backup_db task would fire when a test run crosses its cron time).
 BACKUP_ENABLED = False
+
+# The label lab is a development tool the base settings leave out; its tests need it.
+INSTALLED_APPS += ["radis.labels_lab.apps.LabelsLabConfig"]  # noqa: F405

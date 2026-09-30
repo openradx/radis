@@ -748,6 +748,25 @@ LABELING_GATE_BATCH_SIZE = env.int("LABELING_GATE_BATCH_SIZE", default=10)
 # Cron schedule for the periodic incremental scan (default: daily at 2 AM).
 LABELING_SCAN_CRON = env.str("LABELING_SCAN_CRON", default="0 2 * * *")
 
+# Label lab (radis.labels_lab)
+# Only the development and test settings install the lab; its settings live here so that
+# both get them.
+#
+# The System One endpoint the lab asks. The default is the native endpoint of an Ollaya
+# server on the Docker host, whose response also reports routing, truncation and timings;
+# a TypeSafe-compatible /v1/systemone URL takes the same request.
+DECISION_MODEL_URL = env.str(
+    "DECISION_MODEL_URL", default="http://host.docker.internal:11435/api/decide"
+)
+# Sent as bearer token when set. Ollaya needs none unless it runs with OLLAYA_API_KEY.
+DECISION_MODEL_API_KEY = env.str("DECISION_MODEL_API_KEY", default="")
+# The model preselected in the lab. Ollaya's laya:latest routes by the report's language.
+DECISION_MODEL = env.str("DECISION_MODEL", default="laya:latest")
+# How long a single decision request may take. The first one after a start loads the model.
+DECISION_MODEL_REQUEST_TIMEOUT_SECONDS = env.float(
+    "DECISION_MODEL_REQUEST_TIMEOUT_SECONDS", default=60.0
+)
+
 # The priority for stalled jobs that are retried.
 STALLED_JOBS_RETRY_PRIORITY = 10
 

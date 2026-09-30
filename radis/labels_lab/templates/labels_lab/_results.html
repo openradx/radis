@@ -1,0 +1,92 @@
+{% if errors %}
+    {% include "labels_lab/_errors.html" %}
+{% else %}
+    <div class="row g-3 mb-3">
+        <div class="col-md-6">
+            <div class="card h-100">
+                <div class="card-body">
+                    <h6 class="card-title">Decision model</h6>
+                    {% if decision_error %}
+                        <div class="alert alert-danger mb-0" role="alert">
+                            {{ decision_error }}
+                            {% if decision_error.code %}
+                                <br />
+                                <small>Error code: <code>{{ decision_error.code }}</code></small>
+                            {% endif %}
+                        </div>
+                    {% else %}
+                        <div>
+                            Answered by <code>{{ decision.model }}</code>
+                            {% if decision.routing %}
+                                <span class="text-muted">
+                                    (<code>{{ decision.routing.router }}</code> routed it there: {{ decision.routing.reason }})
+                                </span>
+                            {% endif %}
+                        </div>
+                        <div class="text-muted small">
+                            {{ decision.question_count }} questions
+                            {% if decision.input_tokens is not None %}· {{ decision.input_tokens }} input tokens{% endif %}
+                            {% if decision.eval_ms is not None %}· inference {{ decision.eval_ms|floatformat:0 }} ms{% endif %}
+                            {% if decision.load_ms %}· model load {{ decision.load_ms|floatformat:0 }} ms{% endif %}
+                            · round trip {{ decision.elapsed_ms|floatformat:0 }} ms
+                        </div>
+                        {% if decision.truncated %}
+                            <div class="alert alert-warning mt-2 mb-0" role="alert">
+                                The report did not fit the model's context, so the end of it was dropped before the
+                                model read it (<code>state_truncated</code>). Findings from the dropped part cannot
+                                show up below.
+                            </div>
+                        {% endif %}
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        <div class="col-md-6">
+            <div class="card h-100">
+                <div class="card-body">
+                    <h6 class="card-title">LLM baseline</h6>
+                    {% if baseline_error %}
+                        <div class="alert alert-danger mb-0" role="alert">{{ baseline_error }}</div>
+                    {% elif baseline %}
+                        <div>
+                            Answered by <code>{{ baseline.model }}</code>
+                        </div>
+                        <div class="text-muted small">
+                            {{ baseline.calls|length }} LLM call{{ baseline.calls|length|pluralize }}
+                            · {{ baseline.elapsed_ms|floatformat:0 }} ms
+                        </div>
+                    {% else %}
+                        <div class="text-muted">Not run.</div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+    <div id="lab-mapped">{% include "labels_lab/_mapped.html" %}</div>
+    <input type="hidden"
+           id="lab-mapping"
+           name="mapping"
+           value="{{ mapping_json }}" />
+    <h6 class="mt-4">Raw exchange</h6>
+    {% if decision %}
+        <details class="mb-2" open>
+            <summary>Decision model response (native output)</summary>
+            <pre class="border rounded p-2 small lab-raw">{{ decision.response_json }}</pre>
+        </details>
+        <details class="mb-2">
+            <summary>Decision model request ({{ decision.question_count }} questions)</summary>
+            <pre class="border rounded p-2 small lab-raw">{{ decision.request_json }}</pre>
+        </details>
+    {% endif %}
+    {% for call in baseline.calls %}
+        <details class="mb-2">
+            <summary>LLM call "{{ call.purpose }}" ({{ call.elapsed_ms|floatformat:0 }} ms)</summary>
+            <div class="small text-muted mt-1">Output</div>
+            <pre class="border rounded p-2 small lab-raw">{{ call.output_json }}</pre>
+            <div class="small text-muted">Prompt</div>
+            <pre class="border rounded p-2 small lab-raw">{{ call.prompt }}</pre>
+            <div class="small text-muted">Response schema</div>
+            <pre class="border rounded p-2 small lab-raw">{{ call.schema_json }}</pre>
+        </details>
+    {% endfor %}
+{% endif %}

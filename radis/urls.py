@@ -14,6 +14,7 @@ Including another URLconf
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
 
+from django.apps import apps
 from django.conf import settings
 from django.contrib import admin
 from django.urls import include, path
@@ -34,6 +35,10 @@ urlpatterns = [
     path("notes/", include("radis.notes.urls")),
     path("subscriptions/", include("radis.subscriptions.urls")),
 ]
+
+# Only the development and test settings install the label lab
+if apps.is_installed("radis.labels_lab"):
+    urlpatterns.append(path("labels-lab/", include("radis.labels_lab.urls")))
 
 # Debug Toolbar in Debug mode only
 if settings.DEBUG:

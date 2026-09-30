@@ -60,6 +60,7 @@ uv run cli db-backup                 # Backup database
 - **radis.chats/**: Chat functionality for interacting with reports using LLM.
 - **radis.extractions/**: Data extraction from reports using LLM. Models: `ExtractionJob`, `ExtractionTask`.
 - **radis.labels/**: LLM auto-labeling of reports. A per-group Yes/No gate screens applicability, then each active label is classified into one of five buckets (`PRESENT`/`LIKELY`/`POSSIBLE`/`ABSENT`/`UNMENTIONED`); the three surfacing buckets drive report-detail badges and the label filter in the search Filters panel. Models: `LabelGroup`, `Label`, `LabelResult`, `GateAnswer`, `LabelingScanCheckpoint`, `LabelingJob`, `LabelingTask`.
+- **radis.labels_lab/**: Label lab, a spike for evaluating decision models (#323). Installed by the development and test settings only, never in production. A staff-only page at `/labels-lab/` runs one report through the LLM labeling prompts (dry run) and through a decision model behind a System One API (Laya served by Ollaya, or TypeSafe Jev) and shows both side by side with the raw request and response. Stores nothing and has no models. `manage.py seed_lab_labels` creates example label groups.
 
 Shared utilities come from `adit-radis-shared` package (accounts, token auth, common utilities).
 
@@ -145,6 +146,13 @@ Worker-crash recovery (`radis.core`):
 - `ANALYSIS_SWEEP_CRON`: Cron for the periodic sweep that repairs tasks left `IN_PROGRESS` by killed workers (default `* * * * *`).
 
 Labeling uses the shared core LLM client (`radis.core.utils.llm_client`); its timeout, rate-limit gate, and transient-retry knobs are the global `LLM_REQUEST_TIMEOUT_SECONDS`, `LLM_RATE_LIMIT_*`, and `LLM_TRANSIENT_RETRY_*` settings.
+
+Label lab (`radis.labels_lab`, which the production settings do not install):
+
+- `DECISION_MODEL_URL`: System One endpoint the lab asks (default `http://host.docker.internal:11435/api/decide`, the native endpoint of an Ollaya server on the Docker host). A TypeSafe-compatible `/v1/systemone` URL takes the same request but reports no routing, truncation or timings, and answers a report that exceeds the model's context with a 422 instead of truncating it.
+- `DECISION_MODEL_API_KEY`: Sent as bearer token when set (default empty).
+- `DECISION_MODEL`: Model preselected in the lab (default `laya:latest`, which routes by the report's language).
+- `DECISION_MODEL_REQUEST_TIMEOUT_SECONDS`: Timeout of one decision request (default `60`).
 
 ## Code Standards
 

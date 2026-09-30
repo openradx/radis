@@ -1,0 +1,181 @@
+{% extends "core/core_layout.html" %}
+{% load static from static %}
+{% block title %}
+    Label Lab
+{% endblock title %}
+{% block css %}
+    {{ block.super }}
+    <link rel="stylesheet" href="{% static 'labels_lab/labels_lab.css' %}" />
+{% endblock css %}
+{% block heading %}
+    <c-page-heading title="Label Lab" />
+{% endblock heading %}
+{% block content %}
+    <p class="text-muted">
+        Runs one report through the labeling prompts of the LLM (<code>{{ llm_model }}</code>) and through a decision
+        model, and shows both next to each other. Nothing is stored. The report text is sent to
+        <code>{{ decision_model_url }}</code>.
+    </p>
+    {% if models_error %}
+        <div class="alert alert-warning" role="alert">
+            The decision model endpoint did not list its models, so only the configured one is offered.
+            <br />
+            <small>{{ models_error }}</small>
+        </div>
+    {% endif %}
+    {% if not groups %}
+        <div class="alert alert-warning" role="alert">
+            There is no label group with an active label yet. Create some in the Django admin, or run
+            <code>./manage.py seed_lab_labels</code>.
+        </div>
+    {% endif %}
+    <form id="lab-form"
+          hx-post="{% url 'labels_lab_run' %}"
+          hx-target="#lab-results"
+          hx-indicator="#lab-spinner"
+          hx-disabled-elt="#lab-run">
+        <div class="mb-2">
+            <label for="lab-text" class="form-label fw-semibold">Report</label>
+            {% include "labels_lab/_text.html" %}
+        </div>
+        <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+            <button type="button"
+                    class="btn btn-outline-secondary btn-sm"
+                    hx-get="{% url 'labels_lab_text' %}?source=en"
+                    hx-target="#lab-text-wrapper"
+                    hx-swap="outerHTML">Random EN sample</button>
+            <button type="button"
+                    class="btn btn-outline-secondary btn-sm"
+                    hx-get="{% url 'labels_lab_text' %}?source=de"
+                    hx-target="#lab-text-wrapper"
+                    hx-swap="outerHTML">Random DE sample</button>
+            <div class="input-group input-group-sm w-auto">
+                <input type="text"
+                       name="report"
+                       class="form-control"
+                       placeholder="Report ID or document ID"
+                       aria-label="Report ID or document ID" />
+                <button type="button"
+                        class="btn btn-outline-secondary"
+                        hx-get="{% url 'labels_lab_text' %}?source=report"
+                        hx-include="[name='report']"
+                        hx-target="#lab-text-wrapper"
+                        hx-swap="outerHTML">Load report</button>
+            </div>
+        </div>
+        <div class="row g-3 mb-3">
+            <div class="col-md-5">
+                <div class="fw-semibold mb-1">Label groups</div>
+                {% for group in groups %}
+                    <div class="form-check">
+                        <input type="checkbox"
+                               class="form-check-input"
+                               name="groups"
+                               value="{{ group.id }}"
+                               id="lab-group-{{ group.id }}"
+                               checked />
+                        <label class="form-check-label" for="lab-group-{{ group.id }}">
+                            {{ group.name }}
+                            <small class="text-muted">{{ group.gate_question }}</small>
+                        </label>
+                    </div>
+                {% endfor %}
+            </div>
+            <div class="col-md-3">
+                <label for="lab-model" class="form-label fw-semibold mb-1">Decision model</label>
+                <select name="model" id="lab-model" class="form-select form-select-sm">
+                    {% for model in models %}
+                        <option value="{{ model }}"
+                                {% if model == default_model %} selected{% endif %}>{{ model }}</option>
+                    {% endfor %}
+                </select>
+                <div class="form-check mt-2">
+                    <input type="checkbox"
+                           class="form-check-input"
+                           name="extras"
+                           id="lab-extras"
+                           checked />
+                    <label class="form-check-label" for="lab-extras">Ask for Laya's native extras</label>
+                </div>
+                <div class="form-check">
+                    <input type="checkbox"
+                           class="form-check-input"
+                           name="run_baseline"
+                           id="lab-run-baseline"
+                           checked />
+                    <label class="form-check-label" for="lab-run-baseline">Run the LLM baseline</label>
+                </div>
+            </div>
+            <fieldset class="col-md-4"
+                      id="lab-thresholds"
+                      hx-post="{% url 'labels_lab_remap' %}"
+                      hx-trigger="change"
+                      hx-target="#lab-mapped"
+                      hx-include="#lab-mapping">
+                <legend class="fs-6 fw-semibold mb-1">Thresholds</legend>
+                <div class="input-group input-group-sm mb-1">
+                    <label class="input-group-text" for="lab-gate">Gate YES if P(yes) ≥</label>
+                    <input type="number"
+                           class="form-control"
+                           name="gate"
+                           id="lab-gate"
+                           min="0"
+                           max="1"
+                           step="0.01"
+                           value="{{ thresholds.gate|stringformat:'.2f' }}" />
+                </div>
+                <div class="input-group input-group-sm mb-1">
+                    <label class="input-group-text" for="lab-addressed">Mentioned if P(addressed) ≥</label>
+                    <input type="number"
+                           class="form-control"
+                           name="addressed"
+                           id="lab-addressed"
+                           min="0"
+                           max="1"
+                           step="0.01"
+                           value="{{ thresholds.addressed|stringformat:'.2f' }}" />
+                </div>
+                <div class="input-group input-group-sm">
+                    <span class="input-group-text">P(present) ≥</span>
+                    <input type="number"
+                           class="form-control"
+                           name="possible"
+                           min="0"
+                           max="1"
+                           step="0.01"
+                           value="{{ thresholds.possible|stringformat:'.2f' }}"
+                           title="POSSIBLE"
+                           aria-label="Threshold for POSSIBLE" />
+                    <input type="number"
+                           class="form-control"
+                           name="likely"
+                           min="0"
+                           max="1"
+                           step="0.01"
+                           value="{{ thresholds.likely|stringformat:'.2f' }}"
+                           title="LIKELY"
+                           aria-label="Threshold for LIKELY" />
+                    <input type="number"
+                           class="form-control"
+                           name="present"
+                           min="0"
+                           max="1"
+                           step="0.01"
+                           value="{{ thresholds.present|stringformat:'.2f' }}"
+                           title="PRESENT"
+                           aria-label="Threshold for PRESENT" />
+                </div>
+                <div class="form-text">
+                    P(present) cut points for POSSIBLE, LIKELY and PRESENT. Changing a threshold re-maps the last run
+                    without asking a model again.
+                </div>
+            </fieldset>
+        </div>
+        <button type="submit" id="lab-run" class="btn btn-primary">Run</button>
+        <span id="lab-spinner"
+              class="htmx-indicator spinner-border spinner-border-sm ms-2"
+              role="status"
+              aria-label="Running"></span>
+    </form>
+    <div id="lab-results" class="mt-4"></div>
+{% endblock content %}
