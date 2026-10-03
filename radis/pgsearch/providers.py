@@ -390,12 +390,21 @@ def _fuse_hybrid(search: Search, caller: str) -> _FusedHybrid:
     if query_vec is not None:
         vec_qs = ReportSearchIndex.objects.filter(filter_query)
         vec_qs = _exclude_negations(vec_qs, search.query, configs)
+        # One pass over the corpus-wide nearest neighbours: the scan emits at
+        # most ~hnsw.ef_search rows (a connection option, see
+        # settings.HYBRID_HNSW_EF_SEARCH), and the filters above then shrink
+        # them — the semantic candidates are the accessible subset of roughly
+        # the ef_search nearest reports, deliberately not topped back up by an
+        # iterative scan. The slice is a planner guard, not a semantic cap:
+        # sized above any beam emission (~1.45x ef_search measured) so it never
+        # truncates the pass, while keeping a LIMIT in the query — without one
+        # the planner abandons the index for a full sequential sort.
         vec_rows = list(
             vec_qs.distinct()
             .exclude(embedding__isnull=True)
             .annotate(distance=CosineDistance("embedding", query_vec))
             .order_by("distance", "report_id")
-            .values_list("report_id", "distance")[: settings.HYBRID_VECTOR_TOP_K]
+            .values_list("report_id", "distance")[: settings.HYBRID_HNSW_EF_SEARCH * 2]
         )
         for i, (rid, dist) in enumerate(vec_rows):
             vec_rank[rid] = i + 1
@@ -422,13 +431,10 @@ def _fuse_hybrid(search: Search, caller: str) -> _FusedHybrid:
     ordered_pairs = rrf_fuse(vec_rank, fts_rank, k=settings.HYBRID_RRF_K)
     rrf_score_by_id = dict(ordered_pairs)
     ordered_ids = list(rrf_score_by_id)
+    # The vector half is one complete beam pass by definition, so it never makes
+    # the union a lower bound; only a truncated FTS side does.
     total_relation: Literal["exact", "at_least", "approximately"] = (
-        "at_least"
-        if (
-            len(fts_rows) >= settings.HYBRID_FTS_MAX_RESULTS
-            or len(vec_rank) >= settings.HYBRID_VECTOR_TOP_K
-        )
-        else "exact"
+        "at_least" if len(fts_rows) >= settings.HYBRID_FTS_MAX_RESULTS else "exact"
     )
     return _FusedHybrid(
         ordered_ids=ordered_ids,
