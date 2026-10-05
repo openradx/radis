@@ -38,7 +38,7 @@ services:
     hostname: embeddings_worker.local
 
   postgres:
-    image: pgvector/pgvector:pg17@sha256:cf134a767f474095eeba57e0117be8e568e011a63f33fbf252f14c9b760f8e6f
+    image: pgvector/pgvector:pg17@sha256:ac08538c6f8b9904c33c8224c5e5706dbe760aca29db1d096972b4052c22a75d
     hostname: postgres.local
     volumes:
       - postgres_data:/var/lib/postgresql/data
