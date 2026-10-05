@@ -6,8 +6,8 @@ or label it belongs to:
     gate_noul:<group id>     the gate question as a yes/no probability
     gate_choice:<group id>   the same question as a two-option choice
     bucket:<label id>        the label as a choice over the five buckets
-    addressed:<label id>     the label as two yes/no probabilities, which
-    present:<label id>       bucket_from_nouls turns into a bucket
+    present:<label id>       the label as a yes/no probability, which
+                             outcome_from_noul turns into a bucket
 """
 
 from collections.abc import Iterable, Mapping
@@ -31,6 +31,11 @@ BUCKET_CRITERIA = {
 GATE_CHOICE_YES = "A"
 GATE_CHOICE_CRITERIA = {GATE_CHOICE_YES: "yes", "B": "no"}
 
+# A low P(present) cannot tell a finding the report rules out from one it never mentions,
+# so the noul has a single outcome for both. The pipeline surfaces neither bucket.
+NOT_SURFACED = f"{BucketValue.ABSENT} / {BucketValue.UNMENTIONED}"
+NOT_SURFACED_BUCKETS = frozenset({BucketValue.ABSENT, BucketValue.UNMENTIONED})
+
 
 @dataclass(frozen=True)
 class LabelSpec:
@@ -52,8 +57,7 @@ class Thresholds:
     """Where probabilities turn into labeling values. A value at a threshold counts as met."""
 
     gate: float = 0.5  # P(yes) for a gate to answer YES
-    addressed: float = 0.5  # P(addressed) for a label to be anything but UNMENTIONED
-    possible: float = 0.35  # P(present) for POSSIBLE, below it the label is ABSENT
+    possible: float = 0.35  # P(present) for POSSIBLE, below it the label is NOT_SURFACED
     likely: float = 0.6  # P(present) for LIKELY
     present: float = 0.85  # P(present) for PRESENT
 
@@ -82,17 +86,17 @@ class LabelView:
     choice: str | None
     choice_confidence: float | None
     choice_probabilities: dict[str, float]
-    addressed: float | None
     present: float | None
-    nouls_value: str | None
+    noul_value: str | None
 
     @property
     def choice_differs(self) -> bool:
         return _differs(self.llm, self.choice)
 
     @property
-    def nouls_differs(self) -> bool:
-        return _differs(self.llm, self.nouls_value)
+    def noul_differs(self) -> bool:
+        llm = NOT_SURFACED if self.llm in NOT_SURFACED_BUCKETS else self.llm
+        return _differs(llm, self.noul_value)
 
 
 @dataclass(frozen=True)
@@ -112,7 +116,7 @@ class GroupView:
         return self.gate.choice_value == GateValue.NO
 
     @property
-    def nouls_skipped(self) -> bool:
+    def noul_skipped(self) -> bool:
         return self.gate.noul_value == GateValue.NO
 
 
@@ -136,13 +140,6 @@ def build_questions(groups: Iterable[GroupSpec]) -> dict[str, dict]:
                 "instructions": f"How strongly does the report support {finding}? {definition}",
                 "criteria": dict(BUCKET_CRITERIA),
             }
-            questions[f"addressed:{label.id}"] = {
-                "type": "noul",
-                "instructions": (
-                    f"Does the report address {finding} at all, whether as present or as "
-                    f"absent? {definition}"
-                ),
-            }
             questions[f"present:{label.id}"] = {
                 "type": "noul",
                 "instructions": (
@@ -152,16 +149,14 @@ def build_questions(groups: Iterable[GroupSpec]) -> dict[str, dict]:
     return questions
 
 
-def bucket_from_nouls(addressed: float, present: float, thresholds: Thresholds) -> str:
-    if addressed < thresholds.addressed:
-        return BucketValue.UNMENTIONED
+def outcome_from_noul(present: float, thresholds: Thresholds) -> str:
     if present >= thresholds.present:
         return BucketValue.PRESENT
     if present >= thresholds.likely:
         return BucketValue.LIKELY
     if present >= thresholds.possible:
         return BucketValue.POSSIBLE
-    return BucketValue.ABSENT
+    return NOT_SURFACED
 
 
 def map_answers(
@@ -212,13 +207,7 @@ def _label_view(
         if (probability := _as_float(value)) is not None
     }
 
-    addressed = _number(answers.get(f"addressed:{label.id}"), "noul")
     present = _number(answers.get(f"present:{label.id}"), "noul")
-    nouls_value = (
-        bucket_from_nouls(addressed, present, thresholds)
-        if addressed is not None and present is not None
-        else None
-    )
 
     return LabelView(
         spec=label,
@@ -226,9 +215,8 @@ def _label_view(
         choice=choice if isinstance(choice, str) else None,
         choice_confidence=_number(bucket, "confidence"),
         choice_probabilities=probabilities,
-        addressed=addressed,
         present=present,
-        nouls_value=nouls_value,
+        noul_value=outcome_from_noul(present, thresholds) if present is not None else None,
     )
 
 

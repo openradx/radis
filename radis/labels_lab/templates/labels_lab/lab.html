@@ -131,8 +131,9 @@
                       hx-target="#lab-mapped"
                       hx-include="#lab-mapping">
                 <legend class="fs-6 fw-semibold mb-1">Thresholds</legend>
-                <div class="input-group input-group-sm mb-1">
-                    <label class="input-group-text" for="lab-gate">Gate YES if P(yes) ≥</label>
+                <div class="small text-muted mb-1">Gate, both decision model columns</div>
+                <div class="input-group input-group-sm flex-nowrap mb-2">
+                    <label class="input-group-text lab-threshold-label" for="lab-gate">YES if P(yes) ≥</label>
                     <input type="number"
                            class="form-control"
                            name="gate"
@@ -142,50 +143,47 @@
                            step="0.01"
                            value="{{ thresholds.gate|stringformat:'.2f' }}" />
                 </div>
-                <div class="input-group input-group-sm mb-1">
-                    <label class="input-group-text" for="lab-addressed">Mentioned if P(addressed) ≥</label>
-                    <input type="number"
-                           class="form-control"
-                           name="addressed"
-                           id="lab-addressed"
-                           min="0"
-                           max="1"
-                           step="0.01"
-                           value="{{ thresholds.addressed|stringformat:'.2f' }}" />
-                </div>
-                <div class="input-group input-group-sm">
-                    <span class="input-group-text">P(present) ≥</span>
+                <div class="small text-muted mb-1">Labels, "as noul" column only</div>
+                <div class="input-group input-group-sm flex-nowrap mb-1">
+                    <label class="input-group-text lab-threshold-label"
+                           for="lab-possible">POSSIBLE if P(present) ≥</label>
                     <input type="number"
                            class="form-control"
                            name="possible"
+                           id="lab-possible"
                            min="0"
                            max="1"
                            step="0.01"
-                           value="{{ thresholds.possible|stringformat:'.2f' }}"
-                           title="POSSIBLE"
-                           aria-label="Threshold for POSSIBLE" />
+                           value="{{ thresholds.possible|stringformat:'.2f' }}" />
+                </div>
+                <div class="input-group input-group-sm flex-nowrap mb-1">
+                    <label class="input-group-text lab-threshold-label" for="lab-likely">LIKELY if P(present) ≥</label>
                     <input type="number"
                            class="form-control"
                            name="likely"
+                           id="lab-likely"
                            min="0"
                            max="1"
                            step="0.01"
-                           value="{{ thresholds.likely|stringformat:'.2f' }}"
-                           title="LIKELY"
-                           aria-label="Threshold for LIKELY" />
+                           value="{{ thresholds.likely|stringformat:'.2f' }}" />
+                </div>
+                <div class="input-group input-group-sm flex-nowrap">
+                    <label class="input-group-text lab-threshold-label"
+                           for="lab-present">PRESENT if P(present) ≥</label>
                     <input type="number"
                            class="form-control"
                            name="present"
+                           id="lab-present"
                            min="0"
                            max="1"
                            step="0.01"
-                           value="{{ thresholds.present|stringformat:'.2f' }}"
-                           title="PRESENT"
-                           aria-label="Threshold for PRESENT" />
+                           value="{{ thresholds.present|stringformat:'.2f' }}" />
                 </div>
                 <div class="form-text">
-                    P(present) cut points for POSSIBLE, LIKELY and PRESENT. Changing a threshold re-maps the last run
-                    without asking a model again.
+                    Below the POSSIBLE cut a label is ABSENT / UNMENTIONED: P(present) cannot tell the two apart, so
+                    that agrees with the LLM answering either. The "as choice" column uses no label threshold, there
+                    the model picks the bucket itself. Changing a threshold re-maps the last run without asking a
+                    model again.
                 </div>
             </fieldset>
         </div>

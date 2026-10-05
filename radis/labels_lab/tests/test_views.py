@@ -15,7 +15,6 @@ from radis.reports.factories import ReportFactory
 
 DEFAULT_THRESHOLDS = {
     "gate": "0.5",
-    "addressed": "0.5",
     "possible": "0.35",
     "likely": "0.6",
     "present": "0.85",
@@ -133,7 +132,6 @@ def _decide_response(group, pneumonia, pneumothorax, **overrides) -> dict:
                     "UNMENTIONED": 0.0209,
                 },
             },
-            f"addressed:{pneumonia.id}": {"type": "noul", "noul": 0.95},
             f"present:{pneumonia.id}": {"type": "noul", "noul": 0.7},
             f"bucket:{pneumothorax.id}": {
                 "type": "choice",
@@ -147,7 +145,6 @@ def _decide_response(group, pneumonia, pneumothorax, **overrides) -> dict:
                     "UNMENTIONED": 0.05,
                 },
             },
-            f"addressed:{pneumothorax.id}": {"type": "noul", "noul": 0.9},
             f"present:{pneumothorax.id}": {"type": "noul", "noul": 0.05},
         },
         "usage": {"input_tokens": 711, "output_tokens": 0},
@@ -300,10 +297,8 @@ def test_run_asks_the_decision_model_about_the_posted_text(staff_client: Client,
         f"gate_noul:{group.id}",
         f"gate_choice:{group.id}",
         f"bucket:{pneumonia.id}",
-        f"addressed:{pneumonia.id}",
         f"present:{pneumonia.id}",
         f"bucket:{pneumothorax.id}",
-        f"addressed:{pneumothorax.id}",
         f"present:{pneumothorax.id}",
     }
 
@@ -327,10 +322,11 @@ def test_run_lines_up_the_decision_model_with_the_llm(staff_client: Client, ches
 
     [view] = response.context["group_views"]
     assert (view.gate.llm, view.gate.noul_value, view.gate.choice_value) == ("YES", "YES", "YES")
-    assert [(lbl.spec.name, lbl.llm, lbl.choice, lbl.nouls_value) for lbl in view.labels] == [
+    assert [(lbl.spec.name, lbl.llm, lbl.choice, lbl.noul_value) for lbl in view.labels] == [
         ("pneumonia", "PRESENT", "LIKELY", "LIKELY"),
-        ("pneumothorax", "ABSENT", "ABSENT", "ABSENT"),
+        ("pneumothorax", "ABSENT", "ABSENT", "ABSENT / UNMENTIONED"),
     ]
+    assert "ABSENT / UNMENTIONED" in response.content.decode()
 
 
 @pytest.mark.django_db
@@ -514,7 +510,8 @@ def test_run_flags_every_answer_that_differs_from_the_llm(staff_client: Client, 
     group, *_ = chest
 
     # Both gate variants say YES and both label variants say LIKELY for pneumonia, all four
-    # against the LLM. Pneumothorax is ABSENT everywhere.
+    # against the LLM. Pneumothorax is ABSENT for the LLM and the choice, which the noul's
+    # ABSENT / UNMENTIONED agrees with.
     with _decision_model(response=_decide_response(*chest)), _llm(gate="NO"):
         response = staff_client.post("/labels-lab/run/", _run_form(group))
 
@@ -552,7 +549,7 @@ def test_mapped_results_show_probabilities_as_precisely_as_they_are_thresholded(
 ):
     group, pneumonia, _ = chest
     decided = _decide_response(*chest)
-    decided["answers"][f"addressed:{pneumonia.id}"]["noul"] = 0.4989
+    decided["answers"][f"present:{pneumonia.id}"]["noul"] = 0.8499
     with _decision_model(response=decided), _llm():
         run = staff_client.post("/labels-lab/run/", _run_form(group))
 
@@ -562,8 +559,8 @@ def test_mapped_results_show_probabilities_as_precisely_as_they_are_thresholded(
     )
 
     [view] = response.context["group_views"]
-    assert view.labels[0].nouls_value == "UNMENTIONED"  # 0.4989 is below the 0.5 it rounds to
-    assert "0.4989" in response.content.decode()
+    assert view.labels[0].noul_value == "LIKELY"  # 0.8499 is below the 0.85 it rounds to
+    assert "0.8499" in response.content.decode()
 
 
 @pytest.mark.django_db
@@ -575,10 +572,10 @@ def test_mapped_results_name_the_thresholds_they_were_mapped_with(staff_client: 
 
     response = staff_client.post(
         "/labels-lab/remap/",
-        {"mapping": run.context["mapping_json"], **DEFAULT_THRESHOLDS, "addressed": "0.43"},
+        {"mapping": run.context["mapping_json"], **DEFAULT_THRESHOLDS, "possible": "0.31"},
     )
 
-    assert "0.43" in response.content.decode()
+    assert "0.31" in response.content.decode()
 
 
 @pytest.mark.django_db

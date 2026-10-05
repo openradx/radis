@@ -2,6 +2,8 @@ from django.template import Library
 
 from radis.labels.models import LabelResult
 
+from ..questions import NOT_SURFACED
+
 register = Library()
 
 _VALUE_COLORS = {
@@ -12,6 +14,7 @@ _VALUE_COLORS = {
     "POSSIBLE": "info",
     "ABSENT": "secondary",
     "UNMENTIONED": "light",
+    NOT_SURFACED: "secondary",
 }
 
 

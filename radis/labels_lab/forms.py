@@ -14,7 +14,6 @@ def groups_with_active_labels() -> QuerySet[LabelGroup]:
 
 class ThresholdsForm(forms.Form):
     gate = forms.FloatField(min_value=0, max_value=1)
-    addressed = forms.FloatField(min_value=0, max_value=1)
     possible = forms.FloatField(min_value=0, max_value=1)
     likely = forms.FloatField(min_value=0, max_value=1)
     present = forms.FloatField(min_value=0, max_value=1)

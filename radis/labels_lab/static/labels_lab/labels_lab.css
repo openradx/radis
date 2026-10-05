@@ -17,3 +17,15 @@
 .lab-bar-label {
   width: 6.5rem;
 }
+
+/* In a narrow column the label gives way and wraps, so its input stays beside it. */
+.lab-threshold-label {
+  flex: 0 1 14.5rem;
+  min-width: 0;
+  text-align: start;
+  white-space: normal;
+}
+
+.lab-threshold-label + .form-control {
+  min-width: 4.5rem;
+}
