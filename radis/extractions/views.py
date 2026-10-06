@@ -312,6 +312,9 @@ class ExtractionJobWizardView(
             job.group = group
             job.owner = user
             job.save()
+            # save(commit=False) defers the many-to-many data (the modalities filter)
+            # until the instance exists; without this call the filter is dropped.
+            search_form.save_m2m()
 
             # Save output fields
             output_fields_formset.instance = job

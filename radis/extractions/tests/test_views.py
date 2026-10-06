@@ -10,8 +10,8 @@ from radis.extractions.factories import (
     ExtractionTaskFactory,
     OutputFieldFactory,
 )
-from radis.extractions.models import ExtractionJob
-from radis.reports.factories import LanguageFactory, ReportFactory
+from radis.extractions.models import ExtractionJob, OutputType
+from radis.reports.factories import LanguageFactory, ModalityFactory, ReportFactory
 
 
 def create_test_extraction_job(owner=None, group=None):
@@ -596,3 +596,64 @@ def test_query_generation_needed_respects_disabled_setting(settings):
         )
         is False
     )
+
+
+@pytest.mark.django_db
+def test_extraction_job_wizard_persists_modalities(client: Client, settings):
+    """The wizard saves the job with ``save(commit=False)``, so the many-to-many
+    modalities filter only reaches the database through ``save_m2m()``."""
+    settings.START_EXTRACTION_JOB_UNVERIFIED = False
+    LanguageFactory.create(code="en")
+    user = UserFactory.create(is_active=True)
+    group = GroupFactory.create()
+    user.groups.add(group)
+    user.active_group = group
+    user.save()
+    user.user_permissions.add(Permission.objects.get(codename="add_extractionjob"))
+    ct = ModalityFactory.create(code="CT", filterable=True)
+    mr = ModalityFactory.create(code="MR", filterable=True)
+    client.force_login(user)
+
+    url = "/extractions/jobs/new/"
+    step_field = "extraction_job_wizard_view-current_step"
+
+    response = client.post(
+        url,
+        {
+            step_field: "0",
+            "0-TOTAL_FORMS": "1",
+            "0-INITIAL_FORMS": "0",
+            "0-MIN_NUM_FORMS": "1",
+            "0-MAX_NUM_FORMS": "5",
+            "0-0-name": "finding",
+            "0-0-description": "The main finding of the report",
+            "0-0-output_type": OutputType.TEXT,
+            "0-0-selection_options": "[]",
+            "0-0-is_array": "false",
+        },
+    )
+    assert response.status_code == 200
+
+    response = client.post(
+        url,
+        {
+            step_field: "1",
+            "1-title": "Modality filtered job",
+            "1-query": "pneumonia",
+            "1-language": "",
+            "1-modalities": [str(ct.pk), str(mr.pk)],
+            "1-study_date_from": "",
+            "1-study_date_till": "",
+            "1-study_description": "",
+            "1-patient_sex": "",
+            "1-age_from": "",
+            "1-age_till": "",
+        },
+    )
+    assert response.status_code == 200
+
+    response = client.post(url, {step_field: "2", "2-send_finished_mail": ""})
+    assert response.status_code == 302
+
+    job = ExtractionJob.objects.get(title="Modality filtered job")
+    assert set(job.modalities.values_list("code", flat=True)) == {"CT", "MR"}

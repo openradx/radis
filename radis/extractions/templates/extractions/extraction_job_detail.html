@@ -82,7 +82,7 @@
         </dd>
         <dt class="col-sm-3">Modalities</dt>
         <dd class="col-sm-9">
-            {{ job.modalities|join:", "|default:"—" }}
+            {{ job.modalities.all|join:", "|default:"—" }}
         </dd>
         <dt class="col-sm-3">Patient Sex</dt>
         <dd class="col-sm-9">
