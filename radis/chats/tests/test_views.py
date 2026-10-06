@@ -188,7 +188,7 @@ async def test_create_chat_with_report_outside_active_group_is_not_found():
     client = await _login(user)
 
     openai_mock, capture = make_capturing_async_openai_mock("answer", "title")
-    with patch("openai.AsyncOpenAI", return_value=openai_mock), _stub_render():
+    with patch("openai.AsyncOpenAI", return_value=openai_mock):
         resp = await client.post(
             reverse("chat_create"),
             data={"prompt": "Summarize", "report_id": str(report.pk)},
@@ -210,7 +210,7 @@ async def test_create_chat_with_report_without_active_group_is_forbidden():
     client = await _login(user)
 
     openai_mock, capture = make_capturing_async_openai_mock("answer", "title")
-    with patch("openai.AsyncOpenAI", return_value=openai_mock), _stub_render():
+    with patch("openai.AsyncOpenAI", return_value=openai_mock):
         resp = await client.post(
             reverse("chat_create"),
             data={"prompt": "Summarize", "report_id": str(report.pk)},
