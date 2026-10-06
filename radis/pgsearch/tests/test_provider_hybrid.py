@@ -3,6 +3,7 @@ from unittest.mock import patch
 
 import pytest
 from django.contrib.auth.models import Group
+from django.db import connection
 from django.test import override_settings
 
 from radis.core.utils.embedding_client import EmbeddingClientError
@@ -492,3 +493,25 @@ def test_openai_rate_limit_error_in_retrieve_falls_back_to_fts(group, reports_wi
 
     # No exception escaped; FTS-only retrieve returned something.
     assert result is not None
+
+
+def test_connection_carries_hnsw_gucs(db, settings):
+    """hnsw.ef_search rides along as a libpq connection option
+    (settings.DATABASES), so every Django connection runs the same vector-scan
+    configuration. It directly governs the depth of the semantic side —
+    pgvector's default of 40 caps how many rows one HNSW index scan emits, so a
+    connection without the option quietly runs the vector half of the hybrid
+    fusion at a fraction of the configured depth."""
+    with connection.cursor() as cursor:
+        # Force pgvector's library to load: hnsw.iterative_scan below is only
+        # defined once it has, since it is not in the connection options and a
+        # connection that has run no vector operation yet would error the SHOW
+        # with "unrecognized configuration parameter".
+        cursor.execute("SELECT '[1]'::vector(1)")
+        cursor.execute("SHOW hnsw.ef_search")
+        assert cursor.fetchone()[0] == str(settings.HYBRID_HNSW_EF_SEARCH)
+        # One-pass semantics is deliberate: TOP_K caps the vector candidates and
+        # the filters may shrink the list below it — the scan must not resume to
+        # top it back up.
+        cursor.execute("SHOW hnsw.iterative_scan")
+        assert cursor.fetchone()[0] == "off"
