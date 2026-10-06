@@ -1,5 +1,5 @@
 import pytest
-from adit_radis_shared.accounts.factories import UserFactory
+from adit_radis_shared.accounts.factories import GroupFactory, UserFactory
 from django.test import Client
 
 from radis.collections.factories import CollectionFactory
@@ -10,6 +10,15 @@ def create_test_report():
     """Create a report with a supported language."""
     language = LanguageFactory.create(code="en")
     return ReportFactory.create(language=language)
+
+
+def create_user_with_active_group():
+    user = UserFactory.create(is_active=True)
+    group = GroupFactory.create()
+    user.groups.add(group)
+    user.active_group = group
+    user.save()
+    return user, group
 
 
 @pytest.mark.django_db
@@ -115,13 +124,96 @@ def test_collection_select_view(client: Client):
 
 
 @pytest.mark.django_db
-def test_collection_count_badge_view(client: Client):
-    user = UserFactory.create(is_active=True)
+def test_collection_select_view_add_report_in_active_group(client: Client):
+    user, group = create_user_with_active_group()
+    collection = CollectionFactory.create(owner=user)
     report = create_test_report()
+    report.groups.add(group)
+    client.force_login(user)
+
+    response = client.post(
+        f"/collections/select/{report.pk}/", {"action": "add", "collection": collection.pk}
+    )
+
+    assert response.status_code == 200
+    assert collection.reports.contains(report)
+    user.refresh_from_db()
+    assert user.preferences["last_used_collection"] == collection.pk
+
+
+@pytest.mark.django_db
+def test_collection_select_view_add_report_outside_active_group_is_not_found(client: Client):
+    user, _group = create_user_with_active_group()
+    collection = CollectionFactory.create(owner=user)
+    report = create_test_report()
+    report.groups.add(GroupFactory.create())
+    client.force_login(user)
+
+    response = client.post(
+        f"/collections/select/{report.pk}/", {"action": "add", "collection": collection.pk}
+    )
+
+    assert response.status_code == 404
+    assert not collection.reports.contains(report)
+
+
+@pytest.mark.django_db
+def test_collection_select_view_add_without_active_group_is_forbidden(client: Client):
+    user = UserFactory.create(is_active=True)
+    collection = CollectionFactory.create(owner=user)
+    report = create_test_report()
+    client.force_login(user)
+
+    response = client.post(
+        f"/collections/select/{report.pk}/", {"action": "add", "collection": collection.pk}
+    )
+
+    assert response.status_code == 403
+    assert not collection.reports.contains(report)
+
+
+@pytest.mark.django_db
+def test_collection_select_view_remove_report_outside_active_group(client: Client):
+    """A report collected while another group was active can still be removed."""
+    user, _group = create_user_with_active_group()
+    collection = CollectionFactory.create(owner=user)
+    report = create_test_report()
+    report.groups.add(GroupFactory.create())
+    collection.reports.add(report)
+    client.force_login(user)
+
+    response = client.post(
+        f"/collections/select/{report.pk}/", {"action": "remove", "collection": collection.pk}
+    )
+
+    assert response.status_code == 200
+    assert not collection.reports.contains(report)
+
+
+@pytest.mark.django_db
+def test_collection_count_badge_view(client: Client):
+    user, group = create_user_with_active_group()
+    report = create_test_report()
+    report.groups.add(group)
     client.force_login(user)
 
     response = client.get(f"/collections/count-badge/{report.pk}/")
     assert response.status_code == 200
+
+
+@pytest.mark.django_db
+def test_collection_count_badge_view_for_report_outside_active_group(client: Client):
+    user, _group = create_user_with_active_group()
+    report = create_test_report()
+    report.groups.add(GroupFactory.create())
+    client.force_login(user)
+
+    # Not visible through the active group and not collected: nothing to show.
+    assert client.get(f"/collections/count-badge/{report.pk}/").status_code == 404
+
+    # Collected earlier (e.g. under another active group): the badge keeps working.
+    CollectionFactory.create(owner=user).reports.add(report)
+    assert client.get(f"/collections/count-badge/{report.pk}/").status_code == 200
 
 
 @pytest.mark.django_db
