@@ -15,7 +15,7 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
-from adit_radis_shared.accounts.factories import UserFactory
+from adit_radis_shared.accounts.factories import GroupFactory, UserFactory
 from channels.db import database_sync_to_async
 from django.http import HttpResponse
 from django.test import AsyncClient
@@ -84,6 +84,20 @@ async def _login(user) -> AsyncClient:
     return client
 
 
+async def _create_user_with_active_group():
+    """A user whose active group is the group the test's reports are put into."""
+
+    def _create():
+        user = UserFactory.create(is_active=True)
+        group = GroupFactory.create()
+        user.groups.add(group)
+        user.active_group = group
+        user.save()
+        return user, group
+
+    return await database_sync_to_async(_create)()
+
+
 # --------------------------------------------------------------------------- #
 # chat_create_view
 # --------------------------------------------------------------------------- #
@@ -135,8 +149,9 @@ async def test_create_chat_general_prompt_persists_messages_and_title():
 @pytest.mark.asyncio
 @pytest.mark.django_db(transaction=True)
 async def test_create_chat_with_report_embeds_report_body_in_system_prompt():
-    user = await database_sync_to_async(UserFactory.create)(is_active=True)
+    user, group = await _create_user_with_active_group()
     report = await database_sync_to_async(ReportFactory.create)(body="UNIQUE-REPORT-FINDINGS-XYZ")
+    await database_sync_to_async(report.groups.add)(group)
     client = await _login(user)
 
     openai_mock, capture = make_capturing_async_openai_mock("answer", "title")
@@ -161,6 +176,50 @@ async def test_create_chat_with_report_embeds_report_body_in_system_prompt():
         lambda: chat.messages.get(role=ChatRole.SYSTEM).content
     )()
     assert "UNIQUE-REPORT-FINDINGS-XYZ" in system_msg
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db(transaction=True)
+async def test_create_chat_with_report_outside_active_group_is_not_found():
+    user, _group = await _create_user_with_active_group()
+    other_group = await database_sync_to_async(GroupFactory.create)()
+    report = await database_sync_to_async(ReportFactory.create)(body="OTHER-GROUP-FINDINGS")
+    await database_sync_to_async(report.groups.add)(other_group)
+    client = await _login(user)
+
+    openai_mock, capture = make_capturing_async_openai_mock("answer", "title")
+    with patch("openai.AsyncOpenAI", return_value=openai_mock), _stub_render():
+        resp = await client.post(
+            reverse("chat_create"),
+            data={"prompt": "Summarize", "report_id": str(report.pk)},
+            headers=HX_HEADERS,
+        )
+
+    # The report is not visible through the user's active group, so the POST must
+    # behave like the GET path: not found, nothing sent to the LLM, nothing stored.
+    assert resp.status_code == 404
+    assert capture.calls == []
+    assert await database_sync_to_async(Chat.objects.count)() == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db(transaction=True)
+async def test_create_chat_with_report_without_active_group_is_forbidden():
+    user = await database_sync_to_async(UserFactory.create)(is_active=True)
+    report = await database_sync_to_async(ReportFactory.create)(body="UNGROUPED-FINDINGS")
+    client = await _login(user)
+
+    openai_mock, capture = make_capturing_async_openai_mock("answer", "title")
+    with patch("openai.AsyncOpenAI", return_value=openai_mock), _stub_render():
+        resp = await client.post(
+            reverse("chat_create"),
+            data={"prompt": "Summarize", "report_id": str(report.pk)},
+            headers=HX_HEADERS,
+        )
+
+    assert resp.status_code == 403
+    assert capture.calls == []
+    assert await database_sync_to_async(Chat.objects.count)() == 0
 
 
 @pytest.mark.asyncio
