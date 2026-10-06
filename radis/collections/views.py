@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from typing import Any, Protocol, cast, runtime_checkable
 
 from adit_radis_shared.common.mixins import PageSizeSelectMixin
@@ -7,7 +9,7 @@ from django.contrib.messages.views import SuccessMessageMixin
 from django.core.exceptions import PermissionDenied, SuspiciousOperation
 from django.db import IntegrityError
 from django.db.models import Count, Q, QuerySet
-from django.forms import BaseModelForm, modelform_factory
+from django.forms import ModelForm, modelform_factory
 from django.http import HttpRequest, HttpResponse
 from django.shortcuts import get_object_or_404, render
 from django.urls import reverse_lazy
@@ -71,7 +73,7 @@ class CollectionCreateView(
     template_name = "collections/_collection_create.html"
     form_class = modelform_factory(Collection, fields=["name"])
 
-    def form_valid(self, form: BaseModelForm) -> HttpResponse:
+    def form_valid(self, form: ModelForm[Collection]) -> HttpResponse:
         form.instance.owner = self.request.user
         try:
             self.object = form.save()
@@ -93,7 +95,7 @@ class CollectionUpdateView(LoginRequiredMixin, UpdateView):
     def get_queryset(self) -> QuerySet[Collection]:
         return super().get_queryset().filter(owner=self.request.user)
 
-    def form_valid(self, form: BaseModelForm) -> HttpResponse:
+    def form_valid(self, form: ModelForm[Collection]) -> HttpResponse:
         form.instance.owner = self.request.user
         try:
             self.object = form.save()
