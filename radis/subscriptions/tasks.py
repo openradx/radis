@@ -92,6 +92,7 @@ def _build_subscription_job(job: SubscriptionJob) -> None:
         patient_sex=job.subscription.patient_sex,
         patient_age_from=job.subscription.age_from,
         patient_age_till=job.subscription.age_till,
+        patient_id=job.subscription.patient_id or None,
         updated_after=job.subscription.last_refreshed,
     )
 

@@ -68,6 +68,46 @@ def test_new_reports_are_batched_into_tasks(monkeypatch, settings):
     assert job.status == SubscriptionJob.Status.PENDING
 
 
+def _capture_filters(monkeypatch) -> dict:
+    """Replace the filter provider with one that records the SearchFilters it receives."""
+    seen: dict = {}
+
+    def _filter(filters):
+        seen["filters"] = filters
+        return []
+
+    monkeypatch.setattr(
+        subscription_site,
+        "subscription_filter_provider",
+        SubscriptionFilterProvider(name="f", filter=_filter),
+    )
+    return seen
+
+
+@pytest.mark.django_db
+def test_patient_id_is_passed_to_the_filter_provider(monkeypatch):
+    job = _preparing_job()
+    job.subscription.patient_id = "1234567890"
+    job.subscription.save()
+    seen = _capture_filters(monkeypatch)
+
+    process_subscription_job(int(job.pk))
+
+    assert seen["filters"].patient_id == "1234567890"
+
+
+@pytest.mark.django_db
+def test_blank_patient_id_is_not_passed_as_a_filter(monkeypatch):
+    job = _preparing_job()
+    job.subscription.patient_id = ""
+    job.subscription.save()
+    seen = _capture_filters(monkeypatch)
+
+    process_subscription_job(int(job.pk))
+
+    assert seen["filters"].patient_id is None
+
+
 @pytest.mark.django_db
 def test_last_refreshed_is_advanced(monkeypatch):
     job = _preparing_job()
