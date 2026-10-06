@@ -4,9 +4,9 @@ from adit_radis_shared.common.mixins import PageSizeSelectMixin
 from adit_radis_shared.common.types import AuthenticatedHttpRequest
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib.messages.views import SuccessMessageMixin
-from django.core.exceptions import SuspiciousOperation
+from django.core.exceptions import PermissionDenied, SuspiciousOperation
 from django.db import IntegrityError
-from django.db.models import Count, QuerySet
+from django.db.models import Count, Q, QuerySet
 from django.forms import BaseModelForm, modelform_factory
 from django.http import HttpRequest, HttpResponse
 from django.shortcuts import get_object_or_404, render
@@ -24,6 +24,18 @@ from .tables import CollectionTable
 from .utils.exporters import export_collection
 
 LAST_USED_COLLECTION_PREFERENCE = "last_used_collection"
+
+
+def _get_report_in_active_group(request: AuthenticatedHttpRequest, report_id: int) -> Report:
+    """Resolve a report the way the report views do: through the user's active group.
+
+    Reports outside that group are invisible elsewhere in RADIS, so they must not be
+    reachable by id here either (the collection page renders the report body).
+    """
+    active_group = request.user.active_group
+    if active_group is None:
+        raise PermissionDenied("An active group is required to add reports to a collection.")
+    return get_object_or_404(Report, id=report_id, groups=active_group)
 
 
 @runtime_checkable
@@ -188,10 +200,10 @@ class CollectionSelectView(LoginRequiredMixin, View):
         collection = get_object_or_404(
             Collection.objects.filter(owner=request.user), pk=collection_id
         )
-        report = get_object_or_404(Report, id=report_id)
 
         response = HttpResponse(status=200)
         if action == "add":
+            report = _get_report_in_active_group(request, report_id)
             if collection.reports.contains(report):
                 raise SuspiciousOperation
 
@@ -201,6 +213,9 @@ class CollectionSelectView(LoginRequiredMixin, View):
             response = trigger_client_event(response, f"collectedReportsChanged_{collection.pk}")
             response = trigger_client_event(response, f"collectionsOfReportChanged_{report_id}")
         elif action == "remove":
+            # Removing only needs the report to be in the user's own collection, which
+            # keeps reports collected under another active group removable.
+            report = get_object_or_404(Report, id=report_id)
             if not collection.reports.contains(report):
                 raise SuspiciousOperation
 
@@ -215,7 +230,12 @@ class CollectionSelectView(LoginRequiredMixin, View):
 
 class CollectionCountBadgeView(LoginRequiredMixin, View):
     def get(self, request: AuthenticatedHttpRequest, report_id: int) -> HttpResponse:
-        report = get_object_or_404(Report, id=report_id)
+        # The badge is rendered next to reports the user can see and next to reports
+        # already in one of the user's collections; any other id is not found.
+        visible = Q(collections__owner=request.user)
+        if request.user.active_group is not None:
+            visible |= Q(groups=request.user.active_group)
+        report = get_object_or_404(Report.objects.filter(visible).distinct(), id=report_id)
         collection_count = Collection.objects.filter(
             owner=request.user, reports__id=report.pk
         ).count()
