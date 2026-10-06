@@ -10,14 +10,12 @@ we can assert the assembled message history reaches the model. Each call returns
 a fresh awaitable (the view calls ``chat()`` more than once per request).
 """
 
-import contextlib
 from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
 from adit_radis_shared.accounts.factories import UserFactory
 from channels.db import database_sync_to_async
-from django.http import HttpResponse
 from django.test import AsyncClient
 from django.urls import reverse
 
@@ -27,20 +25,6 @@ from radis.reports.factories import ReportFactory
 # HTMX marker header. Passed via ``headers=`` so the test client sets HTTP_HX_REQUEST,
 # which the views require (a missing header raises SuspiciousOperation -> 400).
 HX_HEADERS = {"HX-Request": "true"}
-
-
-@contextlib.contextmanager
-def _stub_render():
-    """Neutralise template rendering for the success-path views.
-
-    The chats partials use django-template-partials includes
-    ("chats/chat.html#heading") that don't resolve under a plain unit-test
-    render. We assert on DB side effects and the captured LLM calls instead of
-    on the rendered HTML, so replace views.render with a trivial response. All
-    view logic (prompt assembly, LLM calls, persistence) still runs unchanged.
-    """
-    with patch("radis.chats.views.render", return_value=HttpResponse("ok")):
-        yield
 
 
 @pytest.fixture(autouse=True)
@@ -96,7 +80,7 @@ async def test_create_chat_general_prompt_persists_messages_and_title():
     client = await _login(user)
 
     openai_mock, capture = make_capturing_async_openai_mock("LLM answer", "Generated Title")
-    with patch("openai.AsyncOpenAI", return_value=openai_mock), _stub_render():
+    with patch("openai.AsyncOpenAI", return_value=openai_mock):
         resp = await client.post(
             reverse("chat_create"),
             data={"prompt": "What is pneumonia?", "report_id": ""},
@@ -110,6 +94,14 @@ async def test_create_chat_general_prompt_persists_messages_and_title():
     assert await database_sync_to_async(lambda: chat.report)() is None
     # Title comes from the (stripped, punctuation-trimmed) second LLM response.
     assert chat.title == "Generated Title"
+
+    # The HTMX response is assembled from the "heading" and "content" partials of
+    # chats/chat.html; both must render (the title in the heading, the answer in
+    # the content).
+    html = resp.content.decode()
+    assert 'id="chat-heading"' in html
+    assert "Chat: Generated Title" in html
+    assert "LLM answer" in html
 
     # Three messages stored in order: SYSTEM, USER, ASSISTANT.
     msgs = await database_sync_to_async(
@@ -140,7 +132,7 @@ async def test_create_chat_with_report_embeds_report_body_in_system_prompt():
     client = await _login(user)
 
     openai_mock, capture = make_capturing_async_openai_mock("answer", "title")
-    with patch("openai.AsyncOpenAI", return_value=openai_mock), _stub_render():
+    with patch("openai.AsyncOpenAI", return_value=openai_mock):
         resp = await client.post(
             reverse("chat_create"),
             data={"prompt": "Summarize", "report_id": str(report.pk)},
@@ -161,6 +153,9 @@ async def test_create_chat_with_report_embeds_report_body_in_system_prompt():
         lambda: chat.messages.get(role=ChatRole.SYSTEM).content
     )()
     assert "UNIQUE-REPORT-FINDINGS-XYZ" in system_msg
+
+    # The report card is part of the rendered content partial.
+    assert "UNIQUE-REPORT-FINDINGS-XYZ" in resp.content.decode()
 
 
 @pytest.mark.asyncio
@@ -202,7 +197,7 @@ async def test_update_chat_sends_full_history_and_appends_turn():
     )
 
     openai_mock, capture = make_capturing_async_openai_mock("second answer")
-    with patch("openai.AsyncOpenAI", return_value=openai_mock), _stub_render():
+    with patch("openai.AsyncOpenAI", return_value=openai_mock):
         resp = await client.post(
             reverse("chat_update", args=[chat.pk]),
             data={"prompt": "second question"},
@@ -211,6 +206,7 @@ async def test_update_chat_sends_full_history_and_appends_turn():
 
     assert resp.status_code == 200
     assert len(capture.calls) == 1
+    assert "second answer" in resp.content.decode()
 
     # History is rebuilt from stored messages (roles lowercased via
     # get_role_display) + the new user prompt -- SYSTEM is NOT excluded here.
@@ -309,10 +305,7 @@ async def test_create_chat_renders_an_error_when_the_provider_rejects_the_reques
     openai_mock = MagicMock()
     openai_mock.chat.completions.create.side_effect = make_bad_request_error()
 
-    with (
-        patch("openai.AsyncOpenAI", return_value=openai_mock),
-        patch("radis.chats.views.render", return_value=HttpResponse("ok")) as render_mock,
-    ):
+    with patch("openai.AsyncOpenAI", return_value=openai_mock):
         resp = await client.post(
             reverse("chat_create"),
             data={"prompt": "What is pneumonia?", "report_id": ""},
@@ -325,6 +318,6 @@ async def test_create_chat_renders_an_error_when_the_provider_rejects_the_reques
 
     # The user is told the request failed, and not that the service is merely busy:
     # a rejected parameter does not get better by trying again.
-    context = render_mock.call_args.args[2]
-    assert context["error"]
-    assert "busy" not in context["error"]
+    html = resp.content.decode()
+    assert "could not answer this request" in html
+    assert "busy" not in html

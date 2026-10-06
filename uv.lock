@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = ">=3.12"
 resolution-markers = [
     "python_full_version >= '3.14' and sys_platform == 'win32'",
@@ -2898,6 +2898,7 @@ wheels = [
 name = "radis"
 version = "0.0.0"
 source = { editable = "." }
+default-groups = ["client", "dev", "docs"]
 dependencies = [
     { name = "adit-radis-shared" },
     { name = "adrf" },
@@ -2908,7 +2909,6 @@ dependencies = [
     { name = "cryptography" },
     { name = "daphne" },
     { name = "django" },
-    { name = "django-block-fragments" },
     { name = "django-cotton" },
     { name = "django-crispy-forms" },
     { name = "django-dbbackup" },
@@ -2996,7 +2996,6 @@ requires-dist = [
     { name = "cryptography", specifier = ">=44.0.1" },
     { name = "daphne", specifier = ">=4.1.2" },
     { name = "django", specifier = ">=6.1" },
-    { name = "django-block-fragments", specifier = ">=0.1.1" },
     { name = "django-cotton", specifier = ">=1.6.0" },
     { name = "django-crispy-forms", specifier = ">=2.3" },
     { name = "django-dbbackup", specifier = ">=5.3.0" },
