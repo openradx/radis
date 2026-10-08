@@ -112,9 +112,7 @@ def test_second_identical_search_reuses_cached_fusion(group, reports, settings):
     # The fusion (FTS ranking + vector scan) must be served from cache; only the
     # page-document fetch may hit the database.
     assert not _ran_fusion(second.captured_queries)
-    assert [d.document_id for d in result1.documents] == [
-        d.document_id for d in result2.documents
-    ]
+    assert [d.document_id for d in result1.documents] == [d.document_id for d in result2.documents]
     assert result1.total_count == result2.total_count
 
 
