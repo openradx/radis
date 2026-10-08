@@ -15,7 +15,7 @@ dependencies = [
     "crispy-bootstrap5>=2024.10",
     "cryptography>=44.0.1",
     "daphne>=4.1.2",
-    "Django>=5.1.6",
+    "Django>=6.1",
     "django-block-fragments>=0.1.1",
     "django-cotton>=1.6.0",
     "django-crispy-forms>=2.3",
@@ -29,11 +29,12 @@ dependencies = [
     "django-registration-redux>=2.13",
     "django-revproxy>=0.13.0",
     "django-tables2>=2.7.5",
-    "djangorestframework>=3.15.2",
+    "djangorestframework>=3.18",
     "environs[django]>=14.1.1",
+    "httpx2>=2.12",
     "humanize>=4.12.1",
     "Markdown>=3.7",
-    "openai>=1.64.0",
+    "openai>=3.8",
     "openpyxl>=3.1.5",
     "pandas>=2.2.3",
     "pgvector>=0.3",
@@ -58,10 +59,10 @@ dev = [
     "django-browser-reload>=1.18.0",
     "django-debug-permissions>=1.0.0",
     "django-debug-toolbar>=5.0.1",
-    "django-stubs>=5.2.0",
+    "django-stubs>=6.1",
     "django-test-migrations>=1.4.0",
     "djangorestframework-stubs>=3.15.3",
-    "djlint>=1.36.4",
+    "djlint>=1.45.0",
     "factory-boy>=3.3.0,<3.3.3",
     "Faker>=36.1.1",
     "ipykernel>=6.29.5",
@@ -86,6 +87,7 @@ dev = [
     "tiktoken>=0.9.0",
     "time-machine>=2.16.0",
     "typer>=0.19.2",
+    "zizmor>=1.29.0",
 ]
 client = ["radis-client"]
 
@@ -94,7 +96,7 @@ default-groups = ["dev", "client", "docs"]
 constraint-dependencies = ["autobahn<25.11.1"]
 
 [tool.uv.sources]
-adit-radis-shared = { git = "https://github.com/openradx/adit-radis-shared.git", tag = "0.27.0" }
+adit-radis-shared = { git = "https://github.com/openradx/adit-radis-shared.git", tag = "0.28.1" }
 radis-client = { path = "./radis-client", editable = true }
 
 [tool.pyright]

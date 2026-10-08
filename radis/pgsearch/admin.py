@@ -36,6 +36,31 @@ class ReportSearchIndexAdmin(admin.ModelAdmin):
     # load. raw_id_fields swaps that for a text input + lookup popup so
     # opening a single row doesn't enumerate the whole table.
     raw_id_fields = ("report",)
+    # Every field is machine-maintained (signals, the 0004/0007 triggers, the
+    # embedding tasks), so the change form is inspection-only. group_ids
+    # especially is access-control data: an editable form would grant or hide
+    # report visibility out of sync with the membership tables, and even
+    # saving an untouched form would clobber trigger-maintained values.
+    readonly_fields = (
+        "report",
+        "search_vector",
+        "embedding",
+        "group_ids",
+        "modality_codes",
+        "language_code",
+        "patient_sex",
+        "patient_age",
+        "patient_id",
+        "study_datetime",
+        "study_description",
+        "report_created_at",
+        "report_updated_at",
+    )
+
+    def has_add_permission(self, request):
+        # Rows are created by the post_save signal on Report; a hand-made row
+        # would just be an orphan the next reindex fights with.
+        return False
 
     def has_delete_permission(self, request, obj=None):
         # RSI rows are managed by the post_save signal on Report — deleting

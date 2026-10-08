@@ -490,3 +490,26 @@ def test_enqueue_pending_embeddings_warns_when_model_not_configured(settings):
     call = admin_instance.message_user.call_args
     assert "EMBEDDINGS_MODEL" in call.args[1]
     assert call.kwargs.get("level") == messages.WARNING
+
+
+def test_change_form_is_read_only(admin_client):
+    report = ReportFactory.create()
+    rsi = ReportSearchIndex.objects.get(report=report)
+
+    response = admin_client.get(
+        reverse("admin:pgsearch_reportsearchindex_change", args=[rsi.pk])
+    )
+
+    assert response.status_code == 200
+    content = response.content.decode()
+    # readonly_fields render as text, not form inputs; group_ids is the one
+    # that must never be editable (access-control data).
+    assert 'name="group_ids"' not in content
+    assert 'name="language_code"' not in content
+    assert 'name="search_vector"' not in content
+
+
+def test_rows_cannot_be_added_in_the_admin(admin_client):
+    response = admin_client.get(reverse("admin:pgsearch_reportsearchindex_add"))
+
+    assert response.status_code == 403

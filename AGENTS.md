@@ -41,8 +41,8 @@ uv run cli db-backup                 # Backup database
 
 ### Tech Stack
 
-- **Backend**: Python 3.12+, Django 6.0+, PostgreSQL 17
-- **Search**: pg_vector (semantic), pg_search (full-text), hybrid ranking
+- **Backend**: Python 3.12+, Django 6.1+, PostgreSQL 17
+- **Search**: PostgreSQL full-text search (tsvector), pg_vector (semantic), hybrid RRF ranking
 - **Async**: Daphne (ASGI), Django Channels, Procrastinate (task queue)
 - **Frontend**: Django templates, Cotton components, HTMX, Alpine.js, Bootstrap 5
 - **LLM**: External OpenAI-compatible API endpoint
@@ -86,7 +86,7 @@ Analysis operations follow a Job -> Task pattern (similar to ADIT):
 - **default_worker**: General background task processor (Procrastinate queue: `default`)
 - **llm_worker**: LLM-specific task processor (Procrastinate queue: `llm`)
 - **embeddings_worker**: Embedding task processor (Procrastinate queue: `embeddings`)
-- **postgres**: PostgreSQL 17 with pg_vector and pg_search extensions (port 5432)
+- **postgres**: PostgreSQL 17 with the pg_vector extension (port 5432)
 
 ### LLM Endpoint
 
@@ -146,6 +146,30 @@ Worker-crash recovery (`radis.core`):
 
 Labeling uses the shared core LLM client (`radis.core.utils.llm_client`); its timeout, rate-limit gate, and transient-retry knobs are the global `LLM_REQUEST_TIMEOUT_SECONDS`, `LLM_RATE_LIMIT_*`, and `LLM_TRANSIENT_RETRY_*` settings.
 
+PostgreSQL parallelism (compose-only overrides, not in `example.env` — set in `.env`
+only to override the compose file's default):
+
+- `POSTGRES_MAX_PARALLEL_WORKERS_PER_GATHER`: Parallel workers per query node scanning
+  the report index (default `4`, raised from PostgreSQL's own default of `2`)
+- `POSTGRES_MAX_PARALLEL_WORKERS`, `POSTGRES_MAX_WORKER_PROCESSES`: Cluster-wide worker
+  pool sizes (each defaults to `8`, PostgreSQL's own default). Raise together with
+  `POSTGRES_MAX_PARALLEL_WORKERS_PER_GATHER` on a larger host
+- `POSTGRES_SHARED_BUFFERS`: PostgreSQL's shared memory buffer (default `128MB`,
+  PostgreSQL's own default)
+- `POSTGRES_MAINTENANCE_WORK_MEM`: memory for VACUUM and index builds (default
+  `64MB`, PostgreSQL's own default). Raise for the migration window on a large
+  embedded archive so the pgsearch 0005 HNSW rebuild assembles its graph in
+  memory (a 1.7M-vector corpus built in 7m36s with `16GB` and 7 workers), and
+  for the manual rebuilds in the admin guide's compaction section
+- `POSTGRES_MAX_PARALLEL_MAINTENANCE_WORKERS`: parallel workers per index build
+  (default `2`, PostgreSQL's own default); also capped by
+  `POSTGRES_MAX_PARALLEL_WORKERS`
+- `POSTGRES_SHM_SIZE_BYTES`: tmpfs size of the container's `/dev/shm` in bytes
+  (default `1073741824` = 1 GiB — a cap, not a reservation; Docker's own 64 MB
+  default is too small for parallel queries). Parallel maintenance
+  pre-allocates its whole `maintenance_work_mem` budget here, so keep it at
+  least as large as `POSTGRES_MAINTENANCE_WORK_MEM`
+
 ## Code Standards
 
 - **Style Guide**: Google Python Style Guide
@@ -155,6 +179,9 @@ Labeling uses the shared core LLM client (`radis.core.utils.llm_client`); its ti
 - **Comments**: only where the code cannot speak for itself; explain *why*, not *what*
 - **No history in comments**: describe the code as it is, not how it changed — that
   belongs in the commit message (docstrings too)
+- **Keep the docs in sync**: when a change adds a feature or alters behaviour that the
+  docs describe (`README.md`, `docs/`, this file, in-app help templates), update them in
+  the same PR
 
 ## Key Dependencies
 
@@ -219,7 +246,7 @@ reports = response.json()
 
 ### Search Not Returning Expected Results
 
-- Check PostgreSQL extensions are installed: `pg_vector`, `pg_search`
+- Check the `vector` extension is installed in PostgreSQL
 - Verify report has `body` text indexed
 - Check search provider is configured in settings
 - Review QueryParser syntax for complex queries

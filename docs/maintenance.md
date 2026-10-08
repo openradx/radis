@@ -8,11 +8,6 @@ There are different things that can be upgraded:
   - Check outdated Python packages: `uv run cli show-outdated` (check Python section in output)
   - `uv lock --upgrade` will update packages according to their version range in `pyproject.toml`
   - Other upgrades (e.g. major versions) must be upgraded by modifying the version range in `pyproject.toml` before calling `uv lock --upgrade`
-- Javascript dependencies
-  - Check outdated Javascript packages: `uv run cli show-outdated` (check Javascript section in output)
-  - `npm update` will update packages according to their version range in `package.json`
-  - Other upgrades (e.g. major versions) must be upgraded by modifying the version range in `packages.json` before calling `npm update`
-  - After an upgrade make sure the files in `static/vendor` still link to the correct files in `node_modules`1
 - Python and uv in `Dockerfile` that builds the container where RADIS runs in
 - Dependent services in `docker-compose.base.yml`, like PostgreSQL
 - Github Codespaces development container dependencies in `.devcontainer/devcontainer.json` and `.devcontainer/Dockerfile`
@@ -31,8 +26,8 @@ the compose files no longer define:
 uv run cli compose-down -- --remove-orphans
 ```
 
-A model cache volume outlives them and can be reclaimed with
-`docker volume rm radis_dev_models_data`.
+A model cache volume of such a container outlives it; find it with `docker volume ls` and
+remove it with `docker volume rm`.
 
 **Production (Docker Swarm)**: pass `--prune`, which removes services the deployment no
 longer declares. Only do so when deploying the complete set of compose files, since Swarm
@@ -45,14 +40,16 @@ uv run cli stack-deploy -- --prune
 To look first, or to clean up without redeploying:
 
 ```terminal
-docker service ls | grep llm          # e.g. radis_llm_gpu
-docker service rm radis_llm_gpu       # use your stack name if it is not 'radis'
-docker volume rm radis_models_data    # on each node that holds model files
+docker service ls                     # look for a service the compose files do not define
+docker service rm <service>
+docker volume ls                      # and its model volume, on each node that holds one
+docker volume rm <volume>
 ```
 
 ## Search language configs
 
 RADIS reads available text search configs from Postgres (`pg_ts_config`) and auto-maps
 language codes to matching configs (falling back to `simple`). If new dictionaries/configs
-are installed in Postgres, restart RADIS to refresh the config cache, and reindex reports
-to apply the new config to existing data.
+are installed in Postgres, run `./manage.py refresh_search_configs` to clear the cache (no
+restart needed). Existing reports keep their old index until they are saved again; there is
+no reindex command.

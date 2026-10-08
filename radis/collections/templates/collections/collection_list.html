@@ -6,15 +6,15 @@
 {% endblock title %}
 {% block heading %}
     <c-page-heading title="Collections">
-    <c-slot name="right">
-    <button type="button"
-            class="btn btn-primary"
-            hx-get="{% url 'collection_create' %}"
-            hx-target="#htmx-dialog">
-        {% bootstrap_icon "plus-lg" %}
-        Add new collection
-    </button>
-    </c-slot>
+        <c-slot name="right">
+            <button type="button"
+                    class="btn btn-primary"
+                    hx-get="{% url 'collection_create' %}"
+                    hx-target="#htmx-dialog">
+                {% bootstrap_icon "plus-lg" %}
+                Add new collection
+            </button>
+        </c-slot>
     </c-page-heading>
 {% endblock heading %}
 {% block content %}

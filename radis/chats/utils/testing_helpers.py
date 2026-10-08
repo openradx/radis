@@ -1,7 +1,7 @@
 import asyncio
 from unittest.mock import MagicMock
 
-import httpx
+import httpx2
 import openai
 from faker import Faker
 from pydantic import BaseModel
@@ -35,20 +35,20 @@ def create_openai_client_mock(content: BaseModel | None) -> openai.OpenAI:
 
 def make_rate_limit_error(headers: dict[str, str] | None = None) -> openai.RateLimitError:
     """Build a real openai.RateLimitError carrying chosen response headers (e.g. retry-after)."""
-    request = httpx.Request("POST", "http://testserver/v1/chat/completions")
-    response = httpx.Response(429, headers=headers or {}, request=request)
+    request = httpx2.Request("POST", "http://testserver/v1/chat/completions")
+    response = httpx2.Response(429, headers=headers or {}, request=request)
     return openai.RateLimitError("rate limited", response=response, body=None)
 
 
 def make_connection_error() -> openai.APIConnectionError:
     """Build a real openai.APIConnectionError (a transient, non-429 error)."""
-    request = httpx.Request("POST", "http://testserver/v1/chat/completions")
+    request = httpx2.Request("POST", "http://testserver/v1/chat/completions")
     return openai.APIConnectionError(message="connection failed", request=request)
 
 
 def make_bad_request_error(message: str = "unknown parameter") -> openai.BadRequestError:
     """Build a real openai.BadRequestError, as a provider raises when it rejects a
     request parameter such as an unsupported reasoning_effort."""
-    request = httpx.Request("POST", "http://testserver/v1/chat/completions")
-    response = httpx.Response(400, request=request)
+    request = httpx2.Request("POST", "http://testserver/v1/chat/completions")
+    response = httpx2.Response(400, request=request)
     return openai.BadRequestError(message, response=response, body=None)

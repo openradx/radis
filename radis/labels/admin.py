@@ -132,10 +132,14 @@ class LabelingJobAdmin(admin.ModelAdmin):
             return False
         return super().has_delete_permission(request, obj)
 
-    def get_actions(self, request: HttpRequest):
+    def get_actions(
+        self,
+        request: HttpRequest,
+        action_location: admin.ActionLocation = admin.ActionLocation.CHANGE_LIST,
+    ):
         # Bulk "delete selected" checks delete permission once with no object, bypassing the
         # per-job active-status guard above. Remove it so deletion only happens per-object.
-        actions = super().get_actions(request)
+        actions = super().get_actions(request, action_location)
         actions.pop("delete_selected", None)
         return actions
 
@@ -206,9 +210,13 @@ class LabelingTaskAdmin(_ReadOnlyAdmin):
             return False
         return True
 
-    def get_actions(self, request: HttpRequest):
+    def get_actions(
+        self,
+        request: HttpRequest,
+        action_location: admin.ActionLocation = admin.ActionLocation.CHANGE_LIST,
+    ):
         # No bulk task deletion — the bulk action checks delete permission once with no object,
         # bypassing the active-job guard above.
-        actions = super().get_actions(request)
+        actions = super().get_actions(request, action_location)
         actions.pop("delete_selected", None)
         return actions

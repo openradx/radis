@@ -2,14 +2,9 @@
 {% load static from static %}
 {% block css %}
     {{ block.super }}
+    <link rel="stylesheet" href="{% static 'search/search.css' %}" />
+    <link rel="stylesheet" href="{% static 'extractions/extractions.css' %}" />
     <link rel="stylesheet"
-          type="text/css"
-          href="{% static 'search/search.css' %}" />
-    <link rel="stylesheet"
-          type="text/css"
-          href="{% static 'extractions/extractions.css' %}" />
-    <link rel="stylesheet"
-          type="text/css"
           href="{% static 'subscriptions/subscriptions.css' %}" />
 {% endblock css %}
 {% block script %}
