@@ -21,6 +21,7 @@ from datetime import timedelta
 
 import pytest
 from adit_radis_shared.accounts.factories import GroupFactory
+from django.core.cache import cache
 from django.utils import timezone
 
 from radis.pgsearch import providers
@@ -113,6 +114,10 @@ def test_updating_report_body_refreshes_search_vector():
 
     report.body = "revised findings about fracture"
     report.save()
+    # The fused union of the "pneumonia" search above is cached for
+    # HYBRID_FUSED_CACHE_TIMEOUT_SECONDS and would still list the report; this
+    # test is about the signal, not the cache's documented staleness window.
+    cache.clear()
 
     # The post_save signal re-saves the search vector with the new body.
     assert run_search("fracture") == [report.document_id]
