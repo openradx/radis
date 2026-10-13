@@ -55,9 +55,11 @@ class ReportSerializer(serializers.ModelSerializer):
         if request is not None and "groups" in self.fields:
             groups_field = self.fields["groups"]
             if isinstance(groups_field, PrimaryKeyRelatedField):
-                if groups_field.queryset is not None:
+                # get_queryset() already returns a fresh .all() of the configured queryset
+                queryset = groups_field.get_queryset()
+                if queryset is not None:
                     if request.user.is_superuser:
-                        groups_field.queryset = groups_field.queryset.all()
+                        groups_field.queryset = queryset
                     else:
                         groups_field.queryset = request.user.groups.all()
 
