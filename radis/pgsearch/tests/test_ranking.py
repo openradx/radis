@@ -102,3 +102,29 @@ def test_scores_are_scaled_over_the_measured_hits_only():
     ordered = rerank_window(HITS, sims, window=3, weight=0.5)
     assert dict(ordered)[2] == pytest.approx(1.0)
     assert dict(ordered)[3] == pytest.approx(0.0)
+
+
+def test_a_non_finite_similarity_counts_as_no_vector():
+    # pgvector's cosine distance is NaN for a zero vector. Neither NaN nor inf may enter
+    # the scaling or the sort: such a hit is unscored and follows the measured block.
+    sims = {1: float("nan"), 2: 0.9, 3: 0.6, 4: float("inf")}
+    ordered = rerank_window(HITS[:4], sims, window=4, weight=0.7)
+    assert _order(ordered) == [2, 3, 1, 4]
+    assert ordered[2:] == [(1, 0.9), (4, 0.05)]
+    assert dict(ordered)[2] == pytest.approx(1.0)
+    assert dict(ordered)[3] == pytest.approx(0.0)
+
+
+def test_the_tail_keeps_the_input_order():
+    hits = [(9, 0.9), (7, 0.5), (4, 0.5)]
+    assert rerank_window(hits, {}, window=3, weight=0.7) == hits
+
+
+def test_zero_and_negative_similarities_are_measured():
+    # Cosine similarity runs from -1 to 1; a hit at or below zero is still measured.
+    sims = {1: -0.2, 2: 0.0, 3: 0.4}
+    ordered = rerank_window(HITS[:3], sims, window=3, weight=0.7)
+    assert _order(ordered) == [3, 2, 1]
+    assert dict(ordered)[3] == pytest.approx(0.70)
+    assert dict(ordered)[2] == pytest.approx(0.7 / 3 + 0.3 * 0.5)
+    assert dict(ordered)[1] == pytest.approx(0.30)

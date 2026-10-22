@@ -1,5 +1,6 @@
 """The window re-rank of full-text mode, as a pure function over ranked lists."""
 
+import math
 from collections.abc import Mapping, Sequence
 
 
@@ -28,9 +29,14 @@ def rerank_window(
     norm(ts_rank)`` with both signals min-max scaled over those hits, ties broken
     by ts_rank then id. Every other hit follows in keyword order with its ts_rank
     as score: the hits beyond the window, and the window hits that have no
-    similarity because they are not embedded yet.
+    similarity because they are not embedded yet. A non-finite similarity counts
+    as no vector.
     """
-    measured = [(rid, rank) for rid, rank in hits[:window] if rid in similarity_by_id]
+    measured = [
+        (rid, rank)
+        for rid, rank in hits[:window]
+        if rid in similarity_by_id and math.isfinite(similarity_by_id[rid])
+    ]
     similarity_norm = min_max({rid: similarity_by_id[rid] for rid, _ in measured})
     rank_norm = min_max({rid: rank for rid, rank in measured})
     scored = [
