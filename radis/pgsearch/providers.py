@@ -469,10 +469,11 @@ def _window_order(
 
     Returns the ``(report_id, score)`` pairs of the whole list in result order, the
     similarity per measured id, and whether the embedding failed. ``None`` pairs mean
-    no re-rank applies (no description, no embedding model, or degraded). The cached
-    payload is the similarities; the order is recomputed from the keyword layer."""
+    no re-rank applies (no description, no embedding model, no keyword hits, or
+    degraded). The cached payload is the similarities; the order is recomputed from the
+    keyword layer."""
     rerank = request.rerank
-    if rerank is None or settings.EMBEDDINGS_MODEL is None:
+    if rerank is None or settings.EMBEDDINGS_MODEL is None or not keyword.ids:
         return None, {}, False
     window = settings.SEARCH_RERANK_WINDOW
     weight = settings.SEARCH_RERANK_SEMANTIC_WEIGHT
@@ -484,6 +485,8 @@ def _window_order(
         fts_max=settings.SEARCH_FTS_MAX_RESULTS,
         text=rerank.text,
         window=window,
+        # A window measured for one keyword list must not be served for another.
+        window_ids=keyword.ids[:window],
         weight=weight,
         embeddings=_embedding_fingerprint(),
     )

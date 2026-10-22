@@ -1,14 +1,16 @@
+from dataclasses import asdict
 from unittest.mock import patch
 
 import pytest
 from django.contrib.auth.models import Group
+from django.core.cache import cache
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
 
 from radis.core.utils.embedding_client import EmbeddingClientError
 from radis.core.utils.model_spec import parse_model_spec
 from radis.pgsearch.models import ReportSearchIndex
-from radis.pgsearch.providers import count, search
+from radis.pgsearch.providers import _cache_key, count, search
 from radis.reports.factories import ReportFactory
 from radis.search.site import FullTextSearch, SearchFilters, SimilarityRerank
 from radis.search.utils.query_parser import QueryParser
@@ -27,8 +29,14 @@ def _unit_vec(idx: int, dim: int) -> list[float]:
     return v
 
 
-def _request(group_id: int, description: str | None = None, offset: int = 0, limit: int = 25):
-    node, _ = QueryParser().parse("pneumothorax")
+def _request(
+    group_id: int,
+    description: str | None = None,
+    offset: int = 0,
+    limit: int = 25,
+    query: str = "pneumothorax",
+):
+    node, _ = QueryParser().parse(query)
     assert node is not None
     return FullTextSearch(
         query=node,
@@ -155,6 +163,33 @@ def test_the_description_and_the_weight_participate_in_the_window_key(
     assert _ran_measurement(other_weight.captured_queries)
 
 
+def test_a_window_is_measured_again_when_the_keyword_list_changes(group, reports, embed, settings):
+    request = _request(group.pk, "free air")
+    search(request)
+    joined = ReportFactory.create(body="Pneumothorax on the right.", language__code="en")
+    joined.groups.add(group)
+    ReportSearchIndex.objects.filter(report=joined).update(
+        embedding=_unit_vec(0, settings.EMBEDDINGS_DIM)
+    )
+    # The keyword entry expires first and is recomputed with the new hit while the
+    # window entry is still live.
+    assert cache.delete(
+        _cache_key(
+            layer="keyword",
+            query=QueryParser.unparse(request.query),
+            filters=asdict(request.filters),
+            fts_max=settings.SEARCH_FTS_MAX_RESULTS,
+        )
+    )
+
+    with CaptureQueriesContext(connection) as ctx:
+        result = search(request)
+
+    assert _ran_measurement(ctx.captured_queries)
+    by_id = {d.document_id: d for d in result.documents}
+    assert by_id[joined.document_id].similarity == pytest.approx(1.0)
+
+
 def test_a_degraded_window_is_not_cached_but_the_keyword_layer_is(group, reports, embed):
     embed.side_effect = EmbeddingClientError("down")
     degraded = search(_request(group.pk, "free air"))
@@ -168,6 +203,16 @@ def test_a_degraded_window_is_not_cached_but_the_keyword_layer_is(group, reports
     assert _ran_measurement(ctx.captured_queries)
     assert recovered.degraded is False
     assert recovered.documents[0].similarity == pytest.approx(1.0)
+
+
+def test_a_described_search_without_keyword_hits_embeds_nothing(group, reports, embed):
+    embed.side_effect = AssertionError("must not embed")
+
+    result = search(_request(group.pk, "free air", query="pneumoperitoneum"))
+
+    assert result.total_count == 0
+    assert result.degraded is False
+    embed.assert_not_called()
 
 
 def test_zero_timeout_disables_the_cache(group, reports, settings):
