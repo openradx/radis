@@ -466,6 +466,11 @@ EMBEDDINGS_REQUEST_TIMEOUT_SECONDS = _optional_env(
 EMBEDDINGS_QUERY_REQUEST_TIMEOUT_SECONDS = _optional_env(
     "EMBEDDINGS_QUERY_REQUEST_TIMEOUT_SECONDS", float, 10.0
 )
+if not EMBEDDINGS_QUERY_REQUEST_TIMEOUT_SECONDS > 0:
+    raise ImproperlyConfigured(
+        f"EMBEDDINGS_QUERY_REQUEST_TIMEOUT_SECONDS={EMBEDDINGS_QUERY_REQUEST_TIMEOUT_SECONDS} "
+        "must be greater than 0."
+    )
 
 
 def _resolve_embeddings_model() -> ModelSpec | None:
@@ -574,6 +579,11 @@ DATABASES["default"].setdefault("OPTIONS", {})["options"] = (
 SEARCH_RANKING_CACHE_TIMEOUT_SECONDS = _optional_env(
     "SEARCH_RANKING_CACHE_TIMEOUT_SECONDS", int, 300
 )
+if not SEARCH_RANKING_CACHE_TIMEOUT_SECONDS >= 0:
+    raise ImproperlyConfigured(
+        f"SEARCH_RANKING_CACHE_TIMEOUT_SECONDS={SEARCH_RANKING_CACHE_TIMEOUT_SECONDS} "
+        "must be 0 or more; 0 disables the cache."
+    )
 # The window re-rank of full-text mode: how many of the top keyword hits are measured
 # against the description (one query reading that many vectors), and the weight of
 # similarity in the blended score (1.0 orders the window by similarity alone).
@@ -699,26 +709,6 @@ ENABLE_AUTO_QUERY_GENERATION = env.bool("ENABLE_AUTO_QUERY_GENERATION", default=
 QUERY_GENERATION_TIMEOUT = _optional_env("QUERY_GENERATION_TIMEOUT", int, 10)
 QUERY_GENERATION_MAX_RETRIES = env.int("QUERY_GENERATION_MAX_RETRIES", default=2)
 
-# The "Write from keywords" button on the search page: the LLM (the query_generation
-# feature's model) writes a short report-style passage from the keywords, which the
-# semantic search embeds instead of the bare keywords. A user waits on it, so the
-# timeout is the gate budget too and there are no transient retries.
-SEARCH_DESCRIPTION_TIMEOUT = _optional_env("SEARCH_DESCRIPTION_TIMEOUT", int, 10)
-SEARCH_DESCRIPTION_MAX_TOKENS = _optional_env("SEARCH_DESCRIPTION_MAX_TOKENS", int, 200)
-SEARCH_DESCRIPTION_CACHE_TIMEOUT_SECONDS = _optional_env(
-    "SEARCH_DESCRIPTION_CACHE_TIMEOUT_SECONDS", int, 3600
-)
-SEARCH_DESCRIPTION_SYSTEM_PROMPT = env.str(
-    "SEARCH_DESCRIPTION_SYSTEM_PROMPT",
-    default=(
-        "You help search a hospital archive of radiology reports. The user gives search "
-        "keywords. Write the short passage (two to three sentences) that a radiology report "
-        "matching those keywords would typically contain in its findings or impression: the "
-        "same language as the keywords, the usual terminology and abbreviations of radiology "
-        "reports, no patient names, no headings and no explanation. Output only the passage."
-    ),
-)
-
 QUERY_GENERATION_SYSTEM_PROMPT = """You are an AI assistant specialized in medical informatics and
 radiology report retrieval. Your task is to generate an effective search query to find radiology
 reports that would contain information relevant to the specified data extraction fields.
@@ -749,6 +739,39 @@ Extraction Fields:
 $fields
 
 Generate the search query:"""
+
+# The "Write from keywords" button on the search page: the LLM (the query_generation
+# feature's model) writes a short report-style passage from the keywords, which the
+# semantic search embeds instead of the bare keywords. A user waits on it, so the
+# timeout is the gate budget too and there are no transient retries.
+SEARCH_DESCRIPTION_TIMEOUT = _optional_env("SEARCH_DESCRIPTION_TIMEOUT", int, 10)
+if not SEARCH_DESCRIPTION_TIMEOUT > 0:
+    raise ImproperlyConfigured(
+        f"SEARCH_DESCRIPTION_TIMEOUT={SEARCH_DESCRIPTION_TIMEOUT} must be greater than 0."
+    )
+SEARCH_DESCRIPTION_MAX_TOKENS = _optional_env("SEARCH_DESCRIPTION_MAX_TOKENS", int, 200)
+if not SEARCH_DESCRIPTION_MAX_TOKENS > 0:
+    raise ImproperlyConfigured(
+        f"SEARCH_DESCRIPTION_MAX_TOKENS={SEARCH_DESCRIPTION_MAX_TOKENS} must be greater than 0."
+    )
+SEARCH_DESCRIPTION_CACHE_TIMEOUT_SECONDS = _optional_env(
+    "SEARCH_DESCRIPTION_CACHE_TIMEOUT_SECONDS", int, 3600
+)
+if not SEARCH_DESCRIPTION_CACHE_TIMEOUT_SECONDS >= 0:
+    raise ImproperlyConfigured(
+        f"SEARCH_DESCRIPTION_CACHE_TIMEOUT_SECONDS={SEARCH_DESCRIPTION_CACHE_TIMEOUT_SECONDS} "
+        "must be 0 or more; 0 disables the cache."
+    )
+_DEFAULT_SEARCH_DESCRIPTION_SYSTEM_PROMPT = (
+    "You help search a hospital archive of radiology reports. The user gives search "
+    "keywords. Write the short passage (two to three sentences) that a radiology report "
+    "matching those keywords would typically contain in its findings or impression: the "
+    "same language as the keywords, the usual terminology and abbreviations of radiology "
+    "reports, no patient names, no headings and no explanation. Output only the passage."
+)
+SEARCH_DESCRIPTION_SYSTEM_PROMPT = _optional_env(
+    "SEARCH_DESCRIPTION_SYSTEM_PROMPT", str, _DEFAULT_SEARCH_DESCRIPTION_SYSTEM_PROMPT
+)
 
 # The maximum number of reports that can be extracted by one extraction job.
 EXTRACTION_MAXIMUM_REPORTS_COUNT = 25000
