@@ -78,6 +78,8 @@ def _similarity(result, report) -> float | None:
 
 
 def test_paginated_search_embeds_the_description_only_once(group, report, settings):
+    # With the ranking cache off, only the query-embedding cache can spare the second call.
+    settings.SEARCH_RANKING_CACHE_TIMEOUT_SECONDS = 0
     patcher, embed_query = _mock_embedding_client(settings.EMBEDDINGS_DIM)
     try:
         first = search(_make_search("free air", group.pk, offset=0))

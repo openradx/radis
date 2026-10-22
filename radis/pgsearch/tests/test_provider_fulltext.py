@@ -120,7 +120,9 @@ def test_a_description_reranks_the_window(group, corpus, embed):
     ]
     by_id = {d.document_id: d for d in result.documents}
     assert by_id[corpus["near"].document_id].similarity == pytest.approx(1.0)
+    assert by_id[corpus["near"].document_id].score == pytest.approx(0.7)
     assert by_id[corpus["twice"].document_id].similarity == pytest.approx(0.0)
+    assert by_id[corpus["twice"].document_id].score == pytest.approx(0.3)
     assert by_id[corpus["bare"].document_id].similarity is None
     assert by_id[corpus["bare"].document_id].score == by_id[corpus["bare"].document_id].relevance
     assert corpus["other"].document_id not in by_id
@@ -144,6 +146,25 @@ def test_only_the_window_is_measured(group, corpus, embed, settings):
         corpus["bare"].document_id,
     ]
     assert result.documents[1].similarity is None
+
+
+def test_a_zero_vector_counts_as_not_embedded(group, corpus, embed, settings):
+    dim = settings.EMBEDDINGS_DIM
+    # pgvector's cosine distance to a zero vector is NaN.
+    ReportSearchIndex.objects.filter(report=corpus["twice"]).update(embedding=[0.0] * dim)
+    ReportSearchIndex.objects.filter(report=corpus["bare"]).update(embedding=_unit_vec(5, dim))
+
+    result = search(_request("pneumothorax", group.pk, "free air"))
+
+    # ``twice`` is the top keyword hit, yet it follows both measured hits: the tail.
+    assert _ids(result) == [
+        corpus["near"].document_id,
+        corpus["bare"].document_id,
+        corpus["twice"].document_id,
+    ]
+    zero = result.documents[2]
+    assert zero.similarity is None
+    assert zero.score == zero.relevance
 
 
 def test_the_measurement_is_one_id_lookup(group, corpus, embed):

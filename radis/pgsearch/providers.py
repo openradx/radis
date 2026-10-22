@@ -1,6 +1,7 @@
 import hashlib
 import json
 import logging
+import math
 import unicodedata
 from collections.abc import Iterator
 from dataclasses import asdict
@@ -264,12 +265,12 @@ def _embed_query_or_none(query_text: str, caller: str) -> list[float] | None:
 def _embed_query_cached(query_text: str, caller: str) -> list[float] | None:
     """Cache wrapper around `_embed_query_or_none`.
 
-    Pagination re-runs the whole search for every page, so without this every
-    page load re-calls the embedding service for the same query text. The key
-    covers everything that determines the vector — endpoint, model, spec
-    parameters, instruction, dim, query text — because a shared cache backend
-    (production uses the database) outlives process restarts and thus config
-    changes: "qwen3" on one deployment and "qwen3" on another are different
+    A described search whose query or filters change misses the ranking cache but
+    still embeds the same text, and that vector must not be fetched again within
+    the TTL. The key covers everything that determines the vector — endpoint,
+    model, spec parameters, instruction, dim, query text — because a shared cache
+    backend (production uses the database) outlives process restarts and thus
+    config changes: "qwen3" on one deployment and "qwen3" on another are different
     weights, so the endpoint has to be part of the fingerprint too (the API key
     is not identity and stays out of the cache key). Failures are not cached: a
     transient outage must not pin searches to a degraded result for the TTL.
@@ -499,10 +500,13 @@ def _window_order(
     vec = _embed_query_cached(rerank.text, caller)
     if vec is None:
         return None, {}, True
-    similarity = {
-        rid: 1.0 - float(dist)
+    measured = (
+        (rid, 1.0 - float(dist))
         for rid, dist in _window_measurement_queryset(keyword.ids[:window], vec)
-    }
+    )
+    # pgvector's cosine distance to a zero vector is NaN: such a hit counts as not
+    # embedded, so it keeps no similarity on the page or in the cached payload.
+    similarity = {rid: value for rid, value in measured if math.isfinite(value)}
     if timeout > 0:
         cache.set(
             key,

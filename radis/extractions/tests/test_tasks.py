@@ -192,13 +192,17 @@ def test_process_extraction_job_with_no_language_matches_each_documents_own_conf
 
 @pytest.mark.django_db
 def test_extraction_retrieval_never_calls_the_embedding_service(monkeypatch, settings):
-    from unittest.mock import patch
-
     from radis.core.utils.model_spec import parse_model_spec
     from radis.search.site import FullTextSearch, SearchFilters, SimilarityRerank
     from radis.search.utils.query_parser import QueryParser
 
+    def must_not_embed(text: str, caller: str) -> list[float] | None:
+        raise AssertionError("must not embed")
+
     settings.EMBEDDINGS_MODEL = parse_model_spec("qwen3")
+    # Patched above the query-embedding cache, so a vector cached by an earlier test
+    # cannot hide an embedding attempt.
+    monkeypatch.setattr("radis.pgsearch.providers._embed_query_cached", must_not_embed)
     group = GroupFactory.create()
     report = ReportFactory.create(
         body="Befund: Pneumothorax links.", language=LanguageFactory.create(code="de")
@@ -214,10 +218,8 @@ def test_extraction_retrieval_never_calls_the_embedding_service(monkeypatch, set
         limit=0,
     )
 
-    with patch("radis.pgsearch.providers.EmbeddingClient") as client_cls:
-        client_cls.return_value.__enter__.side_effect = AssertionError("must not embed")
-        assert pgsearch_count(request) == 1
-        assert list(pgsearch_retrieve(request)) == [report.document_id]
+    assert pgsearch_count(request) == 1
+    assert list(pgsearch_retrieve(request)) == [report.document_id]
 
 
 @pytest.mark.django_db(transaction=True)
