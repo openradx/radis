@@ -23,7 +23,7 @@ def rerank_window(
 ) -> list[tuple[int, float]]:
     """Order ``hits``, ``(report_id, ts_rank)`` pairs in keyword order, for the page.
 
-    The measured window hits (the first ``window`` hits that have a similarity)
+    The measured window hits (those of the first ``window`` hits that have a similarity)
     come first, ordered by ``weight * norm(similarity) + (1 - weight) *
     norm(ts_rank)`` with both signals min-max scaled over those hits, ties broken
     by ts_rank then id. Every other hit follows in keyword order with its ts_rank
