@@ -10,7 +10,7 @@ from radis.pgsearch import providers
 from radis.pgsearch.models import ReportSearchIndex
 from radis.pgsearch.providers import search
 from radis.reports.factories import ReportFactory
-from radis.search.site import FullTextSearch, SearchFilters, SimilarityRerank
+from radis.search.site import FullTextSearch, SearchFilters, SemanticSearch, SimilarityRerank
 from radis.search.utils.query_parser import QueryParser
 
 pytestmark = pytest.mark.django_db
@@ -163,8 +163,6 @@ def test_differing_base_url_does_not_share_a_cache_entry(monkeypatch):
 
 
 def test_a_repeated_semantic_search_embeds_once(group, report, settings):
-    from radis.search.site import SemanticSearch
-
     patcher, embed_query = _mock_embedding_client(settings.EMBEDDINGS_DIM)
     request = SemanticSearch(text="free air", filters=SearchFilters(group=group.pk, language="en"))
     try:
@@ -179,8 +177,6 @@ def test_a_repeated_semantic_search_embeds_once(group, report, settings):
 
 
 def test_a_failed_semantic_embedding_is_not_cached(group, report, settings):
-    from radis.search.site import SemanticSearch
-
     patcher, embed_query = _mock_embedding_client(settings.EMBEDDINGS_DIM)
     embed_query.side_effect = [EmbeddingClientError("down"), _unit_vec(0, settings.EMBEDDINGS_DIM)]
     request = SemanticSearch(text="free air", filters=SearchFilters(group=group.pk, language="en"))

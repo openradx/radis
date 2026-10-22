@@ -12,7 +12,7 @@ from radis.core.utils.model_spec import parse_model_spec
 from radis.pgsearch.models import ReportSearchIndex
 from radis.pgsearch.providers import _cache_key, count, search
 from radis.reports.factories import ReportFactory
-from radis.search.site import FullTextSearch, SearchFilters, SimilarityRerank
+from radis.search.site import FullTextSearch, SearchFilters, SemanticSearch, SimilarityRerank
 from radis.search.utils.query_parser import QueryParser
 
 pytestmark = pytest.mark.django_db
@@ -45,6 +45,10 @@ def _request(
         offset=offset,
         limit=limit,
     )
+
+
+def _semantic_request(group_id: int, text: str = "free air") -> SemanticSearch:
+    return SemanticSearch(text=text, filters=SearchFilters(group=group_id, language="en"))
 
 
 @pytest.fixture
@@ -83,7 +87,9 @@ def _ran_keyword_ranking(queries) -> bool:
     return any("ts_rank" in q["sql"] and '"report_id" IN' not in q["sql"] for q in queries)
 
 
-def _ran_measurement(queries) -> bool:
+def _ran_vector_query(queries) -> bool:
+    """The window measurement and the semantic scan are the only queries that compute
+    a cosine distance."""
     return any("<=>" in q["sql"] for q in queries)
 
 
@@ -114,7 +120,7 @@ def test_a_described_search_shares_the_keyword_layer_with_a_plain_one(group, rep
         search(_request(group.pk, "free air"))
 
     assert not _ran_keyword_ranking(ctx.captured_queries)
-    assert _ran_measurement(ctx.captured_queries)
+    assert _ran_vector_query(ctx.captured_queries)
 
 
 def test_a_repeated_described_search_runs_neither_layer(group, reports, embed):
@@ -123,7 +129,7 @@ def test_a_repeated_described_search_runs_neither_layer(group, reports, embed):
         result = search(_request(group.pk, "free air"))
 
     assert not _ran_keyword_ranking(ctx.captured_queries)
-    assert not _ran_measurement(ctx.captured_queries)
+    assert not _ran_vector_query(ctx.captured_queries)
     assert embed.call_count == 1
     assert result.documents[0].similarity == pytest.approx(1.0)
 
@@ -159,8 +165,8 @@ def test_the_description_and_the_weight_participate_in_the_window_key(
     with CaptureQueriesContext(connection) as other_weight:
         search(_request(group.pk, "collapsed lung"))
 
-    assert _ran_measurement(other_text.captured_queries)
-    assert _ran_measurement(other_weight.captured_queries)
+    assert _ran_vector_query(other_text.captured_queries)
+    assert _ran_vector_query(other_weight.captured_queries)
 
 
 def test_a_window_is_measured_again_when_the_keyword_list_changes(group, reports, embed, settings):
@@ -185,7 +191,7 @@ def test_a_window_is_measured_again_when_the_keyword_list_changes(group, reports
     with CaptureQueriesContext(connection) as ctx:
         result = search(request)
 
-    assert _ran_measurement(ctx.captured_queries)
+    assert _ran_vector_query(ctx.captured_queries)
     by_id = {d.document_id: d for d in result.documents}
     assert by_id[joined.document_id].similarity == pytest.approx(1.0)
 
@@ -200,7 +206,7 @@ def test_a_degraded_window_is_not_cached_but_the_keyword_layer_is(group, reports
         recovered = search(_request(group.pk, "free air"))
 
     assert not _ran_keyword_ranking(ctx.captured_queries)
-    assert _ran_measurement(ctx.captured_queries)
+    assert _ran_vector_query(ctx.captured_queries)
     assert recovered.degraded is False
     assert recovered.documents[0].similarity == pytest.approx(1.0)
 
@@ -222,3 +228,67 @@ def test_zero_timeout_disables_the_cache(group, reports, settings):
         search(_request(group.pk))
 
     assert _ran_keyword_ranking(ctx.captured_queries)
+
+
+def test_the_semantic_text_participates_in_the_key(group, reports, embed):
+    search(_semantic_request(group.pk, "free air"))
+    with CaptureQueriesContext(connection) as ctx:
+        search(_semantic_request(group.pk, "collapsed lung"))
+
+    assert _ran_vector_query(ctx.captured_queries)
+
+
+def test_the_filters_participate_in_the_semantic_key(group, reports, embed, settings):
+    other = Group.objects.create(name="cardiology")
+    foreign = ReportFactory.create(body="Cardiomegaly.", language__code="en")
+    foreign.groups.add(other)
+    ReportSearchIndex.objects.filter(report=foreign).update(
+        embedding=_unit_vec(0, settings.EMBEDDINGS_DIM)
+    )
+    search(_semantic_request(group.pk))
+    with CaptureQueriesContext(connection) as ctx:
+        result = search(_semantic_request(other.pk))
+
+    assert _ran_vector_query(ctx.captured_queries)
+    assert [d.document_id for d in result.documents] == [foreign.document_id]
+    assert result.total_count == 1
+
+
+def test_the_beam_width_participates_in_the_semantic_key(group, reports, embed, settings):
+    search(_semantic_request(group.pk))
+    settings.SEARCH_HNSW_EF_SEARCH = 1
+    with CaptureQueriesContext(connection) as ctx:
+        result = search(_semantic_request(group.pk))
+
+    assert _ran_vector_query(ctx.captured_queries)
+    assert result.total_count == 1
+
+
+def test_the_iterative_scan_participates_in_the_semantic_key(group, reports, embed, settings):
+    settings.SEARCH_SEMANTIC_ITERATIVE_SCAN = True
+    search(_semantic_request(group.pk))
+    settings.SEARCH_SEMANTIC_ITERATIVE_SCAN = False
+    with CaptureQueriesContext(connection) as ctx:
+        search(_semantic_request(group.pk))
+
+    assert _ran_vector_query(ctx.captured_queries)
+
+
+def test_the_embedding_configuration_participates_in_the_semantic_key(
+    group, reports, embed, settings
+):
+    search(_semantic_request(group.pk))
+    settings.EMBEDDINGS_BASE_URL = "http://other-gateway.example/v1"
+    with CaptureQueriesContext(connection) as ctx:
+        search(_semantic_request(group.pk))
+
+    assert _ran_vector_query(ctx.captured_queries)
+
+
+def test_zero_timeout_disables_the_semantic_cache(group, reports, embed, settings):
+    settings.SEARCH_RANKING_CACHE_TIMEOUT_SECONDS = 0
+    search(_semantic_request(group.pk))
+    with CaptureQueriesContext(connection) as ctx:
+        search(_semantic_request(group.pk))
+
+    assert _ran_vector_query(ctx.captured_queries)

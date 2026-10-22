@@ -3,7 +3,7 @@ import json
 import logging
 import math
 import unicodedata
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from dataclasses import asdict
 from datetime import date, datetime, time, timedelta
 from typing import Literal, NamedTuple, cast
@@ -472,6 +472,16 @@ def _window_measurement_queryset(top_ids: list[int], vec: list[float]):
     )
 
 
+def _finite_similarities(rows: Iterable[tuple[int, float]]) -> dict[int, float]:
+    """Similarity, 1 - cosine distance, per report id in row order."""
+    measured = ((rid, 1.0 - float(distance)) for rid, distance in rows)
+    # pgvector's cosine distance to a zero vector is NaN, and such a report counts as
+    # not embedded: it keeps no similarity on the page or in a cached payload. Only an
+    # HNSW scan leaves it out by itself; every other plan, the window's id lookup
+    # included, returns it.
+    return {rid: value for rid, value in measured if math.isfinite(value)}
+
+
 def _window_order(
     request: FullTextSearch, keyword: _KeywordRanking, caller: str
 ) -> tuple[list[tuple[int, float]] | None, dict[int, float], bool]:
@@ -509,13 +519,7 @@ def _window_order(
     vec = _embed_query_cached(rerank.text, caller)
     if vec is None:
         return None, {}, True
-    measured = (
-        (rid, 1.0 - float(dist))
-        for rid, dist in _window_measurement_queryset(keyword.ids[:window], vec)
-    )
-    # pgvector's cosine distance to a zero vector is NaN: such a hit counts as not
-    # embedded, so it keeps no similarity on the page or in the cached payload.
-    similarity = {rid: value for rid, value in measured if math.isfinite(value)}
+    similarity = _finite_similarities(_window_measurement_queryset(keyword.ids[:window], vec))
     if timeout > 0:
         cache.set(
             key,
@@ -607,10 +611,7 @@ def _rank_semantic(request: SemanticSearch, caller: str) -> Ranking:
             with connection.cursor() as cursor:
                 cursor.execute(ITERATIVE_SCAN_SQL)
         rows = list(_semantic_scan_queryset(filter_query, vec))
-    measured = ((rid, 1.0 - float(dist)) for rid, dist in rows)
-    # pgvector's cosine distance to a zero vector is NaN. The HNSW index leaves such a
-    # row out but every other plan returns it; either way it counts as not embedded.
-    similarity = {rid: value for rid, value in measured if math.isfinite(value)}
+    similarity = _finite_similarities(rows)
     ids = list(similarity)
     if timeout > 0:
         cache.set(

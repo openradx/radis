@@ -16,8 +16,12 @@ pytestmark = pytest.mark.django_db
 
 
 @pytest.fixture(autouse=True)
-def _embeddings_model_configured(settings):
+def _semantic_search_settings(settings):
+    """The premises every test here shares, pinned so a developer's .env cannot change
+    them: an embedding model, no default cutoff, and the ranking cache on."""
     settings.EMBEDDINGS_MODEL = parse_model_spec("qwen3")
+    settings.SEARCH_SEMANTIC_MIN_SIMILARITY = None
+    settings.SEARCH_RANKING_CACHE_TIMEOUT_SECONDS = 300
 
 
 def _vec(dim: int, components: dict[int, float]) -> list[float]:
@@ -149,6 +153,18 @@ def test_a_cutoff_nothing_passes_gives_an_empty_result(group, corpus, embed):
     assert result.documents == []
     assert result.total_count == 0
     assert result.degraded is False
+
+
+def test_a_cutoff_equal_to_a_similarity_keeps_that_hit(group, corpus, embed):
+    """The second search is served from the cached list, so the cutoff equals the
+    measured similarity of ``mid`` exactly."""
+    first = search(_request(group.pk))
+    mid = next(d for d in first.documents if d.document_id == corpus["mid"].document_id)
+    assert mid.similarity is not None
+
+    result = search(_request(group.pk, min_similarity=mid.similarity))
+
+    assert _ids(result) == [corpus["near"].document_id, corpus["mid"].document_id]
 
 
 def test_truncation_happens_after_retrieval(group, corpus, embed):
