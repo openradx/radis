@@ -607,8 +607,11 @@ def _rank_semantic(request: SemanticSearch, caller: str) -> Ranking:
             with connection.cursor() as cursor:
                 cursor.execute(ITERATIVE_SCAN_SQL)
         rows = list(_semantic_scan_queryset(filter_query, vec))
-    ids = [rid for rid, _ in rows]
-    similarity = {rid: 1.0 - float(dist) for rid, dist in rows}
+    measured = ((rid, 1.0 - float(dist)) for rid, dist in rows)
+    # pgvector's cosine distance to a zero vector is NaN. The HNSW index leaves such a
+    # row out but every other plan returns it; either way it counts as not embedded.
+    similarity = {rid: value for rid, value in measured if math.isfinite(value)}
+    ids = list(similarity)
     if timeout > 0:
         cache.set(
             key,

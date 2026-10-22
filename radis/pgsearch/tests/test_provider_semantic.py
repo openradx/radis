@@ -105,6 +105,28 @@ def test_filters_apply(corpus, embed, settings):
     assert _ids(result) == [foreign.document_id]
 
 
+def test_a_zero_vector_counts_as_not_embedded(group, corpus, embed, settings):
+    """pgvector's cosine distance to a zero vector is NaN. The HNSW index leaves such a
+    row out but every other plan returns it, so index scans are switched off for the
+    rest of the test's transaction to make the database return it."""
+    zero = ReportFactory.create(body="Zero vector.", language__code="en")
+    zero.groups.add(group)
+    ReportSearchIndex.objects.filter(report=zero).update(
+        embedding=_vec(settings.EMBEDDINGS_DIM, {})
+    )
+    with connection.cursor() as cursor:
+        cursor.execute("SET LOCAL enable_indexscan = off")
+
+    result = search(_request(group.pk))
+    with CaptureQueriesContext(connection) as ctx:
+        cached = search(_request(group.pk))
+
+    expected = [corpus["near"].document_id, corpus["mid"].document_id, corpus["far"].document_id]
+    assert _ids(result) == _ids(cached) == expected
+    assert result.total_count == cached.total_count == 3
+    assert not any("<=>" in q["sql"] for q in ctx.captured_queries)
+
+
 def test_the_setting_truncates_the_list(group, corpus, embed, settings):
     settings.SEARCH_SEMANTIC_MIN_SIMILARITY = 0.5
 
