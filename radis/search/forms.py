@@ -3,6 +3,7 @@ from typing import Any
 from crispy_forms.helper import FormHelper, Layout
 from crispy_forms.layout import Button, Div, Field
 from django import forms
+from django.conf import settings
 
 from radis.core.constants import AGE_STEP
 from radis.core.form_fields import (
@@ -14,11 +15,37 @@ from radis.core.layouts import RangeSlider
 from radis.labels.models import Label
 
 from .layouts import QueryInput
+from .site import SearchFilters
+
+QUERY_MAX_LENGTH = 200
+DESCRIPTION_MAX_LENGTH = 1000
+MODE_SEMANTIC = "semantic"
+MODE_CHOICES = [("", "Full-text"), (MODE_SEMANTIC, "Semantic")]
+
+
+def _description_field() -> forms.CharField:
+    return forms.CharField(
+        required=False,
+        label=False,  # type: ignore
+        max_length=DESCRIPTION_MAX_LENGTH,
+        widget=forms.Textarea(attrs={"rows": 2}),
+    )
 
 
 class SearchForm(forms.Form):
     # Query fields
-    query = forms.CharField(required=False, label=False)  # type: ignore
+    query = forms.CharField(required=False, label=False, max_length=QUERY_MAX_LENGTH)  # type: ignore
+    # The empty value is full-text, so the default never appears in the URL.
+    mode = forms.ChoiceField(required=False, choices=MODE_CHOICES, label=False)  # type: ignore
+    description = _description_field()
+    # Semantic mode only: overrides SEARCH_SEMANTIC_MIN_SIMILARITY for one search.
+    min_similarity = forms.FloatField(
+        required=False,
+        min_value=0.0,
+        max_value=1.0,
+        label="Minimum similarity",
+        widget=forms.NumberInput(attrs={"step": "0.01"}),
+    )
     # Filter fields - language, modalities, labels, and age fields created in __init__
     study_date_from = forms.DateField(
         required=False, widget=forms.DateInput(attrs={"type": "date"})
@@ -31,8 +58,20 @@ class SearchForm(forms.Form):
         required=False, choices=[("", "All"), ("M", "Male"), ("F", "Female")]
     )
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, semantic: bool = False, **kwargs):
+        """``semantic`` is the registered provider's capability: without it the
+        mode select, the description and the cutoff do not exist on the page."""
         super().__init__(*args, **kwargs)
+
+        if not semantic:
+            for name in ("mode", "description", "min_similarity"):
+                del self.fields[name]
+        else:
+            default_cutoff = settings.SEARCH_SEMANTIC_MIN_SIMILARITY
+            if default_cutoff is not None:
+                self.fields["min_similarity"].widget.attrs["placeholder"] = (
+                    f"default {default_cutoff:.2f}"
+                )
 
         # Create fields using factory functions (use codes, not PKs)
         self.fields["language"] = create_language_field(use_pk=False, empty_label="All")
@@ -49,7 +88,6 @@ class SearchForm(forms.Form):
 
         self.query_helper = FormHelper()
         self.query_helper.template = "search/form_elements/form_part.html"  # type: ignore
-        self.query_helper.form_show_errors
         self.query_helper.form_tag = False
         self.query_helper.disable_csrf = True
         self.query_helper.layout = self.create_query_layout()
@@ -61,13 +99,16 @@ class SearchForm(forms.Form):
         self.filters_helper.layout = self.create_filters_layout()
 
     def create_query_layout(self) -> Layout:
+        semantic = "mode" in self.fields
         return Layout(
             QueryInput(
                 "query",
+                mode_field="mode" if semantic else None,
+                description_field="description" if semantic else None,
                 query_attrs={
                     "placeholder": "Input your search terms",
                     "autocomplete": "off",
-                    "maxlength": 200,
+                    "maxlength": QUERY_MAX_LENGTH,
                 },
             ),
         )
@@ -76,6 +117,20 @@ class SearchForm(forms.Form):
         label_field = (
             [Field("labels", css_class="form-select-sm")]
             if self.fields["labels"].choices  # type: ignore
+            else []
+        )
+        cutoff_field = (
+            [
+                Div(
+                    Field(
+                        "min_similarity",
+                        css_class="form-control-sm",
+                        **{":disabled": "mode !== 'semantic'"},
+                    ),
+                    **{"x-show": "mode === 'semantic'"},
+                )
+            ]
+            if "min_similarity" in self.fields
             else []
         )
         return Layout(
@@ -87,6 +142,7 @@ class SearchForm(forms.Form):
             Field("study_description", css_class="form-control-sm"),
             Field("patient_sex", css_class="form-select-sm"),
             RangeSlider("Age range", "age_from", "age_till", group_class="input-group-sm"),
+            *cutoff_field,
             Div(
                 Button(
                     "reset_filters",
@@ -98,6 +154,28 @@ class SearchForm(forms.Form):
                 css_class="d-flex justify-content-center",
             ),
         )
+
+    def semantic_mode(self) -> bool:
+        return self.cleaned_data.get("mode") == MODE_SEMANTIC
+
+    def to_filters(self, group_id: int) -> SearchFilters:
+        """The structured filters of a validated form, scoped to ``group_id``."""
+        data = self.cleaned_data
+        return SearchFilters(
+            group=group_id,
+            language=data["language"],
+            modalities=data["modalities"],
+            study_date_from=data["study_date_from"],
+            study_date_till=data["study_date_till"],
+            study_description=data["study_description"],
+            patient_sex=data["patient_sex"],
+            patient_age_from=data["age_from"],
+            patient_age_till=data["age_till"],
+            labels=data["labels"],
+        )
+
+    def clean_description(self) -> str:
+        return " ".join(self.cleaned_data["description"].split())
 
     def clean_age_from(self) -> int | None:
         age_from = self.cleaned_data["age_from"]
@@ -119,3 +197,11 @@ class SearchForm(forms.Form):
             raise forms.ValidationError("Age from must be less than age till")
 
         return super().clean()
+
+
+class DescriptionRequestForm(forms.Form):
+    """What the "Write from keywords" endpoint accepts: the same limits as the
+    search form, with no database-backed fields, so an async view can bind it."""
+
+    query = forms.CharField(required=False, max_length=QUERY_MAX_LENGTH)
+    description = forms.CharField(required=False, max_length=DESCRIPTION_MAX_LENGTH)

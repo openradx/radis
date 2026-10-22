@@ -1,0 +1,26 @@
+<div class="input-group mt-2" id="description_row">
+    <textarea name="description"
+              id="id_description"
+              class="form-control form-control-sm"
+              rows="2"
+              maxlength="1000"
+              :placeholder="mode === 'semantic' ? 'Describe the reports you are looking for' : 'Optional: describe the reports you are looking for; the top hits are re-ranked by it'"
+              @keydown.enter.exact.prevent="$el.form.requestSubmit()">{{ value }}</textarea>
+    {# The endpoint returns this whole partial; hx-select keeps only the textarea, the <small> swaps out of band. #}
+    <button type="button"
+            class="btn btn-outline-secondary btn-sm"
+            x-show="mode !== 'semantic'"
+            hx-post="{% url 'search_description' %}"
+            hx-target="#id_description"
+            hx-select="#id_description"
+            hx-swap="outerHTML"
+            hx-disabled-elt="this"
+            hx-sync="this:drop"
+            hx-indicator="#description_indicator">
+        Write from keywords
+        <span id="description_indicator"
+              class="htmx-indicator spinner-border spinner-border-sm"
+              role="status"></span>
+    </button>
+    <small id="description_notice" class="w-100 text-danger" hx-swap-oob="true">{{ notice }}</small>
+</div>

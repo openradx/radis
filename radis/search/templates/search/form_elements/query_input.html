@@ -1,14 +1,23 @@
 {% load crispy_field from crispy_forms_field %}
 {% load bootstrap_icon from common_extras %}
-<div x-data="QueryInput()" class="input-group">
-    <span class="input-group-text">Search</span>
-    {% crispy_field query_field "class" "form-control" %}
-    <button type="button"
-            class="btn bg-transparent"
-            @click="clearQuery()"
-            style="width: 40px;
-                   margin-left: -40px;
-                   padding: 0;
-                   z-index: 100">{% bootstrap_icon "x" 20 %}</button>
-    <button type="submit" class="btn btn-primary">{% bootstrap_icon "search" 20 %}</button>
+<div x-data="QueryInput()">
+    <div class="input-group">
+        {% if mode_field %}
+            {% crispy_field mode_field "class" "form-select flex-grow-0 w-auto" "x-model.fill" "mode" "aria-label" "Search mode" %}
+        {% else %}
+            <span class="input-group-text">Search</span>
+        {% endif %}
+        {% crispy_field query_field "class" "form-control" ":readonly" "mode === 'semantic'" %}
+        <button type="button"
+                class="btn bg-transparent"
+                @click="clearQuery()"
+                style="width: 40px;
+                       margin-left: -40px;
+                       padding: 0;
+                       z-index: 100">{% bootstrap_icon "x" 20 %}</button>
+        <button type="submit" class="btn btn-primary">{% bootstrap_icon "search" 20 %}</button>
+    </div>
+    {% if description_field %}
+        {% include "search/form_elements/description_input.html" with value=description_value notice="" %}
+    {% endif %}
 </div>

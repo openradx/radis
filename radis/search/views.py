@@ -4,7 +4,7 @@ from adit_radis_shared.common.types import AuthenticatedHttpRequest
 from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
 from django.core.exceptions import ImproperlyConfigured
 from django.core.paginator import Paginator
-from django.http import Http404, HttpRequest
+from django.http import Http404, HttpRequest, HttpResponseNotAllowed
 from django.shortcuts import render
 from django.views import View
 
@@ -114,3 +114,7 @@ class SearchView(LoginRequiredMixin, UserPassesTestMixin, View):
         except ValueError:
             page_size = 10
         return page_size
+
+
+def description_view(request: HttpRequest):
+    return HttpResponseNotAllowed(["POST"])
