@@ -34,8 +34,14 @@ from radis.search.utils.query_parser import (
 )
 
 from .models import ReportSearchIndex
-from .utils.document_utils import AnnotatedReportSearchIndex, document_from_pgsearch_response
-from .utils.fusion import rrf_fuse, summary_with_fallback
+from .utils.document_utils import (
+    HEADLINE_START,
+    HEADLINE_STOP,
+    AnnotatedReportSearchIndex,
+    document_from_pgsearch_response,
+    summary_markup,
+)
+from .utils.fusion import rrf_fuse
 from .utils.language_utils import code_to_language
 
 logger = logging.getLogger(__name__)
@@ -590,8 +596,8 @@ def search(search: FullTextSearch) -> SearchResult:
             "report__body",
             tsqueries[config],
             config=config,
-            start_sel="<em>",
-            stop_sel="</em>",
+            start_sel=HEADLINE_START,
+            stop_sel=HEADLINE_STOP,
             min_words=10,
             max_words=20,
             max_fragments=10,
@@ -621,28 +627,23 @@ def search(search: FullTextSearch) -> SearchResult:
     # Headline + hydration for the page slice only.
     page_rows = (
         ReportSearchIndex.objects.filter(report_id__in=page_ids)
-        .annotate(
-            summary=summary_expr,
-            rank=rank_expr,
-        )
+        .annotate(headline=summary_expr, rank=rank_expr)
         .select_related("report")
     )
-    by_id = {r.report.pk: r for r in page_rows}
+    by_id = {r.report.pk: cast(AnnotatedReportSearchIndex, r) for r in page_rows}
 
     documents: list[ReportDocument] = []
     for rid in page_ids:
-        rsv = by_id.get(rid)
-        if rsv is None:
+        row = by_id.get(rid)
+        if row is None:
             continue
-        rsv.summary = summary_with_fallback(  # type: ignore[attr-defined]
-            rsv.report.body,
-            rsv.summary or "",  # type: ignore[attr-defined]
-            max_words=30,
-        )
+        dist = vec_distance.get(rid)
         documents.append(
             document_from_pgsearch_response(
-                cast(AnnotatedReportSearchIndex, rsv),
-                similarity=(1.0 - dist) if (dist := vec_distance.get(rid)) is not None else None,
+                row,
+                relevance=row.rank,
+                summary=summary_markup(row.report.body, row.headline or ""),
+                similarity=(1.0 - dist) if dist is not None else None,
                 score=rrf_score_by_id.get(rid, 0.0),
             )
         )

@@ -101,7 +101,7 @@ def test_documents_in_different_languages_are_each_matched_under_their_own_confi
 
     # Highlighting must key off the document's own configuration too: a
     # headline built under another configuration silently highlights nothing,
-    # and summary_with_fallback masks that as a plain body excerpt instead of
+    # and summary_markup masks that as a plain body excerpt instead of
     # failing loudly.
     en_doc = next(d for d in english_documents if d.document_id == english.document_id)
     assert "<em>effusion</em>" in en_doc.summary

@@ -365,3 +365,37 @@ def test_search_view_threads_selected_labels_into_filters(client: Client) -> Non
 
     assert response.status_code == 200
     assert captured["search"].filters.labels == ["edema", "pneumonia"]
+
+
+@pytest.mark.django_db
+def test_summaries_are_autoescaped_unless_the_provider_marks_them_safe(client: Client):
+    from django.utils.safestring import mark_safe
+
+    user = create_test_user_with_active_group()
+    client.force_login(user)
+    report = ReportFactory.create(document_id="ESC_1", language=LanguageFactory.create(code="en"))
+
+    def document(summary):
+        return ReportDocument(
+            relevance=0.5,
+            document_id=report.document_id,
+            pacs_name=report.pacs_name,
+            pacs_link=report.pacs_link,
+            patient_age=report.patient_age,
+            patient_sex=report.patient_sex,
+            study_description=report.study_description,
+            modalities=["CT"],
+            summary=summary,
+        )
+
+    def mock_search(request):
+        documents = [document("<b>plain</b>"), document(mark_safe("<em>safe</em>"))]
+        return SearchResult(total_count=2, total_relation="exact", documents=documents)
+
+    provider = SearchProvider(name="Escaping", search=mock_search, max_results=1000)
+    with patch("radis.search.views.search_provider", provider):
+        response = client.get("/search/", {"query": "chest"})
+
+    content = response.content.decode()
+    assert "&lt;b&gt;plain&lt;/b&gt;" in content
+    assert "<em>safe</em>" in content

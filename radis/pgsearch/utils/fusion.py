@@ -22,12 +22,3 @@ def rrf_fuse(
     scored = [(rid, score(rid)) for rid in all_ids]
     scored.sort(key=lambda pair: (-pair[1], pair[0]))
     return scored
-
-
-def summary_with_fallback(body: str, summary: str, max_words: int) -> str:
-    """SearchHeadline returns '' for documents that don't match the tsquery
-    (e.g., vector-only hits). Fall back to the first `max_words` words of the body."""
-    if summary:
-        return summary
-    words = body.split()
-    return " ".join(words[:max_words])

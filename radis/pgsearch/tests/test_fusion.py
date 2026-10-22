@@ -1,6 +1,6 @@
 import pytest
 
-from radis.pgsearch.utils.fusion import rrf_fuse, summary_with_fallback
+from radis.pgsearch.utils.fusion import rrf_fuse
 
 
 def test_rrf_both_sides_have_hits_overlap():
@@ -54,21 +54,3 @@ def test_rrf_returns_scores_descending_with_tiebreak():
     assert pairs[1][0] == 2
     assert pairs[0][1] == pytest.approx(2.0 / 61.0)
     assert pairs[1][1] == pytest.approx(1.0 / 62.0)
-
-
-def test_summary_with_fallback_keeps_nonempty():
-    assert summary_with_fallback("any body", "an <em>existing</em> headline", 30) == (
-        "an <em>existing</em> headline"
-    )
-
-
-def test_summary_with_fallback_uses_body_head_when_empty():
-    body = " ".join(f"word{i}" for i in range(100))
-    out = summary_with_fallback(body, "", max_words=5)
-    assert out == "word0 word1 word2 word3 word4"
-
-
-def test_summary_with_fallback_short_body():
-    assert summary_with_fallback("only three words here", "", max_words=10) == (
-        "only three words here"
-    )

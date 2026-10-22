@@ -425,3 +425,17 @@ def test_updated_after_includes_boundary_and_excludes_older_reports():
 
     matched = {doc.document_id for doc in result.documents}
     assert matched == {at_cutoff.document_id, newer.document_id}
+
+
+def test_summary_escapes_report_text_and_keeps_highlights():
+    # ts_headline drops whole tags such as <b> by itself, so the body uses a bare "<",
+    # which it passes through to the escaping.
+    make_report("Findings: pneumonia <5mm & effusion.")
+
+    result = providers.search(_search(parse("pneumonia"), language="en"))  # type: ignore[arg-type]
+
+    summary = result.documents[0].summary
+    assert "<em>pneumonia</em>" in summary
+    assert "&lt;5mm" in summary
+    assert "&amp;" in summary
+    assert "<5mm" not in summary
