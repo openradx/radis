@@ -19,6 +19,10 @@ CACHES = {
     "default": {
         "BACKEND": "django.core.cache.backends.db.DatabaseCache",
         "LOCATION": "django_cache",
+        # One row per cached ranking, query vector and LLM-written description; Django's
+        # default of 300 entries culls a third of the table at random once it is full,
+        # which would evict hot rankings under modest traffic. The TTLs bound the table.
+        "OPTIONS": {"MAX_ENTRIES": 2000},
     }
 }
 

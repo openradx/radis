@@ -173,7 +173,7 @@ def test_degraded_fts_only_result_is_not_cached(group, reports, settings):
 
 
 def test_zero_timeout_disables_the_cache(group, reports, settings):
-    settings.HYBRID_FUSED_CACHE_TIMEOUT_SECONDS = 0
+    settings.SEARCH_RANKING_CACHE_TIMEOUT_SECONDS = 0
     mocked, _ = _mock_embedding(settings.EMBEDDINGS_DIM)
     try:
         search(_make_search("pneumothorax", group.pk))

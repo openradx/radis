@@ -1,9 +1,11 @@
 import json
+from unittest.mock import patch
 
 import httpx2
 import pytest
 from django.test import override_settings
 
+from radis.core.utils.embedding_client import EmbeddingClient
 from radis.core.utils.model_spec import parse_model_spec
 
 
@@ -379,3 +381,13 @@ def test_model_spec_parameters_reach_the_request_body(monkeypatch):
     # `dimensions` is a real OpenAI request field: asking the provider for the width we
     # store beats truncating a larger vector client-side.
     assert seen["body"]["dimensions"] == 2
+
+
+def test_embedding_client_timeout_override(settings):
+    settings.EMBEDDINGS_MODEL = parse_model_spec("qwen3")
+    settings.EMBEDDINGS_REQUEST_TIMEOUT_SECONDS = 42.0
+    with patch("openai.OpenAI") as openai_cls:
+        EmbeddingClient(timeout=5.0)
+        EmbeddingClient()
+    assert openai_cls.call_args_list[0].kwargs["timeout"] == 5.0
+    assert openai_cls.call_args_list[1].kwargs["timeout"] == 42.0

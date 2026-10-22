@@ -40,6 +40,8 @@ from .utils.language_utils import code_to_language
 
 logger = logging.getLogger(__name__)
 
+RRF_K = 60
+
 
 def sanitize_term(term: str) -> str:
     return "".join(char for char in term if is_search_token_char(char))
@@ -276,7 +278,7 @@ def _embed_query_or_none(query_text: str, caller: str) -> list[float] | None:
     configuration, see _LOGGED_PERMANENT_FAILURE_CONFIGS) so it reaches operators
     instead of hiding as a silently degraded search."""
     try:
-        with EmbeddingClient() as ec:
+        with EmbeddingClient(timeout=settings.EMBEDDINGS_QUERY_REQUEST_TIMEOUT_SECONDS) as ec:
             return ec.embed_query(query_text)
     except (EmbeddingClientError, *PERMANENT_EMBEDDING_ERRORS) as exc:
         config_key = _embedding_config_key()
@@ -388,7 +390,7 @@ def _fts_candidate_queryset(filter_query: Q, configs: list[tuple[str, list[str]]
         .filter(match_q)
         .annotate(rank=rank_expr)
         .order_by("-rank", "report_id")
-        .values("report_id", "rank")[: settings.HYBRID_FTS_MAX_RESULTS]
+        .values("report_id", "rank")[: settings.SEARCH_FTS_MAX_RESULTS]
     )
 
 
@@ -419,9 +421,9 @@ def _fused_cache_key(search: FullTextSearch) -> str:
             "schema": _FUSED_CACHE_SCHEMA,
             "query": QueryParser.unparse(search.query),
             "filters": asdict(search.filters),
-            "fts_max": settings.HYBRID_FTS_MAX_RESULTS,
-            "rrf_k": settings.HYBRID_RRF_K,
-            "ef_search": settings.HYBRID_HNSW_EF_SEARCH,
+            "fts_max": settings.SEARCH_FTS_MAX_RESULTS,
+            "rrf_k": RRF_K,
+            "ef_search": settings.SEARCH_HNSW_EF_SEARCH,
             "embeddings": None
             if spec is None
             else [
@@ -474,7 +476,7 @@ def _fuse_hybrid(search: FullTextSearch, caller: str) -> _FusedHybrid:
     no vector — are never cached, so an embedding outage cannot pin searches to
     FTS-only for the TTL. New or updated reports enter a cached query's results
     only after the TTL expires."""
-    timeout = settings.HYBRID_FUSED_CACHE_TIMEOUT_SECONDS
+    timeout = settings.SEARCH_RANKING_CACHE_TIMEOUT_SECONDS
     if timeout <= 0:
         return _fuse_hybrid_uncached(search, caller)[0]
     key = _fused_cache_key(search)
@@ -520,7 +522,7 @@ def _fuse_hybrid_uncached(search: FullTextSearch, caller: str) -> tuple[_FusedHy
         vec_qs = _exclude_negations(vec_qs, search.query, configs)
         # One pass over the corpus-wide nearest neighbours: the scan emits at
         # most ~hnsw.ef_search rows (a connection option, see
-        # settings.HYBRID_HNSW_EF_SEARCH), and the filters above then shrink
+        # settings.SEARCH_HNSW_EF_SEARCH), and the filters above then shrink
         # them — the semantic candidates are the accessible subset of roughly
         # the ef_search nearest reports, deliberately not topped back up by an
         # iterative scan. The slice is a planner guard, not a semantic cap:
@@ -531,7 +533,7 @@ def _fuse_hybrid_uncached(search: FullTextSearch, caller: str) -> tuple[_FusedHy
             vec_qs.exclude(embedding__isnull=True)
             .annotate(distance=CosineDistance("embedding", query_vec))
             .order_by("distance", "report_id")
-            .values_list("report_id", "distance")[: settings.HYBRID_HNSW_EF_SEARCH * 2]
+            .values_list("report_id", "distance")[: settings.SEARCH_HNSW_EF_SEARCH * 2]
         )
         for i, (rid, dist) in enumerate(vec_rows):
             vec_rank[rid] = i + 1
@@ -546,13 +548,13 @@ def _fuse_hybrid_uncached(search: FullTextSearch, caller: str) -> tuple[_FusedHy
     fts_rank = {row["report_id"]: i + 1 for i, row in enumerate(fts_rows)}
 
     # Fusion.
-    ordered_pairs = rrf_fuse(vec_rank, fts_rank, k=settings.HYBRID_RRF_K)
+    ordered_pairs = rrf_fuse(vec_rank, fts_rank, k=RRF_K)
     rrf_score_by_id = dict(ordered_pairs)
     ordered_ids = list(rrf_score_by_id)
     # The vector half is one complete beam pass by definition, so it never makes
     # the union a lower bound; only a truncated FTS side does.
     total_relation: Literal["exact", "at_least", "approximately"] = (
-        "at_least" if len(fts_rows) >= settings.HYBRID_FTS_MAX_RESULTS else "exact"
+        "at_least" if len(fts_rows) >= settings.SEARCH_FTS_MAX_RESULTS else "exact"
     )
     return _FusedHybrid(
         ordered_ids=ordered_ids,

@@ -459,6 +459,13 @@ EMBEDDINGS_API_KEY = _inherit_env("EMBEDDINGS_API_KEY", LLM_API_KEY)
 EMBEDDINGS_REQUEST_TIMEOUT_SECONDS = _optional_env(
     "EMBEDDINGS_REQUEST_TIMEOUT_SECONDS", float, LLM_REQUEST_TIMEOUT_SECONDS
 )
+# A user waits on a query embedding, so the search path gets its own short request
+# timeout instead of the worker's; a dead endpoint then costs one search ten seconds,
+# not a minute. The gate's query budget (EMBEDDINGS_RATE_LIMIT_QUERY_MAX_WAIT_SECONDS)
+# comes on top of it.
+EMBEDDINGS_QUERY_REQUEST_TIMEOUT_SECONDS = _optional_env(
+    "EMBEDDINGS_QUERY_REQUEST_TIMEOUT_SECONDS", float, 10.0
+)
 
 
 def _resolve_embeddings_model() -> ModelSpec | None:
@@ -523,7 +530,7 @@ EMBEDDINGS_RATE_LIMIT_BACKOFF_BASE_SECONDS = 2.0
 EMBEDDINGS_RATE_LIMIT_BACKOFF_MAX_SECONDS = 120.0
 EMBEDDINGS_RATE_LIMIT_HEADER_CEILING_SECONDS = 1800.0
 # Wait budgets: long for background embedding tasks; short for the search path, where a
-# user is waiting and falling back to FTS-only beats hanging on a closed gate.
+# user is waiting and a degraded search beats hanging on a closed gate.
 EMBEDDINGS_RATE_LIMIT_MAX_WAIT_SECONDS = 300.0
 EMBEDDINGS_RATE_LIMIT_QUERY_MAX_WAIT_SECONDS = 10.0
 # Local retries of transient (non-429) embedding call failures, mirroring the
@@ -537,42 +544,61 @@ EMBEDDINGS_TRANSIENT_RETRY_BASE_SECONDS = 0.5
 EMBEDDINGS_TASK_MAX_ATTEMPTS = 5
 EMBEDDINGS_TASK_EXPONENTIAL_WAIT_SECONDS = 6
 
-# Hybrid search tuning
-HYBRID_FTS_MAX_RESULTS = 10_000
-HYBRID_RRF_K = 60
-# The vector half of the fusion is whatever a single HNSW beam pass emits — there
-# is deliberately no separate app-level top-K. hnsw.ef_search is pgvector's beam
-# width and at the same time a hard cap on the rows one index scan emits (default
-# 40, server maximum 1000), so this one setting governs the depth of the semantic
-# side directly. The group/language/negation filters are applied to the emitted
-# candidates afterwards, so the semantic list is the accessible subset of roughly
-# the ef_search nearest reports corpus-wide and shrinks under selective filters.
-# No iterative scan to top it back up: one uniform relevance bar for every group,
-# and one bounded pass instead of digging through up to hnsw.max_scan_tuples
-# inaccessible neighbours — measured on 1.7M reports, merely enabling
-# strict_order cost ~2.4x unfiltered, while below ~5% filter selectivity the
-# scan budget ran out before filling a quota anyway.
-HYBRID_HNSW_EF_SEARCH = _optional_env("HYBRID_HNSW_EF_SEARCH", int, 500)
-if not 1 <= HYBRID_HNSW_EF_SEARCH <= 1000:
+# Search tuning (radis.pgsearch)
+# How many keyword hits a full-text search ranks and paginates.
+SEARCH_FTS_MAX_RESULTS = 10_000
+# pgvector's HNSW beam width, carried as a libpq connection option so every connection
+# scans at the same depth, and the number of reports a semantic search lists: one index
+# scan yields on the order of ef_search rows and the provider caps its list at exactly
+# this value. 1..1000 is the server's valid range; an out-of-range value would fail GUC
+# validation at connect time and silently leave the scan at pgvector's default of 40.
+SEARCH_HNSW_EF_SEARCH = _optional_env("SEARCH_HNSW_EF_SEARCH", int, 500)
+if not 1 <= SEARCH_HNSW_EF_SEARCH <= 1000:
     raise ImproperlyConfigured(
-        f"HYBRID_HNSW_EF_SEARCH={HYBRID_HNSW_EF_SEARCH} must be between 1 and 1000, "
+        f"SEARCH_HNSW_EF_SEARCH={SEARCH_HNSW_EF_SEARCH} must be between 1 and 1000, "
         "the server's valid hnsw.ef_search range."
     )
-# Attached as a libpq connection option rather than as a database- or server-level
-# default, so the app carries the setting into every environment it connects to
-# (dev, tests, CI, a restored database); production.py extends this dict the same
-# way for the database password.
+# A connection option rather than a database- or server-level default, so the app
+# carries the setting into every environment it connects to (dev, tests, CI, a restored
+# database). production.py sets the database password on the same DATABASES entry.
 DATABASES["default"].setdefault("OPTIONS", {})["options"] = (
-    f"-c hnsw.ef_search={HYBRID_HNSW_EF_SEARCH}"
+    f"-c hnsw.ef_search={SEARCH_HNSW_EF_SEARCH}"
 )
-# How long a query's fused RRF union (ordered ids and scores) stays cached, in
-# seconds. Pagination re-runs the whole fusion for every page, and ranking every
-# FTS match of a common term costs seconds on a large corpus, so page 2..n and
-# repeated searches reuse the cached union instead. The trade is freshness:
-# reports created or updated within the TTL appear in a cached query's results
-# only after it expires. 0 disables the cache. Degraded FTS-only results
-# (configured embedding model, no vector) are never cached.
-HYBRID_FUSED_CACHE_TIMEOUT_SECONDS = _optional_env("HYBRID_FUSED_CACHE_TIMEOUT_SECONDS", int, 300)
+# How long a ranking (ordered ids and scores of a full-text search, its re-ranked
+# window, or a semantic list) stays cached, in seconds. Pagination re-runs the search
+# for every page and ranking every keyword hit of a common term costs seconds on a
+# large corpus, so page 2..n and repeated searches reuse the cached ranking. The trade
+# is freshness: reports created or updated within the TTL join a cached query's results
+# only after it expires. 0 disables the cache. A ranking whose embedding failed is
+# never cached.
+SEARCH_RANKING_CACHE_TIMEOUT_SECONDS = _optional_env(
+    "SEARCH_RANKING_CACHE_TIMEOUT_SECONDS", int, 300
+)
+# The window re-rank of full-text mode: how many of the top keyword hits are measured
+# against the description (one query reading that many vectors), and the weight of
+# similarity in the blended score (1.0 orders the window by similarity alone).
+SEARCH_RERANK_WINDOW = _optional_env("SEARCH_RERANK_WINDOW", int, 1000)
+if SEARCH_RERANK_WINDOW < 1:
+    raise ImproperlyConfigured(f"SEARCH_RERANK_WINDOW={SEARCH_RERANK_WINDOW} must be at least 1.")
+SEARCH_RERANK_SEMANTIC_WEIGHT = _optional_env("SEARCH_RERANK_SEMANTIC_WEIGHT", float, 0.7)
+if not 0.0 <= SEARCH_RERANK_SEMANTIC_WEIGHT <= 1.0:
+    raise ImproperlyConfigured(
+        f"SEARCH_RERANK_SEMANTIC_WEIGHT={SEARCH_RERANK_SEMANTIC_WEIGHT} must be between 0 and 1."
+    )
+# Semantic mode runs its index scan with hnsw.iterative_scan = strict_order, so the scan
+# resumes under selective filters (a small group, a rare modality) until the list is full
+# or pgvector's scan budget (hnsw.max_scan_tuples, 20,000 by default) is spent, instead of
+# listing only the accessible part of one pass. Costs about 2.4x on unfiltered searches.
+SEARCH_SEMANTIC_ITERATIVE_SCAN = env.bool("SEARCH_SEMANTIC_ITERATIVE_SCAN", default=True)
+# Minimum similarity (1 - cosine distance, 0..1) a report needs to appear in semantic
+# mode. Applied after retrieval, so a query that matches nothing ends in a short list
+# instead of the nearest 500 reports. Comparable only within one embedding model and
+# corpus, hence unset (off) until calibrated; the page lets a user override it per search.
+SEARCH_SEMANTIC_MIN_SIMILARITY = _optional_env("SEARCH_SEMANTIC_MIN_SIMILARITY", float, None)
+if SEARCH_SEMANTIC_MIN_SIMILARITY is not None and not 0.0 <= SEARCH_SEMANTIC_MIN_SIMILARITY <= 1.0:
+    raise ImproperlyConfigured(
+        f"SEARCH_SEMANTIC_MIN_SIMILARITY={SEARCH_SEMANTIC_MIN_SIMILARITY} must be between 0 and 1."
+    )
 
 # Chat
 CHAT_GENERATE_TITLE_SYSTEM_PROMPT = """
@@ -672,6 +698,26 @@ ENABLE_AUTO_QUERY_GENERATION = env.bool("ENABLE_AUTO_QUERY_GENERATION", default=
 # as well — see https://github.com/openradx/radis/issues/266.
 QUERY_GENERATION_TIMEOUT = _optional_env("QUERY_GENERATION_TIMEOUT", int, 10)
 QUERY_GENERATION_MAX_RETRIES = env.int("QUERY_GENERATION_MAX_RETRIES", default=2)
+
+# The "Write from keywords" button on the search page: the LLM (the query_generation
+# feature's model) writes a short report-style passage from the keywords, which the
+# semantic search embeds instead of the bare keywords. A user waits on it, so the
+# timeout is the gate budget too and there are no transient retries.
+SEARCH_DESCRIPTION_TIMEOUT = _optional_env("SEARCH_DESCRIPTION_TIMEOUT", int, 10)
+SEARCH_DESCRIPTION_MAX_TOKENS = _optional_env("SEARCH_DESCRIPTION_MAX_TOKENS", int, 200)
+SEARCH_DESCRIPTION_CACHE_TIMEOUT_SECONDS = _optional_env(
+    "SEARCH_DESCRIPTION_CACHE_TIMEOUT_SECONDS", int, 3600
+)
+SEARCH_DESCRIPTION_SYSTEM_PROMPT = env.str(
+    "SEARCH_DESCRIPTION_SYSTEM_PROMPT",
+    default=(
+        "You help search a hospital archive of radiology reports. The user gives search "
+        "keywords. Write the short passage (two to three sentences) that a radiology report "
+        "matching those keywords would typically contain in its findings or impression: the "
+        "same language as the keywords, the usual terminology and abbreviations of radiology "
+        "reports, no patient names, no headings and no explanation. Output only the passage."
+    ),
+)
 
 QUERY_GENERATION_SYSTEM_PROMPT = """You are an AI assistant specialized in medical informatics and
 radiology report retrieval. Your task is to generate an effective search query to find radiology

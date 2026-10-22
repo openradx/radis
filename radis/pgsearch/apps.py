@@ -172,7 +172,7 @@ def register_app():
             # Deliberate cap on how many fused RRF results are paginated for
             # viewing — not the true union size (the vector side can add up to
             # a beam pass of semantic-only results beyond the FTS matches).
-            max_results=settings.HYBRID_FTS_MAX_RESULTS,
+            max_results=settings.SEARCH_FTS_MAX_RESULTS,
         )
     )
 

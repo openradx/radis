@@ -258,7 +258,7 @@ def test_search_skips_embedding_when_query_reduces_to_not(monkeypatch, group):
     embed_query_calls: list[str] = []
 
     class FakeEC:
-        def __init__(self):
+        def __init__(self, *, timeout=None):
             pass
 
         def __enter__(self):
@@ -291,7 +291,7 @@ def test_search_embeds_only_positive_branch_for_and_not(monkeypatch, group, sett
     dim = settings.EMBEDDINGS_DIM
 
     class FakeEC:
-        def __init__(self):
+        def __init__(self, *, timeout=None):
             pass
 
         def __enter__(self):
@@ -488,7 +488,7 @@ def test_connection_carries_hnsw_gucs(db, settings):
         # with "unrecognized configuration parameter".
         cursor.execute("SELECT '[1]'::vector(1)")
         cursor.execute("SHOW hnsw.ef_search")
-        assert cursor.fetchone()[0] == str(settings.HYBRID_HNSW_EF_SEARCH)
+        assert cursor.fetchone()[0] == str(settings.SEARCH_HNSW_EF_SEARCH)
         # One-pass semantics is deliberate: TOP_K caps the vector candidates and
         # the filters may shrink the list below it — the scan must not resume to
         # top it back up.
