@@ -1260,24 +1260,6 @@ def test_hydration_skips_a_report_removed_from_the_group(group, corpus, embed):
 
     assert corpus["near"].document_id not in _ids(result)
     assert result.total_count == 3  # the cached count catches up when the entry expires
-
-
-def test_no_report_traversal_in_the_provider_source():
-    """Guarded in test_filter_query_equivalence as well; repeated here because the
-    hydration query is new code on the hot path."""
-    import inspect
-
-    from radis.pgsearch import providers
-
-    offending = [
-        line.strip()
-        for line in inspect.getsource(providers).splitlines()
-        if "report__" in line
-        and "report__body" not in line
-        and "report__document_id" not in line
-        and not line.strip().startswith("#")
-    ]
-    assert offending == []
 ```
 
 - [ ] **Step 2: Write the failing ranking-cache tests**
