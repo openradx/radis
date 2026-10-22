@@ -160,3 +160,35 @@ def test_differing_base_url_does_not_share_a_cache_entry(monkeypatch):
         providers._embed_query_cached("pneumonia", "test")
 
     assert len(calls) == 2
+
+
+def test_a_repeated_semantic_search_embeds_once(group, report, settings):
+    from radis.search.site import SemanticSearch
+
+    patcher, embed_query = _mock_embedding_client(settings.EMBEDDINGS_DIM)
+    request = SemanticSearch(text="free air", filters=SearchFilters(group=group.pk, language="en"))
+    try:
+        first = search(request)
+        second = search(request)
+    finally:
+        patcher.stop()
+
+    assert embed_query.call_count == 1
+    assert [d.document_id for d in first.documents] == [report.document_id]
+    assert [d.document_id for d in second.documents] == [report.document_id]
+
+
+def test_a_failed_semantic_embedding_is_not_cached(group, report, settings):
+    from radis.search.site import SemanticSearch
+
+    patcher, embed_query = _mock_embedding_client(settings.EMBEDDINGS_DIM)
+    embed_query.side_effect = [EmbeddingClientError("down"), _unit_vec(0, settings.EMBEDDINGS_DIM)]
+    request = SemanticSearch(text="free air", filters=SearchFilters(group=group.pk, language="en"))
+    try:
+        first = search(request)
+        second = search(request)
+    finally:
+        patcher.stop()
+
+    assert first.degraded is True and first.documents == []
+    assert second.degraded is False and len(second.documents) == 1

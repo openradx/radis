@@ -168,9 +168,10 @@ def register_app():
     register_search_provider(
         SearchProvider(
             name="PG Search",
-            search=search,  # type: ignore[arg-type]  # answers full-text requests only
+            search=search,
             # The paging cap of a full-text list; a semantic list is at most the beam width long.
             max_results=settings.SEARCH_FTS_MAX_RESULTS,
+            semantic=settings.EMBEDDINGS_MODEL is not None,
         )
     )
 

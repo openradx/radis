@@ -12,6 +12,7 @@ import openai
 from django.conf import settings
 from django.contrib.postgres.search import SearchHeadline, SearchQuery, SearchRank
 from django.core.cache import cache
+from django.db import connection, transaction
 from django.db.models import Case, F, FloatField, Q, TextField, Value, When
 from django.utils import timezone
 from pgvector.django import CosineDistance
@@ -23,7 +24,15 @@ from radis.core.utils.embedding_client import (
 )
 from radis.core.utils.rate_limit import RateLimited
 from radis.reports.models import Language, Report
-from radis.search.site import FullTextSearch, ReportDocument, Search, SearchFilters, SearchResult
+from radis.search.site import (
+    FullTextSearch,
+    ReportDocument,
+    Search,
+    SearchFilters,
+    SearchRequest,
+    SearchResult,
+    SemanticSearch,
+)
 from radis.search.utils.query_parser import (
     BinaryNode,
     ParensNode,
@@ -540,6 +549,95 @@ def _rank_fulltext(request: FullTextSearch, caller: str) -> Ranking:
     )
 
 
+ITERATIVE_SCAN_SQL = "SET LOCAL hnsw.iterative_scan = strict_order"
+
+
+def _semantic_scan_queryset(filter_query: Q, vec: list[float]):
+    """The nearest reports under the filters: one HNSW index scan, capped at the beam
+    width, which is the semantic depth. The LIMIT must stay in the query: without one
+    the planner abandons the index for a sequential sort."""
+    return (
+        ReportSearchIndex.objects.filter(filter_query)
+        .exclude(embedding__isnull=True)
+        .annotate(distance=CosineDistance("embedding", vec))
+        .order_by("distance", "report_id")
+        .values_list("report_id", "distance")[: settings.SEARCH_HNSW_EF_SEARCH]
+    )
+
+
+def _semantic_ranking(ids: list[int], similarity: dict[int, float], *, degraded: bool) -> Ranking:
+    return Ranking(
+        ids=ids,
+        score_by_id=dict(similarity),
+        similarity_by_id=similarity,
+        relation="exact",
+        configs=[],
+        query_str="",
+        degraded=degraded,
+    )
+
+
+def _rank_semantic(request: SemanticSearch, caller: str) -> Ranking:
+    """The reports most similar to the text, in similarity order; cached unless the
+    embedding failed, in which case the list is empty and degraded."""
+    if settings.EMBEDDINGS_MODEL is None:
+        raise ValueError("A semantic search needs an embedding model (EMBEDDINGS_MODEL).")
+    timeout = settings.SEARCH_RANKING_CACHE_TIMEOUT_SECONDS
+    key = _cache_key(
+        layer="semantic",
+        text=request.text,
+        filters=asdict(request.filters),
+        ef_search=settings.SEARCH_HNSW_EF_SEARCH,
+        iterative=settings.SEARCH_SEMANTIC_ITERATIVE_SCAN,
+        embeddings=_embedding_fingerprint(),
+    )
+    if timeout > 0:
+        cached = cache.get(key)
+        if cached is not None:
+            similarity = dict(zip(cached["ids"], cached["similarities"], strict=True))
+            return _semantic_ranking(list(cached["ids"]), similarity, degraded=False)
+    vec = _embed_query_cached(request.text, caller)
+    if vec is None:
+        return _semantic_ranking([], {}, degraded=True)
+    filter_query = _build_filter_query(request.filters)
+    # SET LOCAL lasts to the end of the enclosing transaction, so the scan gets its own:
+    # the search view runs outside any transaction and the setting ends with the scan.
+    with transaction.atomic():
+        if settings.SEARCH_SEMANTIC_ITERATIVE_SCAN:
+            with connection.cursor() as cursor:
+                cursor.execute(ITERATIVE_SCAN_SQL)
+        rows = list(_semantic_scan_queryset(filter_query, vec))
+    ids = [rid for rid, _ in rows]
+    similarity = {rid: 1.0 - float(dist) for rid, dist in rows}
+    if timeout > 0:
+        cache.set(
+            key,
+            {"ids": ids, "similarities": [similarity[rid] for rid in ids]},
+            timeout=timeout,
+        )
+    return _semantic_ranking(ids, similarity, degraded=False)
+
+
+def _effective_min_similarity(request: SemanticSearch) -> float | None:
+    if request.min_similarity is not None:
+        return request.min_similarity
+    return settings.SEARCH_SEMANTIC_MIN_SIMILARITY
+
+
+def _truncate(ranking: Ranking, cutoff: float | None) -> Ranking:
+    """Cut the similarity-ordered list at the first hit below ``cutoff``. Done after
+    retrieval rather than as a SQL predicate: with iterative scan on, pgvector would
+    keep scanning for rows that can no longer pass, up to its tuple budget."""
+    if cutoff is None or cutoff <= 0:
+        return ranking
+    kept: list[int] = []
+    for rid in ranking.ids:
+        if ranking.similarity_by_id.get(rid, 0.0) < cutoff:
+            break
+        kept.append(rid)
+    return ranking._replace(ids=kept)
+
+
 def _hydration_queryset(
     page_ids: list[int],
     group: int | None,
@@ -617,8 +715,13 @@ def _page(ids: list[int], request: Search) -> list[int]:
     return ids[request.offset : request.offset + request.limit]
 
 
-def search(request: FullTextSearch) -> SearchResult:
-    ranking = _rank_fulltext(request, "Full-text re-rank")
+def search(request: SearchRequest) -> SearchResult:
+    if isinstance(request, SemanticSearch):
+        ranking = _truncate(
+            _rank_semantic(request, "Semantic search"), _effective_min_similarity(request)
+        )
+    else:
+        ranking = _rank_fulltext(request, "Full-text re-rank")
     documents = _hydrate(_page(ranking.ids, request), ranking, request.filters.group)
     return SearchResult(
         total_count=len(ranking.ids),

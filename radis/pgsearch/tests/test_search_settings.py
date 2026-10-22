@@ -69,3 +69,10 @@ def test_no_hybrid_setting_remains():
     for suffix in ("FTS_MAX_RESULTS", "RRF_K", "HNSW_EF_SEARCH", "FUSED_CACHE_TIMEOUT_SECONDS"):
         name = f"{prefix}_{suffix}"
         assert not hasattr(settings, name), name
+
+
+def test_the_registered_provider_reports_the_semantic_capability(settings):
+    from radis.search.site import search_provider
+
+    assert search_provider is not None
+    assert search_provider.semantic is (settings.EMBEDDINGS_MODEL is not None)
