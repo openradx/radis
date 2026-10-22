@@ -11,7 +11,7 @@ from django.views import View
 from radis.search.forms import SearchForm
 from radis.search.utils.query_parser import QueryParser
 
-from .site import Search, SearchFilters, search_provider
+from .site import FullTextSearch, SearchFilters, search_provider
 
 
 class SearchView(LoginRequiredMixin, UserPassesTestMixin, View):
@@ -63,7 +63,7 @@ class SearchView(LoginRequiredMixin, UserPassesTestMixin, View):
             if len(fixes) > 0:
                 context["fixed_query"] = QueryParser.unparse(query_node)
 
-            search = Search(
+            search = FullTextSearch(
                 query=query_node,
                 filters=SearchFilters(
                     group=active_group.pk,

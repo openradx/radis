@@ -12,8 +12,8 @@ class AnnotatedReportSearchIndex(ReportSearchIndex):
 
 def document_from_pgsearch_response(
     record: AnnotatedReportSearchIndex,
-    cosine_distance: float | None = None,
-    rrf_score: float = 0.0,
+    similarity: float | None = None,
+    score: float = 0.0,
 ) -> ReportDocument:
     report = record.report
     return ReportDocument(
@@ -26,6 +26,6 @@ def document_from_pgsearch_response(
         study_description=report.study_description,
         modalities=report.modality_codes,
         summary=record.summary,
-        cosine_distance=cosine_distance,
-        rrf_score=rrf_score,
+        similarity=similarity,
+        score=score,
     )

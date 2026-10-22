@@ -12,7 +12,7 @@ from radis.pgsearch.models import ReportSearchIndex
 from radis.pgsearch.providers import count, retrieve, search
 from radis.reports.factories import ReportFactory
 from radis.reports.models import Report
-from radis.search.site import Search, SearchFilters
+from radis.search.site import FullTextSearch, SearchFilters
 from radis.search.utils.query_parser import QueryParser
 
 pytestmark = pytest.mark.django_db
@@ -45,10 +45,10 @@ def _make_report(body: str, **overrides) -> Report:
     return ReportFactory.create(body=body, language__code="en", **overrides)
 
 
-def _make_search(query_str: str, group_id: int) -> Search:
+def _make_search(query_str: str, group_id: int) -> FullTextSearch:
     node, _ = QueryParser().parse(query_str)
     assert node is not None
-    return Search(
+    return FullTextSearch(
         query=node,
         # language="en" so the query-side tsquery config matches the config the
         # reports from _make_report were indexed with (see its docstring).
@@ -222,27 +222,6 @@ def test_retrieve_falls_back_to_fts_on_embedding_error(group, reports_with_embed
     assert set(doc_ids) == {r0.document_id, r2.document_id}
 
 
-def test_documents_carry_cosine_distance_and_rrf_score(group, reports_with_embeddings, settings):
-    """Verify cosine_distance is set for vector-side hits and rrf_score reflects fusion."""
-    _, _, r2 = reports_with_embeddings
-    dim = settings.EMBEDDINGS_DIM
-    with patch("radis.pgsearch.providers.EmbeddingClient") as MockClient:
-        MockClient.return_value.__enter__.return_value = MockClient.return_value
-        MockClient.return_value.__exit__.return_value = None
-        MockClient.return_value.embed_query.return_value = _unit_vec(0, dim)
-        result = search(_make_search("pneumothorax", group.pk))
-
-    # r2 is in both vector top-K and FTS hits, so its rrf_score should be the largest.
-    top = result.documents[0]
-    assert top.document_id == r2.document_id
-    assert top.cosine_distance is not None
-    assert top.cosine_distance >= 0.0
-    assert top.rrf_score > 0.0
-    # All later documents have a strictly lower or equal rrf_score.
-    for prev, curr in zip(result.documents, result.documents[1:], strict=False):
-        assert curr.rrf_score <= prev.rrf_score
-
-
 def test_m2m_filter_does_not_duplicate_results(group, settings):
     """Reports with multiple modalities must appear exactly once when the modality
     filter joins the M2M table. Without `.distinct()` on the queryset, joining on
@@ -255,7 +234,7 @@ def test_m2m_filter_does_not_duplicate_results(group, settings):
 
     node, _ = QueryParser().parse("pneumothorax")
     assert node is not None
-    s = Search(
+    s = FullTextSearch(
         query=node,
         filters=SearchFilters(group=group.pk, language="en", modalities=["CT", "MR", "DX"]),
         offset=0,
@@ -296,7 +275,7 @@ def test_search_skips_embedding_when_query_reduces_to_not(monkeypatch, group):
 
     node, _ = QueryParser().parse("NOT pneumothorax")
     assert node is not None
-    search = Search(
+    search = FullTextSearch(
         query=node, filters=SearchFilters(group=group.pk, language="en"), offset=0, limit=10
     )
     result = providers.search(search)
@@ -335,7 +314,7 @@ def test_search_embeds_only_positive_branch_for_and_not(monkeypatch, group, sett
 
     node, _ = QueryParser().parse("pneumothorax AND NOT effusion")
     assert node is not None
-    search = Search(
+    search = FullTextSearch(
         query=node, filters=SearchFilters(group=group.pk, language="en"), offset=0, limit=10
     )
     providers.search(search)

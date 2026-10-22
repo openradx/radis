@@ -7,16 +7,16 @@ from radis.core.utils.model_spec import parse_model_spec
 from radis.pgsearch.models import ReportSearchIndex
 from radis.pgsearch.providers import _language_configs, retrieve, search
 from radis.reports.factories import LanguageFactory, ReportFactory
-from radis.search.site import Search, SearchFilters
+from radis.search.site import FullTextSearch, SearchFilters
 from radis.search.utils.query_parser import QueryParser
 
 pytestmark = pytest.mark.django_db
 
 
-def _make_search(query_str: str, group_id: int, language: str = "") -> Search:
+def _make_search(query_str: str, group_id: int, language: str = "") -> FullTextSearch:
     node, _ = QueryParser().parse(query_str)
     assert node is not None
-    return Search(
+    return FullTextSearch(
         query=node,
         filters=SearchFilters(group=group_id, language=language),
         offset=0,

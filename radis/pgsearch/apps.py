@@ -168,7 +168,7 @@ def register_app():
     register_search_provider(
         SearchProvider(
             name="PG Search",
-            search=search,
+            search=search,  # type: ignore[arg-type]  # answers full-text requests only
             # Deliberate cap on how many fused RRF results are paginated for
             # viewing — not the true union size (the vector side can add up to
             # a beam pass of semantic-only results beyond the FTS matches).

@@ -22,7 +22,7 @@ from radis.core.utils.embedding_client import (
 )
 from radis.core.utils.rate_limit import RateLimited
 from radis.reports.models import Language, Report
-from radis.search.site import ReportDocument, Search, SearchFilters, SearchResult
+from radis.search.site import FullTextSearch, ReportDocument, SearchFilters, SearchResult
 from radis.search.utils.query_parser import (
     BinaryNode,
     ParensNode,
@@ -406,7 +406,7 @@ class _FusedHybrid(NamedTuple):
 _FUSED_CACHE_SCHEMA = 1
 
 
-def _fused_cache_key(search: Search) -> str:
+def _fused_cache_key(search: FullTextSearch) -> str:
     """Fingerprint of everything that determines the fused union.
 
     Same discipline as `_embed_query_cached`: a shared cache backend (production
@@ -464,7 +464,7 @@ def _fused_from_cached(cached: dict) -> _FusedHybrid:
     )
 
 
-def _fuse_hybrid(search: Search, caller: str) -> _FusedHybrid:
+def _fuse_hybrid(search: FullTextSearch, caller: str) -> _FusedHybrid:
     """Cached front of `_fuse_hybrid_uncached`.
 
     Pagination re-runs the whole fusion for every page, and ranking every FTS
@@ -487,7 +487,7 @@ def _fuse_hybrid(search: Search, caller: str) -> _FusedHybrid:
     return fused
 
 
-def _fuse_hybrid_uncached(search: Search, caller: str) -> tuple[_FusedHybrid, bool]:
+def _fuse_hybrid_uncached(search: FullTextSearch, caller: str) -> tuple[_FusedHybrid, bool]:
     """Run both retrievers and fuse them with RRF.
 
     Shared by search(), retrieve() and count() so all three describe the same
@@ -564,7 +564,7 @@ def _fuse_hybrid_uncached(search: Search, caller: str) -> tuple[_FusedHybrid, bo
     ), degraded
 
 
-def search(search: Search) -> SearchResult:
+def search(search: FullTextSearch) -> SearchResult:
     fused = _fuse_hybrid(search, "Hybrid search")
     ordered_ids = fused.ordered_ids
     vec_distance = fused.vec_distance
@@ -640,15 +640,15 @@ def search(search: Search) -> SearchResult:
         documents.append(
             document_from_pgsearch_response(
                 cast(AnnotatedReportSearchIndex, rsv),
-                cosine_distance=vec_distance.get(rid),
-                rrf_score=rrf_score_by_id.get(rid, 0.0),
+                similarity=(1.0 - dist) if (dist := vec_distance.get(rid)) is not None else None,
+                score=rrf_score_by_id.get(rid, 0.0),
             )
         )
 
     return SearchResult(total_count=total_count, total_relation=total_relation, documents=documents)
 
 
-def count(search: Search) -> int:
+def count(search: FullTextSearch) -> int:
     # Must describe the same set retrieve() yields: the extraction max-reports
     # guard is computed from this and then retrieve() iterates the union. An
     # FTS-only count would report 0 for a semantic-only query and let the guard
@@ -656,7 +656,7 @@ def count(search: Search) -> int:
     return len(_fuse_hybrid(search, "Hybrid count").ordered_ids)
 
 
-def retrieve(search: Search) -> Iterator[str]:
+def retrieve(search: FullTextSearch) -> Iterator[str]:
     ordered_ids = _fuse_hybrid(search, "Hybrid retrieve").ordered_ids
     if not ordered_ids:
         return iter([])

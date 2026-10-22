@@ -12,7 +12,7 @@ from radis.pgsearch.models import ReportSearchIndex
 from radis.pgsearch.providers import search
 from radis.reports.factories import ReportFactory
 from radis.reports.models import Report
-from radis.search.site import Search, SearchFilters
+from radis.search.site import FullTextSearch, SearchFilters
 from radis.search.utils.query_parser import QueryParser
 
 pytestmark = pytest.mark.django_db
@@ -44,10 +44,10 @@ def _make_report(body: str, **overrides) -> Report:
     return ReportFactory.create(body=body, language__code="en", **overrides)
 
 
-def _make_search(query_str: str, group_id: int, offset: int = 0, limit: int = 25) -> Search:
+def _make_search(query_str: str, group_id: int, offset: int = 0, limit: int = 25) -> FullTextSearch:
     node, _ = QueryParser().parse(query_str)
     assert node is not None
-    return Search(
+    return FullTextSearch(
         query=node,
         filters=SearchFilters(group=group_id, language="en"),
         offset=offset,

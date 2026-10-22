@@ -10,7 +10,7 @@ from radis.pgsearch import providers
 from radis.pgsearch.models import ReportSearchIndex
 from radis.pgsearch.providers import retrieve, search
 from radis.reports.factories import ReportFactory
-from radis.search.site import Search, SearchFilters
+from radis.search.site import FullTextSearch, SearchFilters
 from radis.search.utils.query_parser import QueryParser
 
 pytestmark = pytest.mark.django_db
@@ -30,10 +30,10 @@ def _unit_vec(idx: int, dim: int) -> list[float]:
     return v
 
 
-def _make_search(query_str: str, group_id: int, offset: int = 0) -> Search:
+def _make_search(query_str: str, group_id: int, offset: int = 0) -> FullTextSearch:
     node, _ = QueryParser().parse(query_str)
     assert node is not None
-    return Search(
+    return FullTextSearch(
         query=node,
         # language="en" matches the report's pinned language below, so the
         # query-side tsquery config equals the config the report was indexed

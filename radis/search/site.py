@@ -8,7 +8,7 @@ from radis.search.utils.query_parser import QueryNode
 
 
 class ReportDocument(NamedTuple):
-    relevance: float | None
+    relevance: float | None  # ts_rank of a full-text hit; None in semantic mode
     document_id: str
     pacs_name: str
     pacs_link: str
@@ -16,9 +16,11 @@ class ReportDocument(NamedTuple):
     patient_sex: Literal["F", "M", "U"]
     study_description: str
     modalities: list[str]
+    # HTML-safe markup: escaped report text plus <em> highlights, marked safe by the
+    # provider. A plain string from another provider is autoescaped by the template.
     summary: str
-    cosine_distance: float | None = None
-    rrf_score: float = 0.0
+    similarity: float | None = None  # 1 - cosine distance when measured, else None
+    score: float = 0.0  # the value that decided the position in the result list
 
     @property
     def full_report(self) -> Report:
@@ -29,6 +31,9 @@ class SearchResult(NamedTuple):
     total_count: int
     total_relation: Literal["exact", "at_least", "approximately"]
     documents: list[ReportDocument]
+    # True when the semantic part of the search (the re-rank, or semantic mode itself)
+    # could not run because no embedding was available.
+    degraded: bool = False
 
 
 @dataclass
@@ -70,38 +75,72 @@ class SearchFilters:
     updated_after: datetime | None = None
 
 
-class Search(NamedTuple):
-    """A class representing a search.
+@dataclass(frozen=True, kw_only=True)
+class Search:
+    """Inputs every search mode shares.
 
-    If both offset and limit are set to 0, then the search provider
-    should return the most accurate total count it can calculate.
-
-    Attributes:
-    - query: The query to search.
-    - filters: The filters to apply to the search.
-    - offset: The offset of the search results.
-    - limit: The size limit of the search results.
+    Offset and limit both 0 ask the provider for the most accurate total count it
+    can give; extractions rely on this.
     """
 
-    query: QueryNode
     filters: SearchFilters
     offset: int = 0
     limit: int | None = 10
 
 
+@dataclass(frozen=True)
+class SimilarityRerank:
+    """Re-order the top SEARCH_RERANK_WINDOW keyword hits by a blend of their
+    similarity to ``text`` and their keyword rank."""
+
+    text: str
+
+    def __post_init__(self) -> None:
+        if not self.text.strip():
+            raise ValueError("The re-rank text must not be blank.")
+
+
+@dataclass(frozen=True, kw_only=True)
+class FullTextSearch(Search):
+    """Exactly the keyword hits, optionally re-ranked within the window."""
+
+    query: QueryNode
+    rerank: SimilarityRerank | None = None
+
+
+@dataclass(frozen=True, kw_only=True)
+class SemanticSearch(Search):
+    """The reports most similar to ``text``, in similarity order."""
+
+    text: str
+    # Overrides SEARCH_SEMANTIC_MIN_SIMILARITY for this search; None means the setting.
+    min_similarity: float | None = None
+
+    def __post_init__(self) -> None:
+        if not self.text.strip():
+            raise ValueError("The semantic search text must not be blank.")
+        if self.min_similarity is not None and not 0.0 <= self.min_similarity <= 1.0:
+            raise ValueError("min_similarity must be between 0 and 1.")
+
+
+SearchRequest = FullTextSearch | SemanticSearch
+
+
 class SearchProvider(NamedTuple):
-    """A class representing a search provider.
+    """A registered search backend.
 
     Attributes:
     - name: The name of the search provider.
-    - search: The function that handles the search.
-    - max_results: The maximum number of results that can be fetched by a search.
-        Must be smaller than offset + limit when searching.
+    - search: Runs one request of either mode.
+    - max_results: The paging cap of a full-text list; offset + limit must stay below it.
+    - semantic: Whether SemanticSearch requests and re-ranks are available (an
+      embedding model is configured).
     """
 
     name: str
-    search: Callable[[Search], SearchResult]
+    search: Callable[[SearchRequest], SearchResult]
     max_results: int
+    semantic: bool = False
 
 
 search_provider: SearchProvider | None = None

@@ -7,7 +7,7 @@ from django.db import transaction
 from procrastinate.contrib.django import app
 
 from radis.reports.models import Report
-from radis.search.site import Search, SearchFilters
+from radis.search.site import FullTextSearch, SearchFilters
 from radis.search.utils.query_parser import QueryParser
 
 from . import site
@@ -80,7 +80,7 @@ def process_extraction_job(job_id: int) -> None:
         if len(fixes) > 0:
             logger.info(f"The following fixes were applied to the query:\n{'\n - '.join(fixes)}")
 
-        search = Search(
+        search = FullTextSearch(
             query=query_node,
             offset=0,
             limit=retrieval_provider.max_results,

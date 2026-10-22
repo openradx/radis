@@ -28,7 +28,7 @@ from radis.pgsearch import providers
 from radis.pgsearch.models import ReportSearchIndex
 from radis.reports.factories import LanguageFactory, ReportFactory
 from radis.reports.models import Report
-from radis.search.site import Search, SearchFilters
+from radis.search.site import FullTextSearch, SearchFilters
 from radis.search.utils.query_parser import QueryNode, QueryParser, TermNode
 
 pytestmark = pytest.mark.django_db
@@ -79,8 +79,8 @@ def _search(
     language: str = "en",
     limit: int | None = 10,
     offset: int = 0,
-) -> Search:
-    return Search(
+) -> FullTextSearch:
+    return FullTextSearch(
         query=node,
         filters=SearchFilters(group=_search_group().pk, language=language),
         offset=offset,
@@ -415,7 +415,7 @@ def test_updated_after_includes_boundary_and_excludes_older_reports():
     node = parse("pneumonia")
     assert node is not None
     result = providers.search(
-        Search(
+        FullTextSearch(
             query=node,
             filters=SearchFilters(group=_search_group().pk, language="en", updated_after=cutoff),
             offset=0,
