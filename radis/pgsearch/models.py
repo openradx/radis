@@ -14,9 +14,10 @@ from .utils.language_utils import code_to_language
 class ReportSearchIndex(models.Model):
     """Per-report row that backs every search modality. Holds the FTS
     `search_vector` (tsvector) and the dense `embedding` vector for
-    hybrid search; a future trigram column would also live here. Named
-    after its role, not after any single field — adding another search
-    representation shouldn't force another rename."""
+    semantic search and the full-text re-rank; a future trigram column
+    would also live here. Named after its role, not after any single
+    field — adding another search representation shouldn't force another
+    rename."""
 
     report = models.OneToOneField(Report, on_delete=models.CASCADE, related_name="search_index")
     search_vector = SearchVectorField(null=True)

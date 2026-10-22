@@ -2,6 +2,7 @@ import os
 
 import pytest
 from django.conf import settings
+from django.db import connection
 
 # The fallback each setting takes when its environment variable is absent.
 EXPECTED_DEFAULTS = {
@@ -46,6 +47,19 @@ def test_the_description_prompt_has_a_built_in_default():
 def test_the_beam_width_rides_on_the_connection_options():
     options = settings.DATABASES["default"]["OPTIONS"]["options"]
     assert options == f"-c hnsw.ef_search={settings.SEARCH_HNSW_EF_SEARCH}"
+
+
+def test_connection_carries_the_beam_width(db):
+    """hnsw.ef_search rides along as a libpq connection option, so every connection
+    scans the index at the configured depth; iterative scan is off on a plain
+    connection (semantic searches switch it on for their own transaction)."""
+    with connection.cursor() as cursor:
+        # pgvector defines the hnsw.* GUCs only once its library is loaded.
+        cursor.execute("SELECT '[1]'::vector(1)")
+        cursor.execute("SHOW hnsw.ef_search")
+        assert cursor.fetchone()[0] == str(settings.SEARCH_HNSW_EF_SEARCH)
+        cursor.execute("SHOW hnsw.iterative_scan")
+        assert cursor.fetchone()[0] == "off"
 
 
 def test_no_hybrid_setting_remains():

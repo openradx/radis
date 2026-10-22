@@ -8,8 +8,7 @@ from radis.search.utils.query_parser import QueryParser
     [
         # Simple positive term — unchanged.
         ("pneumothorax", "pneumothorax"),
-        # Phrase: quotes dropped, value preserved (embedding tokenizers handle
-        # multi-word spans natively; the quote chars are noise).
+        # Phrase: quotes dropped, value preserved.
         ('"chest x-ray"', "chest x-ray"),
         # Implicit AND (no operator) — both sides survive, joined by a space.
         ("cardiac arrest", "cardiac arrest"),
@@ -17,7 +16,7 @@ from radis.search.utils.query_parser import QueryParser
         ("A AND B", "A B"),
         # Explicit OR — operator token dropped; bag of terms.
         ("A OR B", "A B"),
-        # NOT alone — empty (polarity-blind for negation).
+        # NOT alone — empty.
         ("NOT pneumothorax", ""),
         # AND NOT — left survives, NOT branch dropped, AND collapses.
         ("A AND NOT B", "A"),
@@ -35,7 +34,7 @@ from radis.search.utils.query_parser import QueryParser
         ("(A OR B) AND NOT C", "A B"),
     ],
 )
-def test_unparse_for_embedding(query, expected):
+def test_unparse_positive_terms(query, expected):
     node, _fixes = QueryParser().parse(query)
     assert node is not None, f"parser produced empty node for {query!r}"
-    assert QueryParser.unparse_for_embedding(node) == expected
+    assert QueryParser.unparse_positive_terms(node) == expected

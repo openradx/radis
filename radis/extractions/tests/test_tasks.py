@@ -190,6 +190,36 @@ def test_process_extraction_job_with_no_language_matches_each_documents_own_conf
     assert matched_document_ids("Pleuraerguss") == {german.document_id}
 
 
+@pytest.mark.django_db
+def test_extraction_retrieval_never_calls_the_embedding_service(monkeypatch, settings):
+    from unittest.mock import patch
+
+    from radis.core.utils.model_spec import parse_model_spec
+    from radis.search.site import FullTextSearch, SearchFilters, SimilarityRerank
+    from radis.search.utils.query_parser import QueryParser
+
+    settings.EMBEDDINGS_MODEL = parse_model_spec("qwen3")
+    group = GroupFactory.create()
+    report = ReportFactory.create(
+        body="Befund: Pneumothorax links.", language=LanguageFactory.create(code="de")
+    )
+    report.groups.add(group)
+    node, _ = QueryParser().parse("Pneumothorax")
+    assert node is not None
+    request = FullTextSearch(
+        query=node,
+        filters=SearchFilters(group=group.pk, language="de"),
+        rerank=SimilarityRerank("free air"),
+        offset=0,
+        limit=0,
+    )
+
+    with patch("radis.pgsearch.providers.EmbeddingClient") as client_cls:
+        client_cls.return_value.__enter__.side_effect = AssertionError("must not embed")
+        assert pgsearch_count(request) == 1
+        assert list(pgsearch_retrieve(request)) == [report.document_id]
+
+
 @pytest.mark.django_db(transaction=True)
 def test_crash_while_enqueueing_rolls_back_the_pending_flip(monkeypatch, settings):
     """The PENDING flip and the task enqueues commit together. If the worker dies mid-loop,

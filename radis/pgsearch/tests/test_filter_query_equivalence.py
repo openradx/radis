@@ -320,7 +320,7 @@ def test_date_range_boundary_matches_legacy_in_non_utc_timezone():
 
 
 def _candidate_queryset(filters: SearchFilters, query: str = "pneumonia"):
-    """The FTS candidate queryset ``_fuse_hybrid`` actually runs.
+    """The FTS candidate queryset ``_keyword_ranking`` actually runs.
 
     Built by calling the same production helpers in the same order the provider
     does, so a regression introduced anywhere along that path -- the filter, the

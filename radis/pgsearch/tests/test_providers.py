@@ -114,7 +114,7 @@ def test_updating_report_body_refreshes_search_vector():
 
     report.body = "revised findings about fracture"
     report.save()
-    # The fused union of the "pneumonia" search above is cached for
+    # The keyword ranking of the "pneumonia" search above is cached for
     # SEARCH_RANKING_CACHE_TIMEOUT_SECONDS and would still list the report; this
     # test is about the signal, not the cache's documented staleness window.
     cache.clear()

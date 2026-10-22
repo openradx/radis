@@ -80,7 +80,7 @@ def test_second_identical_failure_logs_warning_without_traceback(caplog):
     # logs), and says the traceback was already logged once.
     assert "EMBEDDINGS_BASE_URL" in message
     assert "EMBEDDINGS_MODEL" in message
-    assert "full-text-only" in message
+    assert "degraded" in message
     assert "once" in message
     assert "EmbeddingClientError" in message
 
