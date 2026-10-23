@@ -31,7 +31,8 @@ class SearchResult(NamedTuple):
     total_count: int
     total_relation: Literal["exact", "at_least", "approximately"]
     documents: list[ReportDocument]
-    # True when a semantic search could not run because no embedding was available.
+    # True when the semantic part of the search (the re-rank, or semantic mode itself)
+    # could not run because no embedding was available.
     degraded: bool = False
 
 
@@ -87,11 +88,24 @@ class Search:
     limit: int | None = 10
 
 
+@dataclass(frozen=True)
+class SimilarityRerank:
+    """Re-order the top SEARCH_RERANK_WINDOW keyword hits by a blend of their
+    similarity to ``text`` and their keyword rank."""
+
+    text: str
+
+    def __post_init__(self) -> None:
+        if not self.text.strip():
+            raise ValueError("The re-rank text must not be blank.")
+
+
 @dataclass(frozen=True, kw_only=True)
 class FullTextSearch(Search):
-    """Exactly the keyword hits, in keyword order."""
+    """Exactly the keyword hits, optionally re-ranked within the window."""
 
     query: QueryNode
+    rerank: SimilarityRerank | None = None
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -119,8 +133,8 @@ class SearchProvider(NamedTuple):
     - name: The name of the search provider.
     - search: Runs one request of either mode.
     - max_results: The paging cap of a full-text list; offset + limit must stay below it.
-    - semantic: Whether SemanticSearch requests are available (an embedding model is
-      configured).
+    - semantic: Whether SemanticSearch requests and re-ranks are available (an
+      embedding model is configured).
     """
 
     name: str

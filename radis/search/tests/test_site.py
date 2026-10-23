@@ -8,6 +8,7 @@ from radis.search.site import (
     SearchProvider,
     SearchResult,
     SemanticSearch,
+    SimilarityRerank,
 )
 from radis.search.utils.query_parser import QueryParser
 
@@ -22,6 +23,7 @@ def test_full_text_search_defaults():
     request = FullTextSearch(query=_node("pneumothorax"), filters=SearchFilters(group=1))
     assert request.offset == 0
     assert request.limit == 10
+    assert request.rerank is None
 
 
 def test_requests_are_keyword_only():
@@ -33,6 +35,11 @@ def test_requests_are_frozen():
     request = SemanticSearch(text="free air", filters=SearchFilters(group=1))
     with pytest.raises(dataclasses.FrozenInstanceError):
         request.text = "other"  # type: ignore[misc]
+
+
+def test_blank_rerank_text_is_rejected():
+    with pytest.raises(ValueError):
+        SimilarityRerank("   ")
 
 
 def test_blank_semantic_text_is_rejected():

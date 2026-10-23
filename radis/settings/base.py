@@ -474,7 +474,7 @@ if not EMBEDDINGS_QUERY_REQUEST_TIMEOUT_SECONDS > 0:
 
 
 def _resolve_embeddings_model() -> ModelSpec | None:
-    """The embedding model, or None when unset (full-text only, no semantic mode).
+    """The embedding model, or None when unset (full-text only; no semantic mode, no re-rank).
 
     Unlike the LLM models this one is optional: without it RADIS serves full-text
     search only, which is a complete product rather than a broken one. That makes the
@@ -519,11 +519,12 @@ EMBEDDINGS_SUBJOB_SIZE = env.int("EMBEDDINGS_SUBJOB_SIZE", default=1000)
 # parks itself ahead of every later live write without this split.
 EMBEDDINGS_LIVE_PRIORITY = 1
 EMBEDDINGS_BACKFILL_PRIORITY = 0
-# How long a search query's embedding (the description of a semantic search) stays in the
-# Django cache. Rankings have their own cache (SEARCH_RANKING_CACHE_TIMEOUT_SECONDS); this
-# one spares the embedding call when a ranking has expired or the same description is
-# searched again with other filters. Vectors are tiny (~8 KB) and deterministic per model
-# config, so the TTL only bounds staleness across model/config changes, not correctness.
+# How long a search query's embedding (a description, or the text of a semantic search)
+# stays in the Django cache. Rankings have their own cache
+# (SEARCH_RANKING_CACHE_TIMEOUT_SECONDS); this one spares the embedding call when a ranking
+# has expired or the same text is searched again with other keywords or filters. Vectors are
+# tiny (~8 KB) and deterministic per model config, so the TTL only bounds staleness across
+# model/config changes, not correctness.
 EMBEDDINGS_QUERY_CACHE_TIMEOUT_SECONDS = env.int(
     "EMBEDDINGS_QUERY_CACHE_TIMEOUT_SECONDS", default=900
 )
@@ -570,12 +571,13 @@ if not 1 <= SEARCH_HNSW_EF_SEARCH <= 1000:
 DATABASES["default"].setdefault("OPTIONS", {})["options"] = (
     f"-c hnsw.ef_search={SEARCH_HNSW_EF_SEARCH}"
 )
-# How long a ranking (ordered ids and scores of a full-text search or a semantic list)
-# stays cached, in seconds. Pagination re-runs the search for every page and ranking
-# every keyword hit of a common term costs seconds on a large corpus, so page 2..n and
-# repeated searches reuse the cached ranking. The trade is freshness: reports created or
-# updated within the TTL join a cached query's results only after it expires. 0 disables
-# the cache. A semantic list whose embedding failed is never cached.
+# How long a ranking (ordered ids and scores of a full-text search, its re-ranked
+# window, or a semantic list) stays cached, in seconds. Pagination re-runs the search
+# for every page and ranking every keyword hit of a common term costs seconds on a
+# large corpus, so page 2..n and repeated searches reuse the cached ranking. The trade
+# is freshness: reports created or updated within the TTL join a cached query's results
+# only after it expires. 0 disables the cache. A ranking whose embedding failed is
+# never cached.
 SEARCH_RANKING_CACHE_TIMEOUT_SECONDS = _optional_env(
     "SEARCH_RANKING_CACHE_TIMEOUT_SECONDS", int, 300
 )
@@ -583,6 +585,17 @@ if not SEARCH_RANKING_CACHE_TIMEOUT_SECONDS >= 0:
     raise ImproperlyConfigured(
         f"SEARCH_RANKING_CACHE_TIMEOUT_SECONDS={SEARCH_RANKING_CACHE_TIMEOUT_SECONDS} "
         "must be 0 or more; 0 disables the cache."
+    )
+# The window re-rank of full-text mode: how many of the top keyword hits are measured
+# against the description (one query reading that many vectors), and the weight of
+# similarity in the blended score (1.0 orders the window by similarity alone).
+SEARCH_RERANK_WINDOW = _optional_env("SEARCH_RERANK_WINDOW", int, 1000)
+if SEARCH_RERANK_WINDOW < 1:
+    raise ImproperlyConfigured(f"SEARCH_RERANK_WINDOW={SEARCH_RERANK_WINDOW} must be at least 1.")
+SEARCH_RERANK_SEMANTIC_WEIGHT = _optional_env("SEARCH_RERANK_SEMANTIC_WEIGHT", float, 0.7)
+if not 0.0 <= SEARCH_RERANK_SEMANTIC_WEIGHT <= 1.0:
+    raise ImproperlyConfigured(
+        f"SEARCH_RERANK_SEMANTIC_WEIGHT={SEARCH_RERANK_SEMANTIC_WEIGHT} must be between 0 and 1."
     )
 # Semantic mode runs its index scan with hnsw.iterative_scan = strict_order, so the scan
 # resumes under selective filters (a small group, a rare modality) until the list is full
