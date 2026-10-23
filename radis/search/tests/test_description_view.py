@@ -1,9 +1,12 @@
+import asyncio
 from unittest.mock import AsyncMock, patch
 
 import pytest
 from adit_radis_shared.accounts.factories import GroupFactory, UserFactory
 from django.test import Client
 from django.urls import reverse
+
+from radis.search.utils.query_parser import QueryParser
 
 HX_HEADERS = {"HX-Request": "true"}
 URL_NAME = "search_description"
@@ -64,6 +67,22 @@ def test_a_user_without_an_active_group_gets_403(client: Client, writer):
 
 
 @pytest.mark.django_db
+def test_a_non_htmx_post_without_an_active_group_gets_400_not_403(client: Client, writer):
+    _login(client, with_group=False)
+    assert _post(client, "pneumothorax", htmx=False).status_code == 400
+    writer.assert_not_called()
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("method", ["GET", "POST"])
+def test_a_format_suffix_does_not_reach_the_view(client: Client, writer, method):
+    _login(client)
+    url = reverse(URL_NAME).removesuffix("/") + ".json"
+    assert client.generic(method, url, headers=HX_HEADERS).status_code == 404
+    writer.assert_not_called()
+
+
+@pytest.mark.django_db
 def test_fills_the_textarea_with_the_positive_terms_description(client: Client, writer):
     _login(client)
     response = _post(client, "pneumothorax NOT rechts", description="old draft")
@@ -73,6 +92,7 @@ def test_fills_the_textarea_with_the_positive_terms_description(client: Client, 
     assert 'id="id_description"' in content
     assert ">Pneumothorax rechts.</textarea>" in content
     assert 'id="description_notice"' in content and 'hx-swap-oob="true"' in content
+    assert 'hx-swap-oob="true"></small>' in content
     assert "could not write" not in content
     writer.assert_awaited_once_with("pneumothorax")
 
@@ -105,11 +125,15 @@ def test_unparseable_keywords_get_the_enter_keywords_notice(client: Client, writ
 
 
 @pytest.mark.django_db
-def test_an_over_long_query_gets_the_failure_notice_without_an_llm_call(client: Client, writer):
+def test_an_over_long_query_gets_the_failure_notice_before_any_parse_or_llm_call(
+    client: Client, writer
+):
     _login(client)
-    response = _post(client, "a" * 201)
+    with patch.object(QueryParser, "parse", return_value=(None, [])) as parse:
+        response = _post(client, "a" * 201)
 
     assert "The LLM could not write a description right now." in response.content.decode()
+    parse.assert_not_called()
     writer.assert_not_called()
 
 
@@ -120,6 +144,29 @@ def test_the_answer_is_truncated_to_the_field_limit(client: Client, writer):
     response = _post(client, "pneumothorax")
 
     assert (">" + "x" * 1000 + "</textarea>") in response.content.decode()
+
+
+@pytest.mark.django_db
+def test_the_keyword_parse_runs_off_the_event_loop(client: Client, writer):
+    """The parser's run time is exponential in parenthesis nesting; on the event loop
+    one request would stall every connection the process serves."""
+    on_the_loop: list[bool] = []
+
+    def parse(self, query):
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            on_the_loop.append(False)
+        else:
+            on_the_loop.append(True)
+        return None, []
+
+    _login(client)
+    with patch.object(QueryParser, "parse", parse):
+        response = _post(client, "pneumothorax")
+
+    assert response.status_code == 200
+    assert on_the_loop == [False]
 
 
 @pytest.mark.django_db

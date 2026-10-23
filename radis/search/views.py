@@ -151,9 +151,10 @@ async def description_view(request: AuthenticatedHttpRequest) -> HttpResponse:
     """HTMX endpoint behind "Write from keywords": re-renders the description row
     with an LLM-written passage about the positive keywords, or with a notice.
 
-    Async so the LLM call does not occupy a worker thread. The body touches only
-    ``request.auser()`` and an ORM-free form; a sync database call here would raise
-    ``SynchronousOnlyOperation`` under ASGI.
+    Async so the LLM call does not occupy a worker thread. The query parse is pushed
+    off the event loop because its run time grows exponentially with parenthesis
+    nesting. The body touches only ``request.auser()`` and an ORM-free form; a sync
+    database call here would raise ``SynchronousOnlyOperation`` under ASGI.
     """
     if not request.htmx:
         raise SuspiciousOperation
@@ -169,7 +170,7 @@ async def description_view(request: AuthenticatedHttpRequest) -> HttpResponse:
     submitted = form.cleaned_data["description"]
 
     try:
-        node, _fixes = QueryParser().parse(form.cleaned_data["query"])
+        node, _fixes = await sync_to_async(QueryParser().parse)(form.cleaned_data["query"])
     except ParseBaseException:
         # The parser's repairs leave some inputs unparseable, e.g. an operator left
         # dangling beside an empty group.
