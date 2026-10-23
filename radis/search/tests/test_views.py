@@ -334,17 +334,10 @@ def test_search_view_form_validation_errors(client: Client):
 
 
 @pytest.mark.django_db
-def test_search_view_returns_200_when_embedding_model_unset(client: Client, settings):
-    """SearchView renders the plain full-text page when EMBEDDINGS_MODEL is unset."""
-    from django.conf import settings as django_settings
-
-    settings.EMBEDDINGS_MODEL = None
-    settings.MIDDLEWARE = [
-        m for m in django_settings.MIDDLEWARE if "debug_toolbar" not in m.lower()
-    ]
-    user = create_test_user_with_active_group()
-    client.force_login(user)
-    response = client.get("/search/?query=pneumothorax")
+def test_the_plain_page_renders_without_the_capability(client: Client):
+    client.force_login(create_test_user_with_active_group())
+    with patch("radis.search.views.search_provider", _provider(_empty(), semantic=False)):
+        response = client.get("/search/", {"query": "pneumothorax"})
     assert response.status_code == 200
     assert "mode" not in response.context["form"].fields
 

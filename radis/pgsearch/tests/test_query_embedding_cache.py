@@ -17,12 +17,14 @@ pytestmark = pytest.mark.django_db
 
 
 @pytest.fixture(autouse=True)
-def _embeddings_model_configured(settings):
+def _embedding_settings(settings):
     """These tests exercise the cache wrapper around a configured embedding model.
     Test settings default EMBEDDINGS_MODEL to None (no embedding model, full-text
     only), so default it here; tests proving the model/params participate in the key
-    override it explicitly."""
+    override it explicitly. The cache lifetime is pinned because a developer's .env
+    reaches test runs outside Docker."""
     settings.EMBEDDINGS_MODEL = parse_model_spec("qwen3")
+    settings.EMBEDDINGS_QUERY_CACHE_TIMEOUT_SECONDS = 900
 
 
 def _unit_vec(idx: int, dim: int) -> list[float]:

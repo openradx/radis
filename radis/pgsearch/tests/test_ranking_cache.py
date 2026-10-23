@@ -19,8 +19,14 @@ pytestmark = pytest.mark.django_db
 
 
 @pytest.fixture(autouse=True)
-def _embeddings_model_configured(settings):
+def _search_settings(settings):
+    """A configured embedding model, and the default re-rank weight, window and cache
+    lifetime the assertions assume, pinned because a developer's .env reaches test runs
+    outside Docker."""
     settings.EMBEDDINGS_MODEL = parse_model_spec("qwen3")
+    settings.SEARCH_RERANK_SEMANTIC_WEIGHT = 0.7
+    settings.SEARCH_RERANK_WINDOW = 1000
+    settings.SEARCH_RANKING_CACHE_TIMEOUT_SECONDS = 300
 
 
 def _unit_vec(idx: int, dim: int) -> list[float]:

@@ -4,6 +4,8 @@ import pytest
 from django.conf import settings
 from django.db import connection
 
+from radis.core.utils.model_spec import parse_model_spec
+
 # The fallback each setting takes when its environment variable is absent.
 EXPECTED_DEFAULTS = {
     "SEARCH_HNSW_EF_SEARCH": 500,
@@ -76,3 +78,39 @@ def test_the_registered_provider_reports_the_semantic_capability(settings):
 
     assert search_provider is not None
     assert search_provider.semantic is (settings.EMBEDDINGS_MODEL is not None)
+
+
+def test_registration_turns_the_capability_on_with_an_embedding_model(settings, monkeypatch):
+    """Test settings leave EMBEDDINGS_MODEL unset, so the test above cannot tell the
+    computed flag from the provider's default of False."""
+    from radis.extractions import site as extractions_site
+    from radis.pgsearch.apps import register_app
+    from radis.reports import site as reports_site
+    from radis.search import site as search_site
+    from radis.subscriptions import site as subscriptions_site
+
+    # register_app() replaces the providers and appends to the handler lists; undoing
+    # these patches restores the startup registrations for the tests that follow.
+    monkeypatch.setattr(search_site, "search_provider", search_site.search_provider)
+    monkeypatch.setattr(
+        extractions_site,
+        "extraction_retrieval_provider",
+        extractions_site.extraction_retrieval_provider,
+    )
+    monkeypatch.setattr(
+        subscriptions_site,
+        "subscription_filter_provider",
+        subscriptions_site.subscription_filter_provider,
+    )
+    monkeypatch.setattr(
+        reports_site, "reports_created_handlers", list(reports_site.reports_created_handlers)
+    )
+    monkeypatch.setattr(
+        reports_site, "reports_updated_handlers", list(reports_site.reports_updated_handlers)
+    )
+    settings.EMBEDDINGS_MODEL = parse_model_spec("qwen3")
+
+    register_app()
+
+    assert search_site.search_provider is not None
+    assert search_site.search_provider.semantic is True
