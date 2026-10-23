@@ -600,7 +600,9 @@ if not 0.0 <= SEARCH_RERANK_SEMANTIC_WEIGHT <= 1.0:
 # Semantic mode runs its index scan with hnsw.iterative_scan = strict_order, so the scan
 # resumes under selective filters (a small group, a rare modality) until the list is full
 # or pgvector's scan budget (hnsw.max_scan_tuples, 20,000 by default) is spent, instead of
-# listing only the accessible part of one pass. Costs about 2.4x on unfiltered searches.
+# listing only the accessible part of one pass. No measurable cost on unfiltered searches at
+# the default depth; the resumed scan costs more only under selective filters and on cold
+# index pages.
 SEARCH_SEMANTIC_ITERATIVE_SCAN = env.bool("SEARCH_SEMANTIC_ITERATIVE_SCAN", default=True)
 # Minimum similarity (1 - cosine distance, 0..1) a report needs to appear in semantic
 # mode. Applied after retrieval, so a query that matches nothing ends in a short list
@@ -743,9 +745,10 @@ $fields
 Generate the search query:"""
 
 # The "Write from keywords" button on the search page: the LLM (the query_generation
-# feature's model) writes a short report-style passage from the keywords, which the
-# semantic search embeds instead of the bare keywords. A user waits on it, so the
-# timeout is the gate budget too and there are no transient retries.
+# feature's model) writes a short report-style passage from the keywords into the
+# description field, where it re-ranks the top full-text hits; the button is hidden in
+# semantic mode, which embeds whatever description is submitted. A user waits on the
+# answer, so the timeout is the gate budget too and there are no transient retries.
 SEARCH_DESCRIPTION_TIMEOUT = _optional_env("SEARCH_DESCRIPTION_TIMEOUT", int, 10)
 if not SEARCH_DESCRIPTION_TIMEOUT > 0:
     raise ImproperlyConfigured(

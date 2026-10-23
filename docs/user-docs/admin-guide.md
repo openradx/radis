@@ -152,7 +152,7 @@ instead of only the reports belonging to no group.
 All optional, with defaults that fit a corpus of a few million reports:
 
 - `SEARCH_HNSW_EF_SEARCH`: HNSW beam width and the number of reports a semantic search lists (default `500`, 1..1000)
-- `SEARCH_SEMANTIC_ITERATIVE_SCAN`: Resume the index scan under selective filters so a small group or a rare modality still fills the list (default `true`, about 2.4× the cost of one pass on unfiltered searches)
+- `SEARCH_SEMANTIC_ITERATIVE_SCAN`: Resume the index scan under selective filters so a small group or a rare modality still fills the list (default `true`). No measurable cost on unfiltered searches at the default depth; the resumed scan costs more only under selective filters and on cold index pages
 - `SEARCH_SEMANTIC_MIN_SIMILARITY`: Similarity cutoff (0..1) for semantic mode; unset by default because similarities are comparable only within one model and corpus. Try values with the page's "Minimum similarity" field before setting a default
 - `SEARCH_RERANK_WINDOW`, `SEARCH_RERANK_SEMANTIC_WEIGHT`: How many top full-text hits a description re-orders (default `1000`) and the weight of similarity against the keyword rank (default `0.7`; `1` orders the window by similarity alone)
 - `SEARCH_RANKING_CACHE_TIMEOUT_SECONDS`: How long a ranking stays cached (default `300`s, `0` disables); reports created or updated within that time join a cached query's results when it expires
