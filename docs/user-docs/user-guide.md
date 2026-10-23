@@ -32,7 +32,7 @@ The search feature is the core of RADIS, allowing you to find relevant reports q
 
 1. Navigate to the "Search" section
 2. Choose the mode in the search bar: Full-text (the default) or Semantic (offered when your administrator has configured an embedding model)
-3. Enter your keywords (full-text) or describe the reports you are looking for (semantic)
+3. Enter your keywords (full-text) or describe the reports you are looking for (semantic). In full-text mode the description is optional and re-orders the top hits; "Write from keywords" lets the LLM write it for you, and you can edit it before searching
 4. Apply filters as needed on the right-hand side
 5. Review the search results
 
@@ -51,9 +51,9 @@ If your query contains mistakes such as unbalanced quotes or parentheses, unsupp
 
 #### Semantic Search
 
-When your administrator has configured an embedding model, the search bar offers two modes. **Full-text** finds exactly the reports that contain your keywords and highlights them. **Semantic** swaps the keyword box for a description box: describe the reports you are looking for, and the result is the list of reports whose meaning is closest to your description, in similarity order, without highlighting. Operators, quotes and NOT have no special meaning in a description. What you typed in either box stays there while you switch modes on the page; a search submits only the box of the selected mode, and the result page shows only that one.
+When your administrator has configured an embedding model, the search bar offers two modes. **Full-text** finds exactly the reports that contain your keywords and highlights them. If you also describe the reports you are looking for in the box below the keywords, the top hits (1,000 by default) are re-ordered by how closely each one matches your description, and the rest keep their keyword order; the count line says so. **Semantic** hides the keyword box and searches by the description alone: the result is the list of reports whose meaning is closest to it, in similarity order, without highlighting. Operators, quotes and NOT have no special meaning in a description. What you typed in the keyword box stays there while you switch modes on the page, but a semantic search leaves it out, and its result page does not show it.
 
-Reports imported recently may not be embedded yet and do not appear in semantic mode until they are. If the embedding service is unavailable, semantic mode says so and shows no list; full-text search does not depend on it.
+"Write from keywords" asks the LLM to write a short report-style description from your keywords; it ignores negated terms, and you can edit the text before searching. Reports imported recently may not be embedded yet: they rank by keywords only, are listed after the re-ordered hits with the note "not embedded yet", and do not appear in semantic mode. If the embedding service is unavailable, a notice says so: full-text results stay in keyword order, and semantic mode shows no list.
 
 The description travels in the page address like the keywords and appears in your browser history and in server logs, so do not type patient identifiers into it.
 
@@ -72,7 +72,7 @@ Use "Reset filters" to clear all filters at once.
 
 #### Search Results
 
-Each result shows the patient age and sex, modalities, study description and the score that determined its rank: the full-text rank of the keywords in full-text mode, the similarity to your description in semantic mode. Full-text results show a highlighted excerpt, semantic results the opening of the report. Click "Show full report" to read the entire text. Results are paginated; the page size can be changed below the list. Each result panel has buttons to open the report details, add the report to a collection, add a note, start a chat about the report, and open the study in your PACS viewer.
+Each result shows the patient age and sex, modalities, study description and the scores that determined its rank: the full-text rank of the keywords, the similarity to your description when one was given, and the re-rank score inside the re-ordered block; in semantic mode only the similarity. Full-text results show a highlighted excerpt, semantic results the opening of the report. Click "Show full report" to read the entire text. Results are paginated; the page size can be changed below the list. Each result panel has buttons to open the report details, add the report to a collection, add a note, start a chat about the report, and open the study in your PACS viewer.
 
 The report details page shows all metadata of a report (document ID, patient, study, accession number, modalities, additional metadata), its labels, and the full text. The arrows next to the Patient ID open a list of the same patient's earlier reports, later reports, or all reports.
 

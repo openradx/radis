@@ -57,8 +57,9 @@ Container names are prefixed with the stack name, e.g. `radis_dev-web-1` in deve
 **LLM Worker Container (`llm_worker`)**: Executes AI-intensive tasks from the llm queue (extraction, subscription and labeling tasks). Uses `LLMClient` (`radis.core.utils.llm_client`) to talk to the configured LLM endpoint.
 
 **Embeddings Worker Container (`embeddings_worker`)**: Drains the embeddings
-queue — generating and storing report vectors for the semantic search mode, including
-operator backfills started by `./manage.py embed_pending` or the admin action.
+queue — generating and storing report vectors for the semantic search mode and the
+similarity re-rank, including operator backfills started by `./manage.py embed_pending`
+or the admin action.
 
 ### LLM Configuration
 
@@ -72,8 +73,8 @@ operator backfills started by `./manage.py embed_pending` or the admin action.
 
 **Structured Output**: Uses OpenAI's `beta.chat.completions.parse` API with Pydantic schemas as `response_format` parameter, ensuring LLM returns valid JSON matching defined schemas. Applied in extractions (custom field extraction), subscriptions (yes/no question filtering) and labeling.
 
-**Embeddings**: Semantic search adds a second external service, an OpenAI-compatible
-`/v1/embeddings` endpoint. `EMBEDDINGS_MODEL` both names the model
+**Embeddings**: Semantic search and the full-text re-rank add a second external service,
+an OpenAI-compatible `/v1/embeddings` endpoint. `EMBEDDINGS_MODEL` both names the model
 and switches the feature on — left unset, RADIS runs full-text search only, queues no
 embedding work and never calls the service. It takes the same `model[?param=value&...]`
 spec as the LLM models, so a provider supporting OpenAI's `dimensions` is asked for the
@@ -89,7 +90,7 @@ gateway must not pause inference — and its own worker (`embeddings_worker`) dr
 
 RADIS uses a modular search architecture allowing different search providers to be plugged in:
 
-**Search Provider Interface**: `radis/search/site.py` defines the request types and the registry. `Search` (filters, offset, limit) is the base; `FullTextSearch` carries the parsed keyword query; `SemanticSearch` carries the description text and an optional per-search minimum similarity. A provider registers one `search(request)` callable, its paging cap and whether semantic search is available; extractions register `count` and `retrieve` over `FullTextSearch`; subscriptions register `filter` over `SearchFilters`. A `SearchResult` carries the count, its relation to the true total, the documents (full-text rank, similarity, score, an HTML-safe summary) and a `degraded` flag.
+**Search Provider Interface**: `radis/search/site.py` defines the request types and the registry. `Search` (filters, offset, limit) is the base; `FullTextSearch` carries the parsed keyword query and an optional `SimilarityRerank(text)`; `SemanticSearch` carries the description text and an optional per-search minimum similarity. A provider registers one `search(request)` callable, its paging cap and whether semantic search is available; extractions register `count` and `retrieve` over `FullTextSearch`; subscriptions register `filter` over `SearchFilters`. A `SearchResult` carries the count, its relation to the true total, the documents (full-text rank, similarity, score, an HTML-safe summary) and a `degraded` flag.
 
 - **PgSearch Provider**: Default implementation using PostgreSQL full-text search and pg_vector
 - **Alternative Providers**: Other engines such as Vespa or ElasticSearch can be integrated through the same interface
@@ -110,7 +111,7 @@ Unsupported syntax (`-term`, `field:value`, wildcards) is stripped and the corre
 - Patient ID, labels, group access
 - Created before/after and updated after timestamps (for subscriptions and labeling)
 
-**Two modes**: A full-text search runs the single-table candidate query (up to `SEARCH_FTS_MAX_RESULTS` keyword hits ranked by `ts_rank` under each document's own text-search configuration) and returns exactly those hits, without calling the embedding service. A semantic search embeds the description and runs one HNSW scan under the same filters, capped at `SEARCH_HNSW_EF_SEARCH`, inside a transaction with `hnsw.iterative_scan = strict_order` when `SEARCH_SEMANTIC_ITERATIVE_SCAN` is on; the list is cut at the effective minimum similarity after retrieval. Rankings are cached (`SEARCH_RANKING_CACHE_TIMEOUT_SECONDS`): keyword rankings always, semantic lists only when the embedding succeeded. An embedding failure flags a semantic result `degraded`; a query embedding is bounded by `EMBEDDINGS_QUERY_REQUEST_TIMEOUT_SECONDS`. Summaries are escaped in Python, because PostgreSQL drops only whole tag tokens from a headline and lets bare `<`, `>`, `&` and unfinished tags through; the highlight markers are control characters restored to `<em>` after escaping.
+**Two modes**: A full-text search runs the single-table candidate query (up to `SEARCH_FTS_MAX_RESULTS` keyword hits ranked by `ts_rank` under each document's own text-search configuration) and returns exactly those hits. With a description, the top `SEARCH_RERANK_WINDOW` hits are measured against its embedding in one id lookup and re-ordered by `w · norm(similarity) + (1 − w) · norm(ts_rank)` (`w` = `SEARCH_RERANK_SEMANTIC_WEIGHT`); hits beyond the window and hits without a vector follow in keyword order. A semantic search embeds the description and runs one HNSW scan under the same filters, capped at `SEARCH_HNSW_EF_SEARCH`, inside a transaction with `hnsw.iterative_scan = strict_order` when `SEARCH_SEMANTIC_ITERATIVE_SCAN` is on; the list is cut at the effective minimum similarity after retrieval. Rankings are cached in layers (`SEARCH_RANKING_CACHE_TIMEOUT_SECONDS`): the keyword layer always, the window layer and semantic lists only when the embedding succeeded. An embedding failure flags the result `degraded`; a query embedding is bounded by `EMBEDDINGS_QUERY_REQUEST_TIMEOUT_SECONDS`. Summaries are escaped in Python, because PostgreSQL drops only whole tag tokens from a headline and lets bare `<`, `>`, `&` and unfinished tags through; the highlight markers are control characters restored to `<em>` after escaping.
 
 **Text-search configurations**: reports are indexed with the PostgreSQL configuration for
 their own language, so stemming matches the text — an English report stores "effusion" as

@@ -107,10 +107,10 @@ the quality matters.
 
 ### Embedding Setup (optional)
 
-The semantic search mode needs a second model, an embedding model, reached over the same
-kind of OpenAI-compatible endpoint. It is optional: with `EMBEDDINGS_MODEL` empty, search
-runs full-text only, the search page shows no mode select, and nothing else changes — no
-queued jobs, no failed calls.
+The semantic search mode and the description re-rank need a second model, an embedding
+model, reached over the same kind of OpenAI-compatible endpoint. It is optional: with
+`EMBEDDINGS_MODEL` empty, search runs full-text only, the search page shows no mode
+select, and nothing else changes — no queued jobs, no failed calls.
 
 To turn it on with the Ollama you already have:
 
@@ -150,7 +150,8 @@ swapping models, clear the column and run `embed_pending` again.
 
 `LLM_DEFAULT_MODEL` covers everything, but each feature can have its own model where that is worth
 the money or the wait — `LLM_CHATS_MODEL`, `LLM_QUERY_GENERATION_MODEL`, `LLM_EXTRACTIONS_MODEL`,
-`LLM_SUBSCRIPTIONS_MODEL` and `LLM_LABELING_MODEL`. A blank one falls back to the default.
+`LLM_SUBSCRIPTIONS_MODEL` and `LLM_LABELING_MODEL` (`LLM_QUERY_GENERATION_MODEL` also drives
+the search page's description writer). A blank one falls back to the default.
 
 Request parameters are configured with the model, as a query string. In `.env`:
 

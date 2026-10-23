@@ -35,7 +35,7 @@ The detailed documentation of RADIS can be found at <https://openradx.github.io/
 ## Features
 
 - **Intuitive Web Interface**: Simplified access to radiology reports stored in the application database through a user-friendly web portal.
-- **Advanced Text Search**: Full-text search with boolean operators and metadata filters, plus a semantic mode that finds reports by a description when an embedding model is configured.
+- **Advanced Text Search**: Full-text search with boolean operators and metadata filters, plus a semantic mode that finds reports by a description and an optional similarity re-rank of full-text hits when an embedding model is configured.
 - **Seamless PACS Viewer Integration**: Direct access to PACS viewers with deep linking to relevant studies, leveraging the viewer's capabilities for a smooth workflow.
 - **Automated Labeling**: Large language models (LLMs) assign administrator-defined labels to reports, shown as badges and usable as a search filter.
 - **Structured Data Extraction**: Extraction jobs pull typed fields (text, numbers, booleans, selections) out of thousands of reports at once, with results exportable as CSV.

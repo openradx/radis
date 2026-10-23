@@ -12,16 +12,9 @@ full-text candidate query this design keeps unchanged); the spike branch
 `hybrid-fusion-spikes` (unmerged, head 529ddac9) and its notes in
 `docs/superpowers/specs/2026-10-18-hybrid-ranking-strategies-spike.md` on that branch.
 
-**Delivery:** this design ships in two pull requests. PR #372 (`search-modes`) delivers the
-two modes. Everything about the description re-rank of full-text hits and the description
-writer is deferred to the stacked PR `search-rerank`, wherever it appears: `SimilarityRerank`
-and `FullTextSearch.rerank` (§3.1, §3.3), the description in full-text mode and the window
-re-rank (§4.1 last sentence, §4.2, the degradation paragraphs of §4.3 — its query-path
-timeout ships here, the window layer and description cache of §4.4, §4.5's rerank clause,
-§5.3's comparison, the re-rank and writer parts of §6.1, §6.4 and §6.6, §6.5), the
-`SEARCH_RERANK_*` and `SEARCH_DESCRIPTION_*` settings of §7, the matching items of §8, §10
-and §13, and their tests in §11. In this PR the description field is the semantic query
-only, and the inactive field of the search row is hidden and disabled (§6.2, §6.3).
+**Delivery:** this design ships in two pull requests. PR #372 (`search-modes`) shipped the
+two modes. The description re-rank of full-text hits and the "Write from keywords" writer
+ship in this PR, `search-rerank`, stacked on #372.
 
 ## 1. Summary
 
@@ -433,8 +426,7 @@ min_similarity = forms.FloatField(required=False, min_value=0, max_value=1,
 ```
 
 The description is the query in semantic mode and optional in full-text mode, where it
-drives the re-rank of §4.2. In PR #372 it is only the semantic query: full-text mode ignores
-it (see Delivery).
+drives the re-rank of §4.2.
 
 `SearchForm.__init__(data, *, semantic: bool = False)` deletes `mode`, `description` and
 `min_similarity` when `semantic` is `False`; the view passes the provider's capability. The
@@ -453,29 +445,35 @@ browser history; the user guide advises against typing patient identifiers into 
 
 The query row is one crispy layout object rendering `form_elements/query_input.html`. With
 the capability, the mode select sits on the left, outside the input groups, and beside it
-one row per mode, of which only the active mode's is shown:
+the keyword row, shown in full-text mode only, above the description row, shown in both
+modes:
 
 ```
 Full-text:  [ Full-text ▾ ] [ keyword query                              ] [x] [🔍]
+                            [ Optional: describe the reports you are ... ] [ Write from keywords ]
 Semantic:   [ Semantic  ▾ ] [ Describe the reports you are looking for   ] [🔍]
 ```
 
 The keyword row is an input group of the keyword input, the overlay clear button and a
-submit button. The description row, the partial `form_elements/description_input.html`, is
-an input group of the description textarea (two rows, at most 1,000 characters) and its own
-submit button. Wording, verbatim: the keyword placeholder is "Input your search terms", the
-description placeholder is "Describe the reports you are looking for", the accessible names
-are "Search mode" for the select, "Search terms" for the keyword input, "Clear search terms"
-for the clear button and "Search" for both submit buttons, and the cutoff field's label is
-"Minimum similarity". Enter in the textarea submits the search (`@keydown.enter` with a
-`shiftKey` check that calls `$el.form.requestSubmit()`, so the submit handlers still run;
-Alpine has no `.exact` modifier); Shift+Enter inserts a newline. `min_similarity` sits at the
-bottom of the Filters card, shown in semantic mode only and `:disabled="mode !== 'semantic'"`
-so it never rides along in a full-text URL; "Reset filters" clears it like every other
-filter, and an empty field means the setting applies. Without the capability the row is
-today's single input group: the "Search" label, the keyword input, the clear button and the
-submit button. Where the full-text description and the "Write from keywords" button go is
-decided by the stacked PR that brings them (see Delivery).
+submit button. The description row, the partial `form_elements/description_input.html` that
+the endpoint reuses (§6.5), is an input group of the description textarea (two rows, at most
+1,000 characters), the "Write from keywords" button, shown in full-text mode only (semantic
+mode has no keywords to write from), and its own submit button, shown in semantic mode only.
+Below the group an empty `<small id="description_notice">` takes the endpoint's out-of-band
+notice; it stays on the page in both modes. Wording, verbatim: the keyword placeholder is
+"Input your search terms", the full-text description placeholder is "Optional: describe the
+reports you are looking for; the top hits are re-ranked by it", the semantic one is
+"Describe the reports you are looking for", the button label is "Write from keywords", the
+accessible names are "Search mode" for the select, "Search terms" for the keyword input,
+"Clear search terms" for the clear button and "Search" for both submit buttons, and the
+cutoff field's label is "Minimum similarity". Enter in the textarea submits the search
+(`@keydown.enter` with a `shiftKey` check that calls `$el.form.requestSubmit()`, so the
+submit handlers still run; Alpine has no `.exact` modifier); Shift+Enter inserts a newline.
+`min_similarity` sits at the bottom of the Filters card, shown in semantic mode only and
+`:disabled="mode !== 'semantic'"` so it never rides along in a full-text URL; "Reset
+filters" clears it like every other filter, and an empty field means the setting applies.
+Without the capability the row is today's single input group: the "Search" label, the
+keyword input, the clear button and the submit button.
 
 ### 6.3 Switching modes
 
@@ -484,26 +482,29 @@ reload of `?mode=semantic` keeps the selection (plain `x-model` writes the data 
 element on init under the vendored Alpine 3.15). The component initialises `mode` to `''`
 and reads nothing from the DOM unconditionally, because the page without the capability
 (§6.6) has no select, textarea or cutoff field. The description textarea carries no
-`x-model`; its value is read by the server from the form.
+`x-model`; only its placeholder is bound, and its value is read by the server from the form.
 
-Each row is shown only in its own mode (`x-show`), and its fields are disabled in the other:
-the keyword input and the clear button carry `:disabled="mode === 'semantic'"`, the
-textarea `:disabled="mode !== 'semantic'"`, like the cutoff field. A disabled control is
-never submitted, so the URL carries only the active mode's field and a result page never
-shows the other mode's input. Hidden and disabled controls keep their values, so whatever
-was typed in either field survives switching back and forth within the page; the next
-search submits only the active one. The description row carries `x-cloak`, so it does not
-flash before Alpine has applied the mode from the URL; the keyword row, the server-rendered
-default, does not, so the page keeps a working full-text search without JavaScript.
+The keyword row is shown only in full-text mode (`x-show`), and in semantic mode its input
+and clear button are disabled (`:disabled="mode === 'semantic'"`), as the cutoff field is in
+full-text mode (`:disabled="mode !== 'semantic'"`). A disabled control is never submitted,
+so a semantic URL carries no keywords and its result page never shows them. Hidden and
+disabled controls keep their values, so typed keywords survive switching back and forth
+within the page; the next semantic search leaves them out. The description row is shown and
+enabled in both modes, since it is the query of one and the optional re-rank of the other;
+only its write and submit buttons follow the mode. Those two buttons and the cutoff field
+carry `x-cloak`, so they do not flash before Alpine has applied the mode from the URL; the
+keyword row and the description row, the server-rendered default, do not, so the page keeps
+a working full-text search without JavaScript.
 
-The server trusts none of it. `SearchForm.clean()` counts only the active mode's field: in
-semantic mode it drops the keyword field, a validation error on it included, and in
-full-text mode the description and the cutoff, so a hand-made URL carrying the other field
-still searches and the view never parses keywords in semantic mode; `min_similarity` is read
-only in semantic mode. Semantic mode with an empty description renders a one-line notice
-above the info card without calling the provider ("Semantic mode needs a description.").
-Full-text mode without keywords shows the info card alone, as today, whatever else the URL
-carries.
+The server trusts none of it. `SearchForm.clean()` drops the inactive mode's fields: in
+semantic mode the keyword field, a validation error on it included, and in full-text mode
+the cutoff, so a hand-made URL carrying them still searches and the view never parses
+keywords in semantic mode; `min_similarity` is read only in semantic mode. The description
+is validated in both modes. Two mismatches render a one-line notice above the info card
+without calling the provider: full-text mode with a description and no keywords ("Full-text
+mode needs keywords. Switch to Semantic to search by description alone."), and semantic mode
+with an empty description ("Semantic mode needs a description."). Full-text mode with
+neither shows the info card alone, as today.
 
 ### 6.4 The view
 
@@ -852,10 +853,10 @@ iterative-scan default recorded there goes into the PR description.
   keyword layer is shared by every caller of the same query.
 - A 10 s query-path embedding timeout, because a user is waiting and the 60 s default is for
   the write path.
-- The inactive field is hidden and disabled rather than shown locked, so a result page never
-  shows the other mode's input and only the active field travels in the URL; values still
-  survive switching modes within the page, and the server ignores keywords in semantic mode
-  either way.
+- The keyword field is hidden and disabled in semantic mode rather than shown locked, so a
+  semantic result page never shows keywords that took no part in the search and they do not
+  travel in the URL; typed keywords still survive switching modes within the page, and the
+  server ignores keywords in semantic mode either way.
 - Async endpoint on the existing async client, because that is what both interactive LLM
   calls on `main` do, and the spike's sync twin was untested.
 - The writer reuses the `query_generation` model feature; its behaviour settings are its own.
