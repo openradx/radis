@@ -603,6 +603,28 @@ def test_full_text_count_line_and_scores(client: Client, two_reports):
 
 
 @pytest.mark.django_db
+def test_a_full_text_search_without_hits_says_so(client: Client):
+    client.force_login(create_test_user_with_active_group())
+    with patch("radis.search.views.search_provider", _provider(_empty())):
+        response = client.get("/search/", {"query": "chest"})
+    content = _text(response)
+    assert "0 reports found" in content
+    assert "No results found" in content
+
+
+@pytest.mark.django_db
+def test_result_numbers_continue_on_later_pages(client: Client, two_reports):
+    client.force_login(create_test_user_with_active_group())
+    result = SearchResult(
+        total_count=2, total_relation="exact", documents=[_document(two_reports[1])]
+    )
+    params = {"query": "chest", "page": "2", "per_page": "1"}
+    with patch("radis.search.views.search_provider", _provider(result)):
+        response = client.get("/search/", params)
+    assert "Result: #2" in _text(response)
+
+
+@pytest.mark.django_db
 def test_count_line_when_capped(client: Client):
     client.force_login(create_test_user_with_active_group())
     result = SearchResult(total_count=10000, total_relation="at_least", documents=[])
@@ -787,12 +809,16 @@ def test_each_mode_shows_its_own_row_and_disables_the_other(client: Client):
     page = _capability_page(client)
 
     keyword_row = {"x-show": "mode !== 'semantic'"}
-    assert "x-cloak" in _element(page, "div", **keyword_row)
+    # The server-rendered default row stays visible without JavaScript.
+    assert "x-cloak" not in _element(page, "div", **keyword_row)
     keyword_tags = _inside(page, "div", **keyword_row)
-    assert _one(keyword_tags, "input", name="query")[":disabled"] == "mode === 'semantic'"
+    query = _one(keyword_tags, "input", name="query")
+    assert query[":disabled"] == "mode === 'semantic'"
+    assert query["aria-label"] == "Search terms"
     clear = _one(keyword_tags, "button", **{"@click": "clearQuery()"})
     assert clear[":disabled"] == "mode === 'semantic'"
-    _one(keyword_tags, "button", type="submit")
+    assert clear["aria-label"] == "Clear search terms"
+    assert _one(keyword_tags, "button", type="submit")["aria-label"] == "Search"
 
     description_row = _element(page, "div", id="description_row")
     assert description_row["x-show"] == "mode === 'semantic'"
@@ -800,13 +826,32 @@ def test_each_mode_shows_its_own_row_and_disables_the_other(client: Client):
     description_tags = _inside(page, "div", id="description_row")
     textarea = _one(description_tags, "textarea", name="description")
     assert textarea[":disabled"] == "mode !== 'semantic'"
-    _one(description_tags, "button", type="submit")
+    assert _one(description_tags, "button", type="submit")["aria-label"] == "Search"
 
     # The select sits beside the rows, outside both input groups.
     select = _element(page, "select", name="mode")
     assert select["aria-label"] == "Search mode"
     assert select["x-model.fill"] == "mode"
     assert not any(tag == "select" for tag, _ in keyword_tags + description_tags)
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "params, request_type",
+    [
+        ({"mode": "semantic", "description": "free air", "query": "a" * 201}, SemanticSearch),
+        ({"query": "chest", "description": "a" * 1001}, FullTextSearch),
+    ],
+    ids=["semantic", "full-text"],
+)
+def test_an_over_long_inactive_field_does_not_stop_the_search(client: Client, params, request_type):
+    client.force_login(create_test_user_with_active_group())
+    captured: dict = {}
+    with patch("radis.search.views.search_provider", _provider(_empty(), captured=captured)):
+        response = client.get("/search/", params)
+    assert response.status_code == 200
+    assert isinstance(captured["request"], request_type)
+    assert "alert-danger" not in _text(response)
 
 
 @pytest.mark.django_db

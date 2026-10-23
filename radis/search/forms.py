@@ -23,21 +23,12 @@ MODE_SEMANTIC = "semantic"
 MODE_CHOICES = [("", "Full-text"), (MODE_SEMANTIC, "Semantic")]
 
 
-def _description_field() -> forms.CharField:
-    return forms.CharField(
-        required=False,
-        label=False,  # type: ignore
-        max_length=DESCRIPTION_MAX_LENGTH,
-        widget=forms.Textarea(attrs={"rows": 2}),
-    )
-
-
 class SearchForm(forms.Form):
     # Query fields
     query = forms.CharField(required=False, label=False, max_length=QUERY_MAX_LENGTH)  # type: ignore
     # The empty value is full-text, so the default never appears in the URL.
     mode = forms.ChoiceField(required=False, choices=MODE_CHOICES, label=False)  # type: ignore
-    description = _description_field()
+    description = forms.CharField(required=False, label=False, max_length=DESCRIPTION_MAX_LENGTH)  # type: ignore
     # Semantic mode only: overrides SEARCH_SEMANTIC_MIN_SIMILARITY for one search.
     min_similarity = forms.FloatField(
         required=False,
@@ -192,6 +183,13 @@ class SearchForm(forms.Form):
         return age_till
 
     def clean(self) -> dict[str, Any] | None:
+        # The page disables the inactive mode's field, so a value for it can only come from a
+        # hand-made URL; it must neither block the search nor reach the view.
+        inactive = "query" if self.semantic_mode() else "description"
+        if inactive in self.fields:
+            self.errors.pop(inactive, None)
+            self.cleaned_data[inactive] = ""
+
         # An age its own clean method rejected is absent from cleaned_data.
         age_from = self.cleaned_data.get("age_from")
         age_till = self.cleaned_data.get("age_till")

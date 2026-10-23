@@ -126,16 +126,36 @@ def test_mode_choices_default_to_full_text() -> None:
 
 @pytest.mark.django_db
 def test_description_whitespace_is_collapsed() -> None:
-    form = SearchForm({"query": "x", "description": "  pleural \n air  "}, semantic=True)
+    form = SearchForm({"mode": "semantic", "description": "  pleural \n air  "}, semantic=True)
     assert form.is_valid()
     assert form.cleaned_data["description"] == "pleural air"
 
 
 @pytest.mark.django_db
-def test_description_over_the_limit_is_invalid() -> None:
-    form = SearchForm({"query": "x", "description": "a" * 1001}, semantic=True)
+def test_description_over_the_limit_is_invalid_in_semantic_mode() -> None:
+    form = SearchForm({"mode": "semantic", "description": "a" * 1001}, semantic=True)
     assert not form.is_valid()
     assert "description" in form.errors
+
+
+@pytest.mark.django_db
+def test_semantic_mode_ignores_the_keyword_field() -> None:
+    """Only a hand-made URL carries keywords in semantic mode; they must not block it."""
+    form = SearchForm(
+        {"mode": "semantic", "description": "free air", "query": "a" * 201}, semantic=True
+    )
+    assert form.is_valid(), form.errors
+    assert form.cleaned_data["query"] == ""
+    assert form.cleaned_data["description"] == "free air"
+
+
+@pytest.mark.django_db
+def test_full_text_mode_ignores_the_description_field() -> None:
+    """Only a hand-made URL carries a description in full-text mode; it must not block it."""
+    form = SearchForm({"query": "chest", "description": "a" * 1001}, semantic=True)
+    assert form.is_valid(), form.errors
+    assert form.cleaned_data["description"] == ""
+    assert form.cleaned_data["query"] == "chest"
 
 
 @pytest.mark.django_db
@@ -231,6 +251,8 @@ def _row_html(form: SearchForm) -> str:
 def test_query_row_without_the_capability_is_the_plain_search_row() -> None:
     html = _row_html(SearchForm())
     assert '<span class="input-group-text">Search</span>' in html
+    for name in ("Search terms", "Clear search terms", "Search"):
+        assert f'aria-label="{name}"' in html
     mode_bound = (
         'name="mode"',
         'name="description"',
@@ -286,11 +308,17 @@ def test_an_age_off_the_step_is_a_field_error_not_a_crash(field) -> None:
 
 
 @pytest.mark.django_db
-def test_mode_dependent_controls_are_cloaked_until_alpine_starts() -> None:
-    """The search rows and the cutoff are shown by mode; without x-cloak they would flash
-    before Alpine has read the mode."""
+def test_only_the_semantic_controls_are_cloaked_until_alpine_starts() -> None:
+    """The description row and the cutoff would flash before Alpine has read the mode
+    without x-cloak. The keyword row is the server-rendered default and stays uncloaked,
+    so the page still searches without JavaScript."""
     form = SearchForm(semantic=True)
-    for helper in (form.query_helper, form.filters_helper):
-        tags = re.findall(r"<[^>]*\bx-show=[^>]*>", render_crispy_form(form, helper))
-        assert tags
-        assert all(re.search(r"\bx-cloak\b", tag) for tag in tags), tags
+    html = render_crispy_form(form, form.query_helper) + render_crispy_form(
+        form, form.filters_helper
+    )
+    tags = [unescape(tag) for tag in re.findall(r"<[^>]*\bx-show=[^>]*>", html)]
+    keyword_rows = [tag for tag in tags if "mode !== 'semantic'" in tag]
+    semantic_only = [tag for tag in tags if "mode === 'semantic'" in tag]
+    assert len(keyword_rows) == 1 and len(semantic_only) == 2, tags
+    assert not re.search(r"\bx-cloak\b", keyword_rows[0])
+    assert all(re.search(r"\bx-cloak\b", tag) for tag in semantic_only), semantic_only

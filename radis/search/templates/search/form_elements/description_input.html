@@ -12,5 +12,5 @@
               placeholder="Describe the reports you are looking for"
               :disabled="mode !== 'semantic'"
               @keydown.enter="if (!$event.shiftKey) { $event.preventDefault(); $el.form.requestSubmit() }">{{ value }}</textarea>
-    <button type="submit" class="btn btn-primary">{% bootstrap_icon "search" 20 %}</button>
+    <button type="submit" class="btn btn-primary" aria-label="Search">{% bootstrap_icon "search" 20 %}</button>
 </div>

@@ -421,8 +421,7 @@ applies.
 ```python
 query = forms.CharField(required=False, label=False, max_length=200)   # server-side cap, was widget-only
 mode = forms.ChoiceField(required=False, choices=[("", "Full-text"), ("semantic", "Semantic")])
-description = forms.CharField(required=False, label=False, max_length=1000,
-                              widget=forms.Textarea(attrs={"rows": 2}))
+description = forms.CharField(required=False, label=False, max_length=1000)   # rendered by hand (§6.2)
 min_similarity = forms.FloatField(required=False, min_value=0, max_value=1,
                                   widget=forms.NumberInput(attrs={"step": "0.001"}))
 ```
@@ -459,9 +458,10 @@ The keyword row is an input group of the keyword input, the overlay clear button
 submit button. The description row, the partial `form_elements/description_input.html`, is
 an input group of the description textarea (two rows, at most 1,000 characters) and its own
 submit button. Wording, verbatim: the keyword placeholder is "Input your search terms", the
-description placeholder is "Describe the reports you are looking for", the select's
-accessible name is "Search mode", the cutoff field's label is "Minimum similarity". Enter in
-the textarea submits the search (`@keydown.enter` with a `shiftKey` check that calls
+description placeholder is "Describe the reports you are looking for", the accessible names
+are "Search mode" for the select, "Search terms" for the keyword input, "Clear search terms"
+for the clear button and "Search" for both submit buttons, and the cutoff field's label is
+"Minimum similarity". Enter in the textarea submits the search (`@keydown.enter` with a `shiftKey` check that calls
 `$el.form.requestSubmit()`, so the submit handlers still run; Alpine has no `.exact`
 modifier); Shift+Enter inserts a newline. `min_similarity` sits at the bottom of the Filters
 card, shown in semantic mode only and `:disabled="mode !== 'semantic'"` so it never rides
@@ -486,12 +486,15 @@ textarea `:disabled="mode !== 'semantic'"`, like the cutoff field. A disabled co
 never submitted, so the URL carries only the active mode's field and a result page never
 shows the other mode's input. Hidden and disabled controls keep their values, so whatever
 was typed in either field survives switching back and forth within the page; the next
-search submits only the active one. Both rows carry `x-cloak`, so neither flashes before
-Alpine has applied the mode from the URL.
+search submits only the active one. The description row carries `x-cloak`, so it does not
+flash before Alpine has applied the mode from the URL; the keyword row, the server-rendered
+default, does not, so the page keeps a working full-text search without JavaScript.
 
-The server trusts none of it. In semantic mode the view ignores the keyword field and never
-parses it, even when a hand-made URL carries it; `min_similarity` is read only in semantic
-mode. Semantic mode with an empty description renders a one-line notice above the info card
+The server trusts none of it. `SearchForm.clean()` counts only the active mode's field: in
+semantic mode it drops the keyword field, a validation error on it included, and in
+full-text mode the description, so a hand-made URL carrying the other field still searches
+and the view never parses keywords in semantic mode; `min_similarity` is read only in
+semantic mode. Semantic mode with an empty description renders a one-line notice above the info card
 without calling the provider ("Semantic mode needs a description."). Full-text mode without
 keywords shows the info card alone, as today, whatever else the URL carries.
 

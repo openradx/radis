@@ -363,7 +363,8 @@ class _KeywordRanking(NamedTuple):
 
 
 class Ranking(NamedTuple):
-    """One mode's ordered result list, with what the page needs to explain it."""
+    """One mode's ordered result list, with the per-report values and the text-search
+    configurations its documents are built from."""
 
     ids: list[int]
     score_by_id: dict[int, float]
