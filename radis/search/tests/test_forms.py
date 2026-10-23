@@ -231,20 +231,28 @@ def _row_html(form: SearchForm) -> str:
 def test_query_row_without_the_capability_is_the_plain_search_row() -> None:
     html = _row_html(SearchForm())
     assert '<span class="input-group-text">Search</span>' in html
-    for absent in ('name="mode"', 'name="description"'):
+    mode_bound = (
+        'name="mode"',
+        'name="description"',
+        'id="description_row"',
+        "x-show",
+        ":disabled",
+    )
+    for absent in mode_bound:
         assert absent not in html
 
 
 @pytest.mark.django_db
-def test_query_row_with_the_capability_renders_the_select_and_the_description() -> None:
+def test_query_row_with_the_capability_renders_the_select_and_both_rows() -> None:
     form = SearchForm(
         {"mode": "semantic", "query": "pneumothorax", "description": "free <air>"}, semantic=True
     )
     html = _row_html(form)
     assert '<option value="semantic" selected>Semantic</option>' in html
     assert 'x-model.fill="mode"' in html
-    # The keyword input is locked in semantic mode.
-    assert ":readonly=\"mode === 'semantic'\"" in unescape(html)
+    assert "input-group-text" not in html
+    # Both values stay in the markup, so switching modes on the page keeps them.
+    assert 'value="pneumothorax"' in html
     assert ">free &lt;air&gt;</textarea>" in html
 
 
@@ -279,9 +287,10 @@ def test_an_age_off_the_step_is_a_field_error_not_a_crash(field) -> None:
 
 @pytest.mark.django_db
 def test_mode_dependent_controls_are_cloaked_until_alpine_starts() -> None:
-    """The cutoff is shown by mode; without x-cloak it would flash before Alpine has
-    read the mode."""
+    """The search rows and the cutoff are shown by mode; without x-cloak they would flash
+    before Alpine has read the mode."""
     form = SearchForm(semantic=True)
-    tags = re.findall(r"<[^>]*\bx-show=[^>]*>", render_crispy_form(form, form.filters_helper))
-    assert tags
-    assert all(re.search(r"\bx-cloak\b", tag) for tag in tags), tags
+    for helper in (form.query_helper, form.filters_helper):
+        tags = re.findall(r"<[^>]*\bx-show=[^>]*>", render_crispy_form(form, helper))
+        assert tags
+        assert all(re.search(r"\bx-cloak\b", tag) for tag in tags), tags

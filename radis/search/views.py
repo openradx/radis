@@ -72,8 +72,6 @@ class SearchView(LoginRequiredMixin, UserPassesTestMixin, View):
                 cutoff = settings.SEARCH_SEMANTIC_MIN_SIMILARITY
             context["cutoff"] = cutoff
         else:
-            # In semantic mode the keyword field is only read-only on the page, so the
-            # URL may still carry it; it is only parsed here, in full-text mode.
             query_node, fixes = QueryParser().parse(form.cleaned_data["query"])
             if query_node is None:
                 return render(request, "search/search.html", context)

@@ -440,9 +440,51 @@ def _element(response, tag: str, **attrs: str) -> dict[str, str | None]:
     their values unescaped, so assertions ignore attribute order and line breaks."""
     parser = _StartTags()
     parser.feed(response.content.decode())
-    found = [a for t, a in parser.tags if t == tag and attrs.items() <= a.items()]
+    return _one(parser.tags, tag, **attrs)
+
+
+def _one(tags, tag: str, **attrs: str) -> dict[str, str | None]:
+    found = [a for t, a in tags if t == tag and attrs.items() <= a.items()]
     assert len(found) == 1, found
     return found[0]
+
+
+# Elements without an end tag, which therefore enclose nothing.
+_VOID_ELEMENTS = {"area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "wbr"}
+
+
+class _Subtrees(HTMLParser):
+    """The start tags nested inside each ``tag`` element carrying ``attrs``."""
+
+    def __init__(self, tag: str, attrs: dict[str, str]) -> None:
+        super().__init__()
+        self.tag = tag
+        self.attrs = attrs
+        self.subtrees: list[list[tuple[str, dict[str, str | None]]]] = []
+        self.depth = 0  # elements open inside the current match, the match included
+
+    def handle_starttag(self, tag, attrs) -> None:
+        found = dict(attrs)
+        if self.depth:
+            self.subtrees[-1].append((tag, found))
+        elif tag == self.tag and self.attrs.items() <= found.items():
+            self.subtrees.append([])
+        else:
+            return
+        if tag not in _VOID_ELEMENTS:
+            self.depth += 1
+
+    def handle_endtag(self, tag) -> None:
+        if self.depth and tag not in _VOID_ELEMENTS:
+            self.depth -= 1
+
+
+def _inside(response, tag: str, **attrs: str) -> list[tuple[str, dict[str, str | None]]]:
+    """The start tags nested in the one ``tag`` element on the page carrying ``attrs``."""
+    parser = _Subtrees(tag, attrs)
+    parser.feed(response.content.decode())
+    assert len(parser.subtrees) == 1, parser.subtrees
+    return parser.subtrees[0]
 
 
 def _provider(result: SearchResult, *, semantic: bool = True, captured: dict | None = None):
@@ -739,10 +781,32 @@ def test_the_description_has_an_accessible_name(client: Client):
 
 
 @pytest.mark.django_db
-def test_the_clear_button_is_disabled_in_semantic_mode(client: Client):
-    """Semantic mode keeps the keywords for the switch back; the button must not wipe them."""
-    button = _element(_capability_page(client), "button", **{"@click": "clearQuery()"})
-    assert button[":disabled"] == "mode === 'semantic'"
+def test_each_mode_shows_its_own_row_and_disables_the_other(client: Client):
+    """Hidden and disabled, the inactive row keeps its value for the switch back but is
+    never submitted, so the URL carries only the active mode's field."""
+    page = _capability_page(client)
+
+    keyword_row = {"x-show": "mode !== 'semantic'"}
+    assert "x-cloak" in _element(page, "div", **keyword_row)
+    keyword_tags = _inside(page, "div", **keyword_row)
+    assert _one(keyword_tags, "input", name="query")[":disabled"] == "mode === 'semantic'"
+    clear = _one(keyword_tags, "button", **{"@click": "clearQuery()"})
+    assert clear[":disabled"] == "mode === 'semantic'"
+    _one(keyword_tags, "button", type="submit")
+
+    description_row = _element(page, "div", id="description_row")
+    assert description_row["x-show"] == "mode === 'semantic'"
+    assert "x-cloak" in description_row
+    description_tags = _inside(page, "div", id="description_row")
+    textarea = _one(description_tags, "textarea", name="description")
+    assert textarea[":disabled"] == "mode !== 'semantic'"
+    _one(description_tags, "button", type="submit")
+
+    # The select sits beside the rows, outside both input groups.
+    select = _element(page, "select", name="mode")
+    assert select["aria-label"] == "Search mode"
+    assert select["x-model.fill"] == "mode"
+    assert not any(tag == "select" for tag, _ in keyword_tags + description_tags)
 
 
 @pytest.mark.django_db

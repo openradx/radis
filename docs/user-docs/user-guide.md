@@ -51,7 +51,7 @@ If your query contains mistakes such as unbalanced quotes or parentheses, unsupp
 
 #### Semantic Search
 
-When your administrator has configured an embedding model, the search bar offers two modes. **Full-text** finds exactly the reports that contain your keywords and highlights them. **Semantic** locks the keyword box and searches by the description alone: the result is the list of reports whose meaning is closest to it, in similarity order, without highlighting. Operators, quotes and NOT have no special meaning in a description.
+When your administrator has configured an embedding model, the search bar offers two modes. **Full-text** finds exactly the reports that contain your keywords and highlights them. **Semantic** swaps the keyword box for a description box: describe the reports you are looking for, and the result is the list of reports whose meaning is closest to your description, in similarity order, without highlighting. Operators, quotes and NOT have no special meaning in a description. What you typed in either box stays there while you switch modes, but a search uses only the box of the selected mode.
 
 Reports imported recently may not be embedded yet and do not appear in semantic mode until they are. If the embedding service is unavailable, semantic mode says so and shows no list; full-text search does not depend on it.
 
