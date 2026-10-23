@@ -1,5 +1,5 @@
 <div class="d-flex flex-column">
-    {% if degraded %}
+    {% if degraded and mode == "semantic" %}
         <div class="alert alert-danger" role="alert">Semantic search is unavailable right now.</div>
     {% else %}
         <div class="mb-3">
@@ -13,10 +13,23 @@
                     {% if cutoff %}with similarity at least {{ cutoff|floatformat:3 }}{% endif %}
                 {% else %}
                     {% if total_relation == "at_least" %}More than{% endif %}
-                    {{ total_count }} report{{ total_count|pluralize }} found
+                    {{ total_count }} report{{ total_count|pluralize }}
+                    {% if not reranked or total_count == 0 %}
+                        found
+                    {% elif total_count > window %}
+                        found, the top {{ window }} re-ranked by your description, the rest in keyword order
+                    {% else %}
+                        found, re-ranked by your description
+                    {% endif %}
                 {% endif %}
             </small>
         </div>
+        {% if degraded %}
+            <div class="alert alert-warning" role="alert">
+                Your description could not be applied (embedding service unavailable); results are in keyword order.
+                Search again to retry.
+            </div>
+        {% endif %}
         {% if fixed_query %}
             <div class="alert alert-warning" role="alert">
                 Fixed invalid query: <span class="font-monospace">{{ fixed_query }}</span>

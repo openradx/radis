@@ -185,10 +185,9 @@ class SearchForm(forms.Form):
     def clean(self) -> dict[str, Any] | None:
         # The page disables the inactive mode's fields, so a value for them can only come from a
         # hand-made URL or a page without JavaScript; it must neither block the search nor reach
-        # the view.
-        inactive = (
-            {"query": ""} if self.semantic_mode() else {"description": "", "min_similarity": None}
-        )
+        # the view. The description is never inactive: semantic mode searches by it and
+        # full-text mode re-ranks by it.
+        inactive = {"query": ""} if self.semantic_mode() else {"min_similarity": None}
         for name, empty in inactive.items():
             if name in self.fields:
                 self.errors.pop(name, None)
@@ -202,3 +201,11 @@ class SearchForm(forms.Form):
             raise forms.ValidationError("Age from must be less than age till")
 
         return super().clean()
+
+
+class DescriptionRequestForm(forms.Form):
+    """What the "Write from keywords" endpoint accepts: the same limits as the
+    search form, with no database-backed fields, so an async view can bind it."""
+
+    query = forms.CharField(required=False, max_length=QUERY_MAX_LENGTH)
+    description = forms.CharField(required=False, max_length=DESCRIPTION_MAX_LENGTH)

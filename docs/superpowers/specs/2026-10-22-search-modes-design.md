@@ -1,7 +1,8 @@
 # Search modes: full-text with an optional similarity re-rank, and semantic search
 
 **Status:** Design, approved in conversation on 2026-10-22, awaiting review of this document
-**Branch:** `search-modes` (from `main` at 8ed9ea3e)
+**Branch:** `search-modes` (PR #372, from `main` at 8ed9ea3e) and `search-rerank` (stacked on
+it, the re-rank and the writer)
 **Supersedes:** the fusion parts of `docs/superpowers/specs/hybrid-search.md`: §3 steps 1–5,
 §7.1–§7.4, §7.6–§7.8, §8.2, the query-path rows and the two non-policies of §9 ("degrades
 to FTS-only", "query embeddings are not cached"), the query-path test rows of §10, §11.5 and
@@ -12,16 +13,9 @@ full-text candidate query this design keeps unchanged); the spike branch
 `hybrid-fusion-spikes` (unmerged, head 529ddac9) and its notes in
 `docs/superpowers/specs/2026-10-18-hybrid-ranking-strategies-spike.md` on that branch.
 
-**Delivery:** this design ships in two pull requests. PR #372 (`search-modes`) delivers the
-two modes. Everything about the description re-rank of full-text hits and the description
-writer is deferred to the stacked PR `search-rerank`, wherever it appears: `SimilarityRerank`
-and `FullTextSearch.rerank` (§3.1, §3.3), the description in full-text mode and the window
-re-rank (§4.1 last sentence, §4.2, the degradation paragraphs of §4.3 — its query-path
-timeout ships here, the window layer and description cache of §4.4, §4.5's rerank clause,
-§5.3's comparison, the re-rank and writer parts of §6.1, §6.4 and §6.6, §6.5), the
-`SEARCH_RERANK_*` and `SEARCH_DESCRIPTION_*` settings of §7, the matching items of §8, §10
-and §13, and their tests in §11. In this PR the description field is the semantic query
-only, and the inactive field of the search row is hidden and disabled (§6.2, §6.3).
+**Delivery:** this design ships in two pull requests. PR #372 (`search-modes`) shipped the
+two modes. The description re-rank of full-text hits and the "Write from keywords" writer
+ship in this PR, `search-rerank`, stacked on #372.
 
 ## 1. Summary
 
@@ -38,9 +32,9 @@ This design replaces fusion with two modes the user picks on the search page:
   typed by the user or written by the LLM from the keywords, re-orders the top N hits by a
   blend of their similarity to the description and their keyword rank (pure similarity order
   when the weight is 1). Hits beyond N follow in keyword order.
-- **Semantic**: a description field takes the place of the keyword field and is the query.
-  Results are the N reports most similar to it, in similarity order, with no highlighting.
-  An optional minimum similarity trims the tail.
+- **Semantic**: the keyword field is hidden and the description is the query. Results are
+  the N reports most similar to it, in similarity order, with no highlighting. An optional
+  minimum similarity trims the tail.
 
 The provider interface models this as a typed request hierarchy with one entry point, the
 way search engines expose one search endpoint whose request structure carries the retrieval
@@ -237,8 +231,8 @@ spike's weight sat on the keyword side, this one sits on similarity.
 If the embedding call fails (rate limited, unreachable, misconfigured), the search runs in
 keyword order and `SearchResult.degraded` is `True`. The existing once-per-configuration
 traceback throttle in `_embed_query_or_none` stays; its messages stop promising
-"FTS-only results" and say what happened per caller ("full-text re-rank skipped",
-"semantic search unavailable") while still naming `EMBEDDINGS_BASE_URL`, `EMBEDDINGS_MODEL`,
+"FTS-only results" and say what happened per caller ("Full-text re-rank unavailable",
+"Semantic search unavailable") while still naming `EMBEDDINGS_BASE_URL`, `EMBEDDINGS_MODEL`,
 the exception class and the once-only traceback. A degraded window order is never cached;
 the keyword ranking beneath it is (§4.4).
 
@@ -265,10 +259,12 @@ depend on the embedding:
   configurations and the tsquery string, keyed by a fingerprint of schema version, the
   unparsed query, every filter field and `SEARCH_FTS_MAX_RESULTS`. A plain full-text search,
   the same search with a description, and an extraction over the same query share this entry.
-- **Window layer**, cached only when the embedding succeeded: the re-ranked window ids with
-  their scores and similarities, keyed additionally by the re-rank text,
-  `SEARCH_RERANK_WINDOW`, `SEARCH_RERANK_SEMANTIC_WEIGHT` and the embedding configuration.
-  The result list is the window layer followed by the rest of the keyword layer.
+- **Window layer**, cached only when the embedding succeeded: the similarities of the
+  measured window hits; the order and the scores are recomputed from them and the keyword
+  layer on every cache hit. Keyed additionally by the re-rank text, the window's keyword ids,
+  `SEARCH_RERANK_WINDOW`, `SEARCH_RERANK_SEMANTIC_WEIGHT` and the embedding configuration,
+  so a window measured for one keyword list is never served for another. The result list is
+  the re-ranked window followed by the rest of the keyword layer.
 - **Semantic entries** (§5): ordered ids and similarities, cached unless degraded, keyed by
   schema, the text, every filter field, `SEARCH_HNSW_EF_SEARCH`,
   `SEARCH_SEMANTIC_ITERATIVE_SCAN` and the embedding configuration. The minimum similarity is
@@ -294,9 +290,9 @@ one table across three replicas, that cap would evict hot rankings under modest 
 `count(request: FullTextSearch)` and `retrieve(request: FullTextSearch)` ignore `rerank`: an
 extraction set has no order and a count does not change under a re-order. They read the
 keyword layer only, so they never call the embedding service whatever a caller passes, and
-they always share the plain full-text entry. Behaviour change to state in the PR: an
-extraction job's report set is today the fused union, including vector-only neighbours of the
-keywords; afterwards it is exactly the keyword hits.
+they always share the plain full-text entry. Behaviour change to state in the description of
+PR #372: an extraction job's report set is today the fused union, including vector-only
+neighbours of the keywords; afterwards it is exactly the keyword hits.
 
 ### 4.6 Hydration and the summary
 
@@ -377,7 +373,7 @@ selectivity and 24 of 1,000 at a tenth of a percent before the tuple budget ran 
 to six times the single-pass latency. §10 re-measures at the 500 default. That measurement
 may only flip the default value of the setting (in `base.py`, `example.env` and the §7 row);
 the code path, the statement and the §11 tests are the same either way, and the outcome is
-recorded in the PR description.
+recorded in the description of PR #372.
 
 ### 5.4 Minimum similarity
 
@@ -433,8 +429,7 @@ min_similarity = forms.FloatField(required=False, min_value=0, max_value=1,
 ```
 
 The description is the query in semantic mode and optional in full-text mode, where it
-drives the re-rank of §4.2. In PR #372 it is only the semantic query: full-text mode ignores
-it (see Delivery).
+drives the re-rank of §4.2.
 
 `SearchForm.__init__(data, *, semantic: bool = False)` deletes `mode`, `description` and
 `min_similarity` when `semantic` is `False`; the view passes the provider's capability. The
@@ -453,29 +448,35 @@ browser history; the user guide advises against typing patient identifiers into 
 
 The query row is one crispy layout object rendering `form_elements/query_input.html`. With
 the capability, the mode select sits on the left, outside the input groups, and beside it
-one row per mode, of which only the active mode's is shown:
+the keyword row, shown in full-text mode only, above the description row, shown in both
+modes:
 
 ```
 Full-text:  [ Full-text ▾ ] [ keyword query                              ] [x] [🔍]
+                            [ Optional: describe the reports you are ... ] [ Write from keywords ]
 Semantic:   [ Semantic  ▾ ] [ Describe the reports you are looking for   ] [🔍]
 ```
 
 The keyword row is an input group of the keyword input, the overlay clear button and a
-submit button. The description row, the partial `form_elements/description_input.html`, is
-an input group of the description textarea (two rows, at most 1,000 characters) and its own
-submit button. Wording, verbatim: the keyword placeholder is "Input your search terms", the
-description placeholder is "Describe the reports you are looking for", the accessible names
-are "Search mode" for the select, "Search terms" for the keyword input, "Clear search terms"
-for the clear button and "Search" for both submit buttons, and the cutoff field's label is
-"Minimum similarity". Enter in the textarea submits the search (`@keydown.enter` with a
-`shiftKey` check that calls `$el.form.requestSubmit()`, so the submit handlers still run;
-Alpine has no `.exact` modifier); Shift+Enter inserts a newline. `min_similarity` sits at the
-bottom of the Filters card, shown in semantic mode only and `:disabled="mode !== 'semantic'"`
-so it never rides along in a full-text URL; "Reset filters" clears it like every other
-filter, and an empty field means the setting applies. Without the capability the row is
-today's single input group: the "Search" label, the keyword input, the clear button and the
-submit button. Where the full-text description and the "Write from keywords" button go is
-decided by the stacked PR that brings them (see Delivery).
+submit button. The description row, the partial `form_elements/description_input.html` that
+the endpoint reuses (§6.5), is an input group of the description textarea (two rows, at most
+1,000 characters), the "Write from keywords" button, shown in full-text mode only (semantic
+mode has no keywords to write from), and its own submit button, shown in semantic mode only.
+Below the group an empty `<small id="description_notice">` takes the endpoint's out-of-band
+notice; it stays on the page in both modes. Wording, verbatim: the keyword placeholder is
+"Input your search terms", the full-text description placeholder is "Optional: describe the
+reports you are looking for; the top hits are re-ranked by it", the semantic one is
+"Describe the reports you are looking for", the button label is "Write from keywords", the
+accessible names are "Search mode" for the select, "Search terms" for the keyword input,
+"Clear search terms" for the clear button and "Search" for both submit buttons, and the
+cutoff field's label is "Minimum similarity". Enter in the textarea submits the search
+(`@keydown.enter` with a `shiftKey` check that calls `$el.form.requestSubmit()`, so the
+submit handlers still run; Alpine has no `.exact` modifier); Shift+Enter inserts a newline.
+`min_similarity` sits at the bottom of the Filters card, shown in semantic mode only and
+`:disabled="mode !== 'semantic'"` so it never rides along in a full-text URL; "Reset
+filters" clears it like every other filter, and an empty field means the setting applies.
+Without the capability the row is today's single input group: the "Search" label, the
+keyword input, the clear button and the submit button.
 
 ### 6.3 Switching modes
 
@@ -484,26 +485,31 @@ reload of `?mode=semantic` keeps the selection (plain `x-model` writes the data 
 element on init under the vendored Alpine 3.15). The component initialises `mode` to `''`
 and reads nothing from the DOM unconditionally, because the page without the capability
 (§6.6) has no select, textarea or cutoff field. The description textarea carries no
-`x-model`; its value is read by the server from the form.
+`x-model`; only its placeholder is bound, over a static one the server renders for the
+page's mode (what shows before Alpine starts and without JavaScript), and its value is read
+by the server from the form.
 
-Each row is shown only in its own mode (`x-show`), and its fields are disabled in the other:
-the keyword input and the clear button carry `:disabled="mode === 'semantic'"`, the
-textarea `:disabled="mode !== 'semantic'"`, like the cutoff field. A disabled control is
-never submitted, so the URL carries only the active mode's field and a result page never
-shows the other mode's input. Hidden and disabled controls keep their values, so whatever
-was typed in either field survives switching back and forth within the page; the next
-search submits only the active one. The description row carries `x-cloak`, so it does not
-flash before Alpine has applied the mode from the URL; the keyword row, the server-rendered
-default, does not, so the page keeps a working full-text search without JavaScript.
+The keyword row is shown only in full-text mode (`x-show`), and in semantic mode its input
+and clear button are disabled (`:disabled="mode === 'semantic'"`), as the cutoff field is in
+full-text mode (`:disabled="mode !== 'semantic'"`). A disabled control is never submitted,
+so a semantic URL carries no keywords and its result page never shows them. Hidden and
+disabled controls keep their values, so typed keywords survive switching back and forth
+within the page; the next semantic search leaves them out. The description row is shown and
+enabled in both modes, since it is the query of one and the optional re-rank of the other;
+only its write and submit buttons follow the mode. Those two buttons and the cutoff field
+carry `x-cloak`, so they do not flash before Alpine has applied the mode from the URL; the
+keyword row and the description row, the server-rendered default, do not, so the page keeps
+a working full-text search without JavaScript.
 
-The server trusts none of it. `SearchForm.clean()` counts only the active mode's field: in
-semantic mode it drops the keyword field, a validation error on it included, and in
-full-text mode the description and the cutoff, so a hand-made URL carrying the other field
-still searches and the view never parses keywords in semantic mode; `min_similarity` is read
-only in semantic mode. Semantic mode with an empty description renders a one-line notice
-above the info card without calling the provider ("Semantic mode needs a description.").
-Full-text mode without keywords shows the info card alone, as today, whatever else the URL
-carries.
+The server trusts none of it. `SearchForm.clean()` drops the inactive mode's fields: in
+semantic mode the keyword field, a validation error on it included, and in full-text mode
+the cutoff, so a hand-made URL carrying them still searches and the view never parses
+keywords in semantic mode; `min_similarity` is read only in semantic mode. The description
+is validated in both modes. Two mismatches render a one-line notice above the info card
+without calling the provider: full-text mode with a description and no keywords ("Full-text
+mode needs keywords. Switch to Semantic to search by description alone."), and semantic mode
+with an empty description ("Semantic mode needs a description."). Full-text mode with
+neither shows the info card alone, as today.
 
 ### 6.4 The view
 
@@ -516,8 +522,8 @@ limit=...)`. The paging guard against `max_results` stays; a semantic list is at
 long. `page_sizes = [10, 25, 50]` is passed as the sibling list views do, so the page-size
 selector the user guide already promises renders.
 
-The context gains `mode`, `description`, `reranked` (a description was given and the result
-is not degraded), the window size, the weight, the effective cutoff, `result.degraded` and
+The context gains `mode`, `reranked` (a description was given and the result is not
+degraded), the window size, the weight, the effective cutoff, `result.degraded` and
 `page_sizes` for the templates.
 
 ### 6.5 The description endpoint and writer
@@ -540,15 +546,16 @@ notice with no parse and no LLM call. Parse the query and render the positive te
 `NOT`-only terms get their own notice ("Enter search keywords first; the description is
 written from the positive terms.") without an LLM call. Otherwise call the writer.
 
-Response: the description partial of §6.2 re-rendered, swapped `outerHTML` into
+Response: the description partial of §6.2 re-rendered for the posted mode (full-text when
+the POST names none), of which `hx-select` keeps only the textarea, swapped `outerHTML` into
 `#id_description`, plus the `<small id="description_notice">` as an out-of-band swap in
 every response, empty on success. On success the textarea holds the new text, truncated to
 1,000 characters. On failure it holds the submitted text unchanged and the notice reads "The
 LLM could not write a description right now." Nothing in the view touches the ORM: the
 partial is form-free, and the render runs inside one `sync_to_async` call because context
 processors may query. The button is `type="button"` with `hx-post`, `hx-target`,
-`hx-swap="outerHTML"`, `hx-disabled-elt="this"`, `hx-sync="this:drop"` and an indicator, so
-repeated clicks never start parallel calls.
+`hx-select="#id_description"`, `hx-swap="outerHTML"`, `hx-disabled-elt="this"`,
+`hx-sync="this:drop"` and an indicator, so repeated clicks never start parallel calls.
 
 Writer: `radis/search/utils/description.py`, `async def write_description(terms: str) ->
 str | None`. Ported from the spike's `query_expansion.py`: whitespace-collapsed input; cache
@@ -649,7 +656,8 @@ text stays and its documentation says what is embedded.
 ## 8. Documentation
 
 All of these describe fusion, RRF, a silent FTS-only fallback, or a page without a mode
-select, and change in this PR (the AGENTS.md rule to keep docs in sync applies):
+select, and changed in PR #372; `search-rerank` adds the re-rank and writer passages (the
+AGENTS.md rule to keep docs in sync applies to both):
 
 - `AGENTS.md` (`CLAUDE.md` and `GEMINI.md` are symlinks): overview, tech stack line, the two
   app descriptions, the search architecture bullets, the lint line (the gate is ruff, pyright
@@ -682,7 +690,8 @@ select, and change in this PR (the AGENTS.md rule to keep docs in sync applies):
   and the sections listed in the header; the file stays as history.
   `docs/superpowers/specs/2026-08-29-fts-query-shape-performance-design.md`: one line under
   its "Consumers" paragraph noting that `_fuse_hybrid` and `_exclude_negations` were removed by
-  this design; otherwise history. The plans directory stays untouched.
+  this design; otherwise history. The earlier plans stay untouched; this design's plan
+  carries a one-line Delivery note.
 - Wording in code: the `ReportSearchIndex` docstring, the embedding client's error message,
   comments and docstrings, the settings docstrings, a test name in `radis/core/tests`, and
   the cross references to `test_provider_hybrid.py` in `test_admin.py`,
@@ -690,7 +699,7 @@ select, and change in this PR (the AGENTS.md rule to keep docs in sync applies):
 - Screenshots: `Screenshot02_radis.png` shows the search page and is retaken after the page
   ships, in full-text mode with a description, written to both `resources/screenshots` and
   `docs/assets/screenshots`; `Screenshot01_radis.png` photographs the home page copy and is
-  retaken in the same session. Not a blocker for the PR; tracked as a follow-up.
+  retaken in the same session. Not a blocker for either PR; tracked as a follow-up.
 
 ## 9. Removals
 
@@ -824,10 +833,11 @@ one that their requests never embed.
 Two pull requests (see Delivery): PR #372 against `main` from `search-modes`, then the
 stacked PR `search-rerank` on top of it. The PR #372 description states the three behaviour
 changes: no fused results, extraction sets are keyword hits only, the summary is escaped.
-Settings renames and the new ones are listed for operators, with the worst-case waits of
-§7 and the production cache `MAX_ENTRIES`. The side stack on port 8503 runs this branch for
-the measurements in §10 and for trying the page on the real corpus before merge; the
-iterative-scan default recorded there goes into the PR description.
+Each PR description lists the settings it renames or adds for operators, with their
+worst-case waits from §7; #372's also names the production cache `MAX_ENTRIES`. The side
+stack on port 8503 runs this branch for the measurements in §10 and for trying the page on
+the real corpus before merge; the iterative-scan default recorded there goes into the
+description of PR #372.
 
 ## 13. Decisions
 
@@ -852,13 +862,13 @@ iterative-scan default recorded there goes into the PR description.
   keyword layer is shared by every caller of the same query.
 - A 10 s query-path embedding timeout, because a user is waiting and the 60 s default is for
   the write path.
-- The inactive field is hidden and disabled rather than shown locked, so a result page never
-  shows the other mode's input and only the active field travels in the URL; values still
-  survive switching modes within the page, and the server ignores keywords in semantic mode
-  either way.
+- The keyword field is hidden and disabled in semantic mode rather than shown locked, so a
+  semantic result page never shows keywords that took no part in the search and they do not
+  travel in the URL; typed keywords still survive switching modes within the page, and the
+  server ignores keywords in semantic mode either way.
 - Async endpoint on the existing async client, because that is what both interactive LLM
   calls on `main` do, and the spike's sync twin was untested.
 - The writer reuses the `query_generation` model feature; its behaviour settings are its own.
-- Escaping fixed in this PR although pre-existing, because the design touches exactly that
+- Escaping fixed in PR #372 although pre-existing, because the design touches exactly that
   path and semantic mode would widen the exposure to a whole mode.
 - `HYBRID_` settings renamed without shims: undocumented, unset in every known deployment.

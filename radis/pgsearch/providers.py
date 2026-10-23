@@ -52,6 +52,7 @@ from .utils.document_utils import (
     summary_markup,
 )
 from .utils.language_utils import code_to_language
+from .utils.ranking import rerank_window
 
 logger = logging.getLogger(__name__)
 
@@ -273,9 +274,9 @@ def _embed_query_or_none(query_text: str, caller: str) -> list[float] | None:
 def _embed_query_cached(query_text: str, caller: str) -> list[float] | None:
     """Cache wrapper around `_embed_query_or_none`.
 
-    A semantic search whose filters change misses the ranking cache but still
-    embeds the same text, and that vector must not be fetched again within the
-    TTL. The key covers everything that determines the vector — endpoint,
+    A described search whose query or filters change misses the ranking cache but
+    still embeds the same text, and that vector must not be fetched again within
+    the TTL. The key covers everything that determines the vector — endpoint,
     model, spec parameters, instruction, dim, query text — because a shared cache
     backend (production uses the database) outlives process restarts and thus
     config changes: "qwen3" on one deployment and "qwen3" on another are different
@@ -405,8 +406,8 @@ def _cache_key(**parts: object) -> str:
 
 def _keyword_ranking(request: FullTextSearch) -> _KeywordRanking:
     """The keyword layer, cached whenever the cache is on. It never depends on the
-    embedding service, so a search and an extraction over the same query and filters
-    share one entry."""
+    embedding service, so a plain search, a described search and an extraction over
+    the same query and filters share one entry."""
     timeout = settings.SEARCH_RANKING_CACHE_TIMEOUT_SECONDS
     key = _cache_key(
         layer="keyword",
@@ -460,21 +461,92 @@ def _keyword_ranking_uncached(request: FullTextSearch) -> _KeywordRanking:
     )
 
 
+def _window_measurement_queryset(top_ids: list[int], vec: list[float]):
+    """Exact cosine distance of the window hits: a lookup on the unique report_id
+    column (never ``pk``, index-row ids differ from report ids), served by its B-tree
+    index rather than the HNSW index, so it stays off the candidate query."""
+    return (
+        ReportSearchIndex.objects.filter(report_id__in=top_ids)
+        .exclude(embedding__isnull=True)
+        .annotate(distance=CosineDistance("embedding", vec))
+        .values_list("report_id", "distance")
+    )
+
+
 def _finite_similarities(rows: Iterable[tuple[int, float]]) -> dict[int, float]:
     """Similarity, 1 - cosine distance, per report id in row order."""
     measured = ((rid, 1.0 - float(distance)) for rid, distance in rows)
     # pgvector's cosine distance to a zero vector is NaN, and such a report counts as
     # not embedded: it keeps no similarity on the page or in a cached payload. Only an
-    # HNSW scan leaves it out by itself; every other plan returns it.
+    # HNSW scan leaves it out by itself; every other plan, the window's id lookup
+    # included, returns it.
     return {rid: value for rid, value in measured if math.isfinite(value)}
 
 
-def _rank_fulltext(request: FullTextSearch) -> Ranking:
+def _window_order(
+    request: FullTextSearch, keyword: _KeywordRanking, caller: str
+) -> tuple[list[tuple[int, float]] | None, dict[int, float], bool]:
+    """The window layer of a described search.
+
+    Returns the ``(report_id, score)`` pairs of the whole list in result order, the
+    similarity per measured id, and whether the embedding failed. ``None`` pairs mean
+    no re-rank applies (no description, no embedding model, no keyword hits, or
+    degraded). The cached payload is the similarities; the order is recomputed from the
+    keyword layer."""
+    rerank = request.rerank
+    if rerank is None or settings.EMBEDDINGS_MODEL is None or not keyword.ids:
+        return None, {}, False
+    window = settings.SEARCH_RERANK_WINDOW
+    weight = settings.SEARCH_RERANK_SEMANTIC_WEIGHT
+    timeout = settings.SEARCH_RANKING_CACHE_TIMEOUT_SECONDS
+    key = _cache_key(
+        layer="window",
+        query=QueryParser.unparse(request.query),
+        filters=asdict(request.filters),
+        fts_max=settings.SEARCH_FTS_MAX_RESULTS,
+        text=rerank.text,
+        window=window,
+        # A window measured for one keyword list must not be served for another.
+        window_ids=keyword.ids[:window],
+        weight=weight,
+        embeddings=_embedding_fingerprint(),
+    )
+    hits = [(rid, keyword.ts_rank_by_id[rid]) for rid in keyword.ids]
+    if timeout > 0:
+        cached = cache.get(key)
+        if cached is not None:
+            similarity = dict(zip(cached["ids"], cached["similarities"], strict=True))
+            return rerank_window(hits, similarity, window, weight), similarity, False
+    vec = _embed_query_cached(rerank.text, caller)
+    if vec is None:
+        return None, {}, True
+    similarity = _finite_similarities(_window_measurement_queryset(keyword.ids[:window], vec))
+    if timeout > 0:
+        cache.set(
+            key,
+            {"ids": list(similarity), "similarities": list(similarity.values())},
+            timeout=timeout,
+        )
+    return rerank_window(hits, similarity, window, weight), similarity, False
+
+
+def _rank_fulltext(request: FullTextSearch, caller: str) -> Ranking:
     keyword = _keyword_ranking(request)
+    pairs, similarity, degraded = _window_order(request, keyword, caller)
+    if pairs is None:
+        return Ranking(
+            ids=list(keyword.ids),
+            score_by_id=dict(keyword.ts_rank_by_id),
+            similarity_by_id={},
+            relation=keyword.relation,
+            configs=keyword.configs,
+            query_str=keyword.query_str,
+            degraded=degraded,
+        )
     return Ranking(
-        ids=list(keyword.ids),
-        score_by_id=dict(keyword.ts_rank_by_id),
-        similarity_by_id={},
+        ids=[rid for rid, _ in pairs],
+        score_by_id=dict(pairs),
+        similarity_by_id=similarity,
         relation=keyword.relation,
         configs=keyword.configs,
         query_str=keyword.query_str,
@@ -657,7 +729,7 @@ def search(request: SearchRequest) -> SearchResult:
             _rank_semantic(request, "Semantic search"), _effective_min_similarity(request)
         )
     else:
-        ranking = _rank_fulltext(request)
+        ranking = _rank_fulltext(request, "Full-text re-rank")
     documents = _hydrate(_page(ranking.ids, request), ranking, request.filters.group)
     return SearchResult(
         total_count=len(ranking.ids),
@@ -668,10 +740,13 @@ def search(request: SearchRequest) -> SearchResult:
 
 
 def count(request: FullTextSearch) -> int:
+    # A count does not change under a re-order, so the re-rank is ignored and the
+    # embedding service is never called on this path.
     return len(_keyword_ranking(request).ids)
 
 
 def retrieve(request: FullTextSearch) -> Iterator[str]:
+    # An extraction set has no order; the re-rank is ignored (see ``count``).
     ordered_ids = _keyword_ranking(request).ids
     if not ordered_ids:
         return iter([])

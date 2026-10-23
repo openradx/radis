@@ -1,6 +1,6 @@
 # Search Modes Implementation Plan
 
-> **Delivery:** PR #372 ships part of this plan; the Delivery note at the top of the spec lists what follows in the stacked PR `search-rerank`.
+> **Delivery:** PR #372 shipped the two modes of this plan; the description re-rank and the "Write from keywords" writer ship in the stacked PR `search-rerank` (see the Delivery note at the top of the spec). The page tasks below predate the layout that hides and disables the keyword row in semantic mode; spec §6.2–§6.3 describe the page as built.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 

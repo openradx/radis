@@ -1,10 +1,11 @@
 {% load crispy_field from crispy_forms_field %}
 {% load bootstrap_icon from common_extras %}
 {% if mode_field %}
-    {# The inactive mode's row is hidden and disabled: it keeps its value but is never submitted. #}
+    {# In semantic mode the keyword row is hidden and disabled: it keeps its value but is never submitted. #}
     <div x-data="QueryInput()" class="d-flex align-items-start gap-2">
         {% crispy_field mode_field "class" "form-select w-auto" "x-model.fill" "mode" "aria-label" "Search mode" %}
-        <div class="flex-grow-1">
+        {# A gap, not a margin: hidden rows get no space, so a lone description row lines up with the select. #}
+        <div class="flex-grow-1 d-flex flex-column gap-2">
             {# Not cloaked: the server-rendered default, so the page still searches without JavaScript. #}
             <div class="input-group" x-show="mode !== 'semantic'">
                 {% crispy_field query_field "class" "form-control" ":disabled" "mode === 'semantic'" "aria-label" "Search terms" %}
@@ -22,7 +23,7 @@
                         aria-label="Search">{% bootstrap_icon "search" 20 %}</button>
             </div>
             {% if description_field %}
-                {% include "search/form_elements/description_input.html" with value=description_value %}
+                {% include "search/form_elements/description_input.html" with value=description_value notice="" mode=mode_field.value %}
             {% endif %}
         </div>
     </div>

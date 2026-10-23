@@ -4,18 +4,22 @@
         {% if form.fields.mode %}
             <p>
                 Choose a mode in the search bar. <strong>Full-text</strong> finds exactly the reports
-                that contain your keywords, with the matched words highlighted.
+                that contain your keywords, with the matched words highlighted. The description box
+                below the keywords is optional: when you describe the reports you are looking for, the
+                top hits are re-ordered by how closely they match that description, and the rest keep
+                their keyword order. "Write from keywords" asks the LLM to write such a description from
+                your keywords; you can edit it before searching.
             </p>
             <p>
-                <strong>Semantic</strong> takes a description of the reports you are looking for instead
-                of keywords: the result is the list of reports whose meaning is closest to it, in
-                similarity order, without highlighting. Operators, quotes and NOT have no special meaning
-                in a description. The optional "Minimum similarity" filter cuts the list where the
-                similarity drops below the value you enter.
+                <strong>Semantic</strong> hides the keyword box and searches by the description alone:
+                the result is the list of reports whose meaning is closest to it, in similarity order,
+                without highlighting. Operators, quotes and NOT have no special meaning in a description.
+                The optional "Minimum similarity" filter cuts the list where the similarity drops below
+                the value you enter.
             </p>
             <p>
-                Newly imported reports are embedded in the background and do not appear in semantic mode
-                until then.
+                Newly imported reports are embedded in the background; until then they rank by keywords
+                only and do not appear in semantic mode.
             </p>
         {% else %}
             <p>

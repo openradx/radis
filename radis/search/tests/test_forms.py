@@ -6,10 +6,11 @@ import pytest
 from crispy_forms.layout import Field, Layout
 from crispy_forms.utils import render_crispy_form
 from django.template.loader import render_to_string
+from django.urls import reverse
 
 from radis.labels.factories import LabelFactory
 from radis.reports.factories import LanguageFactory, ModalityFactory
-from radis.search.forms import DESCRIPTION_MAX_LENGTH, SearchForm
+from radis.search.forms import DESCRIPTION_MAX_LENGTH, DescriptionRequestForm, SearchForm
 from radis.search.layouts import QueryInput
 
 
@@ -125,15 +126,19 @@ def test_mode_choices_default_to_full_text() -> None:
 
 
 @pytest.mark.django_db
-def test_description_whitespace_is_collapsed() -> None:
-    form = SearchForm({"mode": "semantic", "description": "  pleural \n air  "}, semantic=True)
+@pytest.mark.parametrize("mode", ["", "semantic"], ids=["full-text", "semantic"])
+def test_description_whitespace_is_collapsed(mode) -> None:
+    form = SearchForm(
+        {"mode": mode, "query": "x", "description": "  pleural \n air  "}, semantic=True
+    )
     assert form.is_valid()
     assert form.cleaned_data["description"] == "pleural air"
 
 
 @pytest.mark.django_db
-def test_description_over_the_limit_is_invalid_in_semantic_mode() -> None:
-    form = SearchForm({"mode": "semantic", "description": "a" * 1001}, semantic=True)
+@pytest.mark.parametrize("mode", ["", "semantic"], ids=["full-text", "semantic"])
+def test_description_over_the_limit_is_invalid_in_either_mode(mode) -> None:
+    form = SearchForm({"mode": mode, "query": "x", "description": "a" * 1001}, semantic=True)
     assert not form.is_valid()
     assert "description" in form.errors
 
@@ -150,11 +155,10 @@ def test_semantic_mode_ignores_the_keyword_field() -> None:
 
 
 @pytest.mark.django_db
-def test_full_text_mode_ignores_the_description_field() -> None:
-    """Only a hand-made URL carries a description in full-text mode; it must not block it."""
-    form = SearchForm({"query": "chest", "description": "a" * 1001}, semantic=True)
+def test_full_text_mode_keeps_the_description_for_the_rerank() -> None:
+    form = SearchForm({"query": "chest", "description": "free air"}, semantic=True)
     assert form.is_valid(), form.errors
-    assert form.cleaned_data["description"] == ""
+    assert form.cleaned_data["description"] == "free air"
     assert form.cleaned_data["query"] == "chest"
 
 
@@ -250,6 +254,12 @@ def test_semantic_mode_follows_the_mode_field_and_the_capability() -> None:
     assert stale.semantic_mode() is False
 
 
+def test_description_request_form_limits_match_the_search_form() -> None:
+    assert DescriptionRequestForm({"query": "a" * 200, "description": "b" * 1000}).is_valid()
+    assert not DescriptionRequestForm({"query": "a" * 201}).is_valid()
+    assert not DescriptionRequestForm({"description": "b" * 1001}).is_valid()
+
+
 def _row_html(form: SearchForm) -> str:
     """The rendered query row with whitespace collapsed, so assertions ignore indentation."""
     return " ".join(render_crispy_form(form, form.query_helper).split())
@@ -267,6 +277,7 @@ def test_query_row_without_the_capability_is_the_plain_search_row() -> None:
         'id="description_row"',
         "x-show",
         ":disabled",
+        "Write from keywords",
     )
     for absent in mode_bound:
         assert absent not in html
@@ -281,9 +292,17 @@ def test_query_row_with_the_capability_renders_the_select_and_both_rows() -> Non
     assert '<option value="semantic" selected>Semantic</option>' in html
     assert 'x-model.fill="mode"' in html
     assert "input-group-text" not in html
+    # In semantic mode the keyword row is hidden and its input disabled, not locked.
+    assert '<div class="input-group" x-show="mode !== \'semantic\'">' in html
+    query_input = re.search(r'<input [^>]*name="query"[^>]*>', html)
+    assert query_input is not None
+    assert ":disabled=\"mode === 'semantic'\"" in query_input.group()
+    assert ":readonly" not in html
     # Both values stay in the markup, so switching modes on the page keeps them.
     assert 'value="pneumothorax"' in html
     assert ">free &lt;air&gt;</textarea>" in html
+    assert f'hx-post="{reverse("search_description")}"' in html
+    assert "Write from keywords" in html
 
 
 @pytest.mark.django_db
@@ -299,12 +318,25 @@ def test_cutoff_field_is_in_the_filters_only_with_the_capability() -> None:
     assert "min_similarity" not in render_crispy_form(without, without.filters_helper)
 
 
-def test_description_partial_escapes_its_value() -> None:
+def test_description_partial_escapes_its_value_and_notice() -> None:
     html = render_to_string(
-        "search/form_elements/description_input.html", {"value": "a </textarea><b>"}
+        "search/form_elements/description_input.html",
+        {"value": "a </textarea><b>", "notice": "Oops <i>"},
     )
     assert ">a &lt;/textarea&gt;&lt;b&gt;</textarea>" in html
+    assert 'hx-swap-oob="innerHTML:#description_notice">Oops &lt;i&gt;</small>' in html
     assert f'maxlength="{DESCRIPTION_MAX_LENGTH}"' in html
+
+
+def test_description_partial_swaps_only_the_textarea_into_the_page() -> None:
+    """The endpoint answers with the whole partial; selecting the textarea out of it keeps
+    the page's row and button from being nested inside themselves."""
+    html = render_to_string(
+        "search/form_elements/description_input.html", {"value": "", "notice": ""}
+    )
+    assert html.count('id="id_description"') == 1
+    assert 'hx-target="#id_description"' in html
+    assert 'hx-select="#id_description"' in html
 
 
 @pytest.mark.django_db
@@ -316,17 +348,18 @@ def test_an_age_off_the_step_is_a_field_error_not_a_crash(field) -> None:
 
 
 @pytest.mark.django_db
-def test_only_the_semantic_controls_are_cloaked_until_alpine_starts() -> None:
-    """The description row and the cutoff would flash before Alpine has read the mode
-    without x-cloak. The keyword row is the server-rendered default and stays uncloaked,
-    so the page still searches without JavaScript."""
+def test_only_the_mode_dependent_controls_are_cloaked_until_alpine_starts() -> None:
+    """The description row's mode-dependent buttons and the cutoff would flash before
+    Alpine has read the mode without x-cloak. The keyword row is the server-rendered
+    default and stays uncloaked, so the page still searches without JavaScript, and the
+    description row is shown in both modes."""
     form = SearchForm(semantic=True)
     html = render_crispy_form(form, form.query_helper) + render_crispy_form(
         form, form.filters_helper
     )
     tags = [unescape(tag) for tag in re.findall(r"<[^>]*\bx-show=[^>]*>", html)]
-    keyword_rows = [tag for tag in tags if "mode !== 'semantic'" in tag]
-    semantic_only = [tag for tag in tags if "mode === 'semantic'" in tag]
-    assert len(keyword_rows) == 1 and len(semantic_only) == 2, tags
+    keyword_rows = [tag for tag in tags if tag.startswith("<div") and "mode !== 'semantic'" in tag]
+    controls = [tag for tag in tags if tag not in keyword_rows]
+    assert len(keyword_rows) == 1 and len(controls) == 3, tags
     assert not re.search(r"\bx-cloak\b", keyword_rows[0])
-    assert all(re.search(r"\bx-cloak\b", tag) for tag in semantic_only), semantic_only
+    assert all(re.search(r"\bx-cloak\b", tag) for tag in controls), controls

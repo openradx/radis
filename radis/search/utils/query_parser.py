@@ -335,3 +335,33 @@ class QueryParser:
             )
         else:
             raise ValueError(f"Unknown node type: {type(node)}")
+
+    @staticmethod
+    def unparse_positive_terms(node: QueryNode) -> str:
+        """Render the query as a plain bag of its positive terms.
+
+        Drops every ``NOT`` branch, the ``AND``/``OR`` tokens, grouping parentheses
+        and phrase quotes, leaving the words a description of the wanted reports
+        should be about. Returns the empty string when the whole query reduces to
+        ``NOT`` clauses. Used by the search page's description writer.
+        """
+        if isinstance(node, TermNode):
+            # The raw value for both WORD and PHRASE: phrase quotes are query
+            # syntax, not content.
+            return node.value
+        if isinstance(node, ParensNode):
+            return QueryParser.unparse_positive_terms(node.expression)
+        if isinstance(node, UnaryNode):
+            return ""
+        if isinstance(node, BinaryNode):
+            left = QueryParser.unparse_positive_terms(node.left)
+            right = QueryParser.unparse_positive_terms(node.right)
+            if not left and not right:
+                return ""
+            if not left:
+                return right
+            if not right:
+                return left
+            # Always join with a single space — operator tokens are dropped.
+            return f"{left} {right}"
+        raise ValueError(f"Unknown node type: {type(node)}")

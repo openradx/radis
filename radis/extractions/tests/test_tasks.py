@@ -193,7 +193,7 @@ def test_process_extraction_job_with_no_language_matches_each_documents_own_conf
 @pytest.mark.django_db
 def test_extraction_retrieval_never_calls_the_embedding_service(monkeypatch, settings):
     from radis.core.utils.model_spec import parse_model_spec
-    from radis.search.site import FullTextSearch, SearchFilters
+    from radis.search.site import FullTextSearch, SearchFilters, SimilarityRerank
     from radis.search.utils.query_parser import QueryParser
 
     def must_not_embed(text: str, caller: str) -> list[float] | None:
@@ -213,6 +213,7 @@ def test_extraction_retrieval_never_calls_the_embedding_service(monkeypatch, set
     request = FullTextSearch(
         query=node,
         filters=SearchFilters(group=group.pk, language="de"),
+        rerank=SimilarityRerank("free air"),
         offset=0,
         limit=0,
     )
