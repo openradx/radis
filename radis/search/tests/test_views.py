@@ -627,6 +627,10 @@ def test_degraded_full_text_shows_the_warning_and_no_rerank_wording(client: Clie
         response = client.get("/search/", {"query": "chest", "description": "free air"})
     content = _text(response)
     assert "Your description could not be applied (embedding service unavailable)" in content
+    assert (
+        "Your description could not be applied (embedding service unavailable); results are in "
+        "keyword order. Search again to retry."
+    ) in content
     assert "re-ranked by your description" not in content
     assert "Re-rank score:" not in content
     assert "2 reports found" in content
@@ -641,6 +645,9 @@ def test_degraded_semantic_shows_only_the_error(client: Client):
     assert "Semantic search is unavailable right now." in content
     assert "most similar to your description" not in content
     assert "No results found" not in content
+    # An empty result's count line would read "No reports similar to your description".
+    assert "similar to your description" not in content
+    assert "could not be applied" not in content
 
 
 @pytest.mark.django_db
@@ -668,6 +675,14 @@ def test_info_card_explains_the_modes_only_with_the_capability(client: Client):
     assert (
         "A minus sign does not exclude" in with_modes and "A minus sign does not exclude" in without
     )
+    # The write button and the cutoff label render outside the card; this phrase does not.
+    assert "Choose a mode in the search bar" in with_modes
+    assert "Choose a mode in the search bar" not in without
+    not_rule = (
+        "NOT in front of a term means that the term or phrase must not be present. "
+        "A minus sign does not exclude."
+    )
+    assert not_rule in with_modes and not_rule in without
 
 
 @pytest.mark.django_db
@@ -785,3 +800,13 @@ def test_the_rerank_tooltip_names_the_weights_and_the_window(client: Client, two
         'title="0.6 × similarity + 0.4 × keyword rank, each scaled 0–1 within the top 50"'
         in _text(response)
     )
+
+
+@pytest.mark.django_db
+def test_a_described_search_without_hits_has_no_rerank_wording(client: Client):
+    client.force_login(create_test_user_with_active_group())
+    with patch("radis.search.views.search_provider", _provider(_empty())):
+        response = client.get("/search/", {"query": "chest", "description": "free air"})
+    content = _text(response)
+    assert "0 reports found" in content
+    assert "re-ranked by your description" not in content

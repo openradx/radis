@@ -14,7 +14,7 @@
                 {% else %}
                     {% if total_relation == "at_least" %}More than{% endif %}
                     {{ total_count }} report{{ total_count|pluralize }}
-                    {% if not reranked %}
+                    {% if not reranked or total_count == 0 %}
                         found
                     {% elif total_count > window %}
                         found, the top {{ window }} re-ranked by your description, the rest in keyword order
@@ -26,7 +26,8 @@
         </div>
         {% if degraded %}
             <div class="alert alert-warning" role="alert">
-                Your description could not be applied (embedding service unavailable); results are in keyword order. Search again to retry.
+                Your description could not be applied (embedding service unavailable); results are in keyword order.
+                Search again to retry.
             </div>
         {% endif %}
         {% if fixed_query %}
