@@ -559,7 +559,7 @@ only the passage."
   context, never a literal. With no hits the line reads "0 reports found" without the
   re-rank clause, even when a description was given.
 - Count line, semantic. "The N reports most similar to your description", plus "with
-  similarity at least 0.xx" when the effective cutoff is above 0. Zero hits: "No reports
+  similarity at least 0.xxx" when the effective cutoff is above 0. Zero hits: "No reports
   similar to your description" with the same cutoff clause, so the user sees the cutoff
   removed everything.
 - Degraded. Full-text: a warning, "Your description could not be applied (embedding service

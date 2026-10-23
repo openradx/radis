@@ -705,8 +705,8 @@ def test_info_card_explains_the_modes_only_with_the_capability(client: Client):
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize("per_page", ["0", "-1"])
-def test_a_non_positive_page_size_falls_back_to_the_default(client: Client, per_page):
+@pytest.mark.parametrize("per_page", ["0", "-1", "abc"])
+def test_an_unusable_page_size_falls_back_to_the_default(client: Client, per_page):
     client.force_login(create_test_user_with_active_group())
     captured: dict = {}
     with patch("radis.search.views.search_provider", _provider(_empty(), captured=captured)):

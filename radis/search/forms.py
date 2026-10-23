@@ -44,7 +44,7 @@ class SearchForm(forms.Form):
         min_value=0.0,
         max_value=1.0,
         label="Minimum similarity",
-        widget=forms.NumberInput(attrs={"step": "0.01"}),
+        widget=forms.NumberInput(attrs={"step": "0.001"}),
     )
     # Filter fields - language, modalities, labels, and age fields created in __init__
     study_date_from = forms.DateField(

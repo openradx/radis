@@ -289,7 +289,7 @@ def test_no_report_traversal_remains_in_the_candidate_query():
         if "report__" in line
         and "report__body" not in line  # hydration headline, deliberately joined
         and "report__document_id" not in line  # filter() and retrieve(), deliberately joined
-        and "report__modalities" not in line  # hydration prefetch, its own query by id
+        and 'prefetch_related("report__modalities")' not in line  # hydration, own query by id
         and not line.strip().startswith("#")
     ]
 

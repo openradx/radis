@@ -8,7 +8,7 @@ from django.urls import reverse
 
 from radis.search.utils.query_parser import QueryParser
 
-HX_HEADERS = {"HX-Request": "true"}
+HX_HEADERS = {"HX-Request": "true", "HX-Current-URL": "http://testserver/search/?query=x"}
 URL_NAME = "search_description"
 
 
@@ -44,7 +44,8 @@ def test_anonymous_is_redirected_to_login(client: Client, writer):
     textarea with its draft; HX-Redirect makes HTMX load the login page instead."""
     response = _post(client, "pneumothorax")
     assert response.status_code == 200
-    assert response["HX-Redirect"] == "/accounts/login/"
+    # The login form returns the user to the search they were on.
+    assert response["HX-Redirect"] == "/accounts/login/?next=/search/%3Fquery%3Dx"
     writer.assert_not_called()
 
 

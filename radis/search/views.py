@@ -4,10 +4,12 @@ from adit_radis_shared.common.types import AuthenticatedHttpRequest
 from asgiref.sync import sync_to_async
 from django.conf import settings
 from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
+from django.contrib.auth.views import redirect_to_login
 from django.core.exceptions import ImproperlyConfigured, PermissionDenied, SuspiciousOperation
 from django.core.paginator import Paginator
 from django.http import Http404, HttpRequest, HttpResponse
-from django.shortcuts import render, resolve_url
+from django.shortcuts import render
+from django.urls import reverse
 from django.views import View
 from django.views.decorators.http import require_POST
 from django_htmx.http import HttpResponseClientRedirect
@@ -132,7 +134,7 @@ class SearchView(LoginRequiredMixin, UserPassesTestMixin, View):
         try:
             page_size = min(int(page_size), 100)
         except ValueError:
-            page_size = 10
+            page_size = DEFAULT_PAGE_SIZE
         return page_size if page_size >= 1 else DEFAULT_PAGE_SIZE
 
 
@@ -164,7 +166,8 @@ async def description_view(request: AuthenticatedHttpRequest) -> HttpResponse:
         # The XHR would follow a plain redirect, and the login page has no textarea for
         # hx-select to keep, so the swap would delete it with the draft; HX-Redirect
         # makes HTMX load the login page as a whole page instead.
-        return HttpResponseClientRedirect(resolve_url(settings.LOGIN_URL))
+        next_url = request.htmx.current_url_abs_path or reverse("search")
+        return HttpResponseClientRedirect(redirect_to_login(next_url).url)
     if user.active_group_id is None:  # type: ignore[attr-defined]
         raise PermissionDenied
 

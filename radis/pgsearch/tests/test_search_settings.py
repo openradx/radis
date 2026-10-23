@@ -4,6 +4,7 @@ import pytest
 from django.conf import settings
 from django.db import connection
 
+import radis.settings.base as base_settings
 from radis.core.utils.model_spec import parse_model_spec
 
 # The fallback each setting takes when its environment variable is absent.
@@ -37,7 +38,8 @@ def test_the_full_text_cap_is_ten_thousand_hits():
 def test_search_settings_have_expected_defaults(name: str, expected):
     _skip_when_configured(name)
 
-    assert getattr(settings, name) == expected
+    # radis.settings.test pins these knobs, so the fallback is read from the base module.
+    assert getattr(base_settings, name) == expected
 
 
 def test_the_description_prompt_has_a_built_in_default():
