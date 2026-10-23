@@ -18,6 +18,21 @@ DEBUG_TOOLBAR_CONFIG = {"SHOW_TOOLBAR_CALLBACK": lambda request: False}
 # embedding path set EMBEDDINGS_MODEL explicitly and patch the client.
 EMBEDDINGS_MODEL = None
 
+# The suite's numeric assertions assume the shipped defaults of the search knobs, and
+# base.py reads .env outside Docker, so a developer's overrides must not reach the tests.
+# SEARCH_HNSW_EF_SEARCH is not pinned: base.py wires it into the database connection
+# options at import, where a pin here could not follow.
+SEARCH_RANKING_CACHE_TIMEOUT_SECONDS = 300
+SEARCH_RERANK_WINDOW = 1000
+SEARCH_RERANK_SEMANTIC_WEIGHT = 0.7
+SEARCH_SEMANTIC_ITERATIVE_SCAN = True
+SEARCH_SEMANTIC_MIN_SIMILARITY = None
+EMBEDDINGS_QUERY_CACHE_TIMEOUT_SECONDS = 900
+EMBEDDINGS_QUERY_REQUEST_TIMEOUT_SECONDS = 10.0
+SEARCH_DESCRIPTION_TIMEOUT = 10
+SEARCH_DESCRIPTION_MAX_TOKENS = 200
+SEARCH_DESCRIPTION_CACHE_TIMEOUT_SECONDS = 3600
+
 # No real backups as a side effect of tests that run the worker (the periodic
 # backup_db task would fire when a test run crosses its cron time).
 BACKUP_ENABLED = False

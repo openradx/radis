@@ -426,7 +426,7 @@ min_similarity = forms.FloatField(required=False, min_value=0, max_value=1,
 empty mode value means full-text, so the default never appears in the URL: the page's
 `x-ignore-empty-inputs` directive disables empty inputs at submit. `clean_description`
 collapses whitespace. `min_similarity` is not prefilled; its placeholder shows the setting's
-value when one is set ("default 0.30"). `to_filters(group_id)` builds `SearchFilters` from
+value when one is set ("default 0.300", three decimals like the similarities). `to_filters(group_id)` builds `SearchFilters` from
 the cleaned data, so the view builds it in one place. The no-op `form_show_errors` access in
 `__init__` is dropped. The deep link from the extraction preview (query and filter
 parameters, no mode) keeps working because an absent mode is full-text.
@@ -449,8 +449,8 @@ Wording, verbatim: the full-text placeholder is "Optional: describe the reports 
 looking for; the top hits are re-ranked by it", the semantic placeholder is "Describe the
 reports you are looking for", the button label is "Write from keywords", the cutoff field's
 label is "Minimum similarity". Enter in the textarea submits the search
-(`@keydown.enter.exact.prevent="$el.form.requestSubmit()"`, so the submit handlers still
-run); Shift+Enter inserts a newline. An empty `<small id="description_notice">` sits next to
+(`@keydown.enter` with a `shiftKey` check that calls `$el.form.requestSubmit()`, so the
+submit handlers still run; Alpine has no `.exact` modifier); Shift+Enter inserts a newline. An empty `<small id="description_notice">` sits next to
 the button for the endpoint's out-of-band notice. `min_similarity` sits at the bottom of the
 Filters card, `:disabled="mode !== 'semantic'"` so it never rides along in a full-text URL;
 "Reset filters" clears it like every other filter, and an empty field means the setting
@@ -499,10 +499,12 @@ is not degraded), the window size, the weight, the effective cutoff, `result.deg
 ### 6.5 The description endpoint and writer
 
 `POST search/description/`, name `search_description`, in `radis/search/urls.py`. An async
-function view following `chat_update_view`: `@require_POST`, `@login_required`, then an
-inline `if not request.htmx: raise SuspiciousOperation` as the first statement, so an
-anonymous request is redirected and a non-HTMX one gets 400. After `await request.auser()`
-a user without an active group gets `PermissionDenied`, the search page's own gate. The core
+function view following `chat_update_view`: `@require_POST`, then an inline
+`if not request.htmx: raise SuspiciousOperation` as the first statement, so a non-HTMX
+request gets 400. After `await request.auser()` an anonymous request gets an HTMX client
+redirect to the login page (`HX-Redirect`; a plain 302 would make HTMX swap the login page
+into the description row), and a user without an active group gets `PermissionDenied`, the
+search page's own gate. The core
 LLM client is not changed; the spike's sync twin is not ported.
 
 Flow: bind the POST (HTMX includes the enclosing form's enabled inputs; the CSRF header
