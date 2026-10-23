@@ -40,9 +40,17 @@ def _post(client: Client, query: str, description: str = "", htmx: bool = True):
 
 @pytest.mark.django_db
 def test_anonymous_is_redirected_to_login(client: Client, writer):
+    """A plain redirect would be followed by the XHR, and the swap would delete the
+    textarea with its draft; HX-Redirect makes HTMX load the login page instead."""
     response = _post(client, "pneumothorax")
-    assert response.status_code == 302
-    assert "/accounts/login/" in response["Location"]
+    assert response.status_code == 200
+    assert response["HX-Redirect"] == "/accounts/login/"
+    writer.assert_not_called()
+
+
+@pytest.mark.django_db
+def test_an_anonymous_non_htmx_post_gets_400(client: Client, writer):
+    assert _post(client, "pneumothorax", htmx=False).status_code == 400
     writer.assert_not_called()
 
 
@@ -91,8 +99,9 @@ def test_fills_the_textarea_with_the_positive_terms_description(client: Client, 
     content = response.content.decode()
     assert 'id="id_description"' in content
     assert ">Pneumothorax rechts.</textarea>" in content
-    assert 'id="description_notice"' in content and 'hx-swap-oob="true"' in content
-    assert 'hx-swap-oob="true"></small>' in content
+    oob = 'hx-swap-oob="innerHTML:#description_notice"'
+    assert 'id="description_notice"' in content and oob in content
+    assert oob + "></small>" in content
     assert "could not write" not in content
     writer.assert_awaited_once_with("pneumothorax")
 

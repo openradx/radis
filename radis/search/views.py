@@ -3,14 +3,14 @@ from typing import Any
 from adit_radis_shared.common.types import AuthenticatedHttpRequest
 from asgiref.sync import sync_to_async
 from django.conf import settings
-from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
 from django.core.exceptions import ImproperlyConfigured, PermissionDenied, SuspiciousOperation
 from django.core.paginator import Paginator
 from django.http import Http404, HttpRequest, HttpResponse
-from django.shortcuts import render
+from django.shortcuts import render, resolve_url
 from django.views import View
 from django.views.decorators.http import require_POST
+from django_htmx.http import HttpResponseClientRedirect
 from pyparsing import ParseBaseException
 
 from radis.search.forms import DESCRIPTION_MAX_LENGTH, DescriptionRequestForm, SearchForm
@@ -147,7 +147,6 @@ async def _description_response(request: HttpRequest, value: str, notice: str) -
 
 
 @require_POST
-@login_required
 async def description_view(request: AuthenticatedHttpRequest) -> HttpResponse:
     """HTMX endpoint behind "Write from keywords": re-renders the description row
     with an LLM-written passage about the positive keywords, or with a notice.
@@ -161,6 +160,11 @@ async def description_view(request: AuthenticatedHttpRequest) -> HttpResponse:
         raise SuspiciousOperation
 
     user = await request.auser()
+    if not user.is_authenticated:
+        # The XHR would follow a plain redirect, and the login page has no textarea for
+        # hx-select to keep, so the swap would delete it with the draft; HX-Redirect
+        # makes HTMX load the login page as a whole page instead.
+        return HttpResponseClientRedirect(resolve_url(settings.LOGIN_URL))
     if user.active_group_id is None:  # type: ignore[attr-defined]
         raise PermissionDenied
 

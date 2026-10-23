@@ -276,7 +276,7 @@ def test_description_partial_escapes_its_value_and_notice() -> None:
         {"value": "a </textarea><b>", "notice": "Oops <i>"},
     )
     assert ">a &lt;/textarea&gt;&lt;b&gt;</textarea>" in html
-    assert 'hx-swap-oob="true">Oops &lt;i&gt;</small>' in html
+    assert 'hx-swap-oob="innerHTML:#description_notice">Oops &lt;i&gt;</small>' in html
     assert f'maxlength="{DESCRIPTION_MAX_LENGTH}"' in html
 
 

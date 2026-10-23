@@ -1,8 +1,10 @@
+from html.parser import HTMLParser
 from unittest.mock import Mock, patch
 
 import pytest
 from adit_radis_shared.accounts.factories import GroupFactory, UserFactory
 from django.test import Client
+from django.urls import reverse
 
 from radis.reports.factories import LanguageFactory, ModalityFactory, ReportFactory
 from radis.search.site import (
@@ -424,6 +426,25 @@ def _text(response) -> str:
     return " ".join(response.content.decode().split())
 
 
+class _StartTags(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self.tags: list[tuple[str, dict[str, str | None]]] = []
+
+    def handle_starttag(self, tag, attrs) -> None:
+        self.tags.append((tag, dict(attrs)))
+
+
+def _element(response, tag: str, **attrs: str) -> dict[str, str | None]:
+    """The attributes of the one ``tag`` element on the page carrying ``attrs``, with
+    their values unescaped, so assertions ignore attribute order and line breaks."""
+    parser = _StartTags()
+    parser.feed(response.content.decode())
+    found = [a for t, a in parser.tags if t == tag and attrs.items() <= a.items()]
+    assert len(found) == 1, found
+    return found[0]
+
+
 def _provider(result: SearchResult, *, semantic: bool = True, captured: dict | None = None):
     def search(request):
         if captured is not None:
@@ -815,3 +836,44 @@ def test_a_described_search_without_hits_has_no_rerank_wording(client: Client):
     content = _text(response)
     assert "0 reports found" in content
     assert "re-ranked by your description" not in content
+
+
+def _capability_page(client: Client):
+    client.force_login(create_test_user_with_active_group())
+    with patch("radis.search.views.search_provider", _provider(_empty())):
+        return client.get("/search/")
+
+
+@pytest.mark.django_db
+def test_enter_in_the_description_submits_and_shift_enter_does_not(client: Client):
+    textarea = _element(_capability_page(client), "textarea", id="id_description")
+    assert textarea["@keydown.enter"] == (
+        "if (!$event.shiftKey) { $event.preventDefault(); $el.form.requestSubmit() }"
+    )
+    # Alpine 3.15 has no .exact modifier: it reads it as a second key name, so a
+    # handler carrying it never fires.
+    assert not any(".exact" in name for name in textarea)
+
+
+@pytest.mark.django_db
+def test_a_failed_write_request_says_so_in_the_notice(client: Client):
+    button = _element(
+        _capability_page(client), "button", **{"hx-post": reverse("search_description")}
+    )
+    notice = (
+        "document.getElementById('description_notice').textContent = "
+        "'The request failed; please try again.'"
+    )
+    assert button["hx-on::response-error"] == notice
+    assert button["hx-on::send-error"] == notice
+
+
+@pytest.mark.django_db
+def test_the_description_has_a_name_and_its_notice_is_a_live_region(client: Client):
+    page = _capability_page(client)
+    textarea = _element(page, "textarea", id="id_description")
+    assert textarea["aria-label"] == "Description of the reports you are looking for"
+    notice = _element(page, "small", id="description_notice")
+    assert notice["role"] == "status"
+    # The endpoint replaces only the notice's text, so the live region stays in place.
+    assert notice["hx-swap-oob"] == "innerHTML:#description_notice"
