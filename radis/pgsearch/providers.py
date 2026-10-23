@@ -235,12 +235,12 @@ def _embedding_config_key() -> tuple[str, str | None]:
 def _embed_query_or_none(query_text: str, caller: str) -> list[float] | None:
     """Embed the text, or return None to signal a degraded search.
 
-    Search must stay usable when the embedding service doesn't, so every
-    failure falls back — but at different log levels: transient conditions
+    The caller flags a missing vector as degraded, so every failure returns None
+    instead of raising — but at different log levels: transient conditions
     (rate limiting, connection blips, 5xx) are expected under load and log a
     WARNING, while permanent misconfiguration logs a full exception (once per
-    configuration, see _LOGGED_PERMANENT_FAILURE_CONFIGS) so it reaches operators
-    instead of hiding as a silently degraded search."""
+    configuration, see _LOGGED_PERMANENT_FAILURE_CONFIGS) so it reaches operators;
+    the notice on the page does not name the cause."""
     try:
         with EmbeddingClient(timeout=settings.EMBEDDINGS_QUERY_REQUEST_TIMEOUT_SECONDS) as ec:
             return ec.embed_query(query_text)

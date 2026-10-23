@@ -150,8 +150,8 @@ class QueryParser:
         filtering lives on the provider side via ``SearchFilters``. Without
         this step the colon would be silently stripped by
         ``_replace_invalid_characters`` and ``body:pneumonia`` would collapse
-        to ``bodypneumonia``, a meaningless token that pollutes both the FTS
-        tsquery and the dense-embedding text. Drop the whole token instead.
+        to ``bodypneumonia``, a meaningless token that pollutes the FTS tsquery.
+        Drop the whole token instead.
 
         Operates only on unquoted segments so ``"body:pneumonia"`` inside a
         phrase is preserved verbatim.

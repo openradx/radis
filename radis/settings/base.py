@@ -474,8 +474,7 @@ if not EMBEDDINGS_QUERY_REQUEST_TIMEOUT_SECONDS > 0:
 
 
 def _resolve_embeddings_model() -> ModelSpec | None:
-    """The embedding model, or None when no embedding model is configured (full-text
-    only; no semantic mode, no re-rank).
+    """The embedding model, or None when unset (full-text only; no semantic mode, no re-rank).
 
     Unlike the LLM models this one is optional: without it RADIS serves full-text
     search only, which is a complete product rather than a broken one. That makes the
