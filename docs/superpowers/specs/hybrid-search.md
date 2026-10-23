@@ -1,6 +1,7 @@
 # Hybrid Search Design (FTS + Dense Vector via Qwen3-Embedding-4B)
 
 **Status:** Implemented on `feat/hybrid-search` — living document, last synced to code 2026-08-14.
+**Superseded 2026-10-22** by `docs/superpowers/specs/2026-10-22-search-modes-design.md` for §3 steps 1–5, §7.1–§7.4, §7.6–§7.8, §8.2, the query-path rows and the two non-policies of §9, the query-path test rows of §10, §11.5 and §11.7. Hybrid fusion no longer exists; the search page offers a full-text mode with an optional similarity re-rank and a separate semantic mode. The ingestion and embedding pipeline described here (§4–§6, §7.5, §8.1) remains authoritative.
 **Author:** RADIS team (Samuel Kwong)
 **Date:** 2026-05-28
 **History:** Single consolidated spec for hybrid search. The per-increment design docs it absorbed (initial 2026-05-15 design; embedding client OpenAI-SDK migration; pipeline logging; rate-limit gate; rate-limit generalization research; backfill cancel + throughput knobs; shared 429 backoff; admin badge subjob report counts) were removed 2026-07-14 and remain in git history. The consolidated implementation history lives in `docs/superpowers/plans/hybrid-search.md`.

@@ -29,7 +29,7 @@ All settings are read from `.env`; the comments in `example.env` describe every 
 - Email: `DJANGO_EMAIL_URL`, `DJANGO_SERVER_EMAIL`, `DJANGO_ADMIN_EMAIL`, `DJANGO_ADMIN_FULL_NAME`, `SUPPORT_EMAIL`
 - Folders: `BACKUP_DIR` (see [Backups](../backups.md))
 
-Optional tuning: `RADIS_IMAGE` and `STACK_NAME` (a second stack such as staging on the same host), `BACKUP_CRON` and `BACKUP_ENABLED`, `TIME_ZONE`, the `EMBEDDINGS_*` group (see [Embeddings](#embeddings-hybrid-search)), the `LABELING_*` group (see [Auto-Labeling](#auto-labeling)), `ANALYSIS_STALLED_WORKER_GRACE_SECONDS` and `ANALYSIS_SWEEP_CRON` (see [Background Workers](#background-workers-and-crash-recovery)), `OTEL_EXPORTER_OTLP_ENDPOINT`, and `HTTP_PROXY`/`HTTPS_PROXY`/`NO_PROXY` behind a proxy.
+Optional tuning: `RADIS_IMAGE` and `STACK_NAME` (a second stack such as staging on the same host), `BACKUP_CRON` and `BACKUP_ENABLED`, `TIME_ZONE`, the `EMBEDDINGS_*` and `SEARCH_*` groups (see [Embeddings and search](#embeddings-and-search)), the `LABELING_*` group (see [Auto-Labeling](#auto-labeling)), `ANALYSIS_STALLED_WORKER_GRACE_SECONDS` and `ANALYSIS_SWEEP_CRON` (see [Background Workers](#background-workers-and-crash-recovery)), `OTEL_EXPORTER_OTLP_ENDPOINT`, and `HTTP_PROXY`/`HTTPS_PROXY`/`NO_PROXY` behind a proxy.
 
 !!! warning "No quotes in .env"
     Values must not be wrapped in quotes; Docker Swarm treats them as part of the value, and `stack-deploy` refuses to run when it finds any.
@@ -65,30 +65,30 @@ Follow these steps to safely update your RADIS installation:
 4. **Backup database**: Run `uv run cli db-backup` to create a database backup (see [Backups](../backups.md))
 5. **Remove stack**: Run `uv run cli stack-rm` to remove all Docker containers and services
 6. **Pull latest changes**: Run `git pull origin main` to fetch the latest code updates
-7. **Update environment**: Compare `example.env` with your `.env` file and add any new environment variables or update changed values. Pay particular attention to the `LLM_*`, `EMBEDDINGS_*`, `LABELING_*`, and `ANALYSIS_*` groups, which are explained below. Keep `STACK_NAME` unchanged, otherwise a second stack is deployed next to the old one
+7. **Update environment**: Compare `example.env` with your `.env` file and add any new environment variables or update changed values. Pay particular attention to the `LLM_*`, `EMBEDDINGS_*`, `SEARCH_*`, `LABELING_*`, and `ANALYSIS_*` groups, which are explained below. Keep `STACK_NAME` unchanged, otherwise a second stack is deployed next to the old one
 8. **Pull Docker images**: Run `uv run cli compose-pull` to download the latest Docker images
 9. **Deploy stack**: Run `uv run cli stack-deploy` to start all services with the updated image
 10. **Disable maintenance mode**: Uncheck "Maintenance" in **Project settings** and save
 
 Depending on what changed, one of these follow-up steps may be needed after the stack is up:
 
-- If you enabled or changed the embedding model, backfill the vectors of existing reports (see [Embeddings](#embeddings-hybrid-search))
+- If you enabled or changed the embedding model, backfill the vectors of existing reports (see [Embeddings and search](#embeddings-and-search))
 - If you added or changed labels, run a labeling backfill (see [Auto-Labeling](#auto-labeling))
 
 Tasks that were interrupted by the restart are repaired automatically (see [Background Workers](#background-workers-and-crash-recovery)).
 
 ## LLM and Embeddings Configuration
 
-All AI features (chats, extractions, subscriptions, labeling, query generation) send their requests to a single OpenAI-compatible endpoint. RADIS ships no inference server; you point it at one you operate (e.g. Ollama, vLLM, SGLang, an LLM gateway) or at a hosted API. The endpoint must be reachable from inside the containers on every node of the stack; `host.docker.internal` only works in development.
+All AI features (chats, extractions, subscriptions, labeling, query generation, the search page's description writer) send their requests to a single OpenAI-compatible endpoint. RADIS ships no inference server; you point it at one you operate (e.g. Ollama, vLLM, SGLang, an LLM gateway) or at a hosted API. The endpoint must be reachable from inside the containers on every node of the stack; `host.docker.internal` only works in development.
 
 ### LLM Settings
 
 Set these in `.env`:
 
 - `LLM_BASE_URL` (required): Base URL of the endpoint, e.g. `http://llm.internal:11434/v1`
-- `LLM_API_KEY`: API key for the endpoint. Optional; many self-hosted providers ignore it
+- `LLM_API_KEY`: API key for the endpoint. It must be non-empty; a provider that ignores it accepts any placeholder
 - `LLM_DEFAULT_MODEL` (required): The model every feature uses unless overridden
-- `LLM_CHATS_MODEL`, `LLM_QUERY_GENERATION_MODEL`, `LLM_EXTRACTIONS_MODEL`, `LLM_SUBSCRIPTIONS_MODEL`, `LLM_LABELING_MODEL`: Per-feature overrides. Leave blank to use the default model. Useful to spend a stronger model where it matters (e.g. labeling) and a fast one for chat
+- `LLM_CHATS_MODEL`, `LLM_QUERY_GENERATION_MODEL`, `LLM_EXTRACTIONS_MODEL`, `LLM_SUBSCRIPTIONS_MODEL`, `LLM_LABELING_MODEL`: Per-feature overrides. Leave blank to use the default model. Useful to spend a stronger model where it matters (e.g. labeling) and a fast one for chat. `LLM_QUERY_GENERATION_MODEL` also serves the search page's "Write from keywords" button
 
 Every model setting takes the form `model[?param=value&...]`. The parameters are merged into each request body, so both standard fields and provider extensions work:
 
@@ -100,23 +100,36 @@ Values are read as JSON where possible (`temperature=0` sends a number, `reasoni
 
 Request timeout, rate-limit handling, and transient retries have sensible defaults (`LLM_REQUEST_TIMEOUT_SECONDS`, `LLM_RATE_LIMIT_*`, `LLM_TRANSIENT_RETRY_*`); override them only if needed.
 
-### Embeddings (Hybrid Search)
+### Embeddings and search
 
-By default RADIS runs full-text search only. Setting `EMBEDDINGS_MODEL` switches on hybrid search, where full-text and semantic (vector) results are fused into one ranking:
+By default RADIS runs full-text search only. Setting `EMBEDDINGS_MODEL` adds a Semantic mode to the search page (the reports nearest to a description, in similarity order) and lets a description re-order the top full-text hits; full-text stays the default and nothing is fused:
 
 - `EMBEDDINGS_MODEL`: The embedding model, in the same `model[?param=value]` form. Leave empty for full-text search only
 - `EMBEDDINGS_BASE_URL`, `EMBEDDINGS_API_KEY`: Default to `LLM_BASE_URL` and `LLM_API_KEY`. Set them only when embeddings are served from a different endpoint, which is the normal case for vLLM and SGLang since they serve one model per process
 - `EMBEDDINGS_DIM`: Vector width (default `1024`). This is coupled to the database schema: changing it after deployment requires dropping the embedding column, re-migrating, and re-embedding all reports. If the model spec also sets `dimensions`, both must agree; RADIS checks this at startup
-- `EMBEDDINGS_QUERY_INSTRUCTION`: Model-specific instruction prefix for search queries (some models, e.g. Qwen3-Embedding, want one)
+- `EMBEDDINGS_QUERY_INSTRUCTION`: Model-specific instruction prefix for the description text that is embedded (some models, e.g. Qwen3-Embedding, want one)
 - `EMBEDDINGS_QUERY_CACHE_TIMEOUT_SECONDS`: How long a query's vector stays cached (default 900 s). Lower it temporarily after swapping the model, or the old vectors keep serving stale results for up to this long
 
-New and updated reports are embedded automatically by the `embeddings_worker` service. Reports that existed before the model was configured have no vector and are found by full-text search only until you backfill them with the `embed_pending` management command (see [Running Management Commands](#running-management-commands)). It is idempotent and resumable, refuses to start while another backfill is running or `EMBEDDINGS_MODEL` is empty, and takes `--limit` and `--subjob-size` options; `embed_cancel` stops a running backfill.
+New and updated reports are embedded automatically by the `embeddings_worker` service. Reports that existed before the model was configured have no vector and are found by full-text search only until you backfill them with the `embed_pending` management command (see [Running Management Commands](#running-management-commands)). It is idempotent and resumable, refuses to start while another backfill is running or `EMBEDDINGS_MODEL` is empty, and takes `--limit` and `--subjob-size` options; `embed_cancel` stops a running backfill. Until then they never appear in semantic mode and, in a re-ordered full-text search, are listed after the re-ordered hits with the note "not embedded yet".
 
 The same is available in Django Admin under **Pgsearch** → **Report search indexes**: the page shows the state of the embedding pipeline, has a **Cancel queued backfill** button, and offers the actions "Enqueue embedding for selected rows (NULL only)" and "Clear embeddings (NULL them)" on selected reports. **Embedding backfill runs** lists past and current backfills.
 
-When the embedding service is unreachable or rate limiting, searches silently fall back to full-text results and a warning is logged in the `web` service.
+When the embedding service is unreachable or rate limiting, the search is flagged degraded: full-text mode shows a warning and keeps keyword order, semantic mode shows an error instead of a list, and a warning is logged in the `web` service. A query embedding waits at most `EMBEDDINGS_QUERY_REQUEST_TIMEOUT_SECONDS` (10 s by default) plus the rate-limit gate's query budget.
 
 See the [Contributing guide](../dev-docs/contributing.md) for how to run Ollama with a chat and an embedding model, and the troubleshooting sections there for connection problems.
+
+### Search tuning
+
+All optional, with defaults that fit a corpus of a few million reports:
+
+- `SEARCH_HNSW_EF_SEARCH`: HNSW beam width and the number of reports a semantic search lists (default `500`, 1..1000)
+- `SEARCH_SEMANTIC_ITERATIVE_SCAN`: Resume the index scan under selective filters so a small group or a rare modality still fills the list (default `true`, about 2.4× the cost of one pass on unfiltered searches)
+- `SEARCH_SEMANTIC_MIN_SIMILARITY`: Similarity cutoff (0..1) for semantic mode; unset by default because similarities are comparable only within one model and corpus. Try values with the page's "Minimum similarity" field before setting a default
+- `SEARCH_RERANK_WINDOW`, `SEARCH_RERANK_SEMANTIC_WEIGHT`: How many top full-text hits a description re-orders (default `1000`) and the weight of similarity against the keyword rank (default `0.7`; `1` orders the window by similarity alone)
+- `SEARCH_RANKING_CACHE_TIMEOUT_SECONDS`: How long a ranking stays cached (default `300`s, `0` disables); reports created or updated within that time join a cached query's results when it expires
+- `SEARCH_DESCRIPTION_TIMEOUT`, `SEARCH_DESCRIPTION_MAX_TOKENS`, `SEARCH_DESCRIPTION_CACHE_TIMEOUT_SECONDS`, `SEARCH_DESCRIPTION_SYSTEM_PROMPT`: The "Write from keywords" writer; a button press waits at most about twice the timeout (default `10`s)
+
+The production cache table holds rankings, query vectors and written descriptions; it is sized at 2,000 entries (`MAX_ENTRIES` in `radis/settings/production.py`) because Django's default of 300 would evict hot rankings at random.
 
 Step 9 can take much longer than usual when a release ships a data migration.
 The `init` service runs `manage.py migrate` and every other service waits for it

@@ -26,11 +26,12 @@ class AnnotatedReportSearchIndex(ReportSearchIndex):
 def summary_markup(body: str, headline: str, max_words: int = 30) -> SafeString:
     """The excerpt shown on a result card, as HTML-safe markup.
 
-    ``headline`` is the ts_headline output carrying the sentinel markers; when it
-    is empty (no tsquery, or the document did not match it) the first ``max_words``
-    words of the body are shown instead. The text is escaped first, balanced marker
-    pairs then become <em>, and stray markers are dropped, so report text can never
-    contribute markup.
+    ``headline`` is the ts_headline output carrying the sentinel markers. When it is empty
+    (no tsquery ran, as in a semantic search, or the row's language is not among those the
+    query was built for) the first ``max_words`` words of the body are shown instead;
+    ts_headline itself returns a body's opening words when nothing in it matches. The text
+    is escaped first, balanced marker pairs then become <em>, and stray markers are
+    dropped, so report text can never contribute markup.
     """
     text = headline if headline else " ".join(body.split()[:max_words])
     escaped = str(escape(text))

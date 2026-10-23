@@ -554,7 +554,8 @@ only the passage."
   N reports found" when capped. Re-ranked (`reranked` is true) with `total_count` at most the
   window: "N reports found, re-ranked by your description"; above the window: "N reports
   found, the top W re-ranked by your description, the rest in keyword order", W from the
-  context, never a literal.
+  context, never a literal. With no hits the line reads "0 reports found" without the
+  re-rank clause, even when a description was given.
 - Count line, semantic. "The N reports most similar to your description", plus "with
   similarity at least 0.xx" when the effective cutoff is above 0. Zero hits: "No reports
   similar to your description" with the same cutoff clause, so the user sees the cutoff

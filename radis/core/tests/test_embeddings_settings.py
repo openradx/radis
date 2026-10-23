@@ -42,7 +42,7 @@ def test_a_configured_setting_overrides_the_llm_counterpart(clean_embeddings_env
     )
 
 
-def test_no_model_configured_means_hybrid_search_is_off(clean_embeddings_env):
+def test_no_model_configured_means_semantic_search_is_off(clean_embeddings_env):
     assert _resolve_embeddings_model() is None
 
 

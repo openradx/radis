@@ -474,7 +474,8 @@ if not EMBEDDINGS_QUERY_REQUEST_TIMEOUT_SECONDS > 0:
 
 
 def _resolve_embeddings_model() -> ModelSpec | None:
-    """The embedding model, or None when hybrid search is not configured.
+    """The embedding model, or None when no embedding model is configured (full-text
+    only; no semantic mode, no re-rank).
 
     Unlike the LLM models this one is optional: without it RADIS serves full-text
     search only, which is a complete product rather than a broken one. That makes the
@@ -519,10 +520,12 @@ EMBEDDINGS_SUBJOB_SIZE = env.int("EMBEDDINGS_SUBJOB_SIZE", default=1000)
 # parks itself ahead of every later live write without this split.
 EMBEDDINGS_LIVE_PRIORITY = 1
 EMBEDDINGS_BACKFILL_PRIORITY = 0
-# How long a search query's embedding stays in the Django cache. Paginating re-runs the
-# whole search per page, so this is what keeps page 2..n from re-calling the embedding
-# service for the same query text. Vectors are tiny (~8 KB) and deterministic per model
-# config, so the TTL only bounds staleness across model/config changes, not correctness.
+# How long a search query's embedding (a description, or the text of a semantic search)
+# stays in the Django cache. Rankings have their own cache
+# (SEARCH_RANKING_CACHE_TIMEOUT_SECONDS); this one spares the embedding call when a ranking
+# has expired or the same text is searched again with other keywords or filters. Vectors are
+# tiny (~8 KB) and deterministic per model config, so the TTL only bounds staleness across
+# model/config changes, not correctness.
 EMBEDDINGS_QUERY_CACHE_TIMEOUT_SECONDS = env.int(
     "EMBEDDINGS_QUERY_CACHE_TIMEOUT_SECONDS", default=900
 )
