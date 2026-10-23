@@ -12,10 +12,13 @@ from django.views import View
 from radis.search.forms import SearchForm
 from radis.search.utils.query_parser import QueryParser
 
-from .site import FullTextSearch, SearchRequest, SemanticSearch, search_provider
+from .site import FullTextSearch, SearchRequest, SemanticSearch, SimilarityRerank, search_provider
 
 PAGE_SIZES = [10, 25, 50]
 DEFAULT_PAGE_SIZE = 25
+FULL_TEXT_NEEDS_KEYWORDS = (
+    "Full-text mode needs keywords. Switch to Semantic to search by description alone."
+)
 SEMANTIC_NEEDS_DESCRIPTION = "Semantic mode needs a description."
 
 
@@ -52,11 +55,12 @@ class SearchView(LoginRequiredMixin, UserPassesTestMixin, View):
         assert active_group
 
         semantic_mode = form.semantic_mode()
+        description = form.cleaned_data.get("description", "")
         context["mode"] = "semantic" if semantic_mode else "fulltext"
+        context["description"] = description
 
         search: SearchRequest
         if semantic_mode:
-            description = form.cleaned_data["description"]
             if not description:
                 context["mode_notice"] = SEMANTIC_NEEDS_DESCRIPTION
                 return render(request, "search/search.html", context)
@@ -74,11 +78,14 @@ class SearchView(LoginRequiredMixin, UserPassesTestMixin, View):
         else:
             query_node, fixes = QueryParser().parse(form.cleaned_data["query"])
             if query_node is None:
+                if description:
+                    context["mode_notice"] = FULL_TEXT_NEEDS_KEYWORDS
                 return render(request, "search/search.html", context)
             if len(fixes) > 0:
                 context["fixed_query"] = QueryParser.unparse(query_node)
             search = FullTextSearch(
                 query=query_node,
+                rerank=SimilarityRerank(description) if description else None,
                 filters=form.to_filters(active_group.pk),
                 offset=offset,
                 limit=page_size,
@@ -88,6 +95,10 @@ class SearchView(LoginRequiredMixin, UserPassesTestMixin, View):
         context["total_count"] = result.total_count
         context["total_relation"] = result.total_relation
         context["degraded"] = result.degraded
+        context["reranked"] = bool(description) and not semantic_mode and not result.degraded
+        context["window"] = settings.SEARCH_RERANK_WINDOW
+        context["weight"] = settings.SEARCH_RERANK_SEMANTIC_WEIGHT
+        context["weight_complement"] = round(1.0 - settings.SEARCH_RERANK_SEMANTIC_WEIGHT, 2)
 
         # We don't allow to paginate through all results, but the provider tells
         # us how many results it can return

@@ -8,8 +8,8 @@ from django.utils.html import conditional_escape
 
 class QueryInput(TemplateNameMixin):
     """The search row, rendered by ``form_elements/query_input.html``: one keyword input
-    group, or, with a mode field, the mode select beside a keyword row and a description
-    row, of which only the active mode's is shown."""
+    group, or, with a mode field, the mode select beside the keyword row, shown in
+    full-text mode only, and the description row, shown in both modes."""
 
     def __init__(
         self,

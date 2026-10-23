@@ -185,10 +185,9 @@ class SearchForm(forms.Form):
     def clean(self) -> dict[str, Any] | None:
         # The page disables the inactive mode's fields, so a value for them can only come from a
         # hand-made URL or a page without JavaScript; it must neither block the search nor reach
-        # the view.
-        inactive = (
-            {"query": ""} if self.semantic_mode() else {"description": "", "min_similarity": None}
-        )
+        # the view. The description is never inactive: semantic mode searches by it and
+        # full-text mode re-ranks by it.
+        inactive = {"query": ""} if self.semantic_mode() else {"min_similarity": None}
         for name, empty in inactive.items():
             if name in self.fields:
                 self.errors.pop(name, None)

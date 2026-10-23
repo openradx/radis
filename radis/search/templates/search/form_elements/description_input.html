@@ -1,16 +1,17 @@
 {% load bootstrap_icon from common_extras %}
-<div class="input-group"
-     id="description_row"
-     x-cloak
-     x-show="mode === 'semantic'">
+<div class="input-group" id="description_row">
     <textarea name="description"
               id="id_description"
               class="form-control"
               rows="2"
               maxlength="1000"
               aria-label="Description of the reports you are looking for"
-              placeholder="Describe the reports you are looking for"
-              :disabled="mode !== 'semantic'"
+              placeholder="Optional: describe the reports you are looking for; the top hits are re-ranked by it"
+              :placeholder="mode === 'semantic' ? 'Describe the reports you are looking for' : 'Optional: describe the reports you are looking for; the top hits are re-ranked by it'"
               @keydown.enter="if (!$event.shiftKey) { $event.preventDefault(); $el.form.requestSubmit() }">{{ value }}</textarea>
-    <button type="submit" class="btn btn-primary" aria-label="Search">{% bootstrap_icon "search" 20 %}</button>
+    <button type="submit"
+            class="btn btn-primary"
+            aria-label="Search"
+            x-cloak
+            x-show="mode === 'semantic'">{% bootstrap_icon "search" 20 %}</button>
 </div>
