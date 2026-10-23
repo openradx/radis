@@ -16,8 +16,18 @@
         <div class="row">{% crispy form form.query_helper %}</div>
         <div class="row">
             <div class="col">
-                {% if form.non_field_errors %}
-                    <div class="mt-3">{% include "bootstrap5/errors.html" %}</div>
+                {% if form.errors %}
+                    <div class="alert alert-danger mt-3" role="alert">
+                        <ul class="mb-0">
+                            {% for error in form.non_field_errors %}<li>{{ error }}</li>{% endfor %}
+                            {% for field in form %}
+                                {% for error in field.errors %}
+                                    {# A field declared with label=False is named by its field name instead. #}
+                                    <li>{{ field.label|default:field.name|capfirst }}: {{ error }}</li>
+                                {% endfor %}
+                            {% endfor %}
+                        </ul>
+                    </div>
                 {% elif documents != None %}
                     {% include "search/_search_results.html" %}
                 {% else %}

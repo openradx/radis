@@ -9,6 +9,7 @@
     {# The endpoint returns this whole partial; hx-select keeps only the textarea, the <small> swaps out of band. #}
     <button type="button"
             class="btn btn-outline-secondary btn-sm"
+            x-cloak
             x-show="mode !== 'semantic'"
             hx-post="{% url 'search_description' %}"
             hx-target="#id_description"

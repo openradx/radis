@@ -1,3 +1,4 @@
+import re
 from datetime import date
 from html import unescape
 
@@ -288,3 +289,22 @@ def test_description_partial_swaps_only_the_textarea_into_the_page() -> None:
     assert html.count('id="id_description"') == 1
     assert 'hx-target="#id_description"' in html
     assert 'hx-select="#id_description"' in html
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("field", ["age_from", "age_till"])
+def test_an_age_off_the_step_is_a_field_error_not_a_crash(field) -> None:
+    form = SearchForm({field: "15"})
+    assert form.is_valid() is False
+    assert field in form.errors
+
+
+@pytest.mark.django_db
+def test_mode_dependent_controls_are_cloaked_until_alpine_starts() -> None:
+    """The write button and the cutoff are shown by mode; without x-cloak they would flash
+    before Alpine has read the mode."""
+    form = SearchForm(semantic=True)
+    for helper in (form.query_helper, form.filters_helper):
+        tags = re.findall(r"<[^>]*\bx-show=[^>]*>", render_crispy_form(form, helper))
+        assert tags
+        assert all(re.search(r"\bx-cloak\b", tag) for tag in tags), tags

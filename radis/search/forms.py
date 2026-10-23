@@ -127,7 +127,7 @@ class SearchForm(forms.Form):
                         css_class="form-control-sm",
                         **{":disabled": "mode !== 'semantic'"},
                     ),
-                    **{"x-show": "mode === 'semantic'"},
+                    **{"x-show": "mode === 'semantic'", "x-cloak": True},
                 )
             ]
             if "min_similarity" in self.fields
@@ -190,8 +190,9 @@ class SearchForm(forms.Form):
         return age_till
 
     def clean(self) -> dict[str, Any] | None:
-        age_from = self.cleaned_data["age_from"]
-        age_till = self.cleaned_data["age_till"]
+        # An age its own clean method rejected is absent from cleaned_data.
+        age_from = self.cleaned_data.get("age_from")
+        age_till = self.cleaned_data.get("age_till")
 
         if age_from is not None and age_till is not None and age_from >= age_till:
             raise forms.ValidationError("Age from must be less than age till")

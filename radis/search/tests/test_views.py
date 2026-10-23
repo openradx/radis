@@ -679,6 +679,26 @@ def test_page_sizes_are_offered(client: Client):
 
 
 @pytest.mark.django_db
+def test_a_field_error_is_shown_with_the_field_name(client: Client):
+    client.force_login(create_test_user_with_active_group())
+    with patch("radis.search.views.search_provider", _provider(_empty())):
+        response = client.get("/search/", {"query": "a" * 201})
+    assert response.status_code == 200
+    content = _text(response)
+    assert "Query: Ensure this value has at most 200 characters (it has 201)." in content
+    assert 'class="alert alert-danger' in content
+
+
+@pytest.mark.django_db
+def test_a_non_field_error_is_shown(client: Client):
+    client.force_login(create_test_user_with_active_group())
+    with patch("radis.search.views.search_provider", _provider(_empty())):
+        response = client.get("/search/", {"query": "chest", "age_from": "80", "age_till": "30"})
+    assert response.status_code == 200
+    assert "Age from must be less than age till" in _text(response)
+
+
+@pytest.mark.django_db
 @pytest.mark.parametrize("default, override", [(None, None), (0.3, "0")])
 def test_semantic_count_line_without_a_cutoff(
     client: Client, two_reports, settings, default, override
