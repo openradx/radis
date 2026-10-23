@@ -140,6 +140,9 @@ SEARCH_SETTING_DEFAULTS = {
     "SEARCH_RERANK_SEMANTIC_WEIGHT": 0.7,
     "SEARCH_SEMANTIC_MIN_SIMILARITY": None,
     "EMBEDDINGS_QUERY_REQUEST_TIMEOUT_SECONDS": 10.0,
+    "SEARCH_DESCRIPTION_TIMEOUT": 10,
+    "SEARCH_DESCRIPTION_MAX_TOKENS": 200,
+    "SEARCH_DESCRIPTION_CACHE_TIMEOUT_SECONDS": 3600,
 }
 
 
@@ -157,6 +160,9 @@ SEARCH_SETTING_DEFAULTS = {
         ("SEARCH_SEMANTIC_MIN_SIMILARITY", "0.35", 0.35),
         ("SEARCH_SEMANTIC_MIN_SIMILARITY", "1", 1.0),
         ("EMBEDDINGS_QUERY_REQUEST_TIMEOUT_SECONDS", "0.5", 0.5),
+        ("SEARCH_DESCRIPTION_TIMEOUT", "1", 1),
+        ("SEARCH_DESCRIPTION_MAX_TOKENS", "1", 1),
+        ("SEARCH_DESCRIPTION_CACHE_TIMEOUT_SECONDS", "0", 0),
     ],
 )
 def test_a_valid_search_setting_is_read_from_the_environment(
@@ -186,12 +192,15 @@ def test_a_valid_search_setting_is_read_from_the_environment(
         ("EMBEDDINGS_QUERY_REQUEST_TIMEOUT_SECONDS", "0"),
         ("EMBEDDINGS_QUERY_REQUEST_TIMEOUT_SECONDS", "-1"),
         ("EMBEDDINGS_QUERY_REQUEST_TIMEOUT_SECONDS", "nan"),
+        ("SEARCH_DESCRIPTION_TIMEOUT", "0"),
+        ("SEARCH_DESCRIPTION_MAX_TOKENS", "0"),
+        ("SEARCH_DESCRIPTION_CACHE_TIMEOUT_SECONDS", "-1"),
     ],
 )
 def test_an_invalid_search_setting_names_the_setting_at_fault(
     _restore_base_settings_after_reload, monkeypatch, name: str, raw: str
 ):
-    # Otherwise it boots fine and every search fails at runtime.
+    # Otherwise it boots fine and every search or description call fails at runtime.
     monkeypatch.setenv(name, raw)
 
     with pytest.raises(ImproperlyConfigured, match=name):
@@ -209,3 +218,25 @@ def test_a_blank_search_setting_counts_as_unset(
     reloaded = importlib.reload(settings_base)
 
     assert getattr(reloaded, name) == default
+
+
+@pytest.mark.parametrize("raw", ["", "   "])
+def test_a_blank_description_prompt_keeps_the_built_in_default(
+    _restore_base_settings_after_reload, monkeypatch, raw: str
+):
+    # An empty system prompt would make the writer answer without any instruction.
+    monkeypatch.setenv("SEARCH_DESCRIPTION_SYSTEM_PROMPT", raw)
+
+    reloaded = importlib.reload(settings_base)
+
+    assert "radiology reports" in reloaded.SEARCH_DESCRIPTION_SYSTEM_PROMPT
+
+
+def test_a_configured_description_prompt_replaces_the_built_in_default(
+    _restore_base_settings_after_reload, monkeypatch
+):
+    monkeypatch.setenv("SEARCH_DESCRIPTION_SYSTEM_PROMPT", "Write one sentence.")
+
+    reloaded = importlib.reload(settings_base)
+
+    assert reloaded.SEARCH_DESCRIPTION_SYSTEM_PROMPT == "Write one sentence."

@@ -1,17 +1,43 @@
 {% load bootstrap_icon from common_extras %}
-<div class="input-group" id="description_row">
-    <textarea name="description"
-              id="id_description"
-              class="form-control"
-              rows="2"
-              maxlength="1000"
-              aria-label="Description of the reports you are looking for"
-              placeholder="Optional: describe the reports you are looking for; the top hits are re-ranked by it"
-              :placeholder="mode === 'semantic' ? 'Describe the reports you are looking for' : 'Optional: describe the reports you are looking for; the top hits are re-ranked by it'"
-              @keydown.enter="if (!$event.shiftKey) { $event.preventDefault(); $el.form.requestSubmit() }">{{ value }}</textarea>
-    <button type="submit"
-            class="btn btn-primary"
-            aria-label="Search"
-            x-cloak
-            x-show="mode === 'semantic'">{% bootstrap_icon "search" 20 %}</button>
+<div>
+    <div class="input-group" id="description_row">
+        <textarea name="description"
+                  id="id_description"
+                  class="form-control"
+                  rows="2"
+                  maxlength="1000"
+                  aria-label="Description of the reports you are looking for"
+                  placeholder="Optional: describe the reports you are looking for; the top hits are re-ranked by it"
+                  :placeholder="mode === 'semantic' ? 'Describe the reports you are looking for' : 'Optional: describe the reports you are looking for; the top hits are re-ranked by it'"
+                  @keydown.enter="if (!$event.shiftKey) { $event.preventDefault(); $el.form.requestSubmit() }">{{ value }}</textarea>
+        {# The endpoint returns this partial; hx-select keeps only its textarea, and the notice swaps out of band. #}
+        {# The submit button follows, so the input group would square this button's right corners. #}
+        <button type="button"
+                class="btn btn-outline-secondary rounded-end"
+                x-cloak
+                x-show="mode !== 'semantic'"
+                hx-post="{% url 'search_description' %}"
+                hx-target="#id_description"
+                hx-select="#id_description"
+                hx-swap="outerHTML"
+                hx-disabled-elt="this"
+                hx-sync="this:drop"
+                hx-indicator="#description_indicator"
+                hx-on::response-error="document.getElementById('description_notice').textContent = 'The request failed; please try again.'"
+                hx-on::send-error="document.getElementById('description_notice').textContent = 'The request failed; please try again.'">
+            Write from keywords
+            <span id="description_indicator"
+                  class="htmx-indicator spinner-border spinner-border-sm"
+                  role="status"></span>
+        </button>
+        <button type="submit"
+                class="btn btn-primary"
+                aria-label="Search"
+                x-cloak
+                x-show="mode === 'semantic'">{% bootstrap_icon "search" 20 %}</button>
+    </div>
+    <small id="description_notice"
+           class="text-danger"
+           role="status"
+           hx-swap-oob="innerHTML:#description_notice">{{ notice }}</small>
 </div>

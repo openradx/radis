@@ -744,6 +744,40 @@ $fields
 
 Generate the search query:"""
 
+# The "Write from keywords" button on the search page: the LLM (the query_generation
+# feature's model) writes a short report-style passage from the keywords into the
+# description field, where it re-ranks the top full-text hits; the button is hidden in
+# semantic mode, which embeds whatever description is submitted. A user waits on the
+# answer, so the timeout is the gate budget too and there are no transient retries.
+SEARCH_DESCRIPTION_TIMEOUT = _optional_env("SEARCH_DESCRIPTION_TIMEOUT", int, 10)
+if not SEARCH_DESCRIPTION_TIMEOUT > 0:
+    raise ImproperlyConfigured(
+        f"SEARCH_DESCRIPTION_TIMEOUT={SEARCH_DESCRIPTION_TIMEOUT} must be greater than 0."
+    )
+SEARCH_DESCRIPTION_MAX_TOKENS = _optional_env("SEARCH_DESCRIPTION_MAX_TOKENS", int, 200)
+if not SEARCH_DESCRIPTION_MAX_TOKENS > 0:
+    raise ImproperlyConfigured(
+        f"SEARCH_DESCRIPTION_MAX_TOKENS={SEARCH_DESCRIPTION_MAX_TOKENS} must be greater than 0."
+    )
+SEARCH_DESCRIPTION_CACHE_TIMEOUT_SECONDS = _optional_env(
+    "SEARCH_DESCRIPTION_CACHE_TIMEOUT_SECONDS", int, 3600
+)
+if not SEARCH_DESCRIPTION_CACHE_TIMEOUT_SECONDS >= 0:
+    raise ImproperlyConfigured(
+        f"SEARCH_DESCRIPTION_CACHE_TIMEOUT_SECONDS={SEARCH_DESCRIPTION_CACHE_TIMEOUT_SECONDS} "
+        "must be 0 or more; 0 disables the cache."
+    )
+_DEFAULT_SEARCH_DESCRIPTION_SYSTEM_PROMPT = (
+    "You help search a hospital archive of radiology reports. The user gives search "
+    "keywords. Write the short passage (two to three sentences) that a radiology report "
+    "matching those keywords would typically contain in its findings or impression: the "
+    "same language as the keywords, the usual terminology and abbreviations of radiology "
+    "reports, no patient names, no headings and no explanation. Output only the passage."
+)
+SEARCH_DESCRIPTION_SYSTEM_PROMPT = _optional_env(
+    "SEARCH_DESCRIPTION_SYSTEM_PROMPT", str, _DEFAULT_SEARCH_DESCRIPTION_SYSTEM_PROMPT
+)
+
 # The maximum number of reports that can be extracted by one extraction job.
 EXTRACTION_MAXIMUM_REPORTS_COUNT = 25000
 
