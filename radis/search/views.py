@@ -1,6 +1,7 @@
 from typing import Any
 
 from adit_radis_shared.common.types import AuthenticatedHttpRequest
+from django.conf import settings
 from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
 from django.core.exceptions import ImproperlyConfigured
 from django.core.paginator import Paginator
@@ -11,7 +12,13 @@ from django.views import View
 from radis.search.forms import SearchForm
 from radis.search.utils.query_parser import QueryParser
 
-from .site import FullTextSearch, SearchFilters, search_provider
+from .site import FullTextSearch, SearchRequest, SemanticSearch, SimilarityRerank, search_provider
+
+PAGE_SIZES = [10, 25, 50]
+FULL_TEXT_NEEDS_KEYWORDS = (
+    "Full-text mode needs keywords. Switch to Semantic to search by description alone."
+)
+SEMANTIC_NEEDS_DESCRIPTION = "Semantic mode needs a description."
 
 
 class SearchView(LoginRequiredMixin, UserPassesTestMixin, View):
@@ -22,25 +29,14 @@ class SearchView(LoginRequiredMixin, UserPassesTestMixin, View):
         return self.request.user.active_group is not None
 
     def get(self, request: AuthenticatedHttpRequest, *args, **kwargs):
-        form = SearchForm(request.GET)
-        context: dict[str, Any] = {"form": form}
+        if search_provider is None:
+            raise ImproperlyConfigured("Search provider is not configured.")
+
+        form = SearchForm(request.GET, semantic=search_provider.semantic)
+        context: dict[str, Any] = {"form": form, "page_sizes": PAGE_SIZES}
 
         if not form.is_valid():
             return render(request, "search/search.html", context)
-
-        query = form.cleaned_data["query"]
-        language = form.cleaned_data["language"]
-        modalities = form.cleaned_data["modalities"]
-        study_date_from = form.cleaned_data["study_date_from"]
-        study_date_till = form.cleaned_data["study_date_till"]
-        study_description = form.cleaned_data["study_description"]
-        patient_sex = form.cleaned_data["patient_sex"]
-        age_from = form.cleaned_data["age_from"]
-        age_till = form.cleaned_data["age_till"]
-        labels = form.cleaned_data["labels"]
-
-        if search_provider is None:
-            raise ImproperlyConfigured("Search provider is not configured.")
 
         page_number = self.get_page_number(request)
         page_size: int = self.get_page_size(request)
@@ -57,45 +53,61 @@ class SearchView(LoginRequiredMixin, UserPassesTestMixin, View):
         # TODO: when no active group is selected show user a error
         assert active_group
 
-        query_node, fixes = QueryParser().parse(query)
+        semantic_mode = form.semantic_mode()
+        description = form.cleaned_data.get("description", "")
+        context["mode"] = "semantic" if semantic_mode else "fulltext"
+        context["description"] = description
 
-        if query_node is not None:
-            if len(fixes) > 0:
-                context["fixed_query"] = QueryParser.unparse(query_node)
-
-            search = FullTextSearch(
-                query=query_node,
-                filters=SearchFilters(
-                    group=active_group.pk,
-                    language=language,
-                    modalities=modalities,
-                    study_date_from=study_date_from,
-                    study_date_till=study_date_till,
-                    study_description=study_description,
-                    patient_sex=patient_sex,
-                    patient_age_from=age_from,
-                    patient_age_till=age_till,
-                    labels=labels,
-                ),
+        search: SearchRequest
+        if semantic_mode:
+            if not description:
+                context["mode_notice"] = SEMANTIC_NEEDS_DESCRIPTION
+                return render(request, "search/search.html", context)
+            search = SemanticSearch(
+                text=description,
+                min_similarity=form.cleaned_data.get("min_similarity"),
+                filters=form.to_filters(active_group.pk),
                 offset=offset,
                 limit=page_size,
             )
-            result = search_provider.search(search)
-            total_count = result.total_count
+            cutoff = search.min_similarity
+            if cutoff is None:
+                cutoff = settings.SEARCH_SEMANTIC_MIN_SIMILARITY
+            context["cutoff"] = cutoff
+        else:
+            # In semantic mode the keyword field is only read-only on the page, so the
+            # URL may still carry it; it is only parsed here, in full-text mode.
+            query_node, fixes = QueryParser().parse(form.cleaned_data["query"])
+            if query_node is None:
+                if description:
+                    context["mode_notice"] = FULL_TEXT_NEEDS_KEYWORDS
+                return render(request, "search/search.html", context)
+            if len(fixes) > 0:
+                context["fixed_query"] = QueryParser.unparse(query_node)
+            search = FullTextSearch(
+                query=query_node,
+                rerank=SimilarityRerank(description) if description else None,
+                filters=form.to_filters(active_group.pk),
+                offset=offset,
+                limit=page_size,
+            )
 
-            if total_count is not None:
-                context["total_count"] = total_count
-                context["total_relation"] = result.total_relation
+        result = search_provider.search(search)
+        context["total_count"] = result.total_count
+        context["total_relation"] = result.total_relation
+        context["degraded"] = result.degraded
+        context["reranked"] = bool(description) and not semantic_mode and not result.degraded
+        context["window"] = settings.SEARCH_RERANK_WINDOW
+        context["weight"] = settings.SEARCH_RERANK_SEMANTIC_WEIGHT
+        context["weight_complement"] = round(1.0 - settings.SEARCH_RERANK_SEMANTIC_WEIGHT, 2)
 
-                # We don't allow to paginate through all results, but the provider tells
-                # us how many results it can return
-                max_size = min(total_count, search_provider.max_results)
-                paginator = Paginator(range(max_size), page_size)
-                context["paginator"] = paginator
-                context["page_obj"] = paginator.get_page(page_number)
-
-            context["form"] = form
-            context["documents"] = result.documents
+        # We don't allow to paginate through all results, but the provider tells
+        # us how many results it can return
+        max_size = min(result.total_count, search_provider.max_results)
+        paginator = Paginator(range(max_size), page_size)
+        context["paginator"] = paginator
+        context["page_obj"] = paginator.get_page(page_number)
+        context["documents"] = result.documents
 
         return render(request, "search/search.html", context)
 

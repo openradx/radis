@@ -5,7 +5,14 @@ from adit_radis_shared.accounts.factories import GroupFactory, UserFactory
 from django.test import Client
 
 from radis.reports.factories import LanguageFactory, ModalityFactory, ReportFactory
-from radis.search.site import ReportDocument, Search, SearchProvider, SearchResult
+from radis.search.site import (
+    FullTextSearch,
+    ReportDocument,
+    Search,
+    SearchProvider,
+    SearchResult,
+    SemanticSearch,
+)
 
 
 def create_test_user_with_active_group():
@@ -328,7 +335,7 @@ def test_search_view_form_validation_errors(client: Client):
 
 @pytest.mark.django_db
 def test_search_view_returns_200_when_embedding_model_unset(client: Client, settings):
-    """SearchView returns 200 via FTS-only fallback when EMBEDDINGS_MODEL is unset."""
+    """SearchView renders the plain full-text page when EMBEDDINGS_MODEL is unset."""
     from django.conf import settings as django_settings
 
     settings.EMBEDDINGS_MODEL = None
@@ -339,6 +346,7 @@ def test_search_view_returns_200_when_embedding_model_unset(client: Client, sett
     client.force_login(user)
     response = client.get("/search/?query=pneumothorax")
     assert response.status_code == 200
+    assert "mode" not in response.context["form"].fields
 
 
 @pytest.mark.django_db
@@ -399,3 +407,361 @@ def test_summaries_are_autoescaped_unless_the_provider_marks_them_safe(client: C
     content = response.content.decode()
     assert "&lt;b&gt;plain&lt;/b&gt;" in content
     assert "<em>safe</em>" in content
+
+
+def _document(
+    report, *, relevance: float | None = 0.5, similarity=None, score=0.0, summary="Summary"
+):
+    return ReportDocument(
+        relevance=relevance,
+        document_id=report.document_id,
+        pacs_name=report.pacs_name,
+        pacs_link=report.pacs_link,
+        patient_age=report.patient_age,
+        patient_sex=report.patient_sex,
+        study_description=report.study_description,
+        modalities=["CT"],
+        summary=summary,
+    )._replace(similarity=similarity, score=score)
+
+
+def _text(response) -> str:
+    """The rendered page with whitespace collapsed, so phrases split across template
+    lines can be asserted as one string."""
+    return " ".join(response.content.decode().split())
+
+
+def _provider(result: SearchResult, *, semantic: bool = True, captured: dict | None = None):
+    def search(request):
+        if captured is not None:
+            captured["request"] = request
+        return result
+
+    return SearchProvider(name="Stub", search=search, max_results=1000, semantic=semantic)
+
+
+def _empty(degraded: bool = False) -> SearchResult:
+    return SearchResult(total_count=0, total_relation="exact", documents=[], degraded=degraded)
+
+
+@pytest.fixture
+def two_reports(db):
+    language = LanguageFactory.create(code="en")
+    return [
+        ReportFactory.create(document_id=f"MODE_{i}", language=language, pacs_link="http://pacs")
+        for i in (1, 2)
+    ]
+
+
+@pytest.mark.django_db
+def test_mode_fields_exist_only_with_the_capability(client: Client):
+    client.force_login(create_test_user_with_active_group())
+    with patch("radis.search.views.search_provider", _provider(_empty(), semantic=True)):
+        with_fields = client.get("/search/").context["form"].fields
+    with patch("radis.search.views.search_provider", _provider(_empty(), semantic=False)):
+        without = client.get("/search/").context["form"].fields
+    assert (
+        "mode" in with_fields and "description" in with_fields and "min_similarity" in with_fields
+    )
+    assert "mode" not in without and "description" not in without
+
+
+@pytest.mark.django_db
+def test_semantic_mode_builds_a_semantic_search_and_ignores_the_keywords(client: Client):
+    client.force_login(create_test_user_with_active_group())
+    captured: dict = {}
+    with patch("radis.search.views.search_provider", _provider(_empty(), captured=captured)):
+        response = client.get(
+            "/search/",
+            {
+                "mode": "semantic",
+                "description": "free  air",
+                "query": "ignored",
+                "min_similarity": "0.4",
+            },
+        )
+    assert response.status_code == 200
+    request = captured["request"]
+    assert isinstance(request, SemanticSearch)
+    assert request.text == "free air"
+    assert request.min_similarity == 0.4
+    assert response.context["mode"] == "semantic"
+
+
+@pytest.mark.django_db
+def test_full_text_with_a_description_builds_a_rerank(client: Client):
+    client.force_login(create_test_user_with_active_group())
+    captured: dict = {}
+    with patch("radis.search.views.search_provider", _provider(_empty(), captured=captured)):
+        client.get("/search/", {"query": "chest", "description": "free air"})
+    request = captured["request"]
+    assert isinstance(request, FullTextSearch)
+    assert request.rerank is not None and request.rerank.text == "free air"
+
+
+@pytest.mark.django_db
+def test_full_text_without_a_description_has_no_rerank(client: Client):
+    client.force_login(create_test_user_with_active_group())
+    captured: dict = {}
+    with patch("radis.search.views.search_provider", _provider(_empty(), captured=captured)):
+        client.get("/search/", {"query": "chest"})
+    assert captured["request"].rerank is None
+
+
+@pytest.mark.django_db
+def test_semantic_mode_without_a_description_shows_the_notice(client: Client):
+    client.force_login(create_test_user_with_active_group())
+    captured: dict = {}
+    with patch("radis.search.views.search_provider", _provider(_empty(), captured=captured)):
+        response = client.get("/search/", {"mode": "semantic", "query": "chest"})
+    assert "request" not in captured
+    assert response.context["mode_notice"] == "Semantic mode needs a description."
+    assert "documents" not in response.context
+
+
+@pytest.mark.django_db
+def test_full_text_with_a_description_but_no_keywords_shows_the_notice(client: Client):
+    client.force_login(create_test_user_with_active_group())
+    captured: dict = {}
+    with patch("radis.search.views.search_provider", _provider(_empty(), captured=captured)):
+        response = client.get("/search/", {"description": "free air"})
+    assert "request" not in captured
+    assert response.context["mode_notice"] == (
+        "Full-text mode needs keywords. Switch to Semantic to search by description alone."
+    )
+
+
+@pytest.mark.django_db
+def test_semantic_url_without_the_capability_runs_full_text(client: Client):
+    client.force_login(create_test_user_with_active_group())
+    captured: dict = {}
+    provider = _provider(_empty(), semantic=False, captured=captured)
+    with patch("radis.search.views.search_provider", provider):
+        response = client.get(
+            "/search/", {"mode": "semantic", "description": "x", "query": "chest"}
+        )
+    assert response.status_code == 200
+    assert isinstance(captured["request"], FullTextSearch)
+    assert captured["request"].rerank is None
+
+
+@pytest.mark.django_db
+def test_page_beyond_a_short_semantic_list_is_clamped(client: Client, two_reports):
+    client.force_login(create_test_user_with_active_group())
+    result = SearchResult(total_count=2, total_relation="exact", documents=[], degraded=False)
+    with patch("radis.search.views.search_provider", _provider(result)):
+        response = client.get("/search/", {"mode": "semantic", "description": "x", "page": "3"})
+    assert response.status_code == 200
+    assert response.context["page_obj"].number == 1
+
+
+@pytest.mark.django_db
+def test_count_line_below_the_window(client: Client, two_reports):
+    client.force_login(create_test_user_with_active_group())
+    documents = [_document(r, similarity=0.9, score=0.8) for r in two_reports]
+    result = SearchResult(total_count=2, total_relation="exact", documents=documents)
+    with patch("radis.search.views.search_provider", _provider(result)):
+        response = client.get("/search/", {"query": "chest", "description": "free air"})
+    content = _text(response)
+    assert "2 reports found, re-ranked by your description" in content
+    assert "Re-rank score:" in content
+    assert "Similarity:" in content
+
+
+@pytest.mark.django_db
+def test_count_line_above_the_window(client: Client, two_reports, settings):
+    settings.SEARCH_RERANK_WINDOW = 1
+    client.force_login(create_test_user_with_active_group())
+    documents = [_document(two_reports[0], similarity=0.9, score=0.8), _document(two_reports[1])]
+    result = SearchResult(total_count=2, total_relation="exact", documents=documents)
+    with patch("radis.search.views.search_provider", _provider(result)):
+        response = client.get("/search/", {"query": "chest", "description": "free air"})
+    content = _text(response)
+    assert (
+        "2 reports found, the top 1 re-ranked by your description, the rest in keyword order"
+        in content
+    )
+    assert content.count("Re-rank score:") == 1
+
+
+@pytest.mark.django_db
+def test_count_line_when_capped(client: Client):
+    client.force_login(create_test_user_with_active_group())
+    result = SearchResult(total_count=10000, total_relation="at_least", documents=[])
+    with patch("radis.search.views.search_provider", _provider(result)):
+        response = client.get("/search/", {"query": "chest"})
+    assert "More than 10000 reports found" in _text(response)
+
+
+@pytest.mark.django_db
+def test_semantic_count_line_names_the_cutoff(client: Client, two_reports, settings):
+    settings.SEARCH_SEMANTIC_MIN_SIMILARITY = 0.3
+    client.force_login(create_test_user_with_active_group())
+    documents = [_document(r, relevance=None, similarity=0.7, score=0.7) for r in two_reports]
+    result = SearchResult(total_count=2, total_relation="exact", documents=documents)
+    with patch("radis.search.views.search_provider", _provider(result)):
+        response = client.get("/search/", {"mode": "semantic", "description": "free air"})
+    content = _text(response)
+    assert "The 2 reports most similar to your description with similarity at least 0.30" in content
+    assert "Full-text rank:" not in content
+    assert "Re-rank score:" not in content
+    assert "Similarity:" in content
+
+
+@pytest.mark.django_db
+def test_semantic_zero_hits(client: Client):
+    client.force_login(create_test_user_with_active_group())
+    with patch("radis.search.views.search_provider", _provider(_empty())):
+        response = client.get("/search/", {"mode": "semantic", "description": "free air"})
+    content = _text(response)
+    assert "No reports similar to your description" in content
+    assert "No results found" not in content
+
+
+@pytest.mark.django_db
+def test_degraded_full_text_shows_the_warning_and_no_rerank_wording(client: Client, two_reports):
+    client.force_login(create_test_user_with_active_group())
+    documents = [_document(r, score=0.5) for r in two_reports]
+    result = SearchResult(total_count=2, total_relation="exact", documents=documents, degraded=True)
+    with patch("radis.search.views.search_provider", _provider(result)):
+        response = client.get("/search/", {"query": "chest", "description": "free air"})
+    content = _text(response)
+    assert "Your description could not be applied (embedding service unavailable)" in content
+    assert "re-ranked by your description" not in content
+    assert "Re-rank score:" not in content
+    assert "2 reports found" in content
+
+
+@pytest.mark.django_db
+def test_degraded_semantic_shows_only_the_error(client: Client):
+    client.force_login(create_test_user_with_active_group())
+    with patch("radis.search.views.search_provider", _provider(_empty(degraded=True))):
+        response = client.get("/search/", {"mode": "semantic", "description": "free air"})
+    content = _text(response)
+    assert "Semantic search is unavailable right now." in content
+    assert "most similar to your description" not in content
+    assert "No results found" not in content
+
+
+@pytest.mark.django_db
+def test_a_window_hit_without_a_vector_says_so(client: Client, two_reports):
+    client.force_login(create_test_user_with_active_group())
+    documents = [
+        _document(two_reports[0], similarity=0.9, score=0.8),
+        _document(two_reports[1], score=0.4),
+    ]
+    result = SearchResult(total_count=2, total_relation="exact", documents=documents)
+    with patch("radis.search.views.search_provider", _provider(result)):
+        response = client.get("/search/", {"query": "chest", "description": "free air"})
+    assert "Similarity: not available (report not embedded yet)" in _text(response)
+
+
+@pytest.mark.django_db
+def test_info_card_explains_the_modes_only_with_the_capability(client: Client):
+    client.force_login(create_test_user_with_active_group())
+    with patch("radis.search.views.search_provider", _provider(_empty(), semantic=True)):
+        with_modes = _text(client.get("/search/"))
+    with patch("radis.search.views.search_provider", _provider(_empty(), semantic=False)):
+        without = _text(client.get("/search/"))
+    assert "Write from keywords" in with_modes and "Minimum similarity" in with_modes
+    assert "Write from keywords" not in without
+    assert (
+        "A minus sign does not exclude" in with_modes and "A minus sign does not exclude" in without
+    )
+
+
+@pytest.mark.django_db
+def test_page_sizes_are_offered(client: Client):
+    client.force_login(create_test_user_with_active_group())
+    with patch("radis.search.views.search_provider", _provider(_empty())):
+        response = client.get("/search/", {"query": "chest"})
+    assert response.context["page_sizes"] == [10, 25, 50]
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("default, override", [(None, None), (0.3, "0")])
+def test_semantic_count_line_without_a_cutoff(
+    client: Client, two_reports, settings, default, override
+):
+    """No clause when the effective cutoff is 0 or unset; an explicit 0 beats the default."""
+    settings.SEARCH_SEMANTIC_MIN_SIMILARITY = default
+    client.force_login(create_test_user_with_active_group())
+    documents = [_document(r, relevance=None, similarity=0.7, score=0.7) for r in two_reports]
+    result = SearchResult(total_count=2, total_relation="exact", documents=documents)
+    params = {"mode": "semantic", "description": "free air"}
+    if override is not None:
+        params["min_similarity"] = override
+    with patch("radis.search.views.search_provider", _provider(result)):
+        response = client.get("/search/", params)
+    content = _text(response)
+    assert "The 2 reports most similar to your description" in content
+    assert "with similarity at least" not in content
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "params, notice",
+    [
+        ({"mode": "semantic", "query": "chest"}, "Semantic mode needs a description."),
+        (
+            {"description": "free air"},
+            "Full-text mode needs keywords. Switch to Semantic to search by description alone.",
+        ),
+        ({}, None),
+    ],
+)
+def test_a_notice_renders_above_the_info_card(client: Client, params, notice):
+    client.force_login(create_test_user_with_active_group())
+    with patch("radis.search.views.search_provider", _provider(_empty())):
+        response = client.get("/search/", params)
+    content = _text(response)
+    assert "Search Info" in content
+    if notice is None:
+        assert "mode_notice" not in response.context
+        assert "alert-info" not in content
+    else:
+        assert content.index(notice) < content.index("Search Info")
+
+
+@pytest.mark.django_db
+def test_the_window_boundary_is_inclusive(client: Client, two_reports, settings):
+    settings.SEARCH_RERANK_WINDOW = 2
+    client.force_login(create_test_user_with_active_group())
+    documents = [_document(two_reports[0], similarity=0.9, score=0.8), _document(two_reports[1])]
+    result = SearchResult(total_count=2, total_relation="exact", documents=documents)
+    with patch("radis.search.views.search_provider", _provider(result)):
+        response = client.get("/search/", {"query": "chest", "description": "free air"})
+    content = _text(response)
+    assert "2 reports found, re-ranked by your description" in content
+    assert "the rest in keyword order" not in content
+    assert "Similarity: not available (report not embedded yet)" in content
+
+
+@pytest.mark.django_db
+def test_window_positions_count_across_pages(client: Client, two_reports, settings):
+    settings.SEARCH_RERANK_WINDOW = 1
+    client.force_login(create_test_user_with_active_group())
+    result = SearchResult(
+        total_count=2, total_relation="exact", documents=[_document(two_reports[1])]
+    )
+    params = {"query": "chest", "description": "free air", "page": "2", "per_page": "1"}
+    with patch("radis.search.views.search_provider", _provider(result)):
+        response = client.get("/search/", params)
+    content = _text(response)
+    assert "Result: #2" in content
+    assert "not available" not in content
+
+
+@pytest.mark.django_db
+def test_the_rerank_tooltip_names_the_weights_and_the_window(client: Client, two_reports, settings):
+    settings.SEARCH_RERANK_WINDOW = 50
+    settings.SEARCH_RERANK_SEMANTIC_WEIGHT = 0.6
+    client.force_login(create_test_user_with_active_group())
+    documents = [_document(two_reports[0], similarity=0.9, score=0.8)]
+    result = SearchResult(total_count=1, total_relation="exact", documents=documents)
+    with patch("radis.search.views.search_provider", _provider(result)):
+        response = client.get("/search/", {"query": "chest", "description": "free air"})
+    assert (
+        'title="0.6 × similarity + 0.4 × keyword rank, each scaled 0–1 within the top 50"'
+        in _text(response)
+    )

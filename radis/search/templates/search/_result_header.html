@@ -10,17 +10,27 @@
         </div>
     </div>
     <div>
-        <div class="d-flex flex-column">
+        <div class="d-flex flex-column text-end">
             <small>Result: #{{ counter|add:offset }}</small>
-            <small title="PostgreSQL full-text ts_rank; 0 for vector-only hits">
-                FTS rank: {{ document.relevance|floatformat:3 }}
-            </small>
-            <small title="pgvector cosine distance from the query embedding (lower = more similar)">
-                Cosine dist: {{ document.cosine_distance|floatformat:3|default:"—" }}
-            </small>
-            <small title="Reciprocal Rank Fusion score; this determines the result ordering">
-                RRF score: {{ document.rrf_score|floatformat:4 }}
-            </small>
+            {% if document.relevance != None %}
+                <small title="PostgreSQL full-text ts_rank of the keyword query">
+                    Full-text rank: {{ document.relevance|floatformat:3 }}
+                </small>
+            {% endif %}
+            {% if document.similarity != None %}
+                <small title="Cosine similarity between your description and the report (1 = identical)">
+                    Similarity: {{ document.similarity|floatformat:3 }}
+                </small>
+                {% if reranked %}
+                    <small title="{{ weight }} × similarity + {{ weight_complement }} × keyword rank, each scaled 0–1 within the top {{ window }}">
+                        Re-rank score: {{ document.score|floatformat:3 }}
+                    </small>
+                {% endif %}
+            {% elif reranked and counter|add:offset <= window %}
+                <small title="Newly imported reports are embedded in the background; until then they rank by keywords only">
+                    Similarity: not available (report not embedded yet)
+                </small>
+            {% endif %}
         </div>
     </div>
 </div>

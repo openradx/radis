@@ -21,6 +21,9 @@
                 {% elif documents != None %}
                     {% include "search/_search_results.html" %}
                 {% else %}
+                    {% if mode_notice %}
+                        <div class="alert alert-info mt-3" role="alert">{{ mode_notice }}</div>
+                    {% endif %}
                     {% include "search/_search_info.html" %}
                 {% endif %}
             </div>
