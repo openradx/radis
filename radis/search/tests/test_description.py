@@ -1,6 +1,7 @@
 import logging
 from unittest.mock import AsyncMock, patch
 
+import openai
 import pytest
 
 from radis.chats.utils.testing_helpers import make_connection_error
@@ -82,6 +83,24 @@ async def test_failures_degrade_to_none_and_are_not_cached(llm, failure, caplog)
 
 
 @pytest.mark.asyncio
+async def test_a_client_that_cannot_be_built_degrades_to_none(llm, caplog):
+    """The OpenAI client refuses to construct without an API key."""
+    client_cls, client = llm
+    client_cls.side_effect = [openai.OpenAIError("Missing credentials"), client]
+
+    with caplog.at_level(logging.WARNING, logger="radis.search.utils.description"):
+        first = await writer.write_description("pneumothorax")
+    second = await writer.write_description("pneumothorax")
+
+    assert first is None
+    assert "description writer failed: Missing credentials" in caplog.text
+    # Nothing was cached, so the next request asks the LLM.
+    assert second == CLEANED
+    assert client.chat.call_count == 1
+    client.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_blank_terms_never_call_the_llm(llm):
     assert await writer.write_description("   ") is None
     _, client = llm
@@ -89,12 +108,21 @@ async def test_blank_terms_never_call_the_llm(llm):
 
 
 @pytest.mark.asyncio
-async def test_a_blank_answer_counts_as_failure(llm):
+@pytest.mark.parametrize("blank", ['""', '" "'])
+async def test_a_blank_answer_counts_as_failure(llm, blank):
     _, client = llm
-    client.chat.side_effect = ['""', ANSWER]
+    client.chat.side_effect = [blank, ANSWER]
 
     assert await writer.write_description("pneumothorax") is None
     assert await writer.write_description("pneumothorax") == CLEANED
+
+
+@pytest.mark.asyncio
+async def test_a_multi_line_answer_collapses_to_single_spaces(llm):
+    _, client = llm
+    client.chat.return_value = '  "Kleiner Pneumothorax.\n\n  Kein   Erguss."\n'
+
+    assert await writer.write_description("pneumothorax") == "Kleiner Pneumothorax. Kein Erguss."
 
 
 @pytest.mark.asyncio

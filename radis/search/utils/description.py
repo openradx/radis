@@ -58,8 +58,10 @@ async def write_description(terms: str) -> str | None:
     if cached is not None:
         return cached
 
-    client = AsyncChatClient(LLM_FEATURE, timeout=settings.SEARCH_DESCRIPTION_TIMEOUT)
+    client: AsyncChatClient | None = None
     try:
+        # Inside the try: the OpenAI client refuses to construct without an API key.
+        client = AsyncChatClient(LLM_FEATURE, timeout=settings.SEARCH_DESCRIPTION_TIMEOUT)
         answer = await client.chat(
             [
                 {"role": "system", "content": settings.SEARCH_DESCRIPTION_SYSTEM_PROMPT},
@@ -73,9 +75,10 @@ async def write_description(terms: str) -> str | None:
         logger.warning("The description writer failed: %s", exc)
         return None
     finally:
-        await client.close()
+        if client is not None:
+            await client.close()
 
-    description = " ".join(answer.split()).strip().strip('"')
+    description = " ".join(answer.split()).strip('"').strip()
     if not description:
         return None
     await cache.aset(key, description, timeout=settings.SEARCH_DESCRIPTION_CACHE_TIMEOUT_SECONDS)
