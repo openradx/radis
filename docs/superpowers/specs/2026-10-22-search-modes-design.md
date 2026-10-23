@@ -418,7 +418,7 @@ mode = forms.ChoiceField(required=False, choices=[("", "Full-text"), ("semantic"
 description = forms.CharField(required=False, label=False, max_length=1000,
                               widget=forms.Textarea(attrs={"rows": 2}))
 min_similarity = forms.FloatField(required=False, min_value=0, max_value=1,
-                                  widget=forms.NumberInput(attrs={"step": "0.01"}))
+                                  widget=forms.NumberInput(attrs={"step": "0.001"}))
 ```
 
 `SearchForm.__init__(data, *, semantic: bool = False)` deletes `mode`, `description` and
