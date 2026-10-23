@@ -841,10 +841,11 @@ def test_each_mode_shows_its_own_row_and_disables_the_other(client: Client):
     [
         ({"mode": "semantic", "description": "free air", "query": "a" * 201}, SemanticSearch),
         ({"query": "chest", "description": "a" * 1001}, FullTextSearch),
+        ({"query": "chest", "min_similarity": "5"}, FullTextSearch),
     ],
-    ids=["semantic", "full-text"],
+    ids=["semantic", "full-text", "full-text-cutoff"],
 )
-def test_an_over_long_inactive_field_does_not_stop_the_search(client: Client, params, request_type):
+def test_an_invalid_inactive_field_does_not_stop_the_search(client: Client, params, request_type):
     client.force_login(create_test_user_with_active_group())
     captured: dict = {}
     with patch("radis.search.views.search_provider", _provider(_empty(), captured=captured)):

@@ -183,12 +183,16 @@ class SearchForm(forms.Form):
         return age_till
 
     def clean(self) -> dict[str, Any] | None:
-        # The page disables the inactive mode's field, so a value for it can only come from a
-        # hand-made URL; it must neither block the search nor reach the view.
-        inactive = "query" if self.semantic_mode() else "description"
-        if inactive in self.fields:
-            self.errors.pop(inactive, None)
-            self.cleaned_data[inactive] = ""
+        # The page disables the inactive mode's fields, so a value for them can only come from a
+        # hand-made URL or a page without JavaScript; it must neither block the search nor reach
+        # the view.
+        inactive = (
+            {"query": ""} if self.semantic_mode() else {"description": "", "min_similarity": None}
+        )
+        for name, empty in inactive.items():
+            if name in self.fields:
+                self.errors.pop(name, None)
+                self.cleaned_data[name] = empty
 
         # An age its own clean method rejected is absent from cleaned_data.
         age_from = self.cleaned_data.get("age_from")

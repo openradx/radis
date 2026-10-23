@@ -159,6 +159,14 @@ def test_full_text_mode_ignores_the_description_field() -> None:
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize("value", ["5", "abc"])
+def test_full_text_mode_ignores_the_cutoff(value) -> None:
+    form = SearchForm({"query": "chest", "min_similarity": value}, semantic=True)
+    assert form.is_valid(), form.errors
+    assert form.cleaned_data["min_similarity"] is None
+
+
+@pytest.mark.django_db
 def test_query_over_200_characters_is_invalid() -> None:
     form = SearchForm({"query": "a" * 201})
     assert not form.is_valid()

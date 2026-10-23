@@ -426,7 +426,8 @@ applies.
 ```python
 query = forms.CharField(required=False, label=False, max_length=200)   # server-side cap, was widget-only
 mode = forms.ChoiceField(required=False, choices=[("", "Full-text"), ("semantic", "Semantic")])
-description = forms.CharField(required=False, label=False, max_length=1000)   # rendered by hand (§6.2)
+description = forms.CharField(required=False, label=False,
+                              max_length=1000)   # rendered by hand (§6.2)
 min_similarity = forms.FloatField(required=False, min_value=0, max_value=1,
                                   widget=forms.NumberInput(attrs={"step": "0.001"}))
 ```
@@ -466,15 +467,15 @@ submit button. Wording, verbatim: the keyword placeholder is "Input your search 
 description placeholder is "Describe the reports you are looking for", the accessible names
 are "Search mode" for the select, "Search terms" for the keyword input, "Clear search terms"
 for the clear button and "Search" for both submit buttons, and the cutoff field's label is
-"Minimum similarity". Enter in the textarea submits the search (`@keydown.enter` with a `shiftKey` check that calls
-`$el.form.requestSubmit()`, so the submit handlers still run; Alpine has no `.exact`
-modifier); Shift+Enter inserts a newline. `min_similarity` sits at the bottom of the Filters
-card, shown in semantic mode only and `:disabled="mode !== 'semantic'"` so it never rides
-along in a full-text URL; "Reset filters" clears it like every other filter, and an empty
-field means the setting applies. Without the capability the row is today's single input
-group: the "Search" label, the keyword input, the clear button and the submit button. Where
-the full-text description and the "Write from keywords" button go is decided by the stacked
-PR that brings them (see Delivery).
+"Minimum similarity". Enter in the textarea submits the search (`@keydown.enter` with a
+`shiftKey` check that calls `$el.form.requestSubmit()`, so the submit handlers still run;
+Alpine has no `.exact` modifier); Shift+Enter inserts a newline. `min_similarity` sits at the
+bottom of the Filters card, shown in semantic mode only and `:disabled="mode !== 'semantic'"`
+so it never rides along in a full-text URL; "Reset filters" clears it like every other
+filter, and an empty field means the setting applies. Without the capability the row is
+today's single input group: the "Search" label, the keyword input, the clear button and the
+submit button. Where the full-text description and the "Write from keywords" button go is
+decided by the stacked PR that brings them (see Delivery).
 
 ### 6.3 Switching modes
 
@@ -497,11 +498,12 @@ default, does not, so the page keeps a working full-text search without JavaScri
 
 The server trusts none of it. `SearchForm.clean()` counts only the active mode's field: in
 semantic mode it drops the keyword field, a validation error on it included, and in
-full-text mode the description, so a hand-made URL carrying the other field still searches
-and the view never parses keywords in semantic mode; `min_similarity` is read only in
-semantic mode. Semantic mode with an empty description renders a one-line notice above the info card
-without calling the provider ("Semantic mode needs a description."). Full-text mode without
-keywords shows the info card alone, as today, whatever else the URL carries.
+full-text mode the description and the cutoff, so a hand-made URL carrying the other field
+still searches and the view never parses keywords in semantic mode; `min_similarity` is read
+only in semantic mode. Semantic mode with an empty description renders a one-line notice
+above the info card without calling the provider ("Semantic mode needs a description.").
+Full-text mode without keywords shows the info card alone, as today, whatever else the URL
+carries.
 
 ### 6.4 The view
 
