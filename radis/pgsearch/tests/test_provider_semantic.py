@@ -1,5 +1,7 @@
 from unittest.mock import patch
 
+import httpx2
+import openai
 import pytest
 from django.contrib.auth.models import Group
 from django.db import connection
@@ -7,6 +9,7 @@ from django.test.utils import CaptureQueriesContext
 
 from radis.core.utils.embedding_client import EmbeddingClientError
 from radis.core.utils.model_spec import parse_model_spec
+from radis.core.utils.rate_limit import RateLimited
 from radis.pgsearch.models import ReportSearchIndex
 from radis.pgsearch.providers import ITERATIVE_SCAN_SQL, search
 from radis.reports.factories import ReportFactory
@@ -222,6 +225,33 @@ def test_embedding_failure_is_empty_and_degraded_and_not_cached(group, corpus, e
     assert first.documents == [] and first.total_count == 0 and first.degraded is True
     assert second.degraded is False and second.total_count == 3
     assert embed.call_count == 2
+
+
+def _openai_rate_limit_error() -> openai.RateLimitError:
+    response = httpx2.Response(429, request=httpx2.Request("POST", "http://x"))
+    return openai.RateLimitError(message="slow down", response=response, body=None)
+
+
+@pytest.mark.parametrize(
+    "failure", [RateLimited, _openai_rate_limit_error], ids=["gate-closed", "openai-429"]
+)
+def test_a_rate_limited_embedding_is_empty_and_degraded(group, corpus, embed, failure):
+    embed.side_effect = failure()
+
+    result = search(_request(group.pk))
+
+    assert result.documents == [] and result.total_count == 0 and result.degraded is True
+
+
+def test_the_query_path_timeout_reaches_the_client(group, corpus, settings):
+    settings.EMBEDDINGS_QUERY_REQUEST_TIMEOUT_SECONDS = 3.5
+
+    with patch("radis.pgsearch.providers.EmbeddingClient") as client_cls:
+        client = client_cls.return_value.__enter__.return_value
+        client.embed_query.return_value = _vec(settings.EMBEDDINGS_DIM, {0: 1.0})
+        search(_request(group.pk))
+
+    client_cls.assert_called_once_with(timeout=3.5)
 
 
 def test_a_semantic_search_without_a_model_is_a_caller_error(group, corpus, settings):

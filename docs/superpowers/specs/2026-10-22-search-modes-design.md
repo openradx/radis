@@ -12,6 +12,11 @@ full-text candidate query this design keeps unchanged); the spike branch
 `hybrid-fusion-spikes` (unmerged, head 529ddac9) and its notes in
 `docs/superpowers/specs/2026-10-18-hybrid-ranking-strategies-spike.md` on that branch.
 
+**Delivery:** this design ships in two pull requests. PR #372 (`search-modes`) delivers the
+two modes. The description re-rank of full-text hits follows in the stacked PR
+`search-rerank`: §4.2, the window layer of §4.4, the re-rank parts of §6.1, §6.4 and §6.6,
+the `SEARCH_RERANK_*` settings of §7, and their tests in §11.
+
 ## 1. Summary
 
 Hybrid search fuses the full-text hits of a keyword query with the vector neighbours of the
@@ -421,6 +426,10 @@ min_similarity = forms.FloatField(required=False, min_value=0, max_value=1,
                                   widget=forms.NumberInput(attrs={"step": "0.001"}))
 ```
 
+The description is the query in semantic mode and optional in full-text mode, where it
+drives the re-rank of §4.2. In PR #372 it is only the semantic query: full-text mode ignores
+it (see Delivery).
+
 `SearchForm.__init__(data, *, semantic: bool = False)` deletes `mode`, `description` and
 `min_similarity` when `semantic` is `False`; the view passes the provider's capability. The
 empty mode value means full-text, so the default never appears in the URL: the page's
@@ -475,11 +484,10 @@ back would otherwise lose them. The keywords therefore appear in a semantic URL 
 server ignores them there.
 
 The server trusts none of it. In semantic mode the view ignores the keyword field and never
-parses it; `min_similarity` is read only in semantic mode. Two mismatches render a one-line
-notice above the info card without calling the provider: full-text mode with a description
-and no keywords ("Full-text mode needs keywords. Switch to Semantic to search by
-description alone."), and semantic mode with an empty description ("Semantic mode needs a
-description."). Full-text mode with neither shows the info card alone, as today.
+parses it; `min_similarity` is read only in semantic mode. Semantic mode with an empty
+description renders a one-line notice above the info card without calling the provider
+("Semantic mode needs a description."). Full-text mode without keywords shows the info card
+alone, as today, whatever else the URL carries.
 
 ### 6.4 The view
 

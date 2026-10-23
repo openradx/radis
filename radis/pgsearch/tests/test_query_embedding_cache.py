@@ -10,8 +10,7 @@ from radis.pgsearch import providers
 from radis.pgsearch.models import ReportSearchIndex
 from radis.pgsearch.providers import search
 from radis.reports.factories import ReportFactory
-from radis.search.site import FullTextSearch, SearchFilters, SemanticSearch, SimilarityRerank
-from radis.search.utils.query_parser import QueryParser
+from radis.search.site import SearchFilters, SemanticSearch
 
 pytestmark = pytest.mark.django_db
 
@@ -33,17 +32,10 @@ def _unit_vec(idx: int, dim: int) -> list[float]:
     return v
 
 
-def _make_search(description: str, group_id: int, offset: int = 0) -> FullTextSearch:
-    node, _ = QueryParser().parse("pneumothorax")
-    assert node is not None
-    return FullTextSearch(
-        query=node,
-        # language="en" matches the report's pinned language below, so the
-        # query-side tsquery config equals the config the report was indexed
-        # with (ReportFactory otherwise randomizes the language, and a config
-        # mismatch makes lexical matching flaky; see test_provider_fulltext.py).
+def _semantic_search(description: str, group_id: int, offset: int = 0) -> SemanticSearch:
+    return SemanticSearch(
+        text=description,
         filters=SearchFilters(group=group_id, language="en"),
-        rerank=SimilarityRerank(description),
         offset=offset,
         limit=25,
     )
@@ -56,8 +48,8 @@ def group(db):
 
 @pytest.fixture
 def report(group, settings):
-    """One keyword hit with an embedding, so its similarity proves the description's
-    vector was actually used (not just that no exception occurred)."""
+    """One embedded report, so its similarity proves the description's vector was
+    actually used (not just that no exception occurred)."""
     r = ReportFactory.create(body="Findings: pneumothorax on the left.", language__code="en")
     r.groups.add(group)
     ReportSearchIndex.objects.filter(report=r).update(
@@ -84,41 +76,23 @@ def test_paginated_search_embeds_the_description_only_once(group, report, settin
     settings.SEARCH_RANKING_CACHE_TIMEOUT_SECONDS = 0
     patcher, embed_query = _mock_embedding_client(settings.EMBEDDINGS_DIM)
     try:
-        first = search(_make_search("free air", group.pk, offset=0))
-        second = search(_make_search("free air", group.pk, offset=0))
+        first = search(_semantic_search("free air", group.pk, offset=0))
+        second = search(_semantic_search("free air", group.pk, offset=1))
     finally:
         patcher.stop()
 
     assert embed_query.call_count == 1
-    # The vector was really used: the report carries its similarity both times.
-    for result in (first, second):
-        assert _similarity(result, report) == pytest.approx(1.0)
-
-
-def test_embedding_failure_is_not_cached(group, report, settings):
-    """A transient embedding outage must not pin later searches to a degraded result."""
-    patcher, embed_query = _mock_embedding_client(settings.EMBEDDINGS_DIM)
-    embed_query.side_effect = [
-        EmbeddingClientError("down"),
-        _unit_vec(0, settings.EMBEDDINGS_DIM),
-    ]
-    try:
-        first = search(_make_search("free air", group.pk))
-        second = search(_make_search("free air", group.pk))
-    finally:
-        patcher.stop()
-
-    assert embed_query.call_count == 2
-    assert first.degraded is True
-    assert second.degraded is False
-    assert _similarity(second, report) == pytest.approx(1.0)
+    # The vector was really used: the report is found with its similarity on page one,
+    # and page two re-ran the scan over the same one-report list.
+    assert _similarity(first, report) == pytest.approx(1.0)
+    assert second.total_count == 1 and second.documents == []
 
 
 def test_different_descriptions_embed_separately(group, report, settings):
     patcher, embed_query = _mock_embedding_client(settings.EMBEDDINGS_DIM)
     try:
-        search(_make_search("free air", group.pk))
-        search(_make_search("collapsed lung", group.pk))
+        search(_semantic_search("free air", group.pk))
+        search(_semantic_search("collapsed lung", group.pk))
     finally:
         patcher.stop()
 
@@ -166,7 +140,7 @@ def test_differing_base_url_does_not_share_a_cache_entry(monkeypatch):
 
 def test_a_repeated_semantic_search_embeds_once(group, report, settings):
     patcher, embed_query = _mock_embedding_client(settings.EMBEDDINGS_DIM)
-    request = SemanticSearch(text="free air", filters=SearchFilters(group=group.pk, language="en"))
+    request = _semantic_search("free air", group.pk)
     try:
         first = search(request)
         second = search(request)
@@ -181,7 +155,7 @@ def test_a_repeated_semantic_search_embeds_once(group, report, settings):
 def test_a_failed_semantic_embedding_is_not_cached(group, report, settings):
     patcher, embed_query = _mock_embedding_client(settings.EMBEDDINGS_DIM)
     embed_query.side_effect = [EmbeddingClientError("down"), _unit_vec(0, settings.EMBEDDINGS_DIM)]
-    request = SemanticSearch(text="free air", filters=SearchFilters(group=group.pk, language="en"))
+    request = _semantic_search("free air", group.pk)
     try:
         first = search(request)
         second = search(request)

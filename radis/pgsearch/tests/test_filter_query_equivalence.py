@@ -415,25 +415,6 @@ def test_semantic_scan_is_single_table_and_uses_the_hnsw_index(corpus):
         assert table not in plan, plan
 
 
-def test_window_measurement_is_an_id_lookup(corpus):
-    from django.db import connection
-
-    from radis.pgsearch.providers import _window_measurement_queryset
-
-    vec = [0.0] * 1024
-    vec[0] = 1.0
-    queryset = _window_measurement_queryset([1, 2, 3], vec)
-    sql, params = queryset.query.sql_with_params()
-
-    assert '"report_id" IN' in sql
-    with connection.cursor() as cursor:
-        cursor.execute(f"EXPLAIN {sql}", params)
-        plan = "\n".join(row[0] for row in cursor.fetchall())
-    assert "pgsearch_embedding_hnsw" not in plan, plan
-    for table in ("reports_report", "reports_language", "reports_modality"):
-        assert table not in plan, plan
-
-
 def test_hydration_query_joins_nothing_but_the_report_body(corpus):
     """The headline deliberately joins reports_report for the body; nothing else."""
     from django.db import connection

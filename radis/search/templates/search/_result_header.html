@@ -21,15 +21,6 @@
                 <small title="Cosine similarity between your description and the report (1 = identical)">
                     Similarity: {{ document.similarity|floatformat:3 }}
                 </small>
-                {% if reranked %}
-                    <small title="{{ weight }} × similarity + {{ weight_complement }} × keyword rank, each scaled 0–1 within the top {{ window }}">
-                        Re-rank score: {{ document.score|floatformat:3 }}
-                    </small>
-                {% endif %}
-            {% elif reranked and counter|add:offset <= window %}
-                <small title="Newly imported reports are embedded in the background; until then they rank by keywords only">
-                    Similarity: not available (report not embedded yet)
-                </small>
             {% endif %}
         </div>
     </div>

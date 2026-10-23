@@ -1,5 +1,7 @@
 # Search Modes Implementation Plan
 
+> **Delivery:** PR #372 ships part of this plan; the Delivery note at the top of the spec lists what follows in the stacked PR `search-rerank`.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Replace hybrid RRF fusion with two search modes, full-text (default, with an optional similarity re-rank of the top hits by a typed or LLM-written description) and semantic, chosen on the search page.

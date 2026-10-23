@@ -5,7 +5,7 @@
               rows="2"
               maxlength="1000"
               aria-label="Description of the reports you are looking for"
-              :placeholder="mode === 'semantic' ? 'Describe the reports you are looking for' : 'Optional: describe the reports you are looking for; the top hits are re-ranked by it'"
+              placeholder="Describe the reports you are looking for"
               @keydown.enter="if (!$event.shiftKey) { $event.preventDefault(); $el.form.requestSubmit() }">{{ value }}</textarea>
     {# The endpoint returns this whole partial; hx-select keeps only the textarea, the notice's text swaps out of band. #}
     <button type="button"

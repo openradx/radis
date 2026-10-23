@@ -102,7 +102,7 @@ Request timeout, rate-limit handling, and transient retries have sensible defaul
 
 ### Embeddings and search
 
-By default RADIS runs full-text search only. Setting `EMBEDDINGS_MODEL` adds a Semantic mode to the search page (the reports nearest to a description, in similarity order) and lets a description re-order the top full-text hits; full-text stays the default and nothing is fused:
+By default RADIS runs full-text search only. Setting `EMBEDDINGS_MODEL` adds a Semantic mode to the search page (the reports nearest to a description, in similarity order); full-text stays the default and nothing is fused:
 
 - `EMBEDDINGS_MODEL`: The embedding model, in the same `model[?param=value]` form. Leave empty for full-text search only
 - `EMBEDDINGS_BASE_URL`, `EMBEDDINGS_API_KEY`: Default to `LLM_BASE_URL` and `LLM_API_KEY`. Set them only when embeddings are served from a different endpoint, which is the normal case for vLLM and SGLang since they serve one model per process
@@ -110,11 +110,11 @@ By default RADIS runs full-text search only. Setting `EMBEDDINGS_MODEL` adds a S
 - `EMBEDDINGS_QUERY_INSTRUCTION`: Model-specific instruction prefix for the description text that is embedded (some models, e.g. Qwen3-Embedding, want one)
 - `EMBEDDINGS_QUERY_CACHE_TIMEOUT_SECONDS`: How long a query's vector stays cached (default 900 s). Lower it temporarily after swapping the model, or the old vectors keep serving stale results for up to this long
 
-New and updated reports are embedded automatically by the `embeddings_worker` service. Reports that existed before the model was configured have no vector and are found by full-text search only until you backfill them with the `embed_pending` management command (see [Running Management Commands](#running-management-commands)). It is idempotent and resumable, refuses to start while another backfill is running or `EMBEDDINGS_MODEL` is empty, and takes `--limit` and `--subjob-size` options; `embed_cancel` stops a running backfill. Until a report is embedded, it never appears in semantic mode and, in a re-ordered full-text search, is listed after the re-ordered hits with the note "not embedded yet".
+New and updated reports are embedded automatically by the `embeddings_worker` service. Reports that existed before the model was configured have no vector and are found by full-text search only until you backfill them with the `embed_pending` management command (see [Running Management Commands](#running-management-commands)). It is idempotent and resumable, refuses to start while another backfill is running or `EMBEDDINGS_MODEL` is empty, and takes `--limit` and `--subjob-size` options; `embed_cancel` stops a running backfill. Until a report is embedded, it never appears in semantic mode.
 
 The same is available in Django Admin under **Pgsearch** → **Report search indexes**: the page shows the state of the embedding pipeline, has a **Cancel queued backfill** button, and offers the actions "Enqueue embedding for selected rows (NULL only)" and "Clear embeddings (NULL them)" on selected reports. **Embedding backfill runs** lists past and current backfills.
 
-When the embedding service is unreachable or rate limiting, the search is flagged degraded: full-text mode shows a warning and keeps keyword order, semantic mode shows an error instead of a list, and a warning is logged in the `web` service. A query embedding waits at most `EMBEDDINGS_QUERY_REQUEST_TIMEOUT_SECONDS` (10 s by default) plus the rate-limit gate's query budget.
+When the embedding service is unreachable or rate limiting, a semantic search is flagged degraded: the page shows an error instead of a list, and a warning is logged in the `web` service. Full-text searches never call the service. A query embedding waits at most `EMBEDDINGS_QUERY_REQUEST_TIMEOUT_SECONDS` (10 s by default) plus the rate-limit gate's query budget.
 
 See the [Contributing guide](../dev-docs/contributing.md) for how to run Ollama with a chat and an embedding model, and the troubleshooting sections there for connection problems.
 
@@ -154,7 +154,6 @@ All optional, with defaults that fit a corpus of a few million reports:
 - `SEARCH_HNSW_EF_SEARCH`: HNSW beam width and the number of reports a semantic search lists (default `500`, 1..1000)
 - `SEARCH_SEMANTIC_ITERATIVE_SCAN`: Resume the index scan under selective filters so a small group or a rare modality still fills the list (default `true`). No measurable cost on unfiltered searches at the default depth; the resumed scan costs more only under selective filters and on cold index pages
 - `SEARCH_SEMANTIC_MIN_SIMILARITY`: Similarity cutoff (0..1) for semantic mode; unset by default because similarities are comparable only within one model and corpus. Try values with the page's "Minimum similarity" field before setting a default
-- `SEARCH_RERANK_WINDOW`, `SEARCH_RERANK_SEMANTIC_WEIGHT`: How many top full-text hits a description re-orders (default `1000`) and the weight of similarity against the keyword rank (default `0.7`; `1` orders the window by similarity alone)
 - `SEARCH_RANKING_CACHE_TIMEOUT_SECONDS`: How long a ranking stays cached (default `300`s, `0` disables); reports created or updated within that time join a cached query's results when it expires
 - `SEARCH_DESCRIPTION_TIMEOUT`, `SEARCH_DESCRIPTION_MAX_TOKENS`, `SEARCH_DESCRIPTION_CACHE_TIMEOUT_SECONDS`, `SEARCH_DESCRIPTION_SYSTEM_PROMPT`: The "Write from keywords" writer; a button press waits at most about twice the timeout (default `10`s)
 

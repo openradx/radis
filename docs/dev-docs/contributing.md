@@ -107,10 +107,10 @@ the quality matters.
 
 ### Embedding Setup (optional)
 
-The semantic search mode and the description re-rank need a second model, an embedding
-model, reached over the same kind of OpenAI-compatible endpoint. It is optional: with
-`EMBEDDINGS_MODEL` empty, search runs full-text only, the search page shows no mode
-select, and nothing else changes — no queued jobs, no failed calls.
+The semantic search mode needs a second model, an embedding model, reached over the same
+kind of OpenAI-compatible endpoint. It is optional: with `EMBEDDINGS_MODEL` empty, search
+runs full-text only, the search page shows no mode select, and nothing else changes — no
+queued jobs, no failed calls.
 
 To turn it on with the Ollama you already have:
 

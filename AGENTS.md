@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-RADIS (Radiology Report Archive and Discovery System) is a Django-based web application for managing, retrieving, and analyzing radiology reports in hospital environments. It features full-text search with an optional similarity re-rank, a separate semantic search mode, LLM integration for AI-powered analysis, and a subscription system for report notifications.
+RADIS (Radiology Report Archive and Discovery System) is a Django-based web application for managing, retrieving, and analyzing radiology reports in hospital environments. It features full-text search, a separate semantic search mode, LLM integration for AI-powered analysis, and a subscription system for report notifications.
 
 **Status**: Early development (v0.0.0) - research purposes only, not a certified medical device
 **License**: AGPL 3.0 or later
@@ -42,7 +42,7 @@ uv run cli db-backup                 # Backup database
 ### Tech Stack
 
 - **Backend**: Python 3.12+, Django 6.1+, PostgreSQL 17
-- **Search**: PostgreSQL full-text search (tsvector, ts_rank); pg_vector for the semantic mode and the similarity re-rank of full-text hits
+- **Search**: PostgreSQL full-text search (tsvector, ts_rank); pg_vector for the semantic mode
 - **Async**: Daphne (ASGI), Django Channels, Procrastinate (task queue)
 - **Frontend**: Django templates, Cotton components, HTMX, Alpine.js, Bootstrap 5
 - **LLM**: External OpenAI-compatible API endpoint
@@ -53,7 +53,7 @@ uv run cli db-backup                 # Backup database
 - **radis.core/**: Core functionality, UI layouts, abstract base classes. Models: `AnalysisJob`, `AnalysisTask` (abstract bases for job/task pattern).
 - **radis.reports/**: Report management and REST API. Models: `Report` (main entity with patient info, study metadata, body text), `Language`, `Modality`, `Metadata`.
 - **radis.search/**: Full-text and semantic search interface. Contains `SearchView`, `SearchForm`, the request types `FullTextSearch` and `SemanticSearch`, `QueryParser` for complex query syntax, the provider registry, and the description endpoint behind the search page's "Write from keywords" button.
-- **radis.pgsearch/**: PostgreSQL search implementation. One `search(request)` entry point serves full-text searches (exactly the keyword hits, optionally re-ranked within a window by a description) and semantic searches (HNSW nearest neighbours), with a two-layer ranking cache.
+- **radis.pgsearch/**: PostgreSQL search implementation. One `search(request)` entry point serves full-text searches (exactly the keyword hits) and semantic searches (HNSW nearest neighbours), with a ranking cache for both.
 - **radis.subscriptions/**: Notification system for new reports matching criteria. Background tasks check new reports against user subscriptions.
 - **radis.collections/**: Report bookmarking and organization into custom collections.
 - **radis.notes/**: User annotations on reports for adding context.
@@ -77,8 +77,8 @@ Analysis operations follow a Job -> Task pattern (similar to ADIT):
 
 - **Provider system**: Plugin-based architecture (currently PostgreSQL, extensible for Vespa/ElasticSearch)
 - **QueryParser**: Parses complex queries with operators, field filters, and boolean logic
-- **Two modes, nothing fused**: Full-text (default) returns exactly the keyword hits ranked by `ts_rank`; with a description the top `SEARCH_RERANK_WINDOW` hits are re-ordered by `w · norm(similarity) + (1 − w) · norm(ts_rank)` (`w` = `SEARCH_RERANK_SEMANTIC_WEIGHT`) and the rest follow in keyword order. Semantic returns the `SEARCH_HNSW_EF_SEARCH` reports nearest to the description under the same filters, in similarity order, cut at `SEARCH_SEMANTIC_MIN_SIMILARITY` when set
-- **Degradation**: an embedding failure flags the result degraded instead of changing modes; the page says so
+- **Two modes, nothing fused**: Full-text (default) returns exactly the keyword hits ranked by `ts_rank`. Semantic returns the `SEARCH_HNSW_EF_SEARCH` reports nearest to the description under the same filters, in similarity order, cut at `SEARCH_SEMANTIC_MIN_SIMILARITY` when set
+- **Degradation**: an embedding failure flags a semantic result degraded instead of falling back to full-text; the page says so
 
 ### Docker Services
 
@@ -135,8 +135,6 @@ Embeddings and search tuning (`radis.pgsearch`):
   (default `500`, 1..1000, carried as a libpq connection option)
 - `SEARCH_RANKING_CACHE_TIMEOUT_SECONDS`: How long a ranking stays cached (default `300`s,
   `0` disables); new reports join a cached query's results when it expires
-- `SEARCH_RERANK_WINDOW`, `SEARCH_RERANK_SEMANTIC_WEIGHT`: Full-text hits re-ranked by a
-  description (default `1000`) and the weight of similarity in the score (default `0.7`)
 - `SEARCH_SEMANTIC_ITERATIVE_SCAN`: Resume the index scan under selective filters
   (`hnsw.iterative_scan = strict_order`, default `true`)
 - `SEARCH_SEMANTIC_MIN_SIMILARITY`: Similarity cutoff for semantic mode, 0..1, unset by
@@ -267,16 +265,16 @@ client.update_report("DOC-12345", {"body": "Updated findings..."}, upsert=True)
 - Confirm the endpoint serves the configured model and supports structured outputs
 - If one feature misbehaves, check whether it has its own `LLM_<FEATURE>_MODEL` override
 
-### Semantic Mode Missing or Re-rank Not Applied
+### Semantic Mode Missing or Unavailable
 
 - Confirm `EMBEDDINGS_MODEL` is set — empty is the documented way to run full-text only, and the
   search page then has no mode select, description or cutoff
 - Check `docker compose logs embeddings_worker` for failed subjobs
 - Reports ingested before the model was configured have no vector; run
   `docker compose exec web ./manage.py embed_pending` to backfill them
-- A search whose embedding fails is flagged degraded: full-text mode shows a warning and keeps
-  keyword order, semantic mode shows an error and no list; the `web` log names the cause. A
-  query embedding waits at most `EMBEDDINGS_QUERY_REQUEST_TIMEOUT_SECONDS` plus the gate budget
+- A semantic search whose embedding fails is flagged degraded: the page shows an error and no
+  list, and the `web` log names the cause; full-text searches never call the service. A query
+  embedding waits at most `EMBEDDINGS_QUERY_REQUEST_TIMEOUT_SECONDS` plus the gate budget
 - Verify the endpoint serves the model: `docker compose exec web sh -c 'curl -sf -H
   "Authorization: Bearer ${EMBEDDINGS_API_KEY:-$LLM_API_KEY}"
   "${EMBEDDINGS_BASE_URL:-$LLM_BASE_URL}/models"'`
