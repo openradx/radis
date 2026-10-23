@@ -24,14 +24,14 @@ def llm():
 
 
 @pytest.mark.asyncio
-async def test_returns_the_cleaned_passage_for_the_collapsed_terms(llm):
+async def test_returns_the_cleaned_passage_for_the_collapsed_terms(llm, settings):
     result = await writer.write_description(" pneumothorax \n rechts ")
 
     assert result == CLEANED
     _, client = llm
     messages = client.chat.call_args.args[0]
     assert messages[0]["role"] == "system"
-    assert "radiology reports" in messages[0]["content"]
+    assert messages[0]["content"] == settings.SEARCH_DESCRIPTION_SYSTEM_PROMPT
     assert messages[1] == {"role": "user", "content": "pneumothorax rechts"}
 
 

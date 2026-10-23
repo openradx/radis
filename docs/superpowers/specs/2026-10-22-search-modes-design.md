@@ -517,8 +517,8 @@ limit=...)`. The paging guard against `max_results` stays; a semantic list is at
 long. `page_sizes = [10, 25, 50]` is passed as the sibling list views do, so the page-size
 selector the user guide already promises renders.
 
-The context gains `mode`, `description`, `reranked` (a description was given and the result
-is not degraded), the window size, the weight, the effective cutoff, `result.degraded` and
+The context gains `mode`, `reranked` (a description was given and the result is not
+degraded), the window size, the weight, the effective cutoff, `result.degraded` and
 `page_sizes` for the templates.
 
 ### 6.5 The description endpoint and writer

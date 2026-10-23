@@ -157,6 +157,26 @@ def test_the_answer_is_truncated_to_the_field_limit(client: Client, writer):
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize(
+    "mode, placeholder",
+    [
+        ("semantic", "Describe the reports you are looking for"),
+        (
+            None,
+            "Optional: describe the reports you are looking for; the top hits are re-ranked by it",
+        ),
+    ],
+    ids=["semantic", "no-mode"],
+)
+def test_the_placeholder_follows_the_posted_mode(client: Client, writer, mode, placeholder):
+    _login(client)
+    data = {"query": "pneumothorax"} if mode is None else {"query": "pneumothorax", "mode": mode}
+    response = client.post(reverse(URL_NAME), data, headers=HX_HEADERS)
+
+    assert f'placeholder="{placeholder}"' in response.content.decode()
+
+
+@pytest.mark.django_db
 def test_the_keyword_parse_runs_off_the_event_loop(client: Client, writer):
     """The parser's run time is exponential in parenthesis nesting; on the event loop
     one request would stall every connection the process serves."""

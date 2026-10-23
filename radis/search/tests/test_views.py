@@ -1012,6 +1012,26 @@ def test_the_keyword_row_is_full_text_only_and_the_description_row_stays(client:
 
 @pytest.mark.django_db
 @pytest.mark.parametrize(
+    "params, placeholder",
+    [
+        ({"mode": "semantic", "description": "x"}, "Describe the reports you are looking for"),
+        (
+            {"query": "chest"},
+            "Optional: describe the reports you are looking for; the top hits are re-ranked by it",
+        ),
+    ],
+    ids=["semantic", "full-text"],
+)
+def test_the_static_placeholder_follows_the_mode_of_the_page(client: Client, params, placeholder):
+    """It is the placeholder before Alpine starts and without JavaScript."""
+    client.force_login(create_test_user_with_active_group())
+    with patch("radis.search.views.search_provider", _provider(_empty())):
+        response = client.get("/search/", params)
+    assert _element(response, "textarea", id="id_description")["placeholder"] == placeholder
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
     "params, request_type",
     [
         ({"mode": "semantic", "description": "free air", "query": "a" * 201}, SemanticSearch),

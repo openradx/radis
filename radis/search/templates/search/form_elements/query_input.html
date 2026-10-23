@@ -23,7 +23,7 @@
                         aria-label="Search">{% bootstrap_icon "search" 20 %}</button>
             </div>
             {% if description_field %}
-                {% include "search/form_elements/description_input.html" with value=description_value notice="" %}
+                {% include "search/form_elements/description_input.html" with value=description_value notice="" mode=mode_field.value %}
             {% endif %}
         </div>
     </div>

@@ -66,7 +66,6 @@ class SearchView(LoginRequiredMixin, UserPassesTestMixin, View):
         semantic_mode = form.semantic_mode()
         description = form.cleaned_data.get("description", "")
         context["mode"] = "semantic" if semantic_mode else "fulltext"
-        context["description"] = description
 
         search: SearchRequest
         if semantic_mode:
@@ -142,7 +141,7 @@ async def _description_response(request: HttpRequest, value: str, notice: str) -
     return await sync_to_async(render)(
         request,
         "search/form_elements/description_input.html",
-        {"value": value, "notice": notice},
+        {"value": value, "notice": notice, "mode": request.POST.get("mode", "")},
     )
 
 
