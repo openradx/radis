@@ -10,17 +10,18 @@
         </div>
     </div>
     <div>
-        <div class="d-flex flex-column">
+        <div class="d-flex flex-column text-end">
             <small>Result: #{{ counter|add:offset }}</small>
-            <small title="PostgreSQL full-text ts_rank; 0 for vector-only hits">
-                FTS rank: {{ document.relevance|floatformat:3 }}
-            </small>
-            <small title="pgvector cosine distance from the query embedding (lower = more similar)">
-                Cosine dist: {{ document.cosine_distance|floatformat:3|default:"—" }}
-            </small>
-            <small title="Reciprocal Rank Fusion score; this determines the result ordering">
-                RRF score: {{ document.rrf_score|floatformat:4 }}
-            </small>
+            {% if document.relevance != None %}
+                <small title="PostgreSQL full-text ts_rank of the keyword query">
+                    Full-text rank: {{ document.relevance|floatformat:3 }}
+                </small>
+            {% endif %}
+            {% if document.similarity != None %}
+                <small title="Cosine similarity between your description and the report (1 = identical)">
+                    Similarity: {{ document.similarity|floatformat:3 }}
+                </small>
+            {% endif %}
         </div>
     </div>
 </div>

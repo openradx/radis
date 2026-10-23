@@ -25,7 +25,7 @@ EMBEDDING_GATE = RateLimitGate(
 # Typed SDK errors that mean the request reached the service but the config is
 # wrong (bad key/permission, wrong model or endpoint, malformed request).
 # Retrying won't fix them, so callers fail fast and (write path) log a clear
-# config error / (read path) fall back to FTS-only.
+# config error / (read path) report the search as degraded.
 PERMANENT_EMBEDDING_ERRORS = (
     openai.AuthenticationError,
     openai.PermissionDeniedError,
@@ -44,8 +44,8 @@ class EmbeddingClientError(Exception):
 
 def _build_http_client() -> httpx2.Client:
     """Indirection so tests can swap in an httpx2.MockTransport. The returned
-    client is passed to openai.OpenAI(http_client=...); the SDK applies
-    EMBEDDINGS_REQUEST_TIMEOUT_SECONDS per request, so no timeout is set here."""
+    client is passed to openai.OpenAI(http_client=...); the SDK applies the
+    EmbeddingClient's request timeout per request, so no timeout is set here."""
     return httpx2.Client()
 
 
@@ -92,13 +92,16 @@ def _normalize_response(
 class EmbeddingClient:
     """Sync embedding client over the openai SDK. Single OpenAI-compatible
     endpoint (set EMBEDDINGS_BASE_URL to end in /v1). Same shape for OpenAI,
-    Azure, vLLM, an LLM gateway, or Ollama's /v1 compatibility layer."""
+    Azure, vLLM, an LLM gateway, or Ollama's /v1 compatibility layer.
 
-    def __init__(self) -> None:
+    ``timeout`` overrides the per-request HTTP timeout; the search path passes the
+    short query-path timeout."""
+
+    def __init__(self, *, timeout: float | None = None) -> None:
         spec = settings.EMBEDDINGS_MODEL
         if spec is None:
             raise EmbeddingClientError(
-                "EMBEDDINGS_MODEL is not configured; hybrid search is disabled"
+                "EMBEDDINGS_MODEL is not configured; semantic search is disabled"
             )
         # SDK rejects an empty api_key at construction; "unused" is the documented
         # placeholder for self-hosted endpoints that ignore auth (Ollama, vLLM).
@@ -109,7 +112,7 @@ class EmbeddingClient:
             api_key=api_key,
             http_client=self._http,
             max_retries=0,  # 429s are handled by the rate-limit gate, not the SDK
-            timeout=settings.EMBEDDINGS_REQUEST_TIMEOUT_SECONDS,
+            timeout=timeout if timeout is not None else settings.EMBEDDINGS_REQUEST_TIMEOUT_SECONDS,
         )
         self._model = spec.model
         # Request parameters configured with the model, e.g. OpenAI's `dimensions`. Copied
@@ -152,7 +155,7 @@ class EmbeddingClient:
     def embed_query(self, text: str) -> list[float]:
         """Embed a search query through the gate with the short query budget:
         a user is waiting, so when the gate is closed beyond that budget this
-        raises RateLimited and the provider falls back to FTS-only."""
+        raises RateLimited and the provider reports the search as degraded."""
         prefixed = f"{self._instruction}{text}" if self._instruction else text
         vectors = run_through_gate(
             EMBEDDING_GATE,

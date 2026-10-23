@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-RADIS (Radiology Report Archive and Discovery System) is a Django-based web application for managing, retrieving, and analyzing radiology reports in hospital environments. It features hybrid search (full-text + semantic), LLM integration for AI-powered analysis, and a subscription system for report notifications.
+RADIS (Radiology Report Archive and Discovery System) is a Django-based web application for managing, retrieving, and analyzing radiology reports in hospital environments. It features full-text search, a separate semantic search mode, LLM integration for AI-powered analysis, and a subscription system for report notifications.
 
 **Status**: Early development (v0.0.0) - research purposes only, not a certified medical device
 **License**: AGPL 3.0 or later
@@ -21,7 +21,7 @@ uv run cli compose-up -- --watch     # Start dev server with hot reload
 uv run cli compose-down              # Stop containers
 
 # Code quality
-uv run cli lint                      # Run linting (ruff + djlint)
+uv run cli lint                      # Run linting (ruff + pyright + djlint)
 uv run cli format-code               # Format code with ruff
 
 # Testing
@@ -42,7 +42,7 @@ uv run cli db-backup                 # Backup database
 ### Tech Stack
 
 - **Backend**: Python 3.12+, Django 6.1+, PostgreSQL 17
-- **Search**: PostgreSQL full-text search (tsvector), pg_vector (semantic), hybrid RRF ranking
+- **Search**: PostgreSQL full-text search (tsvector, ts_rank); pg_vector for the semantic mode
 - **Async**: Daphne (ASGI), Django Channels, Procrastinate (task queue)
 - **Frontend**: Django templates, Cotton components, HTMX, Alpine.js, Bootstrap 5
 - **LLM**: External OpenAI-compatible API endpoint
@@ -52,8 +52,8 @@ uv run cli db-backup                 # Backup database
 
 - **radis.core/**: Core functionality, UI layouts, abstract base classes. Models: `AnalysisJob`, `AnalysisTask` (abstract bases for job/task pattern).
 - **radis.reports/**: Report management and REST API. Models: `Report` (main entity with patient info, study metadata, body text), `Language`, `Modality`, `Metadata`.
-- **radis.search/**: Full-text and semantic search interface. Contains `SearchView`, `SearchForm`, `QueryParser` for complex query syntax, and provider registry.
-- **radis.pgsearch/**: PostgreSQL search implementation. Implements search provider interface with hybrid ranking (full-text + vector).
+- **radis.search/**: Full-text and semantic search interface. Contains `SearchView`, `SearchForm`, the request types `FullTextSearch` and `SemanticSearch`, `QueryParser` for complex query syntax, and the provider registry.
+- **radis.pgsearch/**: PostgreSQL search implementation. One `search(request)` entry point serves full-text searches (exactly the keyword hits) and semantic searches (HNSW nearest neighbours), with a ranking cache for both.
 - **radis.subscriptions/**: Notification system for new reports matching criteria. Background tasks check new reports against user subscriptions.
 - **radis.collections/**: Report bookmarking and organization into custom collections.
 - **radis.notes/**: User annotations on reports for adding context.
@@ -77,8 +77,8 @@ Analysis operations follow a Job -> Task pattern (similar to ADIT):
 
 - **Provider system**: Plugin-based architecture (currently PostgreSQL, extensible for Vespa/ElasticSearch)
 - **QueryParser**: Parses complex queries with operators, field filters, and boolean logic
-- **Hybrid search**: Combines full-text search with semantic vector similarity
-- **Ranking**: Results ranked by relevance score combining both search methods
+- **Two modes, nothing fused**: Full-text (default) returns exactly the keyword hits ranked by `ts_rank`. Semantic returns the `SEARCH_HNSW_EF_SEARCH` reports nearest to the description under the same filters, in similarity order, cut at `SEARCH_SEMANTIC_MIN_SIMILARITY` when set
+- **Degradation**: an embedding failure flags a semantic result degraded instead of falling back to full-text; the page says so
 
 ### Docker Services
 
@@ -101,25 +101,26 @@ Key variables in `.env` (see `example.env`):
 - `POSTGRES_PASSWORD`: Database password
 - `DJANGO_ALLOWED_HOSTS`: Comma-separated allowed hosts
 - `LLM_BASE_URL`: Base URL of the OpenAI-compatible LLM endpoint (required, no default)
-- `LLM_API_KEY`: API key for that endpoint (many self-hosted providers ignore it)
+- `LLM_API_KEY`: API key for that endpoint. It must be non-empty; a provider that ignores it accepts any placeholder (`example.env` sets `whatever`)
 - `LLM_DEFAULT_MODEL`: Model every feature uses unless overridden (required). Takes the form `model[?param=value&...]`; the params are merged into the request body, values are read as JSON where possible (`temperature=0` → number, `reasoning_effort=none` → string), and dotted keys nest (`chat_template_kwargs.enable_thinking=false`)
 - `LLM_CHATS_MODEL`, `LLM_QUERY_GENERATION_MODEL`, `LLM_EXTRACTIONS_MODEL`, `LLM_SUBSCRIPTIONS_MODEL`, `LLM_LABELING_MODEL`: Per-feature overrides, same form. Blank means use `LLM_DEFAULT_MODEL`
 
 - `SITE_NAME`, `SITE_DOMAIN`: Site framework settings
 - `ADMIN_USERNAME`, `ADMIN_EMAIL`, `ADMIN_PASSWORD`: Initial superuser
 
-Hybrid search embeddings (`radis.pgsearch`):
+Embeddings and search tuning (`radis.pgsearch`):
 
 - `EMBEDDINGS_MODEL`: Embedding model, same `model[?param=value&...]` form as the LLM
-  models. Empty means full-text search only — no embedding jobs, no calls to the service
+  models. Empty means full-text search only — no embedding jobs, no calls to the service,
+  and no mode select, description or cutoff on the search page
 - `EMBEDDINGS_BASE_URL`, `EMBEDDINGS_API_KEY`: Default to `LLM_BASE_URL` / `LLM_API_KEY`.
   Set only when embeddings are served from a different endpoint, which is the normal case
   for vLLM and SGLang since they serve one model per process
 - `EMBEDDINGS_DIM`: Vector width (default `1024`). Schema-coupled — it must match the
   pgsearch migrations and any `dimensions` parameter in `EMBEDDINGS_MODEL`, both checked
   at startup (`pgsearch.E001`, `pgsearch.E003`)
-- `EMBEDDINGS_QUERY_INSTRUCTION`: Instruction prefix prepended to search queries.
-  Model-specific; not a request parameter, so it is not part of the model spec
+- `EMBEDDINGS_QUERY_INSTRUCTION`: Instruction prefix prepended to the description text that
+  is embedded. Model-specific; not a request parameter, so it is not part of the model spec
 - `EMBEDDINGS_REQUEST_TIMEOUT_SECONDS`: Defaults to `LLM_REQUEST_TIMEOUT_SECONDS` (itself
   60s by default), not to a fixed value — raising the LLM timeout raises this one too
   unless set here explicitly
@@ -128,6 +129,16 @@ Hybrid search embeddings (`radis.pgsearch`):
   swap — cached query vectors otherwise keep serving stale results for up to this long
 - `EMBEDDINGS_BATCH_SIZE`, `EMBEDDINGS_SUBJOB_SIZE`, `EMBEDDINGS_WORKER_CONCURRENCY`:
   Throughput tuning
+- `EMBEDDINGS_QUERY_REQUEST_TIMEOUT_SECONDS`: Request timeout of a query embedding on the search
+  path (default `10`s); report embedding keeps `EMBEDDINGS_REQUEST_TIMEOUT_SECONDS`
+- `SEARCH_HNSW_EF_SEARCH`: HNSW beam width and the number of reports a semantic search lists
+  (default `500`, 1..1000, carried as a libpq connection option)
+- `SEARCH_RANKING_CACHE_TIMEOUT_SECONDS`: How long a ranking stays cached (default `300`s,
+  `0` disables); new reports join a cached query's results when it expires
+- `SEARCH_SEMANTIC_ITERATIVE_SCAN`: Resume the index scan under selective filters
+  (`hnsw.iterative_scan = strict_order`, default `true`)
+- `SEARCH_SEMANTIC_MIN_SIMILARITY`: Similarity cutoff for semantic mode, 0..1, unset by
+  default; users can override it per search
 
 Auto-labeling (`radis.labels`):
 
@@ -175,7 +186,7 @@ only to override the compose file's default):
 - **Style Guide**: Google Python Style Guide
 - **Line Length**: 100 characters (Ruff), 120 for templates (djlint)
 - **Type Checking**: pyright in basic mode (migrations excluded)
-- **Linting**: Ruff with E, F, I, DJ rules
+- **Linting**: Ruff with E, F, I, DJ, UP rules
 - **Comments**: only where the code cannot speak for itself; explain *why*, not *what*
 - **No history in comments**: describe the code as it is, not how it changed — that
   belongs in the commit message (docstrings too)
@@ -229,19 +240,6 @@ report = client.retrieve_report("DOC-12345", full=True)
 client.update_report("DOC-12345", {"body": "Updated findings..."}, upsert=True)
 ```
 
-### Search via API
-
-```python
-import requests
-
-response = requests.get(
-    "https://radis.example.com/api/reports/",
-    headers={"Authorization": "Token your-token"},
-    params={"search": "pneumonia CT thorax", "limit": 50}
-)
-reports = response.json()
-```
-
 ## Troubleshooting
 
 ### Search Not Returning Expected Results
@@ -253,7 +251,7 @@ reports = response.json()
 
 ### LLM Operations Failing
 
-- Verify `LLM_BASE_URL` and `LLM_DEFAULT_MODEL` are set (`LLM_API_KEY` is optional; many self-hosted providers ignore it)
+- Verify `LLM_BASE_URL`, `LLM_API_KEY` and `LLM_DEFAULT_MODEL` are set (the key must be non-empty, but a provider that ignores it accepts any placeholder)
 - Check the right logs for the failing path: chat and query generation run in `web` (`docker compose logs web`), while extraction, subscription and labeling tasks run in `llm_worker` (`docker compose logs llm_worker`)
 - Ensure the endpoint is reachable from inside the containers, not just from the host.
   Note the single quotes, so the variables are expanded in the container and not by your shell:
@@ -264,14 +262,16 @@ reports = response.json()
 - Confirm the endpoint serves the configured model and supports structured outputs
 - If one feature misbehaves, check whether it has its own `LLM_<FEATURE>_MODEL` override
 
-### Hybrid Search Returns Only Full-Text Results
+### Semantic Mode Missing or Unavailable
 
-- Confirm `EMBEDDINGS_MODEL` is set — empty is the documented way to run FTS-only
+- Confirm `EMBEDDINGS_MODEL` is set — empty is the documented way to run full-text only, and the
+  search page then has no mode select, description or cutoff
 - Check `docker compose logs embeddings_worker` for failed subjobs
 - Reports ingested before the model was configured have no vector; run
   `docker compose exec web ./manage.py embed_pending` to backfill them
-- A search logs a WARNING and degrades to FTS-only when the embedding service is rate
-  limiting or unreachable; the log line names which
+- A semantic search whose embedding fails is flagged degraded: the page shows an error and no
+  list, and the `web` log names the cause; full-text searches never call the service. A query
+  embedding waits at most `EMBEDDINGS_QUERY_REQUEST_TIMEOUT_SECONDS` plus the gate budget
 - Verify the endpoint serves the model: `docker compose exec web sh -c 'curl -sf -H
   "Authorization: Bearer ${EMBEDDINGS_API_KEY:-$LLM_API_KEY}"
   "${EMBEDDINGS_BASE_URL:-$LLM_BASE_URL}/models"'`

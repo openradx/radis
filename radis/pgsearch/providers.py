@@ -1,8 +1,9 @@
 import hashlib
 import json
 import logging
+import math
 import unicodedata
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from dataclasses import asdict
 from datetime import date, datetime, time, timedelta
 from typing import Literal, NamedTuple, cast
@@ -11,6 +12,7 @@ import openai
 from django.conf import settings
 from django.contrib.postgres.search import SearchHeadline, SearchQuery, SearchRank
 from django.core.cache import cache
+from django.db import connection, transaction
 from django.db.models import Case, F, FloatField, Q, TextField, Value, When
 from django.utils import timezone
 from pgvector.django import CosineDistance
@@ -21,8 +23,16 @@ from radis.core.utils.embedding_client import (
     EmbeddingClientError,
 )
 from radis.core.utils.rate_limit import RateLimited
-from radis.reports.models import Language, Report
-from radis.search.site import ReportDocument, Search, SearchFilters, SearchResult
+from radis.reports.models import Language
+from radis.search.site import (
+    FullTextSearch,
+    ReportDocument,
+    Search,
+    SearchFilters,
+    SearchRequest,
+    SearchResult,
+    SemanticSearch,
+)
 from radis.search.utils.query_parser import (
     BinaryNode,
     ParensNode,
@@ -34,8 +44,13 @@ from radis.search.utils.query_parser import (
 )
 
 from .models import ReportSearchIndex
-from .utils.document_utils import AnnotatedReportSearchIndex, document_from_pgsearch_response
-from .utils.fusion import rrf_fuse, summary_with_fallback
+from .utils.document_utils import (
+    HEADLINE_START,
+    HEADLINE_STOP,
+    AnnotatedReportSearchIndex,
+    document_from_pgsearch_response,
+    summary_markup,
+)
 from .utils.language_utils import code_to_language
 
 logger = logging.getLogger(__name__)
@@ -134,62 +149,17 @@ def _build_query_string(node: QueryNode) -> str:
         raise ValueError(f"Unknown node type: {type(node)}")
 
 
-def _collect_and_negations(node: QueryNode) -> list[QueryNode]:
-    """Operands of every ``NOT`` reachable from the root through ``AND``/parens
-    only.
-
-    These negations constrain the whole result set, so they can be enforced on
-    the vector candidates as well as the FTS side. A ``NOT`` under an ``OR`` is
-    deliberately skipped: its exclusion is branch-scoped (in ``(A AND NOT B) OR
-    C`` a doc matching ``C`` may legitimately contain ``B``), so excluding it
-    globally would drop valid hits. That residual is the documented limitation
-    in docs/superpowers/specs/hybrid-search.md §7.8 / §11.5, and matches how
-    Elasticsearch/Weaviate apply a single global ``must_not`` filter."""
-    if isinstance(node, UnaryNode):
-        assert node.operator == "NOT"
-        return [node.operand]
-    if isinstance(node, ParensNode):
-        return _collect_and_negations(node.expression)
-    if isinstance(node, BinaryNode) and node.operator == "AND":
-        return _collect_and_negations(node.left) + _collect_and_negations(node.right)
-    return []
-
-
-def _build_negative_query_string(node: QueryNode) -> str:
-    """Raw-tsquery string matching any document the top-level ``NOT`` branches
-    exclude, or ``""`` when there are none.
-
-    The vector half embeds only the positive branches (§7.8 strips ``NOT``), so
-    without this a document that is semantically near the positive concept but
-    contains a negated term re-enters through the RRF union even though the FTS
-    half rejects it. Applying this as ``.exclude(search_vector=...)`` on the
-    vector queryset closes that leak. Only the negation is enforced — never the
-    positive branches — so the vector half keeps surfacing semantic matches
-    that don't lexically contain the query terms."""
-    parts = [_build_query_string(operand) for operand in _collect_and_negations(node)]
-    parts = [part for part in parts if part]
-    # A document matching ANY negated branch must be excluded.
-    return " | ".join(f"({part})" for part in parts)
-
-
-def _exclude_negations(queryset, node: QueryNode, configs: list[tuple[str, list[str]]]):
-    """Drop documents matching the query's top-level ``NOT`` branches from a
-    vector-candidate queryset, so the FTS half's exclusions also bind the vector
-    half. Each configuration is excluded separately: a document is only dropped
-    when it matches the negation under the configuration it was indexed with, so
-    the exclusion cannot silently no-op the way one shared configuration did."""
-    negative_query_str = _build_negative_query_string(node)
-    if not negative_query_str:
-        return queryset
-    for config, codes in configs:
-        negative_tsquery = SearchQuery(negative_query_str, search_type="raw", config=config)
-        queryset = queryset.exclude(Q(language_code__in=codes) & Q(search_vector=negative_tsquery))
-    return queryset
-
-
 def _local_day_start(day: date) -> datetime:
     """Midnight of ``day`` in the active timezone, as an aware datetime."""
     return timezone.make_aware(datetime.combine(day, time.min))
+
+
+def _group_query(group: int | None) -> Q:
+    """Group-scoped access control. ``None`` is fail-closed: an empty ``group_ids``
+    matches only reports assigned to no group at all."""
+    if group is None:
+        return Q(group_ids=[])
+    return Q(group_ids__contains=[group])
 
 
 def _build_filter_query(filters: SearchFilters) -> Q:
@@ -199,14 +169,9 @@ def _build_filter_query(filters: SearchFilters) -> Q:
     # traversal restores the join and the multi-second query shape it caused;
     # test_fts_candidate_query_is_single_table guards against that.
     #
-    # Group-scoped access control. ``SearchView`` supplies
-    # ``group=active_group.pk``; the extraction preview may pass ``group=None``
-    # when the user has no active group, which is fail-closed: an empty
-    # ``group_ids`` matches only reports assigned to no group at all.
-    if filters.group is None:
-        fq = Q(group_ids=[])
-    else:
-        fq = Q(group_ids__contains=[filters.group])
+    # ``SearchView`` supplies ``group=active_group.pk``; the extraction preview may
+    # pass ``group=None`` when the user has no active group.
+    fq = _group_query(filters.group)
 
     # Apply hard filter criteria
     if filters.patient_sex:
@@ -267,34 +232,32 @@ def _embedding_config_key() -> tuple[str, str | None]:
 
 
 def _embed_query_or_none(query_text: str, caller: str) -> list[float] | None:
-    """Embed the query text, or return None to signal FTS-only fallback.
+    """Embed the text, or return None to signal a degraded search.
 
-    Search must stay usable when the embedding service doesn't, so every
-    failure falls back — but at different log levels: transient conditions
+    The caller flags a missing vector as degraded, so every failure returns None
+    instead of raising — but at different log levels: transient conditions
     (rate limiting, connection blips, 5xx) are expected under load and log a
     WARNING, while permanent misconfiguration logs a full exception (once per
-    configuration, see _LOGGED_PERMANENT_FAILURE_CONFIGS) so it reaches operators
-    instead of hiding as a silently degraded search."""
+    configuration, see _LOGGED_PERMANENT_FAILURE_CONFIGS) so it reaches operators;
+    the notice on the page does not name the cause."""
     try:
-        with EmbeddingClient() as ec:
+        with EmbeddingClient(timeout=settings.EMBEDDINGS_QUERY_REQUEST_TIMEOUT_SECONDS) as ec:
             return ec.embed_query(query_text)
     except (EmbeddingClientError, *PERMANENT_EMBEDDING_ERRORS) as exc:
         config_key = _embedding_config_key()
         if config_key not in _LOGGED_PERMANENT_FAILURE_CONFIGS:
             _LOGGED_PERMANENT_FAILURE_CONFIGS.add(config_key)
-            logger.exception(
-                "%s falling back to FTS-only; embedding service looks misconfigured", caller
-            )
+            logger.exception("%s unavailable; embedding service looks misconfigured", caller)
         else:
             base_url, model = config_key
             # Include the concrete exception type/message: the suppressed traceback that
             # would otherwise explain *what* changed (wrong path vs. expired key vs. bad
             # request) is long gone from recent logs by the time this branch fires again.
             logger.warning(
-                "%s falling back to FTS-only; embedding service still misconfigured for "
-                "this configuration (check EMBEDDINGS_BASE_URL=%r and EMBEDDINGS_MODEL=%r): "
-                "%s: %s -- search is serving full-text-only results until this is fixed; "
-                "the full traceback was already logged once for this configuration",
+                "%s unavailable; embedding service still misconfigured for this "
+                "configuration (check EMBEDDINGS_BASE_URL=%r and EMBEDDINGS_MODEL=%r): "
+                "%s: %s -- the search runs degraded until this is fixed; the full "
+                "traceback was already logged once for this configuration",
                 caller,
                 base_url,
                 model,
@@ -303,28 +266,25 @@ def _embed_query_or_none(query_text: str, caller: str) -> list[float] | None:
             )
         return None
     except (RateLimited, openai.OpenAIError) as e:
-        logger.warning("%s falling back to FTS-only: %s", caller, e)
+        logger.warning("%s unavailable: %s", caller, e)
         return None
 
 
 def _embed_query_cached(query_text: str, caller: str) -> list[float] | None:
     """Cache wrapper around `_embed_query_or_none`.
 
-    Pagination re-runs the whole search for every page, so without this every
-    page load re-calls the embedding service for the same query text. The key
-    covers everything that determines the vector — endpoint, model, spec
-    parameters, instruction, dim, query text — because a shared cache backend
-    (production uses the database) outlives process restarts and thus config
-    changes: "qwen3" on one deployment and "qwen3" on another are different
+    A semantic search whose filters change misses the ranking cache but still
+    embeds the same text, and that vector must not be fetched again within the
+    TTL. The key covers everything that determines the vector — endpoint,
+    model, spec parameters, instruction, dim, query text — because a shared cache
+    backend (production uses the database) outlives process restarts and thus
+    config changes: "qwen3" on one deployment and "qwen3" on another are different
     weights, so the endpoint has to be part of the fingerprint too (the API key
     is not identity and stays out of the cache key). Failures are not cached: a
-    transient outage must not pin searches to FTS-only for the TTL.
+    transient outage must not pin searches to a degraded result for the TTL.
     """
     spec = settings.EMBEDDINGS_MODEL
     if spec is None:
-        # Nothing to embed against. Task 3 adds the caller-side guard so this helper is
-        # not even reached in an FTS-only deployment; returning None keeps it correct on
-        # its own in the meantime, and afterwards for any future caller.
         return None
     fingerprint = "\x00".join(
         [
@@ -348,9 +308,9 @@ def _embed_query_cached(query_text: str, caller: str) -> list[float] | None:
 def _fts_candidate_queryset(filter_query: Q, configs: list[tuple[str, list[str]]], query_str: str):
     """The FTS candidate query: the single-table scan this whole design exists for.
 
-    Kept as its own function rather than inlined in ``_fuse_hybrid`` so that
-    ``test_fts_candidate_query_is_single_table`` can assert on the SQL and the
-    ``EXPLAIN`` plan of exactly the queryset production runs -- filters, tsquery
+    Kept as its own function rather than inlined in ``_keyword_ranking_uncached``
+    so that ``test_fts_candidate_query_is_single_table`` can assert on the SQL and
+    the ``EXPLAIN`` plan of exactly the queryset production runs -- filters, tsquery
     match, rank annotation, ordering and bound included, not a re-creation of
     it. Everything referenced here must be a column on ``ReportSearchIndex``
     itself: one lookup or annotation traversing the ``report`` relation restores
@@ -388,199 +348,246 @@ def _fts_candidate_queryset(filter_query: Q, configs: list[tuple[str, list[str]]
         .filter(match_q)
         .annotate(rank=rank_expr)
         .order_by("-rank", "report_id")
-        .values("report_id", "rank")[: settings.HYBRID_FTS_MAX_RESULTS]
+        .values("report_id", "rank")[: settings.SEARCH_FTS_MAX_RESULTS]
     )
 
 
-class _FusedHybrid(NamedTuple):
-    ordered_ids: list[int]
-    rrf_score_by_id: dict[int, float]
-    vec_distance: dict[int, float]
-    total_relation: Literal["exact", "at_least", "approximately"]
+class _KeywordRanking(NamedTuple):
+    """The keyword layer: every hit of the tsquery in ts_rank order."""
+
+    ids: list[int]
+    ts_rank_by_id: dict[int, float]
+    relation: Literal["exact", "at_least", "approximately"]
     configs: list[tuple[str, list[str]]]
     query_str: str
 
 
-# Bumped whenever the cached payload's shape changes, so entries written by an
-# older code version are missed rather than misread.
-_FUSED_CACHE_SCHEMA = 1
+class Ranking(NamedTuple):
+    """One mode's ordered result list, with the per-report values and the text-search
+    configurations its documents are built from."""
+
+    ids: list[int]
+    score_by_id: dict[int, float]
+    similarity_by_id: dict[int, float]
+    relation: Literal["exact", "at_least", "approximately"]
+    configs: list[tuple[str, list[str]]]
+    query_str: str
+    degraded: bool
 
 
-def _fused_cache_key(search: Search) -> str:
-    """Fingerprint of everything that determines the fused union.
+# Bumped whenever a cached payload's shape changes, so entries written by an older
+# code version are missed rather than misread.
+_RANKING_CACHE_SCHEMA = 2
 
-    Same discipline as `_embed_query_cached`: a shared cache backend (production
-    uses the database) outlives process restarts and config changes, so the
-    fusion/beam settings and the embedding configuration are part of the key,
-    not just the query and filters."""
+
+def _embedding_fingerprint() -> list[object] | None:
     spec = settings.EMBEDDINGS_MODEL
+    if spec is None:
+        return None
+    return [
+        settings.EMBEDDINGS_BASE_URL,
+        spec.model,
+        spec.params,
+        settings.EMBEDDINGS_QUERY_INSTRUCTION,
+        settings.EMBEDDINGS_DIM,
+    ]
+
+
+def _cache_key(**parts: object) -> str:
+    """A shared cache backend (production uses the database) outlives process restarts
+    and configuration changes, so everything that determines a ranking is part of the
+    key, hashed so a 1,000-character description cannot overflow it."""
     fingerprint = json.dumps(
-        {
-            "schema": _FUSED_CACHE_SCHEMA,
-            "query": QueryParser.unparse(search.query),
-            "filters": asdict(search.filters),
-            "fts_max": settings.HYBRID_FTS_MAX_RESULTS,
-            "rrf_k": settings.HYBRID_RRF_K,
-            "ef_search": settings.HYBRID_HNSW_EF_SEARCH,
-            "embeddings": None
-            if spec is None
-            else [
-                settings.EMBEDDINGS_BASE_URL,
-                spec.model,
-                spec.params,
-                settings.EMBEDDINGS_QUERY_INSTRUCTION,
-                settings.EMBEDDINGS_DIM,
-            ],
-        },
-        sort_keys=True,
-        default=str,  # date/datetime filter values
+        {"schema": _RANKING_CACHE_SCHEMA, **parts}, sort_keys=True, default=str
     )
-    return "pgsearch-fused-" + hashlib.sha256(fingerprint.encode()).hexdigest()
+    return "pgsearch-ranking-" + hashlib.sha256(fingerprint.encode()).hexdigest()
 
 
-def _fused_to_cached(fused: _FusedHybrid) -> dict:
-    """Plain-dict payload instead of pickling the NamedTuple, so a cached entry
-    never carries a stale class shape across deploys."""
-    return {
-        "ids": list(fused.rrf_score_by_id.keys()),
-        "scores": list(fused.rrf_score_by_id.values()),
-        "dist_ids": list(fused.vec_distance.keys()),
-        "dists": list(fused.vec_distance.values()),
-        "total_relation": fused.total_relation,
-        "configs": fused.configs,
-        "query_str": fused.query_str,
-    }
-
-
-def _fused_from_cached(cached: dict) -> _FusedHybrid:
-    rrf_score_by_id = dict(zip(cached["ids"], cached["scores"], strict=True))
-    return _FusedHybrid(
-        ordered_ids=list(rrf_score_by_id),
-        rrf_score_by_id=rrf_score_by_id,
-        vec_distance=dict(zip(cached["dist_ids"], cached["dists"], strict=True)),
-        total_relation=cached["total_relation"],
-        configs=[(config, list(codes)) for config, codes in cached["configs"]],
-        query_str=cached["query_str"],
+def _keyword_ranking(request: FullTextSearch) -> _KeywordRanking:
+    """The keyword layer, cached whenever the cache is on. It never depends on the
+    embedding service, so a search and an extraction over the same query and filters
+    share one entry."""
+    timeout = settings.SEARCH_RANKING_CACHE_TIMEOUT_SECONDS
+    key = _cache_key(
+        layer="keyword",
+        query=QueryParser.unparse(request.query),
+        filters=asdict(request.filters),
+        fts_max=settings.SEARCH_FTS_MAX_RESULTS,
     )
-
-
-def _fuse_hybrid(search: Search, caller: str) -> _FusedHybrid:
-    """Cached front of `_fuse_hybrid_uncached`.
-
-    Pagination re-runs the whole fusion for every page, and ranking every FTS
-    match of a common term costs seconds on a large corpus, so the fused union
-    is cached per query fingerprint and page 2..n (and repeated searches) reuse
-    it. Degraded FTS-only results — a configured embedding model that produced
-    no vector — are never cached, so an embedding outage cannot pin searches to
-    FTS-only for the TTL. New or updated reports enter a cached query's results
-    only after the TTL expires."""
-    timeout = settings.HYBRID_FUSED_CACHE_TIMEOUT_SECONDS
-    if timeout <= 0:
-        return _fuse_hybrid_uncached(search, caller)[0]
-    key = _fused_cache_key(search)
-    cached = cache.get(key)
-    if cached is not None:
-        return _fused_from_cached(cached)
-    fused, degraded = _fuse_hybrid_uncached(search, caller)
-    if not degraded:
-        cache.set(key, _fused_to_cached(fused), timeout=timeout)
-    return fused
-
-
-def _fuse_hybrid_uncached(search: Search, caller: str) -> tuple[_FusedHybrid, bool]:
-    """Run both retrievers and fuse them with RRF.
-
-    Shared by search(), retrieve() and count() so all three describe the same
-    union. The vector half embeds only the positive branches (§7.8 strips
-    ``NOT``) and enforces the top-level negations on its candidates; the FTS
-    half consumes the full boolean tsquery. Returns the fused, ordered report
-    ids plus the per-id scores/distances and the query metadata callers reuse,
-    and whether the result is degraded (vector half skipped by a failure)."""
-    query_str = _build_query_string(search.query)
-    configs = _language_configs(search.filters)
-    filter_query = _build_filter_query(search.filters)
-
-    # Vector side: skipped entirely when no embedding model is configured (FTS-only
-    # deployment), and when stripping NOT branches leaves nothing to embed (see
-    # docs/superpowers/specs/hybrid-search.md §7.8).
-    query_text = QueryParser.unparse_for_embedding(search.query)
-    query_vec: list[float] | None = None
-    if settings.EMBEDDINGS_MODEL is not None and query_text.strip():
-        query_vec = _embed_query_cached(query_text, caller)
-    # A configured model that produced no vector means the embedding service is
-    # failing or rate limited right now; the caller must not cache this result.
-    degraded = (
-        settings.EMBEDDINGS_MODEL is not None and bool(query_text.strip()) and query_vec is None
-    )
-
-    vec_rank: dict[int, int] = {}
-    vec_distance: dict[int, float] = {}
-    if query_vec is not None:
-        vec_qs = ReportSearchIndex.objects.filter(filter_query)
-        vec_qs = _exclude_negations(vec_qs, search.query, configs)
-        # One pass over the corpus-wide nearest neighbours: the scan emits at
-        # most ~hnsw.ef_search rows (a connection option, see
-        # settings.HYBRID_HNSW_EF_SEARCH), and the filters above then shrink
-        # them — the semantic candidates are the accessible subset of roughly
-        # the ef_search nearest reports, deliberately not topped back up by an
-        # iterative scan. The slice is a planner guard, not a semantic cap:
-        # sized above any beam emission (~1.45x ef_search measured) so it never
-        # truncates the pass, while keeping a LIMIT in the query — without one
-        # the planner abandons the index for a full sequential sort.
-        vec_rows = list(
-            vec_qs.exclude(embedding__isnull=True)
-            .annotate(distance=CosineDistance("embedding", query_vec))
-            .order_by("distance", "report_id")
-            .values_list("report_id", "distance")[: settings.HYBRID_HNSW_EF_SEARCH * 2]
+    if timeout > 0:
+        cached = cache.get(key)
+        if cached is not None:
+            return _KeywordRanking(
+                ids=list(cached["ids"]),
+                ts_rank_by_id=dict(zip(cached["ids"], cached["ranks"], strict=True)),
+                relation=cached["relation"],
+                configs=[(config, list(codes)) for config, codes in cached["configs"]],
+                query_str=cached["query_str"],
+            )
+    ranking = _keyword_ranking_uncached(request)
+    if timeout > 0:
+        cache.set(
+            key,
+            {
+                "ids": ranking.ids,
+                "ranks": [ranking.ts_rank_by_id[rid] for rid in ranking.ids],
+                "relation": ranking.relation,
+                "configs": ranking.configs,
+                "query_str": ranking.query_str,
+            },
+            timeout=timeout,
         )
-        for i, (rid, dist) in enumerate(vec_rows):
-            vec_rank[rid] = i + 1
-            vec_distance[rid] = float(dist)
+    return ranking
 
-    # FTS side: bounded set, ts_rank only (no headline at this stage). An empty
-    # ``configs`` means an empty corpus (Report.language is a required FK), and
-    # an empty match_q would match every row rather than none, so skip it.
-    fts_rows = (
-        [] if not configs else list(_fts_candidate_queryset(filter_query, configs, query_str))
-    )
-    fts_rank = {row["report_id"]: i + 1 for i, row in enumerate(fts_rows)}
 
-    # Fusion.
-    ordered_pairs = rrf_fuse(vec_rank, fts_rank, k=settings.HYBRID_RRF_K)
-    rrf_score_by_id = dict(ordered_pairs)
-    ordered_ids = list(rrf_score_by_id)
-    # The vector half is one complete beam pass by definition, so it never makes
-    # the union a lower bound; only a truncated FTS side does.
-    total_relation: Literal["exact", "at_least", "approximately"] = (
-        "at_least" if len(fts_rows) >= settings.HYBRID_FTS_MAX_RESULTS else "exact"
+def _keyword_ranking_uncached(request: FullTextSearch) -> _KeywordRanking:
+    query_str = _build_query_string(request.query)
+    configs = _language_configs(request.filters)
+    filter_query = _build_filter_query(request.filters)
+    # An empty ``configs`` means an empty corpus (Report.language is a required FK),
+    # and an empty match would match every row rather than none, so skip it.
+    rows = [] if not configs else list(_fts_candidate_queryset(filter_query, configs, query_str))
+    ids = [row["report_id"] for row in rows]
+    relation: Literal["exact", "at_least", "approximately"] = (
+        "at_least" if len(rows) >= settings.SEARCH_FTS_MAX_RESULTS else "exact"
     )
-    return _FusedHybrid(
-        ordered_ids=ordered_ids,
-        rrf_score_by_id=rrf_score_by_id,
-        vec_distance=vec_distance,
-        total_relation=total_relation,
+    return _KeywordRanking(
+        ids=ids,
+        ts_rank_by_id={row["report_id"]: float(row["rank"]) for row in rows},
+        relation=relation,
         configs=configs,
         query_str=query_str,
-    ), degraded
+    )
 
 
-def search(search: Search) -> SearchResult:
-    fused = _fuse_hybrid(search, "Hybrid search")
-    ordered_ids = fused.ordered_ids
-    vec_distance = fused.vec_distance
-    rrf_score_by_id = fused.rrf_score_by_id
-    total_count = len(ordered_ids)
-    total_relation = fused.total_relation
+def _finite_similarities(rows: Iterable[tuple[int, float]]) -> dict[int, float]:
+    """Similarity, 1 - cosine distance, per report id in row order."""
+    measured = ((rid, 1.0 - float(distance)) for rid, distance in rows)
+    # pgvector's cosine distance to a zero vector is NaN, and such a report counts as
+    # not embedded: it keeps no similarity on the page or in a cached payload. Only an
+    # HNSW scan leaves it out by itself; every other plan returns it.
+    return {rid: value for rid, value in measured if math.isfinite(value)}
 
-    if search.limit is None:
-        page_ids = ordered_ids[search.offset :]
-    else:
-        page_ids = ordered_ids[search.offset : search.offset + search.limit]
 
-    configs = fused.configs
+def _rank_fulltext(request: FullTextSearch) -> Ranking:
+    keyword = _keyword_ranking(request)
+    return Ranking(
+        ids=list(keyword.ids),
+        score_by_id=dict(keyword.ts_rank_by_id),
+        similarity_by_id={},
+        relation=keyword.relation,
+        configs=keyword.configs,
+        query_str=keyword.query_str,
+        degraded=False,
+    )
+
+
+ITERATIVE_SCAN_SQL = "SET LOCAL hnsw.iterative_scan = strict_order"
+
+
+def _semantic_scan_queryset(filter_query: Q, vec: list[float]):
+    """The nearest reports under the filters: one HNSW index scan, capped at the beam
+    width, which is the semantic depth. The LIMIT must stay in the query: without one
+    the planner abandons the index for a sequential sort."""
+    return (
+        ReportSearchIndex.objects.filter(filter_query)
+        .exclude(embedding__isnull=True)
+        .annotate(distance=CosineDistance("embedding", vec))
+        .order_by("distance", "report_id")
+        .values_list("report_id", "distance")[: settings.SEARCH_HNSW_EF_SEARCH]
+    )
+
+
+def _semantic_ranking(ids: list[int], similarity: dict[int, float], *, degraded: bool) -> Ranking:
+    return Ranking(
+        ids=ids,
+        score_by_id=dict(similarity),
+        similarity_by_id=similarity,
+        relation="exact",
+        configs=[],
+        query_str="",
+        degraded=degraded,
+    )
+
+
+def _rank_semantic(request: SemanticSearch, caller: str) -> Ranking:
+    """The reports most similar to the text, in similarity order; cached unless the
+    embedding failed, in which case the list is empty and degraded."""
+    if settings.EMBEDDINGS_MODEL is None:
+        raise ValueError("A semantic search needs an embedding model (EMBEDDINGS_MODEL).")
+    timeout = settings.SEARCH_RANKING_CACHE_TIMEOUT_SECONDS
+    key = _cache_key(
+        layer="semantic",
+        text=request.text,
+        filters=asdict(request.filters),
+        ef_search=settings.SEARCH_HNSW_EF_SEARCH,
+        iterative=settings.SEARCH_SEMANTIC_ITERATIVE_SCAN,
+        embeddings=_embedding_fingerprint(),
+    )
+    if timeout > 0:
+        cached = cache.get(key)
+        if cached is not None:
+            similarity = dict(zip(cached["ids"], cached["similarities"], strict=True))
+            return _semantic_ranking(list(cached["ids"]), similarity, degraded=False)
+    vec = _embed_query_cached(request.text, caller)
+    if vec is None:
+        return _semantic_ranking([], {}, degraded=True)
+    filter_query = _build_filter_query(request.filters)
+    # SET LOCAL lasts to the end of the enclosing transaction, so the scan gets its own:
+    # the search view runs outside any transaction and the setting ends with the scan.
+    with transaction.atomic():
+        if settings.SEARCH_SEMANTIC_ITERATIVE_SCAN:
+            with connection.cursor() as cursor:
+                cursor.execute(ITERATIVE_SCAN_SQL)
+        rows = list(_semantic_scan_queryset(filter_query, vec))
+    similarity = _finite_similarities(rows)
+    ids = list(similarity)
+    if timeout > 0:
+        cache.set(
+            key,
+            {"ids": ids, "similarities": [similarity[rid] for rid in ids]},
+            timeout=timeout,
+        )
+    return _semantic_ranking(ids, similarity, degraded=False)
+
+
+def _effective_min_similarity(request: SemanticSearch) -> float | None:
+    if request.min_similarity is not None:
+        return request.min_similarity
+    return settings.SEARCH_SEMANTIC_MIN_SIMILARITY
+
+
+def _truncate(ranking: Ranking, cutoff: float | None) -> Ranking:
+    """Cut the similarity-ordered list at the first hit below ``cutoff``. Done after
+    retrieval rather than as a SQL predicate: with iterative scan on, pgvector would
+    keep scanning for rows that can no longer pass, up to its tuple budget."""
+    if cutoff is None or cutoff <= 0:
+        return ranking
+    kept: list[int] = []
+    for rid in ranking.ids:
+        if ranking.similarity_by_id.get(rid, 0.0) < cutoff:
+            break
+        kept.append(rid)
+    return ranking._replace(ids=kept)
+
+
+def _hydration_queryset(
+    page_ids: list[int],
+    group: int | None,
+    configs: list[tuple[str, list[str]]],
+    query_str: str,
+):
+    """The page slice: single-table apart from the headline's deliberate join on
+    ``report__body``. The group predicate keeps a report removed from the group off
+    the page at once even while the cached ranking still lists it."""
+    rows = ReportSearchIndex.objects.filter(report_id__in=page_ids).filter(_group_query(group))
+    if not configs or not query_str:
+        return rows.annotate(
+            headline=Value("", output_field=TextField()),
+            rank=Value(None, output_field=FloatField()),
+        )
     tsqueries = {
-        config: SearchQuery(fused.query_str, search_type="raw", config=config)
-        for config, _ in configs
+        config: SearchQuery(query_str, search_type="raw", config=config) for config, _ in configs
     }
 
     def _headline(config: str) -> SearchHeadline:
@@ -588,80 +595,93 @@ def search(search: Search) -> SearchResult:
             "report__body",
             tsqueries[config],
             config=config,
-            start_sel="<em>",
-            stop_sel="</em>",
+            start_sel=HEADLINE_START,
+            stop_sel=HEADLINE_STOP,
             min_words=10,
             max_words=20,
             max_fragments=10,
         )
 
-    # Highlight and rank each document under the configuration it was indexed
-    # under; a headline/rank built under another configuration silently
-    # highlights/scores nothing. A one-branch Case is legal (unlike Greatest),
-    # so this covers the single-configuration case too with no special-casing.
-    summary_expr = Case(
+    # Highlight and rank each document under the configuration it was indexed under;
+    # a headline or rank built under another configuration silently yields nothing.
+    headline_expr = Case(
         *[When(language_code__in=codes, then=_headline(config)) for config, codes in configs],
         default=Value(""),
         output_field=TextField(),
     )
     rank_expr = Case(
         *[
-            When(
-                language_code__in=codes,
-                then=SearchRank(F("search_vector"), tsqueries[config]),
-            )
+            When(language_code__in=codes, then=SearchRank(F("search_vector"), tsqueries[config]))
             for config, codes in configs
         ],
         default=Value(0.0),
         output_field=FloatField(),
     )
+    return rows.annotate(headline=headline_expr, rank=rank_expr)
 
-    # Headline + hydration for the page slice only.
-    page_rows = (
-        ReportSearchIndex.objects.filter(report_id__in=page_ids)
-        .annotate(
-            summary=summary_expr,
-            rank=rank_expr,
-        )
-        .select_related("report")
-    )
-    by_id = {r.report.pk: r for r in page_rows}
 
+def _hydrate(page_ids: list[int], ranking: Ranking, group: int | None) -> list[ReportDocument]:
+    rows = _hydration_queryset(page_ids, group, ranking.configs, ranking.query_str)
+    by_id = {
+        r.report.pk: cast(AnnotatedReportSearchIndex, r)
+        for r in rows.select_related("report").prefetch_related("report__modalities")
+    }
     documents: list[ReportDocument] = []
     for rid in page_ids:
-        rsv = by_id.get(rid)
-        if rsv is None:
+        row = by_id.get(rid)
+        if row is None:  # deleted, or removed from the group, since the ranking was cached
             continue
-        rsv.summary = summary_with_fallback(  # type: ignore[attr-defined]
-            rsv.report.body,
-            rsv.summary or "",  # type: ignore[attr-defined]
-            max_words=30,
-        )
         documents.append(
             document_from_pgsearch_response(
-                cast(AnnotatedReportSearchIndex, rsv),
-                cosine_distance=vec_distance.get(rid),
-                rrf_score=rrf_score_by_id.get(rid, 0.0),
+                row,
+                relevance=row.rank,
+                summary=summary_markup(row.report.body, row.headline or ""),
+                similarity=ranking.similarity_by_id.get(rid),
+                score=ranking.score_by_id.get(rid, 0.0),
             )
         )
-
-    return SearchResult(total_count=total_count, total_relation=total_relation, documents=documents)
-
-
-def count(search: Search) -> int:
-    # Must describe the same set retrieve() yields: the extraction max-reports
-    # guard is computed from this and then retrieve() iterates the union. An
-    # FTS-only count would report 0 for a semantic-only query and let the guard
-    # be bypassed while retrieve() still creates extraction instances.
-    return len(_fuse_hybrid(search, "Hybrid count").ordered_ids)
+    return documents
 
 
-def retrieve(search: Search) -> Iterator[str]:
-    ordered_ids = _fuse_hybrid(search, "Hybrid retrieve").ordered_ids
+def _page(ids: list[int], request: Search) -> list[int]:
+    if request.limit is None:
+        return ids[request.offset :]
+    if request.limit <= 0:  # a negative slice bound would count from the end of the list
+        return []
+    return ids[request.offset : request.offset + request.limit]
+
+
+def search(request: SearchRequest) -> SearchResult:
+    if isinstance(request, SemanticSearch):
+        ranking = _truncate(
+            _rank_semantic(request, "Semantic search"), _effective_min_similarity(request)
+        )
+    else:
+        ranking = _rank_fulltext(request)
+    documents = _hydrate(_page(ranking.ids, request), ranking, request.filters.group)
+    return SearchResult(
+        total_count=len(ranking.ids),
+        total_relation=ranking.relation,
+        documents=documents,
+        degraded=ranking.degraded,
+    )
+
+
+def count(request: FullTextSearch) -> int:
+    return len(_keyword_ranking(request).ids)
+
+
+def retrieve(request: FullTextSearch) -> Iterator[str]:
+    ordered_ids = _keyword_ranking(request).ids
     if not ordered_ids:
         return iter([])
-
-    id_to_doc = dict(Report.objects.filter(pk__in=ordered_ids).values_list("pk", "document_id"))
+    # The cached ids may predate a group change; as on the search page, the group
+    # predicate keeps a report removed from the group out at once.
+    id_to_doc = dict(
+        ReportSearchIndex.objects.filter(report_id__in=ordered_ids)
+        .filter(_group_query(request.filters.group))
+        .values_list("report_id", "report__document_id")
+    )
     return (id_to_doc[rid] for rid in ordered_ids if rid in id_to_doc)
 
 

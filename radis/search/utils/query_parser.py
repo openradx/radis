@@ -150,8 +150,8 @@ class QueryParser:
         filtering lives on the provider side via ``SearchFilters``. Without
         this step the colon would be silently stripped by
         ``_replace_invalid_characters`` and ``body:pneumonia`` would collapse
-        to ``bodypneumonia``, a meaningless token that pollutes both the FTS
-        tsquery and the dense-embedding text. Drop the whole token instead.
+        to ``bodypneumonia``, a meaningless token that pollutes the FTS tsquery.
+        Drop the whole token instead.
 
         Operates only on unquoted segments so ``"body:pneumonia"`` inside a
         phrase is preserved verbatim.
@@ -335,42 +335,3 @@ class QueryParser:
             )
         else:
             raise ValueError(f"Unknown node type: {type(node)}")
-
-    @staticmethod
-    def unparse_for_embedding(node: QueryNode) -> str:
-        """Render the query as a plain bag of terms suitable for a dense
-        embedding model.
-
-        - Drops every ``UnaryNode("NOT", X)`` (embeddings are polarity-blind
-          for negation; see docs/superpowers/specs/hybrid-search.md
-          §7.8).
-        - Drops boolean operator tokens (``AND``/``OR``): they're query syntax,
-          not content. The embedding model would otherwise see them as
-          stopword-ish tokens cluttering the input.
-        - Drops grouping parentheses for the same reason.
-        - Drops quotes around phrases — embedding tokenizers handle multi-word
-          spans natively; the literal quote chars only add noise.
-
-        Returns the empty string if the whole query reduces to NOT clauses.
-        Used by the hybrid-search vector half via ``providers.search``.
-        """
-        if isinstance(node, TermNode):
-            # Emit the raw value for both WORD and PHRASE — no surrounding
-            # quotes, since the embedding model doesn't care about them.
-            return node.value
-        if isinstance(node, ParensNode):
-            return QueryParser.unparse_for_embedding(node.expression)
-        if isinstance(node, UnaryNode):
-            return ""
-        if isinstance(node, BinaryNode):
-            left = QueryParser.unparse_for_embedding(node.left)
-            right = QueryParser.unparse_for_embedding(node.right)
-            if not left and not right:
-                return ""
-            if not left:
-                return right
-            if not right:
-                return left
-            # Always join with a single space — operator tokens are dropped.
-            return f"{left} {right}"
-        raise ValueError(f"Unknown node type: {type(node)}")
