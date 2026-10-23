@@ -292,6 +292,12 @@ def test_query_row_with_the_capability_renders_the_select_and_both_rows() -> Non
     assert '<option value="semantic" selected>Semantic</option>' in html
     assert 'x-model.fill="mode"' in html
     assert "input-group-text" not in html
+    # In semantic mode the keyword row is hidden and its input disabled, not locked.
+    assert '<div class="input-group" x-show="mode !== \'semantic\'">' in html
+    query_input = re.search(r'<input [^>]*name="query"[^>]*>', html)
+    assert query_input is not None
+    assert ":disabled=\"mode === 'semantic'\"" in query_input.group()
+    assert ":readonly" not in html
     # Both values stay in the markup, so switching modes on the page keeps them.
     assert 'value="pneumothorax"' in html
     assert ">free &lt;air&gt;</textarea>" in html
