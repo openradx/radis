@@ -6,11 +6,10 @@ import pytest
 from crispy_forms.layout import Field, Layout
 from crispy_forms.utils import render_crispy_form
 from django.template.loader import render_to_string
-from django.urls import reverse
 
 from radis.labels.factories import LabelFactory
 from radis.reports.factories import LanguageFactory, ModalityFactory
-from radis.search.forms import DESCRIPTION_MAX_LENGTH, DescriptionRequestForm, SearchForm
+from radis.search.forms import DESCRIPTION_MAX_LENGTH, SearchForm
 from radis.search.layouts import QueryInput
 
 
@@ -223,12 +222,6 @@ def test_semantic_mode_follows_the_mode_field_and_the_capability() -> None:
     assert stale.semantic_mode() is False
 
 
-def test_description_request_form_limits_match_the_search_form() -> None:
-    assert DescriptionRequestForm({"query": "a" * 200, "description": "b" * 1000}).is_valid()
-    assert not DescriptionRequestForm({"query": "a" * 201}).is_valid()
-    assert not DescriptionRequestForm({"description": "b" * 1001}).is_valid()
-
-
 def _row_html(form: SearchForm) -> str:
     """The rendered query row with whitespace collapsed, so assertions ignore indentation."""
     return " ".join(render_crispy_form(form, form.query_helper).split())
@@ -238,7 +231,7 @@ def _row_html(form: SearchForm) -> str:
 def test_query_row_without_the_capability_is_the_plain_search_row() -> None:
     html = _row_html(SearchForm())
     assert '<span class="input-group-text">Search</span>' in html
-    for absent in ('name="mode"', 'name="description"', "Write from keywords"):
+    for absent in ('name="mode"', 'name="description"'):
         assert absent not in html
 
 
@@ -253,8 +246,6 @@ def test_query_row_with_the_capability_renders_the_select_and_the_description() 
     # The keyword input is locked in semantic mode.
     assert ":readonly=\"mode === 'semantic'\"" in unescape(html)
     assert ">free &lt;air&gt;</textarea>" in html
-    assert f'hx-post="{reverse("search_description")}"' in html
-    assert "Write from keywords" in html
 
 
 @pytest.mark.django_db
@@ -270,25 +261,12 @@ def test_cutoff_field_is_in_the_filters_only_with_the_capability() -> None:
     assert "min_similarity" not in render_crispy_form(without, without.filters_helper)
 
 
-def test_description_partial_escapes_its_value_and_notice() -> None:
+def test_description_partial_escapes_its_value() -> None:
     html = render_to_string(
-        "search/form_elements/description_input.html",
-        {"value": "a </textarea><b>", "notice": "Oops <i>"},
+        "search/form_elements/description_input.html", {"value": "a </textarea><b>"}
     )
     assert ">a &lt;/textarea&gt;&lt;b&gt;</textarea>" in html
-    assert 'hx-swap-oob="innerHTML:#description_notice">Oops &lt;i&gt;</small>' in html
     assert f'maxlength="{DESCRIPTION_MAX_LENGTH}"' in html
-
-
-def test_description_partial_swaps_only_the_textarea_into_the_page() -> None:
-    """The endpoint answers with the whole partial; selecting the textarea out of it keeps
-    the page's row and button from being nested inside themselves."""
-    html = render_to_string(
-        "search/form_elements/description_input.html", {"value": "", "notice": ""}
-    )
-    assert html.count('id="id_description"') == 1
-    assert 'hx-target="#id_description"' in html
-    assert 'hx-select="#id_description"' in html
 
 
 @pytest.mark.django_db
@@ -301,10 +279,9 @@ def test_an_age_off_the_step_is_a_field_error_not_a_crash(field) -> None:
 
 @pytest.mark.django_db
 def test_mode_dependent_controls_are_cloaked_until_alpine_starts() -> None:
-    """The write button and the cutoff are shown by mode; without x-cloak they would flash
-    before Alpine has read the mode."""
+    """The cutoff is shown by mode; without x-cloak it would flash before Alpine has
+    read the mode."""
     form = SearchForm(semantic=True)
-    for helper in (form.query_helper, form.filters_helper):
-        tags = re.findall(r"<[^>]*\bx-show=[^>]*>", render_crispy_form(form, helper))
-        assert tags
-        assert all(re.search(r"\bx-cloak\b", tag) for tag in tags), tags
+    tags = re.findall(r"<[^>]*\bx-show=[^>]*>", render_crispy_form(form, form.filters_helper))
+    assert tags
+    assert all(re.search(r"\bx-cloak\b", tag) for tag in tags), tags

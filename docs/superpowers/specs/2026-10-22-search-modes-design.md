@@ -13,9 +13,10 @@ full-text candidate query this design keeps unchanged); the spike branch
 `docs/superpowers/specs/2026-10-18-hybrid-ranking-strategies-spike.md` on that branch.
 
 **Delivery:** this design ships in two pull requests. PR #372 (`search-modes`) delivers the
-two modes. The description re-rank of full-text hits follows in the stacked PR
-`search-rerank`: §4.2, the window layer of §4.4, the re-rank parts of §6.1, §6.4 and §6.6,
-the `SEARCH_RERANK_*` settings of §7, and their tests in §11.
+two modes. The description re-rank of full-text hits and the description writer behind
+"Write from keywords" follow in the stacked PR `search-rerank`: §4.2, the window layer of
+§4.4, the re-rank parts of §6.1, §6.4 and §6.6, §6.5, the `SEARCH_RERANK_*` and
+`SEARCH_DESCRIPTION_*` settings of §7, and their tests in §11.
 
 ## 1. Summary
 

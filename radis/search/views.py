@@ -1,22 +1,15 @@
 from typing import Any
 
 from adit_radis_shared.common.types import AuthenticatedHttpRequest
-from asgiref.sync import sync_to_async
 from django.conf import settings
 from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
-from django.contrib.auth.views import redirect_to_login
-from django.core.exceptions import ImproperlyConfigured, PermissionDenied, SuspiciousOperation
+from django.core.exceptions import ImproperlyConfigured
 from django.core.paginator import Paginator
-from django.http import Http404, HttpRequest, HttpResponse
+from django.http import Http404, HttpRequest
 from django.shortcuts import render
-from django.urls import reverse
 from django.views import View
-from django.views.decorators.http import require_POST
-from django_htmx.http import HttpResponseClientRedirect
-from pyparsing import ParseBaseException
 
-from radis.search.forms import DESCRIPTION_MAX_LENGTH, DescriptionRequestForm, SearchForm
-from radis.search.utils.description import write_description
+from radis.search.forms import SearchForm
 from radis.search.utils.query_parser import QueryParser
 
 from .site import FullTextSearch, SearchRequest, SemanticSearch, search_provider
@@ -24,8 +17,6 @@ from .site import FullTextSearch, SearchRequest, SemanticSearch, search_provider
 PAGE_SIZES = [10, 25, 50]
 DEFAULT_PAGE_SIZE = 25
 SEMANTIC_NEEDS_DESCRIPTION = "Semantic mode needs a description."
-ENTER_KEYWORDS = "Enter search keywords first; the description is written from the positive terms."
-WRITER_FAILED = "The LLM could not write a description right now."
 
 
 class SearchView(LoginRequiredMixin, UserPassesTestMixin, View):
@@ -125,58 +116,3 @@ class SearchView(LoginRequiredMixin, UserPassesTestMixin, View):
         except ValueError:
             page_size = DEFAULT_PAGE_SIZE
         return page_size if page_size >= 1 else DEFAULT_PAGE_SIZE
-
-
-async def _description_response(request: HttpRequest, value: str, notice: str) -> HttpResponse:
-    # Context processors may touch the sync ORM or session APIs, so the render runs
-    # off the event loop.
-    return await sync_to_async(render)(
-        request,
-        "search/form_elements/description_input.html",
-        {"value": value, "notice": notice},
-    )
-
-
-@require_POST
-async def description_view(request: AuthenticatedHttpRequest) -> HttpResponse:
-    """HTMX endpoint behind "Write from keywords": re-renders the description row
-    with an LLM-written passage about the positive keywords, or with a notice.
-
-    Async so the LLM call does not occupy a worker thread. The query parse is pushed
-    off the event loop because its run time grows exponentially with parenthesis
-    nesting. The body touches only ``request.auser()`` and an ORM-free form; a sync
-    database call here would raise ``SynchronousOnlyOperation`` under ASGI.
-    """
-    if not request.htmx:
-        raise SuspiciousOperation
-
-    user = await request.auser()
-    if not user.is_authenticated:
-        # The XHR would follow a plain redirect, and the login page has no textarea for
-        # hx-select to keep, so the swap would delete it with the draft; HX-Redirect
-        # makes HTMX load the login page as a whole page instead.
-        next_url = request.htmx.current_url_abs_path or reverse("search")
-        return HttpResponseClientRedirect(redirect_to_login(next_url).url)
-    if user.active_group_id is None:  # type: ignore[attr-defined]
-        raise PermissionDenied
-
-    form = DescriptionRequestForm(request.POST)
-    submitted = request.POST.get("description", "")[:DESCRIPTION_MAX_LENGTH]
-    if not form.is_valid():
-        return await _description_response(request, submitted, WRITER_FAILED)
-    submitted = form.cleaned_data["description"]
-
-    try:
-        node, _fixes = await sync_to_async(QueryParser().parse)(form.cleaned_data["query"])
-    except ParseBaseException:
-        # The parser's repairs leave some inputs unparseable, e.g. an operator left
-        # dangling beside an empty group.
-        node = None
-    terms = QueryParser.unparse_positive_terms(node) if node is not None else ""
-    if not terms.strip():
-        return await _description_response(request, submitted, ENTER_KEYWORDS)
-
-    description = await write_description(terms)
-    if description is None:
-        return await _description_response(request, submitted, WRITER_FAILED)
-    return await _description_response(request, description[:DESCRIPTION_MAX_LENGTH], "")

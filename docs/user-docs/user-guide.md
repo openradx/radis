@@ -32,7 +32,7 @@ The search feature is the core of RADIS, allowing you to find relevant reports q
 
 1. Navigate to the "Search" section
 2. Choose the mode in the search bar: Full-text (the default) or Semantic (offered when your administrator has configured an embedding model)
-3. Enter your keywords (full-text) or describe the reports you are looking for (semantic). "Write from keywords" lets the LLM write the description from your keywords, and you can edit it before searching
+3. Enter your keywords (full-text) or describe the reports you are looking for (semantic)
 4. Apply filters as needed on the right-hand side
 5. Review the search results
 
@@ -53,7 +53,7 @@ If your query contains mistakes such as unbalanced quotes or parentheses, unsupp
 
 When your administrator has configured an embedding model, the search bar offers two modes. **Full-text** finds exactly the reports that contain your keywords and highlights them. **Semantic** locks the keyword box and searches by the description alone: the result is the list of reports whose meaning is closest to it, in similarity order, without highlighting. Operators, quotes and NOT have no special meaning in a description.
 
-"Write from keywords" asks the LLM to write a short report-style description from your keywords; it ignores negated terms, and you can edit the text before searching. Reports imported recently may not be embedded yet and do not appear in semantic mode until they are. If the embedding service is unavailable, semantic mode says so and shows no list; full-text search does not depend on it.
+Reports imported recently may not be embedded yet and do not appear in semantic mode until they are. If the embedding service is unavailable, semantic mode says so and shows no list; full-text search does not depend on it.
 
 The description travels in the page address like the keywords and appears in your browser history and in server logs, so do not type patient identifiers into it.
 

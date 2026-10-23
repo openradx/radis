@@ -52,7 +52,7 @@ uv run cli db-backup                 # Backup database
 
 - **radis.core/**: Core functionality, UI layouts, abstract base classes. Models: `AnalysisJob`, `AnalysisTask` (abstract bases for job/task pattern).
 - **radis.reports/**: Report management and REST API. Models: `Report` (main entity with patient info, study metadata, body text), `Language`, `Modality`, `Metadata`.
-- **radis.search/**: Full-text and semantic search interface. Contains `SearchView`, `SearchForm`, the request types `FullTextSearch` and `SemanticSearch`, `QueryParser` for complex query syntax, the provider registry, and the description endpoint behind the search page's "Write from keywords" button.
+- **radis.search/**: Full-text and semantic search interface. Contains `SearchView`, `SearchForm`, the request types `FullTextSearch` and `SemanticSearch`, `QueryParser` for complex query syntax, and the provider registry.
 - **radis.pgsearch/**: PostgreSQL search implementation. One `search(request)` entry point serves full-text searches (exactly the keyword hits) and semantic searches (HNSW nearest neighbours), with a ranking cache for both.
 - **radis.subscriptions/**: Notification system for new reports matching criteria. Background tasks check new reports against user subscriptions.
 - **radis.collections/**: Report bookmarking and organization into custom collections.
@@ -103,7 +103,7 @@ Key variables in `.env` (see `example.env`):
 - `LLM_BASE_URL`: Base URL of the OpenAI-compatible LLM endpoint (required, no default)
 - `LLM_API_KEY`: API key for that endpoint. It must be non-empty; a provider that ignores it accepts any placeholder (`example.env` sets `whatever`)
 - `LLM_DEFAULT_MODEL`: Model every feature uses unless overridden (required). Takes the form `model[?param=value&...]`; the params are merged into the request body, values are read as JSON where possible (`temperature=0` → number, `reasoning_effort=none` → string), and dotted keys nest (`chat_template_kwargs.enable_thinking=false`)
-- `LLM_CHATS_MODEL`, `LLM_QUERY_GENERATION_MODEL`, `LLM_EXTRACTIONS_MODEL`, `LLM_SUBSCRIPTIONS_MODEL`, `LLM_LABELING_MODEL`: Per-feature overrides, same form. Blank means use `LLM_DEFAULT_MODEL` (`LLM_QUERY_GENERATION_MODEL` also serves the search page's description writer)
+- `LLM_CHATS_MODEL`, `LLM_QUERY_GENERATION_MODEL`, `LLM_EXTRACTIONS_MODEL`, `LLM_SUBSCRIPTIONS_MODEL`, `LLM_LABELING_MODEL`: Per-feature overrides, same form. Blank means use `LLM_DEFAULT_MODEL`
 
 - `SITE_NAME`, `SITE_DOMAIN`: Site framework settings
 - `ADMIN_USERNAME`, `ADMIN_EMAIL`, `ADMIN_PASSWORD`: Initial superuser
@@ -139,9 +139,6 @@ Embeddings and search tuning (`radis.pgsearch`):
   (`hnsw.iterative_scan = strict_order`, default `true`)
 - `SEARCH_SEMANTIC_MIN_SIMILARITY`: Similarity cutoff for semantic mode, 0..1, unset by
   default; users can override it per search
-- `SEARCH_DESCRIPTION_TIMEOUT`, `SEARCH_DESCRIPTION_MAX_TOKENS`,
-  `SEARCH_DESCRIPTION_CACHE_TIMEOUT_SECONDS`, `SEARCH_DESCRIPTION_SYSTEM_PROMPT`: The
-  "Write from keywords" writer (defaults `10`s, `200`, `3600`s, built-in prompt)
 
 Auto-labeling (`radis.labels`):
 
@@ -255,7 +252,7 @@ client.update_report("DOC-12345", {"body": "Updated findings..."}, upsert=True)
 ### LLM Operations Failing
 
 - Verify `LLM_BASE_URL`, `LLM_API_KEY` and `LLM_DEFAULT_MODEL` are set (the key must be non-empty, but a provider that ignores it accepts any placeholder)
-- Check the right logs for the failing path: chat, query generation and the search page's description writer run in `web` (`docker compose logs web`), while extraction, subscription and labeling tasks run in `llm_worker` (`docker compose logs llm_worker`)
+- Check the right logs for the failing path: chat and query generation run in `web` (`docker compose logs web`), while extraction, subscription and labeling tasks run in `llm_worker` (`docker compose logs llm_worker`)
 - Ensure the endpoint is reachable from inside the containers, not just from the host.
   Note the single quotes, so the variables are expanded in the container and not by your shell:
   `docker compose exec web sh -c 'curl -sf -H "Authorization: Bearer $LLM_API_KEY" "$LLM_BASE_URL/models"'`

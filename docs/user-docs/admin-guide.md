@@ -79,7 +79,7 @@ Tasks that were interrupted by the restart are repaired automatically (see [Back
 
 ## LLM and Embeddings Configuration
 
-All AI features (chats, extractions, subscriptions, labeling, query generation, the search page's description writer) send their requests to a single OpenAI-compatible endpoint. RADIS ships no inference server; you point it at one you operate (e.g. Ollama, vLLM, SGLang, an LLM gateway) or at a hosted API. The endpoint must be reachable from inside the containers on every node of the stack; `host.docker.internal` only works in development.
+All AI features (chats, extractions, subscriptions, labeling, query generation) send their requests to a single OpenAI-compatible endpoint. RADIS ships no inference server; you point it at one you operate (e.g. Ollama, vLLM, SGLang, an LLM gateway) or at a hosted API. The endpoint must be reachable from inside the containers on every node of the stack; `host.docker.internal` only works in development.
 
 ### LLM Settings
 
@@ -88,7 +88,7 @@ Set these in `.env`:
 - `LLM_BASE_URL` (required): Base URL of the endpoint, e.g. `http://llm.internal:11434/v1`
 - `LLM_API_KEY`: API key for the endpoint. It must be non-empty; a provider that ignores it accepts any placeholder
 - `LLM_DEFAULT_MODEL` (required): The model every feature uses unless overridden
-- `LLM_CHATS_MODEL`, `LLM_QUERY_GENERATION_MODEL`, `LLM_EXTRACTIONS_MODEL`, `LLM_SUBSCRIPTIONS_MODEL`, `LLM_LABELING_MODEL`: Per-feature overrides. Leave blank to use the default model. Useful to spend a stronger model where it matters (e.g. labeling) and a fast one for chat. `LLM_QUERY_GENERATION_MODEL` also serves the search page's "Write from keywords" button
+- `LLM_CHATS_MODEL`, `LLM_QUERY_GENERATION_MODEL`, `LLM_EXTRACTIONS_MODEL`, `LLM_SUBSCRIPTIONS_MODEL`, `LLM_LABELING_MODEL`: Per-feature overrides. Leave blank to use the default model. Useful to spend a stronger model where it matters (e.g. labeling) and a fast one for chat
 
 Every model setting takes the form `model[?param=value&...]`. The parameters are merged into each request body, so both standard fields and provider extensions work:
 
@@ -155,9 +155,8 @@ All optional, with defaults that fit a corpus of a few million reports:
 - `SEARCH_SEMANTIC_ITERATIVE_SCAN`: Resume the index scan under selective filters so a small group or a rare modality still fills the list (default `true`). No measurable cost on unfiltered searches at the default depth; the resumed scan costs more only under selective filters and on cold index pages
 - `SEARCH_SEMANTIC_MIN_SIMILARITY`: Similarity cutoff (0..1) for semantic mode; unset by default because similarities are comparable only within one model and corpus. Try values with the page's "Minimum similarity" field before setting a default
 - `SEARCH_RANKING_CACHE_TIMEOUT_SECONDS`: How long a ranking stays cached (default `300`s, `0` disables); reports created or updated within that time join a cached query's results when it expires
-- `SEARCH_DESCRIPTION_TIMEOUT`, `SEARCH_DESCRIPTION_MAX_TOKENS`, `SEARCH_DESCRIPTION_CACHE_TIMEOUT_SECONDS`, `SEARCH_DESCRIPTION_SYSTEM_PROMPT`: The "Write from keywords" writer; a button press waits at most about twice the timeout (default `10`s)
 
-The production cache table holds rankings, query vectors and written descriptions; it is sized at 2,000 entries (`MAX_ENTRIES` in `radis/settings/production.py`) because Django's default of 300 would evict hot rankings at random.
+The production cache table holds rankings and query vectors; it is sized at 2,000 entries (`MAX_ENTRIES` in `radis/settings/production.py`) because Django's default of 300 would evict hot rankings at random.
 
 ## Database tuning
 

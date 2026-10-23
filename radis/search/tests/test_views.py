@@ -4,7 +4,6 @@ from unittest.mock import Mock, patch
 import pytest
 from adit_radis_shared.accounts.factories import GroupFactory, UserFactory
 from django.test import Client
-from django.urls import reverse
 
 from radis.reports.factories import LanguageFactory, ModalityFactory, ReportFactory
 from radis.search.site import (
@@ -619,12 +618,11 @@ def test_info_card_explains_the_modes_only_with_the_capability(client: Client):
         with_modes = _text(client.get("/search/"))
     with patch("radis.search.views.search_provider", _provider(_empty(), semantic=False)):
         without = _text(client.get("/search/"))
-    assert "Write from keywords" in with_modes and "Minimum similarity" in with_modes
-    assert "Write from keywords" not in without
+    assert "Minimum similarity" in with_modes
     assert (
         "A minus sign does not exclude" in with_modes and "A minus sign does not exclude" in without
     )
-    # The write button and the cutoff label render outside the card; this phrase does not.
+    # The cutoff label also renders outside the card; this phrase does not.
     assert "Choose a mode in the search bar" in with_modes
     assert "Choose a mode in the search bar" not in without
     not_rule = (
@@ -735,27 +733,9 @@ def test_enter_in_the_description_submits_and_shift_enter_does_not(client: Clien
 
 
 @pytest.mark.django_db
-def test_a_failed_write_request_says_so_in_the_notice(client: Client):
-    button = _element(
-        _capability_page(client), "button", **{"hx-post": reverse("search_description")}
-    )
-    notice = (
-        "document.getElementById('description_notice').textContent = "
-        "'The request failed; please try again.'"
-    )
-    assert button["hx-on::response-error"] == notice
-    assert button["hx-on::send-error"] == notice
-
-
-@pytest.mark.django_db
-def test_the_description_has_a_name_and_its_notice_is_a_live_region(client: Client):
-    page = _capability_page(client)
-    textarea = _element(page, "textarea", id="id_description")
+def test_the_description_has_an_accessible_name(client: Client):
+    textarea = _element(_capability_page(client), "textarea", id="id_description")
     assert textarea["aria-label"] == "Description of the reports you are looking for"
-    notice = _element(page, "small", id="description_notice")
-    assert notice["role"] == "status"
-    # The endpoint replaces only the notice's text, so the live region stays in place.
-    assert notice["hx-swap-oob"] == "innerHTML:#description_notice"
 
 
 @pytest.mark.django_db

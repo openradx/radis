@@ -14,9 +14,6 @@ EXPECTED_DEFAULTS = {
     "SEARCH_SEMANTIC_ITERATIVE_SCAN": True,
     "SEARCH_SEMANTIC_MIN_SIMILARITY": None,
     "EMBEDDINGS_QUERY_REQUEST_TIMEOUT_SECONDS": 10.0,
-    "SEARCH_DESCRIPTION_TIMEOUT": 10,
-    "SEARCH_DESCRIPTION_MAX_TOKENS": 200,
-    "SEARCH_DESCRIPTION_CACHE_TIMEOUT_SECONDS": 3600,
 }
 
 
@@ -38,12 +35,6 @@ def test_search_settings_have_expected_defaults(name: str, expected):
 
     # radis.settings.test pins these knobs, so the fallback is read from the base module.
     assert getattr(base_settings, name) == expected
-
-
-def test_the_description_prompt_has_a_built_in_default():
-    _skip_when_configured("SEARCH_DESCRIPTION_SYSTEM_PROMPT")
-
-    assert "radiology reports" in settings.SEARCH_DESCRIPTION_SYSTEM_PROMPT
 
 
 def test_the_beam_width_rides_on_the_connection_options():

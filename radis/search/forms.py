@@ -200,11 +200,3 @@ class SearchForm(forms.Form):
             raise forms.ValidationError("Age from must be less than age till")
 
         return super().clean()
-
-
-class DescriptionRequestForm(forms.Form):
-    """What the "Write from keywords" endpoint accepts: the same limits as the
-    search form, with no database-backed fields, so an async view can bind it."""
-
-    query = forms.CharField(required=False, max_length=QUERY_MAX_LENGTH)
-    description = forms.CharField(required=False, max_length=DESCRIPTION_MAX_LENGTH)

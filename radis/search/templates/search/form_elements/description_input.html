@@ -7,27 +7,4 @@
               aria-label="Description of the reports you are looking for"
               placeholder="Describe the reports you are looking for"
               @keydown.enter="if (!$event.shiftKey) { $event.preventDefault(); $el.form.requestSubmit() }">{{ value }}</textarea>
-    {# The endpoint returns this whole partial; hx-select keeps only the textarea, the notice's text swaps out of band. #}
-    <button type="button"
-            class="btn btn-outline-secondary btn-sm"
-            x-cloak
-            x-show="mode !== 'semantic'"
-            hx-post="{% url 'search_description' %}"
-            hx-target="#id_description"
-            hx-select="#id_description"
-            hx-swap="outerHTML"
-            hx-disabled-elt="this"
-            hx-sync="this:drop"
-            hx-indicator="#description_indicator"
-            hx-on::response-error="document.getElementById('description_notice').textContent = 'The request failed; please try again.'"
-            hx-on::send-error="document.getElementById('description_notice').textContent = 'The request failed; please try again.'">
-        Write from keywords
-        <span id="description_indicator"
-              class="htmx-indicator spinner-border spinner-border-sm"
-              role="status"></span>
-    </button>
-    <small id="description_notice"
-           class="w-100 text-danger"
-           role="status"
-           hx-swap-oob="innerHTML:#description_notice">{{ notice }}</small>
 </div>
