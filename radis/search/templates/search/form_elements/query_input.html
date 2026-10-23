@@ -11,6 +11,7 @@
         <button type="button"
                 class="btn bg-transparent"
                 @click="clearQuery()"
+                :disabled="mode === 'semantic'"
                 style="width: 40px;
                        margin-left: -40px;
                        padding: 0;

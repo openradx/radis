@@ -70,7 +70,7 @@ class SearchForm(forms.Form):
             default_cutoff = settings.SEARCH_SEMANTIC_MIN_SIMILARITY
             if default_cutoff is not None:
                 self.fields["min_similarity"].widget.attrs["placeholder"] = (
-                    f"default {default_cutoff:.2f}"
+                    f"default {default_cutoff:.3f}"
                 )
 
         # Create fields using factory functions (use codes, not PKs)
@@ -96,6 +96,8 @@ class SearchForm(forms.Form):
         self.filters_helper.template = "search/form_elements/form_part.html"  # type: ignore
         self.filters_helper.form_tag = False
         self.filters_helper.disable_csrf = True
+        # The page lists every field error in one alert; inline errors would repeat them.
+        self.filters_helper.form_show_errors = False
         self.filters_helper.layout = self.create_filters_layout()
 
     def create_query_layout(self) -> Layout:

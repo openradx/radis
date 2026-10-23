@@ -608,15 +608,20 @@ def test_count_line_when_capped(client: Client):
 
 
 @pytest.mark.django_db
-def test_semantic_count_line_names_the_cutoff(client: Client, two_reports, settings):
-    settings.SEARCH_SEMANTIC_MIN_SIMILARITY = 0.3
+@pytest.mark.parametrize("cutoff, shown", [(0.3, "0.300"), (0.745, "0.745")])
+def test_semantic_count_line_names_the_cutoff(client: Client, two_reports, settings, cutoff, shown):
+    """Three decimals, as the similarities show, so a listed hit never looks below it."""
+    settings.SEARCH_SEMANTIC_MIN_SIMILARITY = cutoff
     client.force_login(create_test_user_with_active_group())
     documents = [_document(r, relevance=None, similarity=0.7, score=0.7) for r in two_reports]
     result = SearchResult(total_count=2, total_relation="exact", documents=documents)
     with patch("radis.search.views.search_provider", _provider(result)):
         response = client.get("/search/", {"mode": "semantic", "description": "free air"})
     content = _text(response)
-    assert "The 2 reports most similar to your description with similarity at least 0.30" in content
+    assert (
+        f"The 2 reports most similar to your description with similarity at least {shown}"
+        in content
+    )
     assert "Full-text rank:" not in content
     assert "Re-rank score:" not in content
     assert "Similarity:" in content
@@ -877,3 +882,20 @@ def test_the_description_has_a_name_and_its_notice_is_a_live_region(client: Clie
     assert notice["role"] == "status"
     # The endpoint replaces only the notice's text, so the live region stays in place.
     assert notice["hx-swap-oob"] == "innerHTML:#description_notice"
+
+
+@pytest.mark.django_db
+def test_the_clear_button_is_disabled_in_semantic_mode(client: Client):
+    """Semantic mode keeps the keywords for the switch back; the button must not wipe them."""
+    button = _element(_capability_page(client), "button", **{"@click": "clearQuery()"})
+    assert button[":disabled"] == "mode === 'semantic'"
+
+
+@pytest.mark.django_db
+def test_a_filter_error_is_shown_once(client: Client):
+    client.force_login(create_test_user_with_active_group())
+    with patch("radis.search.views.search_provider", _provider(_empty())):
+        response = client.get(
+            "/search/", {"mode": "semantic", "description": "free air", "min_similarity": "5"}
+        )
+    assert _text(response).count("Ensure this value is less than or equal to 1") == 1

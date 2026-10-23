@@ -162,7 +162,7 @@ def test_min_similarity_is_optional_and_shows_the_default_as_placeholder(setting
     form = SearchForm({"mode": "semantic", "description": "x"}, semantic=True)
     assert form.is_valid()
     assert form.cleaned_data["min_similarity"] is None
-    assert form.fields["min_similarity"].widget.attrs["placeholder"] == "default 0.30"
+    assert form.fields["min_similarity"].widget.attrs["placeholder"] == "default 0.300"
     assert form.fields["min_similarity"].initial is None
 
 
