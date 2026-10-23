@@ -1,15 +1,20 @@
 from typing import Any
 
 from adit_radis_shared.common.types import AuthenticatedHttpRequest
+from asgiref.sync import sync_to_async
 from django.conf import settings
+from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
-from django.core.exceptions import ImproperlyConfigured
+from django.core.exceptions import ImproperlyConfigured, PermissionDenied, SuspiciousOperation
 from django.core.paginator import Paginator
-from django.http import Http404, HttpRequest, HttpResponseNotAllowed
+from django.http import Http404, HttpRequest, HttpResponse
 from django.shortcuts import render
 from django.views import View
+from django.views.decorators.http import require_POST
+from pyparsing import ParseBaseException
 
-from radis.search.forms import SearchForm
+from radis.search.forms import DESCRIPTION_MAX_LENGTH, DescriptionRequestForm, SearchForm
+from radis.search.utils.description import write_description
 from radis.search.utils.query_parser import QueryParser
 
 from .site import FullTextSearch, SearchRequest, SemanticSearch, SimilarityRerank, search_provider
@@ -19,6 +24,8 @@ FULL_TEXT_NEEDS_KEYWORDS = (
     "Full-text mode needs keywords. Switch to Semantic to search by description alone."
 )
 SEMANTIC_NEEDS_DESCRIPTION = "Semantic mode needs a description."
+ENTER_KEYWORDS = "Enter search keywords first; the description is written from the positive terms."
+WRITER_FAILED = "The LLM could not write a description right now."
 
 
 class SearchView(LoginRequiredMixin, UserPassesTestMixin, View):
@@ -128,5 +135,50 @@ class SearchView(LoginRequiredMixin, UserPassesTestMixin, View):
         return page_size
 
 
-def description_view(request: HttpRequest):
-    return HttpResponseNotAllowed(["POST"])
+async def _description_response(request: HttpRequest, value: str, notice: str) -> HttpResponse:
+    # Context processors may touch the sync ORM or session APIs, so the render runs
+    # off the event loop.
+    return await sync_to_async(render)(
+        request,
+        "search/form_elements/description_input.html",
+        {"value": value, "notice": notice},
+    )
+
+
+@require_POST
+@login_required
+async def description_view(request: AuthenticatedHttpRequest) -> HttpResponse:
+    """HTMX endpoint behind "Write from keywords": re-renders the description row
+    with an LLM-written passage about the positive keywords, or with a notice.
+
+    Async so the LLM call does not occupy a worker thread. The body touches only
+    ``request.auser()`` and an ORM-free form; a sync database call here would raise
+    ``SynchronousOnlyOperation`` under ASGI.
+    """
+    if not request.htmx:
+        raise SuspiciousOperation
+
+    user = await request.auser()
+    if user.active_group_id is None:  # type: ignore[attr-defined]
+        raise PermissionDenied
+
+    form = DescriptionRequestForm(request.POST)
+    submitted = request.POST.get("description", "")[:DESCRIPTION_MAX_LENGTH]
+    if not form.is_valid():
+        return await _description_response(request, submitted, WRITER_FAILED)
+    submitted = form.cleaned_data["description"]
+
+    try:
+        node, _fixes = QueryParser().parse(form.cleaned_data["query"])
+    except ParseBaseException:
+        # The parser's repairs leave some inputs unparseable, e.g. an operator left
+        # dangling beside an empty group.
+        node = None
+    terms = QueryParser.unparse_positive_terms(node) if node is not None else ""
+    if not terms.strip():
+        return await _description_response(request, submitted, ENTER_KEYWORDS)
+
+    description = await write_description(terms)
+    if description is None:
+        return await _description_response(request, submitted, WRITER_FAILED)
+    return await _description_response(request, description[:DESCRIPTION_MAX_LENGTH], "")
