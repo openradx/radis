@@ -20,6 +20,7 @@ from radis.search.utils.query_parser import QueryParser
 from .site import FullTextSearch, SearchRequest, SemanticSearch, SimilarityRerank, search_provider
 
 PAGE_SIZES = [10, 25, 50]
+DEFAULT_PAGE_SIZE = 25
 FULL_TEXT_NEEDS_KEYWORDS = (
     "Full-text mode needs keywords. Switch to Semantic to search by description alone."
 )
@@ -127,12 +128,12 @@ class SearchView(LoginRequiredMixin, UserPassesTestMixin, View):
         return page_number
 
     def get_page_size(self, request: HttpRequest) -> int:
-        page_size = request.GET.get("per_page") or 25
+        page_size = request.GET.get("per_page") or DEFAULT_PAGE_SIZE
         try:
             page_size = min(int(page_size), 100)
         except ValueError:
             page_size = 10
-        return page_size
+        return page_size if page_size >= 1 else DEFAULT_PAGE_SIZE
 
 
 async def _description_response(request: HttpRequest, value: str, notice: str) -> HttpResponse:

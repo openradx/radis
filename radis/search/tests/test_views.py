@@ -679,6 +679,18 @@ def test_info_card_explains_the_modes_only_with_the_capability(client: Client):
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize("per_page", ["0", "-1"])
+def test_a_non_positive_page_size_falls_back_to_the_default(client: Client, per_page):
+    client.force_login(create_test_user_with_active_group())
+    captured: dict = {}
+    with patch("radis.search.views.search_provider", _provider(_empty(), captured=captured)):
+        response = client.get("/search/", {"query": "chest", "per_page": per_page})
+    assert response.status_code == 200
+    assert captured["request"].limit == 25
+    assert response.context["paginator"].per_page == 25
+
+
+@pytest.mark.django_db
 def test_page_sizes_are_offered(client: Client):
     client.force_login(create_test_user_with_active_group())
     with patch("radis.search.views.search_provider", _provider(_empty())):

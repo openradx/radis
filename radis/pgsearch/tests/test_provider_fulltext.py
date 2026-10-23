@@ -259,3 +259,48 @@ def test_hydration_skips_a_report_removed_from_the_group(group, corpus, embed):
 
     assert corpus["near"].document_id not in _ids(result)
     assert result.total_count == 3  # the cached count catches up when the entry expires
+
+
+def test_retrieve_skips_a_report_removed_from_the_group(group, corpus):
+    request = _request("pneumothorax", group.pk)
+    list(retrieve(request))  # caches the keyword ranking
+    corpus["near"].groups.remove(group)
+
+    assert list(retrieve(request)) == [corpus["twice"].document_id, corpus["bare"].document_id]
+    assert count(request) == 3  # the cached count catches up when the entry expires
+
+
+@pytest.mark.parametrize("limit", [0, -1])
+def test_a_non_positive_limit_hydrates_nothing(group, corpus, limit):
+    request = _request("pneumothorax", group.pk, limit=limit)
+    search(request)  # caches the keyword ranking
+
+    with CaptureQueriesContext(connection) as ctx:
+        result = search(request)
+
+    assert result.documents == []
+    assert result.total_count == 3
+    # With the ranking cached, the hydration would be the only query.
+    assert ctx.captured_queries == []
+
+
+def test_a_cached_page_hydrates_in_two_queries(group):
+    modalities = [["CT"], ["MR"], ["CT", "PT"], [], ["US"]]
+    reports = [
+        ReportFactory.create(body="pneumothorax", language__code="en", modalities=codes)
+        for codes in modalities
+    ]
+    for report in reports:
+        report.groups.add(group)
+    request = _request("pneumothorax", group.pk)
+    search(request)  # caches the keyword ranking
+
+    with CaptureQueriesContext(connection) as ctx:
+        result = search(request)
+
+    # One query reads the page's index rows with their reports and headlines, one more
+    # reads the modalities of all five reports; the ranking comes from the cache.
+    assert len(ctx.captured_queries) == 2
+    assert {d.document_id: sorted(d.modalities) for d in result.documents} == {
+        report.document_id: sorted(codes) for report, codes in zip(reports, modalities)
+    }

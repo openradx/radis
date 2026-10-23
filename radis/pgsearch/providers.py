@@ -23,7 +23,7 @@ from radis.core.utils.embedding_client import (
     EmbeddingClientError,
 )
 from radis.core.utils.rate_limit import RateLimited
-from radis.reports.models import Language, Report
+from radis.reports.models import Language
 from radis.search.site import (
     FullTextSearch,
     ReportDocument,
@@ -694,7 +694,8 @@ def _hydration_queryset(
 def _hydrate(page_ids: list[int], ranking: Ranking, group: int | None) -> list[ReportDocument]:
     rows = _hydration_queryset(page_ids, group, ranking.configs, ranking.query_str)
     by_id = {
-        r.report.pk: cast(AnnotatedReportSearchIndex, r) for r in rows.select_related("report")
+        r.report.pk: cast(AnnotatedReportSearchIndex, r)
+        for r in rows.select_related("report").prefetch_related("report__modalities")
     }
     documents: list[ReportDocument] = []
     for rid in page_ids:
@@ -716,6 +717,8 @@ def _hydrate(page_ids: list[int], ranking: Ranking, group: int | None) -> list[R
 def _page(ids: list[int], request: Search) -> list[int]:
     if request.limit is None:
         return ids[request.offset :]
+    if request.limit <= 0:  # a negative slice bound would count from the end of the list
+        return []
     return ids[request.offset : request.offset + request.limit]
 
 
@@ -746,7 +749,13 @@ def retrieve(request: FullTextSearch) -> Iterator[str]:
     ordered_ids = _keyword_ranking(request).ids
     if not ordered_ids:
         return iter([])
-    id_to_doc = dict(Report.objects.filter(pk__in=ordered_ids).values_list("pk", "document_id"))
+    # The cached ids may predate a group change; as on the search page, the group
+    # predicate keeps a report removed from the group out at once.
+    id_to_doc = dict(
+        ReportSearchIndex.objects.filter(report_id__in=ordered_ids)
+        .filter(_group_query(request.filters.group))
+        .values_list("report_id", "report__document_id")
+    )
     return (id_to_doc[rid] for rid in ordered_ids if rid in id_to_doc)
 
 
