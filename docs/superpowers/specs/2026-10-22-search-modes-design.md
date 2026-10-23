@@ -13,10 +13,15 @@ full-text candidate query this design keeps unchanged); the spike branch
 `docs/superpowers/specs/2026-10-18-hybrid-ranking-strategies-spike.md` on that branch.
 
 **Delivery:** this design ships in two pull requests. PR #372 (`search-modes`) delivers the
-two modes. The description re-rank of full-text hits and the description writer behind
-"Write from keywords" follow in the stacked PR `search-rerank`: §4.2, the window layer of
-§4.4, the re-rank parts of §6.1, §6.4 and §6.6, §6.5, the `SEARCH_RERANK_*` and
-`SEARCH_DESCRIPTION_*` settings of §7, and their tests in §11.
+two modes. Everything about the description re-rank of full-text hits and the description
+writer is deferred to the stacked PR `search-rerank`, wherever it appears: `SimilarityRerank`
+and `FullTextSearch.rerank` (§3.1, §3.3), the description in full-text mode and the window
+re-rank (§4.1 last sentence, §4.2, the degradation paragraphs of §4.3 — its query-path
+timeout ships here, the window layer and description cache of §4.4, §4.5's rerank clause,
+§5.3's comparison, the re-rank and writer parts of §6.1, §6.4 and §6.6, §6.5), the
+`SEARCH_RERANK_*` and `SEARCH_DESCRIPTION_*` settings of §7, the matching items of §8, §10
+and §13, and their tests in §11. In this PR the description field is the semantic query
+only, and the inactive field of the search row is hidden and disabled (§6.2, §6.3).
 
 ## 1. Summary
 
@@ -53,7 +58,7 @@ Goals:
 3. No result appears that the user cannot explain from the page.
 4. Extraction jobs retrieve exactly the keyword hits, so the extraction count equals the
    search count.
-5. The change is one PR against `main`, reviewable in full.
+5. The change ships as two pull requests (see Delivery), each reviewable in full.
 
 Non-goals:
 
@@ -814,7 +819,8 @@ one that their requests never embed.
 
 ## 12. Rollout
 
-One PR against `main` from `search-modes`. The PR description states the three behaviour
+Two pull requests (see Delivery): PR #372 against `main` from `search-modes`, then the
+stacked PR `search-rerank` on top of it. The PR #372 description states the three behaviour
 changes: no fused results, extraction sets are keyword hits only, the summary is escaped.
 Settings renames and the new ones are listed for operators, with the worst-case waits of
 §7 and the production cache `MAX_ENTRIES`. The side stack on port 8503 runs this branch for
