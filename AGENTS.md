@@ -170,6 +170,17 @@ only to override the compose file's default):
   pre-allocates its whole `maintenance_work_mem` budget here, so keep it at
   least as large as `POSTGRES_MAINTENANCE_WORK_MEM`
 
+## Git Worktrees
+
+Claude Code creates worktrees under `.claude/worktrees/<name>` (`claude --worktree`, background agents, subagents with `isolation: worktree`) and copies the gitignored files listed in `.worktreeinclude` into them: `.env`, `docker-compose.override.yml` and `.claude/settings.local.json`. With that `.env` unchanged, the CLI would run the worktree's stack as the main checkout's compose project `radis_dev`, recreating its containers from the worktree's code on its database, on the same host ports. So every `uv run cli` command first runs adit-radis-shared's worktree module (`adit_radis_shared/cli/worktree_env.py`, through the CLI callback `commands.worktree_guard`). In a worktree it gives the worktree a slot N ≥ 1 (the main checkout is slot 0), recorded on the first line of its `.env`, and writes into `.env`:
+
+- every host port `docker-compose.dev.yml` publishes (`${VAR:-default}:…`) as the main checkout's value + N × 100 (slot 1: web 8100, Postgres 5532, debugger 5778), and any localhost URL in `.env` that points at one of them. A port added to that file is shifted too;
+- `STACK_NAME` (`radis_wt<N>_<name>`): a compose project of its own, so its own containers, images and volumes and a fresh database, and session and CSRF cookie names that don't overwrite the main checkout's login.
+
+Later runs keep what the worktree's `.env` sets apart from the main checkout's values, ports and names alike, and only fill in the rest, so a port you changed by hand stays and a worktree set up by hand before keeps its stack. The slot is recorded with the worktree's path, so a `.env` copied from another worktree is not mistaken for that slot's owner. `uv run cli worktree-env --slot N` picks the slot by hand, rewrites them all and says which names change: a stack under an old name keeps its containers and volumes until you stop it. `init-workspace` skips the module, so its port options apply; the next command takes them over. A slot is skipped while one of its ports is taken. Attach the debugger to the worktree's `REMOTE_DEBUGGING_PORT`, not the 5678 of `.vscode/launch.json`. Before deleting a worktree, free its volumes with `uv run cli compose-down -- -v`.
+
+Other projects on the machine publish ports too, often the same defaults (8000, 5432, 5678). So every checkout, the main one included, records the host ports it uses in `~/.local/state/dev-ports/` (`$XDG_STATE_HOME/dev-ports/` when set), a directory shared with the other projects that use this module or a copy of it. A worktree takes no slot whose ports another checkout, of this or another repository, has recorded, whether or not that stack is running, and `--slot N` refuses one. The main checkout's ports are never moved: when another checkout records one of them, every command warns and suggests a free port to set in `.env`. A checkout's record is updated by the next command run there, and dropped once the checkout is deleted.
+
 ## Code Standards
 
 - **Style Guide**: Google Python Style Guide
