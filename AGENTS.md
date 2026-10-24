@@ -170,6 +170,15 @@ only to override the compose file's default):
   pre-allocates its whole `maintenance_work_mem` budget here, so keep it at
   least as large as `POSTGRES_MAINTENANCE_WORK_MEM`
 
+## Git Worktrees
+
+Claude Code creates worktrees under `.claude/worktrees/<name>` (`claude --worktree`, background agents, subagents with `isolation: worktree`) and copies the gitignored files listed in `.worktreeinclude` into them: `.env`, `docker-compose.override.yml` and `.claude/settings.local.json`. With that `.env` unchanged, the CLI would run the worktree's stack as the main checkout's compose project `radis_dev`, recreating its containers from the worktree's code on its database, on the same host ports. So in a worktree, every `uv run cli` command first runs `scripts/worktree_env.py` (a no-op in the main checkout). It gives the worktree a slot N ≥ 1 (the main checkout is slot 0), recorded on the first line of its `.env` so a rerun changes nothing, and writes into `.env`:
+
+- every dev host port as the main checkout's value + N × 100 (slot 1: web 8100, Postgres 5532, debugger 5778), and any localhost URL in `.env` that points at one of them;
+- `STACK_NAME` (`radis_wt_<name>`): a compose project of its own, so its own containers and volumes and a fresh database, and session and CSRF cookie names that don't overwrite the main checkout's login.
+
+`uv run --script scripts/worktree_env.py --slot N` picks the slot by hand; a slot is skipped while one of its ports is taken. Attach the debugger to the worktree's `REMOTE_DEBUGGING_PORT`, not the 5678 of `.vscode/launch.json`. Before deleting a worktree, free its volumes with `uv run cli compose-down -- -v`.
+
 ## Code Standards
 
 - **Style Guide**: Google Python Style Guide
