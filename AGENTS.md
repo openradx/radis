@@ -170,6 +170,12 @@ only to override the compose file's default):
   pre-allocates its whole `maintenance_work_mem` budget here, so keep it at
   least as large as `POSTGRES_MAINTENANCE_WORK_MEM`
 
+## Git Worktrees
+
+In a linked worktree (e.g. `.claude/worktrees/<name>`, into which Claude Code copies the files listed in `.worktreeinclude`), every `uv run cli` command except `init-workspace` first gives the worktree a slot N in its `.env`: the host ports from `docker-compose.dev.yml` shifted by N × 100 (slot 1: web 8100, Postgres 5532, debugger 5778) and `STACK_NAME=radis_wt<N>_<name>`, so it runs its own containers, volumes and database, with session cookies that don't log the main checkout out. The first command picks the slot, skipping any whose ports are in use, and later commands keep it. In a worktree git can't read (its `.git` file points at a path that doesn't exist here, or git refuses it as another user's), these commands stop with an error instead, since its `.env` is still the main checkout's. Values changed by hand in the worktree's `.env` stay; `uv run cli worktree-env --slot N` picks another slot, and with it a new stack name, so an empty database. VS Code's `.vscode/launch.json` attaches to 5678, the main checkout's debugger; in a worktree, attach to its `REMOTE_DEBUGGING_PORT` instead. Before deleting a worktree, run `uv run cli compose-down -- -v`. A worktree deleted without that leaves its stack behind, or only its volumes if it was stopped without `-v`: `docker compose ls -a` lists the projects that still have containers, and `docker volume ls --filter label=com.docker.compose.project --format '{{.Label "com.docker.compose.project"}}' | sort -u` those that still have volumes. For a project named after a worktree that `git worktree list` no longer shows, `docker compose -p <project> down -v` removes its containers, volumes and network, and `docker images --filter label=com.docker.compose.project=<project>` lists the images it leaves for `docker image rm`. Details: adit-radis-shared's `adit_radis_shared/cli/worktree_env.py`.
+
+If a stack fails because a host port is taken ("port is already allocated", "address already in use"), another program holds it: leave that program alone. Set a free port for that variable in this checkout's `.env`; in a worktree, later `uv run cli` commands keep it.
+
 ## Code Standards
 
 - **Style Guide**: Google Python Style Guide
