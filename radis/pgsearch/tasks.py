@@ -2,6 +2,7 @@ import logging
 import time
 
 from django.conf import settings
+from django.db import transaction
 from django.db.models import F
 from django.db.models.functions import Now
 from django.utils import timezone
@@ -22,6 +23,7 @@ from radis.core.utils.rate_limit import (
     run_through_gate,
     with_transient_retries,
 )
+from radis.reports.models import Report
 
 from .models import EmbeddingBackfillRun, ReportSearchIndex
 from .utils.indexing import bulk_upsert_report_search_indexes
@@ -302,7 +304,7 @@ def embed_reports_task(report_ids: list[int], run_id: int | None = None) -> None
     rsvs = list(
         ReportSearchIndex.objects.filter(report_id__in=report_ids)
         .select_related("report")
-        .only("id", "report_id", "report__body")
+        .only("id", "report_id", "report__body", "report__updated_at")
     )
     if len(rsvs) < len(report_ids):
         missing = sorted(set(report_ids) - {rsv.report.pk for rsv in rsvs})
@@ -317,6 +319,7 @@ def embed_reports_task(report_ids: list[int], run_id: int | None = None) -> None
 
     batch_size = settings.EMBEDDINGS_BATCH_SIZE
     embedded: list[ReportSearchIndex] = []
+    current_embedded: list[ReportSearchIndex] = []
     try:
         with EmbeddingClient() as client:
             for start in range(0, len(rsvs), batch_size):
@@ -349,33 +352,59 @@ def embed_reports_task(report_ids: list[int], run_id: int | None = None) -> None
         raise
 
     if embedded:
-        # Count genuine NULL->non-NULL transitions BEFORE the write so progress
-        # accounting is idempotent under at-least-once reruns: a rerun of this
-        # subjob finds the reports already embedded, counts 0, and does not
-        # double-increment the run (which could otherwise flip finished_at while
-        # distinct reports remain unembedded). Also dedupes overlap with any
-        # other subjob that embedded the same report.
-        newly_embedded = ReportSearchIndex.objects.filter(
-            report_id__in=[rsv.report.pk for rsv in embedded], embedding__isnull=True
-        ).count()
-        ReportSearchIndex.objects.bulk_update(embedded, fields=["embedding"])
+        expected_updated_at = {rsv.report.pk: rsv.report.updated_at for rsv in embedded}
+        with transaction.atomic():
+            # Lock source rows while comparing versions and writing vectors. A report
+            # update that races this block either commits first (and is detected as
+            # stale) or waits for this write and enqueues a fresh embedding afterwards.
+            current_reports = {
+                report.pk: report.updated_at
+                for report in Report.objects.filter(pk__in=expected_updated_at)
+                .only("pk", "updated_at")
+                .order_by("pk")
+                .select_for_update()
+            }
+            current_embedded = [
+                rsv
+                for rsv in embedded
+                if current_reports.get(rsv.report.pk) == expected_updated_at[rsv.report.pk]
+            ]
+            stale_count = len(embedded) - len(current_embedded)
 
-        if run_id is not None:
-            if newly_embedded:
-                EmbeddingBackfillRun.objects.filter(pk=run_id).update(
-                    processed_reports=F("processed_reports") + newly_embedded
-                )
-            # Flip finished_at exactly once, and never on a cancelled run.
-            EmbeddingBackfillRun.objects.filter(
-                pk=run_id,
-                finished_at__isnull=True,
-                cancelled_at__isnull=True,
-                processed_reports__gte=F("total_reports"),
-            ).update(finished_at=Now())
+            # Count genuine NULL->non-NULL transitions before the write so progress
+            # accounting remains idempotent under at-least-once reruns. The query is
+            # limited to version-matched rows, so stale vectors never advance a run.
+            newly_embedded = ReportSearchIndex.objects.filter(
+                report__pk__in=[rsv.report.pk for rsv in current_embedded],
+                embedding__isnull=True,
+            ).count()
+            if current_embedded:
+                ReportSearchIndex.objects.bulk_update(current_embedded, fields=["embedding"])
+
+            if run_id is not None:
+                if newly_embedded:
+                    EmbeddingBackfillRun.objects.filter(pk=run_id).update(
+                        processed_reports=F("processed_reports") + newly_embedded
+                    )
+                # Flip finished_at exactly once, and never on a cancelled run.
+                EmbeddingBackfillRun.objects.filter(
+                    pk=run_id,
+                    finished_at__isnull=True,
+                    cancelled_at__isnull=True,
+                    processed_reports__gte=F("total_reports"),
+                ).update(finished_at=Now())
+
+        if stale_count:
+            logger.warning(
+                "embed_reports_task: skipped %d report(s) changed during embedding; "
+                "leaving them unembedded for the report update path to re-enqueue; ids=%s",
+                stale_count,
+                _truncate_ids([rsv.report.pk for rsv in embedded if rsv not in current_embedded]),
+            )
 
     duration_ms = int((time.perf_counter() - start_t) * 1000)
     logger.info(
         "embed_reports_task: finished; embedded=%d duration_ms=%d",
-        len(embedded),
+        len(current_embedded),
         duration_ms,
     )
