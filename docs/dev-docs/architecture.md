@@ -57,8 +57,8 @@ Container names are prefixed with the stack name, e.g. `radis_dev-web-1` in deve
 **LLM Worker Container (`llm_worker`)**: Executes AI-intensive tasks from the llm queue (extraction, subscription and labeling tasks). Uses `LLMClient` (`radis.core.utils.llm_client`) to talk to the configured LLM endpoint.
 
 **Embeddings Worker Container (`embeddings_worker`)**: Drains the embeddings
-queue — generating and storing report vectors for hybrid search, including operator
-backfills started by `./manage.py embed_pending` or the admin action.
+queue — generating and storing report vectors for the semantic search mode, including
+operator backfills started by `./manage.py embed_pending` or the admin action.
 
 ### LLM Configuration
 
@@ -72,24 +72,24 @@ backfills started by `./manage.py embed_pending` or the admin action.
 
 **Structured Output**: Uses OpenAI's `beta.chat.completions.parse` API with Pydantic schemas as `response_format` parameter, ensuring LLM returns valid JSON matching defined schemas. Applied in extractions (custom field extraction), subscriptions (yes/no question filtering) and labeling.
 
-**Embeddings**: Hybrid search adds a second external service, an OpenAI-compatible
-`/v1/embeddings` endpoint. `EMBEDDINGS_MODEL` both names the model and switches the
-feature on — left unset, RADIS runs full-text search only, queues no embedding work and
-never calls the service. It takes the same `model[?param=value&...]` spec as the LLM
-models, so a provider supporting OpenAI's `dimensions` is asked for the stored width
-directly instead of the client truncating a larger vector. `EMBEDDINGS_BASE_URL` and
-`EMBEDDINGS_API_KEY` default to `LLM_BASE_URL` and `LLM_API_KEY`: one endpoint serves
-both when the provider multiplexes models (OpenAI, Ollama, a gateway), while a
-self-hosted vLLM or SGLang serves one model per process and needs the override. The
-service has its own rate-limit gate — a 429 from the embedding gateway must not pause
-inference — and its own worker (`embeddings_worker`) draining the `embeddings`
-queue, so a million-report backfill cannot starve extractions.
+**Embeddings**: Semantic search adds a second external service, an OpenAI-compatible
+`/v1/embeddings` endpoint. `EMBEDDINGS_MODEL` both names the model
+and switches the feature on — left unset, RADIS runs full-text search only, queues no
+embedding work and never calls the service. It takes the same `model[?param=value&...]`
+spec as the LLM models, so a provider supporting OpenAI's `dimensions` is asked for the
+stored width directly instead of the client truncating a larger vector.
+`EMBEDDINGS_BASE_URL` and `EMBEDDINGS_API_KEY` default to `LLM_BASE_URL` and
+`LLM_API_KEY`: one endpoint serves both when the provider multiplexes models (OpenAI,
+Ollama, a gateway), while a self-hosted vLLM or SGLang serves one model per process and
+needs the override. The service has its own rate-limit gate — a 429 from the embedding
+gateway must not pause inference — and its own worker (`embeddings_worker`) draining the
+`embeddings` queue, so a million-report backfill cannot starve extractions.
 
 ## Search Architecture
 
 RADIS uses a modular search architecture allowing different search providers to be plugged in:
 
-**Search Provider Interface**: Defines search, retrieval, and indexing operations
+**Search Provider Interface**: `radis/search/site.py` defines the request types and the registry. `Search` (filters, offset, limit) is the base; `FullTextSearch` carries the parsed keyword query; `SemanticSearch` carries the description text and an optional per-search minimum similarity. A provider registers one `search(request)` callable, its paging cap and whether semantic search is available; extractions register `count` and `retrieve` over `FullTextSearch`; subscriptions register `filter` over `SearchFilters`. A `SearchResult` carries the count, its relation to the true total, the documents (full-text rank, similarity, score, an HTML-safe summary) and a `degraded` flag.
 
 - **PgSearch Provider**: Default implementation using PostgreSQL full-text search and pg_vector
 - **Alternative Providers**: Other engines such as Vespa or ElasticSearch can be integrated through the same interface
@@ -110,7 +110,7 @@ Unsupported syntax (`-term`, `field:value`, wildcards) is stripped and the corre
 - Patient ID, labels, group access
 - Created before/after and updated after timestamps (for subscriptions and labeling)
 
-**Hybrid ranking**: When `EMBEDDINGS_MODEL` is set, the provider runs the full-text query (up to `HYBRID_FTS_MAX_RESULTS` candidates) and a cosine-distance nearest-neighbour query on the report vectors (`HYBRID_VECTOR_TOP_K`), then fuses both lists with reciprocal rank fusion (`HYBRID_RRF_K`). `NOT` terms are removed before the query is embedded, and query embeddings are cached. If the embedding service fails, the search degrades to full-text only.
+**Two modes**: A full-text search runs the single-table candidate query (up to `SEARCH_FTS_MAX_RESULTS` keyword hits ranked by `ts_rank` under each document's own text-search configuration) and returns exactly those hits, without calling the embedding service. A semantic search embeds the description and runs one HNSW scan under the same filters, capped at `SEARCH_HNSW_EF_SEARCH`, inside a transaction with `hnsw.iterative_scan = strict_order` when `SEARCH_SEMANTIC_ITERATIVE_SCAN` is on; the list is cut at the effective minimum similarity after retrieval. Rankings are cached (`SEARCH_RANKING_CACHE_TIMEOUT_SECONDS`): keyword rankings always, semantic lists only when the embedding succeeded. An embedding failure flags a semantic result `degraded`; a query embedding is bounded by `EMBEDDINGS_QUERY_REQUEST_TIMEOUT_SECONDS`. Summaries are escaped in Python, because PostgreSQL drops only whole tag tokens from a headline and lets bare `<`, `>`, `&` and unfinished tags through; the highlight markers are control characters restored to `<em>` after escaping.
 
 **Text-search configurations**: reports are indexed with the PostgreSQL configuration for
 their own language, so stemming matches the text — an English report stores "effusion" as

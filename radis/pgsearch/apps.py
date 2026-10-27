@@ -169,10 +169,9 @@ def register_app():
         SearchProvider(
             name="PG Search",
             search=search,
-            # Deliberate cap on how many fused RRF results are paginated for
-            # viewing — not the true union size (the vector side can add up to
-            # a beam pass of semantic-only results beyond the FTS matches).
-            max_results=settings.HYBRID_FTS_MAX_RESULTS,
+            # The paging cap of a full-text list; a semantic list is at most the beam width long.
+            max_results=settings.SEARCH_FTS_MAX_RESULTS,
+            semantic=settings.EMBEDDINGS_MODEL is not None,
         )
     )
 

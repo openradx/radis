@@ -1,7 +1,7 @@
 from collections.abc import Callable, Iterable
 from typing import NamedTuple
 
-from radis.search.site import Search
+from radis.search.site import FullTextSearch
 
 
 class ExtractionRetrievalProvider(NamedTuple):
@@ -17,8 +17,8 @@ class ExtractionRetrievalProvider(NamedTuple):
     """
 
     name: str
-    count: Callable[[Search], int]
-    retrieve: Callable[[Search], Iterable[str]]
+    count: Callable[[FullTextSearch], int]
+    retrieve: Callable[[FullTextSearch], Iterable[str]]
     max_results: int | None
 
 

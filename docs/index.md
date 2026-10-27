@@ -48,7 +48,7 @@ RADIS serves as a comprehensive platform for managing radiology reports, enablin
 **RADIS acts as an intelligent hub** for radiology reports:
 
 1. **Report Storage**: Securely store radiology reports with structured metadata
-2. **Advanced Search**: Full-text search with filters, optionally combined with semantic search for meaning-based retrieval
+2. **Advanced Search**: Full-text search with filters, or a semantic search by description when an embedding model is configured
 3. **Automated Labeling**: Large language models assign administrator-defined labels to reports for browsing and filtering
 4. **Data Extraction**: Extract structured fields from many reports at once and export them as CSV
 5. **Subscriptions**: Subscribe to searches and get notified when new matching reports arrive, with optional AI-based filtering and extraction

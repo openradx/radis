@@ -8,20 +8,22 @@ from radis.core.utils.embedding_client import EmbeddingClientError
 from radis.core.utils.model_spec import parse_model_spec
 from radis.pgsearch import providers
 from radis.pgsearch.models import ReportSearchIndex
-from radis.pgsearch.providers import retrieve, search
+from radis.pgsearch.providers import search
 from radis.reports.factories import ReportFactory
-from radis.search.site import Search, SearchFilters
-from radis.search.utils.query_parser import QueryParser
+from radis.search.site import SearchFilters, SemanticSearch
 
 pytestmark = pytest.mark.django_db
 
 
 @pytest.fixture(autouse=True)
-def _embeddings_model_configured(settings):
+def _embedding_settings(settings):
     """These tests exercise the cache wrapper around a configured embedding model.
-    Test settings default EMBEDDINGS_MODEL to None (FTS-only), so default it here;
-    tests proving the model/params participate in the key override it explicitly."""
+    Test settings default EMBEDDINGS_MODEL to None (no embedding model, full-text
+    only), so default it here; tests proving the model/params participate in the key
+    override it explicitly. The cache lifetime is pinned because a developer's .env
+    reaches test runs outside Docker."""
     settings.EMBEDDINGS_MODEL = parse_model_spec("qwen3")
+    settings.EMBEDDINGS_QUERY_CACHE_TIMEOUT_SECONDS = 900
 
 
 def _unit_vec(idx: int, dim: int) -> list[float]:
@@ -30,15 +32,9 @@ def _unit_vec(idx: int, dim: int) -> list[float]:
     return v
 
 
-def _make_search(query_str: str, group_id: int, offset: int = 0) -> Search:
-    node, _ = QueryParser().parse(query_str)
-    assert node is not None
-    return Search(
-        query=node,
-        # language="en" matches the report's pinned language below, so the
-        # query-side tsquery config equals the config the report was indexed
-        # with (ReportFactory otherwise randomizes the language, and a config
-        # mismatch makes lexical matching flaky; see test_provider_hybrid.py).
+def _semantic_search(description: str, group_id: int, offset: int = 0) -> SemanticSearch:
+    return SemanticSearch(
+        text=description,
         filters=SearchFilters(group=group_id, language="en"),
         offset=offset,
         limit=25,
@@ -51,10 +47,10 @@ def group(db):
 
 
 @pytest.fixture
-def vector_only_report(group, settings):
-    """A report only reachable through the vector side, so results prove the
-    query embedding was actually used (not just that no exception occurred)."""
-    r = ReportFactory.create(body="Lungs are clear bilaterally.", language__code="en")
+def report(group, settings):
+    """One embedded report, so its similarity proves the description's vector was
+    actually used (not just that no exception occurred)."""
+    r = ReportFactory.create(body="Findings: pneumothorax on the left.", language__code="en")
     r.groups.add(group)
     ReportSearchIndex.objects.filter(report=r).update(
         embedding=_unit_vec(0, settings.EMBEDDINGS_DIM)
@@ -71,59 +67,36 @@ def _mock_embedding_client(dim: int):
     return patcher, MockClient.return_value.embed_query
 
 
-def test_paginated_search_embeds_query_only_once(group, vector_only_report, settings):
+def _similarity(result, report) -> float | None:
+    return next(d.similarity for d in result.documents if d.document_id == report.document_id)
+
+
+def test_paginated_search_embeds_the_description_only_once(group, report, settings):
+    # With the ranking cache off, only the query-embedding cache can spare the second call.
+    settings.SEARCH_RANKING_CACHE_TIMEOUT_SECONDS = 0
     patcher, embed_query = _mock_embedding_client(settings.EMBEDDINGS_DIM)
     try:
-        first = search(_make_search("pneumothorax", group.pk, offset=0))
-        second = search(_make_search("pneumothorax", group.pk, offset=0))
+        first = search(_semantic_search("free air", group.pk, offset=0))
+        second = search(_semantic_search("free air", group.pk, offset=1))
     finally:
         patcher.stop()
 
     assert embed_query.call_count == 1
-    # The cached vector was really used: the vector-only report shows up both times.
-    for result in (first, second):
-        assert vector_only_report.document_id in [d.document_id for d in result.documents]
+    # The vector was really used: the report is found with its similarity on page one,
+    # and page two re-ran the scan over the same one-report list.
+    assert _similarity(first, report) == pytest.approx(1.0)
+    assert second.total_count == 1 and second.documents == []
 
 
-def test_embedding_failure_is_not_cached(group, vector_only_report, settings):
-    """A transient embedding outage must not pin later searches to FTS-only."""
+def test_different_descriptions_embed_separately(group, report, settings):
     patcher, embed_query = _mock_embedding_client(settings.EMBEDDINGS_DIM)
-    embed_query.side_effect = [
-        EmbeddingClientError("down"),
-        _unit_vec(0, settings.EMBEDDINGS_DIM),
-    ]
     try:
-        first = search(_make_search("pneumothorax", group.pk))
-        second = search(_make_search("pneumothorax", group.pk))
+        search(_semantic_search("free air", group.pk))
+        search(_semantic_search("collapsed lung", group.pk))
     finally:
         patcher.stop()
 
     assert embed_query.call_count == 2
-    assert vector_only_report.document_id not in [d.document_id for d in first.documents]
-    assert vector_only_report.document_id in [d.document_id for d in second.documents]
-
-
-def test_different_queries_embed_separately(group, settings):
-    patcher, embed_query = _mock_embedding_client(settings.EMBEDDINGS_DIM)
-    try:
-        search(_make_search("pneumothorax", group.pk))
-        search(_make_search("pleural effusion", group.pk))
-    finally:
-        patcher.stop()
-
-    assert embed_query.call_count == 2
-
-
-def test_retrieve_shares_cache_with_search(group, vector_only_report, settings):
-    patcher, embed_query = _mock_embedding_client(settings.EMBEDDINGS_DIM)
-    try:
-        search(_make_search("pneumothorax", group.pk))
-        doc_ids = list(retrieve(_make_search("pneumothorax", group.pk)))
-    finally:
-        patcher.stop()
-
-    assert embed_query.call_count == 1
-    assert vector_only_report.document_id in doc_ids
 
 
 def test_differing_spec_parameters_do_not_share_a_cache_entry(monkeypatch):
@@ -163,3 +136,31 @@ def test_differing_base_url_does_not_share_a_cache_entry(monkeypatch):
         providers._embed_query_cached("pneumonia", "test")
 
     assert len(calls) == 2
+
+
+def test_a_repeated_semantic_search_embeds_once(group, report, settings):
+    patcher, embed_query = _mock_embedding_client(settings.EMBEDDINGS_DIM)
+    request = _semantic_search("free air", group.pk)
+    try:
+        first = search(request)
+        second = search(request)
+    finally:
+        patcher.stop()
+
+    assert embed_query.call_count == 1
+    assert [d.document_id for d in first.documents] == [report.document_id]
+    assert [d.document_id for d in second.documents] == [report.document_id]
+
+
+def test_a_failed_semantic_embedding_is_not_cached(group, report, settings):
+    patcher, embed_query = _mock_embedding_client(settings.EMBEDDINGS_DIM)
+    embed_query.side_effect = [EmbeddingClientError("down"), _unit_vec(0, settings.EMBEDDINGS_DIM)]
+    request = _semantic_search("free air", group.pk)
+    try:
+        first = search(request)
+        second = search(request)
+    finally:
+        patcher.stop()
+
+    assert first.degraded is True and first.documents == []
+    assert second.degraded is False and len(second.documents) == 1

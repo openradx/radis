@@ -48,11 +48,6 @@
 
 ## Maybe
 
-- Look into distanceThreshold when using semantic/hybrid search
-  -- In normal nearestNeighbor search every document is included as all documents are neighbors
-  -- That is why we currently only use semantic stuff as ranking algorithm
-  -- We could add a distanceThreshold to only allow really near neighbors
-  -- But the threshold is unclear (not sure if we should allow to the user to specify)
 - Rename reports model fields to something in the HL7 FHIR standard
   - Interesting resources in this regard are:
     - <https://hl7.org/fhir/patient.html>
