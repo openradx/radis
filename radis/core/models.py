@@ -166,6 +166,16 @@ class AnalysisJob(models.Model):
 
         return True
 
+    def fail_before_tasks(self, message: str) -> None:
+        """End a job that could not be prepared. With no tasks there is nothing
+        for update_job_state() to derive a final state from."""
+        self.status = self.Status.FAILURE
+        self.message = message
+        self.ended_at = timezone.now()
+        self.save()
+        if self.send_finished_mail:
+            self._send_job_finished_mail()
+
     def _send_job_finished_mail(self) -> None:
         if not self.finished_mail_template:
             raise ValueError("No finished mail template for job %s", self)

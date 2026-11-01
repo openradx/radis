@@ -114,7 +114,9 @@ def test_different_queries_embed_separately(group, settings):
     assert embed_query.call_count == 2
 
 
-def test_retrieve_shares_cache_with_search(group, vector_only_report, settings):
+def test_retrieve_neither_embeds_nor_uses_the_cache(group, vector_only_report, settings):
+    """Extraction retrieval is text-only, so even a cached query vector from a
+    preceding search changes nothing about what it yields."""
     patcher, embed_query = _mock_embedding_client(settings.EMBEDDINGS_DIM)
     try:
         search(_make_search("pneumothorax", group.pk))
@@ -123,7 +125,7 @@ def test_retrieve_shares_cache_with_search(group, vector_only_report, settings):
         patcher.stop()
 
     assert embed_query.call_count == 1
-    assert vector_only_report.document_id in doc_ids
+    assert vector_only_report.document_id not in doc_ids
 
 
 def test_differing_spec_parameters_do_not_share_a_cache_entry(monkeypatch):

@@ -704,8 +704,9 @@ $fields
 
 Generate the search query:"""
 
-# The maximum number of reports that can be extracted by one extraction job.
-EXTRACTION_MAXIMUM_REPORTS_COUNT = 25000
+# The maximum number of reports one extraction job may cover. The wizard refuses a
+# search matching more, and preparing the job checks again.
+EXTRACTION_MAXIMUM_REPORTS_COUNT = _optional_env("EXTRACTION_MAXIMUM_REPORTS_COUNT", int, 25000)
 
 # The maximum number of enumerated options a Selection output field may define.
 EXTRACTION_MAX_SELECTION_OPTIONS = 7

@@ -21,7 +21,7 @@ from radis.core.utils.embedding_client import (
     EmbeddingClientError,
 )
 from radis.core.utils.rate_limit import RateLimited
-from radis.reports.models import Language, Report
+from radis.reports.models import Language
 from radis.search.site import ReportDocument, Search, SearchFilters, SearchResult
 from radis.search.utils.query_parser import (
     BinaryNode,
@@ -199,10 +199,9 @@ def _build_filter_query(filters: SearchFilters) -> Q:
     # traversal restores the join and the multi-second query shape it caused;
     # test_fts_candidate_query_is_single_table guards against that.
     #
-    # Group-scoped access control. ``SearchView`` supplies
-    # ``group=active_group.pk``; the extraction preview may pass ``group=None``
-    # when the user has no active group, which is fail-closed: an empty
-    # ``group_ids`` matches only reports assigned to no group at all.
+    # Group-scoped access control. Every caller supplies the user's active group;
+    # ``group=None`` is fail-closed: an empty ``group_ids`` matches only reports
+    # assigned to no group at all.
     if filters.group is None:
         fq = Q(group_ids=[])
     else:
@@ -345,6 +344,35 @@ def _embed_query_cached(query_text: str, caller: str) -> list[float] | None:
     return vec
 
 
+def _text_match_query(configs: list[tuple[str, list[str]]], tsqueries: dict[str, SearchQuery]) -> Q:
+    """Index rows matching the boolean tsquery. A document matches only under the
+    configuration it was indexed with."""
+    match_q = Q()
+    for config, codes in configs:
+        match_q |= Q(language_code__in=codes, search_vector=tsqueries[config])
+    return match_q
+
+
+def _text_match_queryset(search: Search):
+    """Every index row whose text matches the boolean query and the filters, in
+    report id order. Extraction needs the complete cohort, so unlike the search
+    path there is no ranking, no vector half and no candidate cap."""
+    configs = _language_configs(search.filters)
+    # An empty corpus (Report.language is a required FK) has no configurations,
+    # and an empty match_q would match every row rather than none.
+    if not configs:
+        return ReportSearchIndex.objects.none()
+    query_str = _build_query_string(search.query)
+    tsqueries = {
+        config: SearchQuery(query_str, search_type="raw", config=config) for config, _ in configs
+    }
+    return (
+        ReportSearchIndex.objects.filter(_build_filter_query(search.filters))
+        .filter(_text_match_query(configs, tsqueries))
+        .order_by("report_id")
+    )
+
+
 def _fts_candidate_queryset(filter_query: Q, configs: list[tuple[str, list[str]]], query_str: str):
     """The FTS candidate query: the single-table scan this whole design exists for.
 
@@ -359,11 +387,7 @@ def _fts_candidate_queryset(filter_query: Q, configs: list[tuple[str, list[str]]
     tsqueries = {
         config: SearchQuery(query_str, search_type="raw", config=config) for config, _ in configs
     }
-
-    # A document matches only under the configuration it was indexed with.
-    match_q = Q()
-    for config, codes in configs:
-        match_q |= Q(language_code__in=codes, search_vector=tsqueries[config])
+    match_q = _text_match_query(configs, tsqueries)
 
     # Rank strictly under the document's own configuration. Do not swap this for
     # Greatest over all configurations: a foreign config's ts_rank is not
@@ -648,21 +672,23 @@ def search(search: Search) -> SearchResult:
     return SearchResult(total_count=total_count, total_relation=total_relation, documents=documents)
 
 
+def _sliced(queryset, search: Search):
+    if search.limit is None:
+        return queryset[search.offset :]
+    return queryset[search.offset : search.offset + search.limit]
+
+
 def count(search: Search) -> int:
-    # Must describe the same set retrieve() yields: the extraction max-reports
-    # guard is computed from this and then retrieve() iterates the union. An
-    # FTS-only count would report 0 for a semantic-only query and let the guard
-    # be bypassed while retrieve() still creates extraction instances.
-    return len(_fuse_hybrid(search, "Hybrid count").ordered_ids)
+    """Number of reports retrieve() yields, counting at most ``search.limit`` of
+    them (None counts all). No ordering: with a bound, an ORDER BY would make
+    PostgreSQL sort every match before taking the first rows."""
+    queryset = _text_match_queryset(search).order_by().values("report_id")
+    return _sliced(queryset, search).count()
 
 
 def retrieve(search: Search) -> Iterator[str]:
-    ordered_ids = _fuse_hybrid(search, "Hybrid retrieve").ordered_ids
-    if not ordered_ids:
-        return iter([])
-
-    id_to_doc = dict(Report.objects.filter(pk__in=ordered_ids).values_list("pk", "document_id"))
-    return (id_to_doc[rid] for rid in ordered_ids if rid in id_to_doc)
+    queryset = _text_match_queryset(search).values_list("report__document_id", flat=True)
+    return _sliced(queryset, search).iterator()
 
 
 def filter(filter: SearchFilters) -> Iterator[str]:

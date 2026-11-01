@@ -1,4 +1,5 @@
 import json
+import logging
 from typing import Any, cast
 
 from adit_radis_shared.accounts.models import User
@@ -21,6 +22,8 @@ from radis.search.utils.query_parser import QueryParser
 from .models import ExtractionJob, OutputField, OutputType
 from .site import extraction_retrieval_provider
 from .utils.validation import validate_selection_options
+
+logger = logging.getLogger(__name__)
 
 
 class SearchForm(forms.ModelForm):
@@ -132,10 +135,13 @@ class SearchForm(forms.ModelForm):
         language = cast("Language | None", cleaned_data["language"])
         modalities = cast(QuerySet[Modality], cleaned_data["modalities"])
 
+        # Counting stops one past the maximum: that is enough to refuse the search,
+        # and keeps a query matching millions of reports from being counted in full.
+        max_reports = settings.EXTRACTION_MAXIMUM_REPORTS_COUNT
         search = Search(
             query=cleaned_data["query_node"],
             offset=0,
-            limit=0,
+            limit=max_reports + 1,
             filters=SearchFilters(
                 group=active_group.pk,
                 language=language.code if language else "",
@@ -152,26 +158,19 @@ class SearchForm(forms.ModelForm):
         if extraction_retrieval_provider is None:
             raise forms.ValidationError("Extraction retrieval provider is not configured.")
 
-        retrieval_count = extraction_retrieval_provider.count(search)
+        try:
+            retrieval_count = extraction_retrieval_provider.count(search)
+        except Exception:
+            logger.exception("Counting the reports of an extraction search failed")
+            raise forms.ValidationError("Failed to compute the report count. Please try again.")
+
+        if retrieval_count > max_reports:
+            raise forms.ValidationError(
+                f"Your search matches more than {max_reports} reports, which is more than an "
+                "extraction job may cover. Please refine your search query."
+            )
+
         cleaned_data["retrieval_count"] = retrieval_count
-
-        # Validate against limits
-        if retrieval_count > settings.EXTRACTION_MAXIMUM_REPORTS_COUNT:
-            raise forms.ValidationError(
-                f"Your search returned more results ({retrieval_count}) than the extraction "
-                f"pipeline can handle (max. {settings.EXTRACTION_MAXIMUM_REPORTS_COUNT}). "
-                "Please refine your search query."
-            )
-
-        if (
-            extraction_retrieval_provider.max_results
-            and retrieval_count > extraction_retrieval_provider.max_results
-        ):
-            raise forms.ValidationError(
-                f"Your search returned more results ({retrieval_count}) than the extraction "
-                "provider can handle. Please refine your search."
-            )
-
         return cleaned_data
 
 
