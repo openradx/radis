@@ -9,14 +9,21 @@ from django.http import Http404, HttpRequest
 from django.shortcuts import render
 from django.views import View
 
-from radis.search.forms import SearchForm
+from radis.search.forms import SearchForm, semantic_wait_notice
 from radis.search.utils.query_parser import QueryParser
 
-from .site import FullTextSearch, SearchRequest, SemanticSearch, search_provider
+from .site import (
+    FullTextSearch,
+    SearchRequest,
+    SemanticSearch,
+    SemanticSearchUnavailable,
+    search_provider,
+)
 
 PAGE_SIZES = [10, 25, 50]
 DEFAULT_PAGE_SIZE = 25
 SEMANTIC_NEEDS_DESCRIPTION = "Semantic mode needs a description."
+SEMANTIC_UNAVAILABLE = "Semantic search is unavailable right now."
 
 
 class SearchView(LoginRequiredMixin, UserPassesTestMixin, View):
@@ -30,7 +37,10 @@ class SearchView(LoginRequiredMixin, UserPassesTestMixin, View):
         if search_provider is None:
             raise ImproperlyConfigured("Search provider is not configured.")
 
-        form = SearchForm(request.GET, semantic=search_provider.semantic)
+        semantic_wait = search_provider.semantic_wait() if search_provider.semantic else 0.0
+        form = SearchForm(
+            request.GET, semantic=search_provider.semantic, semantic_wait=semantic_wait
+        )
         context: dict[str, Any] = {"form": form, "page_sizes": PAGE_SIZES}
 
         if not form.is_valid():
@@ -84,10 +94,17 @@ class SearchView(LoginRequiredMixin, UserPassesTestMixin, View):
                 limit=page_size,
             )
 
-        result = search_provider.search(search)
+        try:
+            result = search_provider.search(search)
+        except SemanticSearchUnavailable as exc:
+            context["unavailable_notice"] = (
+                SEMANTIC_UNAVAILABLE
+                if exc.retry_after is None
+                else semantic_wait_notice(exc.retry_after)
+            )
+            return render(request, "search/search.html", context)
         context["total_count"] = result.total_count
         context["total_relation"] = result.total_relation
-        context["degraded"] = result.degraded
 
         # We don't allow to paginate through all results, but the provider tells
         # us how many results it can return

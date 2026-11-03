@@ -10,7 +10,7 @@ from radis.pgsearch import providers
 from radis.pgsearch.models import ReportSearchIndex
 from radis.pgsearch.providers import search
 from radis.reports.factories import ReportFactory
-from radis.search.site import SearchFilters, SemanticSearch
+from radis.search.site import SearchFilters, SemanticSearch, SemanticSearchUnavailable
 
 pytestmark = pytest.mark.django_db
 
@@ -157,10 +157,10 @@ def test_a_failed_semantic_embedding_is_not_cached(group, report, settings):
     embed_query.side_effect = [EmbeddingClientError("down"), _unit_vec(0, settings.EMBEDDINGS_DIM)]
     request = _semantic_search("free air", group.pk)
     try:
-        first = search(request)
+        with pytest.raises(SemanticSearchUnavailable):
+            search(request)
         second = search(request)
     finally:
         patcher.stop()
 
-    assert first.degraded is True and first.documents == []
-    assert second.degraded is False and len(second.documents) == 1
+    assert len(second.documents) == 1

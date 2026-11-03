@@ -25,7 +25,7 @@ EMBEDDING_GATE = RateLimitGate(
 # Typed SDK errors that mean the request reached the service but the config is
 # wrong (bad key/permission, wrong model or endpoint, malformed request).
 # Retrying won't fix them, so callers fail fast and (write path) log a clear
-# config error / (read path) report the search as degraded.
+# config error / (read path) make the semantic search raise SemanticSearchUnavailable.
 PERMANENT_EMBEDDING_ERRORS = (
     openai.AuthenticationError,
     openai.PermissionDeniedError,
@@ -155,7 +155,7 @@ class EmbeddingClient:
     def embed_query(self, text: str) -> list[float]:
         """Embed a search query through the gate with the short query budget:
         a user is waiting, so when the gate is closed beyond that budget this
-        raises RateLimited and the provider reports the search as degraded."""
+        raises RateLimited and the provider raises SemanticSearchUnavailable."""
         prefixed = f"{self._instruction}{text}" if self._instruction else text
         vectors = run_through_gate(
             EMBEDDING_GATE,

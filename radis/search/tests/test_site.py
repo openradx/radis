@@ -8,6 +8,7 @@ from radis.search.site import (
     SearchProvider,
     SearchResult,
     SemanticSearch,
+    SemanticSearchUnavailable,
 )
 from radis.search.utils.query_parser import QueryParser
 
@@ -57,6 +58,15 @@ def test_min_similarity_bounds_are_accepted():
 
 def test_result_and_provider_defaults_keep_stubs_constructible():
     result = SearchResult(total_count=0, total_relation="exact", documents=[])
-    assert result.degraded is False
+    assert not hasattr(result, "degraded")
     provider = SearchProvider(name="stub", search=lambda request: result, max_results=10)
     assert provider.semantic is False
+    assert provider.semantic_wait() == 0.0
+
+
+def test_unavailable_carries_the_wait_the_service_asked_for():
+    rate_limited = SemanticSearchUnavailable("rate limited", retry_after=42.0)
+    unreachable = SemanticSearchUnavailable("unreachable")
+    assert rate_limited.retry_after == 42.0
+    assert unreachable.retry_after is None
+    assert str(unreachable) == "unreachable"

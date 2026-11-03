@@ -71,6 +71,19 @@ def test_the_registered_provider_reports_the_semantic_capability(settings):
     assert search_provider.semantic is (settings.EMBEDDINGS_MODEL is not None)
 
 
+def test_the_registered_provider_reports_the_embedding_gate_wait():
+    from radis.core.utils.embedding_client import EMBEDDING_GATE
+    from radis.search.site import search_provider
+
+    assert search_provider is not None
+    EMBEDDING_GATE.note_rate_limited(30.0)
+    try:
+        assert search_provider.semantic_wait() == pytest.approx(30.0, abs=1.0)
+    finally:
+        EMBEDDING_GATE.reset()
+    assert search_provider.semantic_wait() == 0.0
+
+
 def test_registration_turns_the_capability_on_with_an_embedding_model(settings, monkeypatch):
     """Test settings leave EMBEDDINGS_MODEL unset, so the test above cannot tell the
     computed flag from the provider's default of False."""

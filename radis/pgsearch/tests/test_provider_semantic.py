@@ -7,13 +7,13 @@ from django.contrib.auth.models import Group
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
 
-from radis.core.utils.embedding_client import EmbeddingClientError
+from radis.core.utils.embedding_client import EMBEDDING_GATE, EmbeddingClientError
 from radis.core.utils.model_spec import parse_model_spec
 from radis.core.utils.rate_limit import RateLimited
 from radis.pgsearch.models import ReportSearchIndex
 from radis.pgsearch.providers import ITERATIVE_SCAN_SQL, search
 from radis.reports.factories import ReportFactory
-from radis.search.site import SearchFilters, SemanticSearch
+from radis.search.site import SearchFilters, SemanticSearch, SemanticSearchUnavailable
 
 pytestmark = pytest.mark.django_db
 
@@ -89,7 +89,6 @@ def test_results_come_in_similarity_order(group, corpus, embed):
     ]
     assert result.total_count == 3
     assert result.total_relation == "exact"
-    assert result.degraded is False
     near_doc = result.documents[0]
     assert near_doc.similarity == pytest.approx(0.8)
     assert near_doc.score == near_doc.similarity
@@ -155,7 +154,6 @@ def test_a_cutoff_nothing_passes_gives_an_empty_result(group, corpus, embed):
 
     assert result.documents == []
     assert result.total_count == 0
-    assert result.degraded is False
 
 
 def test_a_cutoff_equal_to_a_similarity_keeps_that_hit(group, corpus, embed):
@@ -216,14 +214,15 @@ def test_a_repeated_search_is_served_from_the_cache(group, corpus, embed):
     assert result.total_count == 3
 
 
-def test_embedding_failure_is_empty_and_degraded_and_not_cached(group, corpus, embed, settings):
+def test_embedding_failure_raises_unavailable_and_is_not_cached(group, corpus, embed, settings):
     embed.side_effect = [EmbeddingClientError("down"), _vec(settings.EMBEDDINGS_DIM, {0: 1.0})]
 
-    first = search(_request(group.pk))
+    with pytest.raises(SemanticSearchUnavailable) as excinfo:
+        search(_request(group.pk))
     second = search(_request(group.pk))
 
-    assert first.documents == [] and first.total_count == 0 and first.degraded is True
-    assert second.degraded is False and second.total_count == 3
+    assert excinfo.value.retry_after is None
+    assert second.total_count == 3
     assert embed.call_count == 2
 
 
@@ -235,12 +234,24 @@ def _openai_rate_limit_error() -> openai.RateLimitError:
 @pytest.mark.parametrize(
     "failure", [RateLimited, _openai_rate_limit_error], ids=["gate-closed", "openai-429"]
 )
-def test_a_rate_limited_embedding_is_empty_and_degraded(group, corpus, embed, failure):
+def test_a_rate_limited_embedding_raises_unavailable(group, corpus, embed, failure):
     embed.side_effect = failure()
 
-    result = search(_request(group.pk))
+    with pytest.raises(SemanticSearchUnavailable):
+        search(_request(group.pk))
 
-    assert result.documents == [] and result.total_count == 0 and result.degraded is True
+
+def test_unavailable_names_the_wait_of_a_closed_gate(group, corpus, embed):
+    """The page shows the wait the service asked for, read from the process's gate."""
+    embed.side_effect = RateLimited()
+    EMBEDDING_GATE.note_rate_limited(30.0)
+    try:
+        with pytest.raises(SemanticSearchUnavailable) as excinfo:
+            search(_request(group.pk))
+    finally:
+        EMBEDDING_GATE.reset()
+
+    assert excinfo.value.retry_after == pytest.approx(30.0, abs=1.0)
 
 
 def test_the_query_path_timeout_reaches_the_client(group, corpus, settings):

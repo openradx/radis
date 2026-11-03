@@ -1,3 +1,4 @@
+import math
 from typing import Any
 
 from crispy_forms.helper import FormHelper, Layout
@@ -23,11 +24,38 @@ MODE_SEMANTIC = "semantic"
 MODE_CHOICES = [("", "Full-text"), (MODE_SEMANTIC, "Semantic")]
 
 
+def semantic_wait_notice(seconds: float) -> str:
+    """The page's wording while the embedding service has asked this process to wait."""
+    whole = max(1, math.ceil(seconds))
+    if whole < 60:
+        wait = f"about {whole} second{'s' if whole != 1 else ''}"
+    else:
+        minutes = math.ceil(whole / 60)
+        wait = f"about {minutes} minute{'s' if minutes != 1 else ''}"
+    return f"Semantic search is rate limited right now. Try again in {wait}."
+
+
+class ModeSelect(forms.Select):
+    """The mode select, with the options in ``disabled_values`` rendered disabled."""
+
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self.disabled_values: set[str] = set()
+
+    def create_option(self, name, value, label, selected, index, subindex=None, attrs=None):
+        option = super().create_option(
+            name, value, label, selected, index, subindex=subindex, attrs=attrs
+        )
+        if value in self.disabled_values:
+            option["attrs"]["disabled"] = True
+        return option
+
+
 class SearchForm(forms.Form):
     # Query fields
     query = forms.CharField(required=False, label=False, max_length=QUERY_MAX_LENGTH)  # type: ignore
     # The empty value is full-text, so the default never appears in the URL.
-    mode = forms.ChoiceField(required=False, choices=MODE_CHOICES, label=False)  # type: ignore
+    mode = forms.ChoiceField(required=False, choices=MODE_CHOICES, label=False, widget=ModeSelect)  # type: ignore
     description = forms.CharField(required=False, label=False, max_length=DESCRIPTION_MAX_LENGTH)  # type: ignore
     # Semantic mode only: overrides SEARCH_SEMANTIC_MIN_SIMILARITY for one search.
     min_similarity = forms.FloatField(
@@ -49,15 +77,23 @@ class SearchForm(forms.Form):
         required=False, choices=[("", "All"), ("M", "Male"), ("F", "Female")]
     )
 
-    def __init__(self, *args, semantic: bool = False, **kwargs):
-        """``semantic`` is the registered provider's capability: without it the
-        mode select, the description and the cutoff do not exist on the page."""
+    def __init__(self, *args, semantic: bool = False, semantic_wait: float = 0.0, **kwargs):
+        """``semantic`` is the registered provider's capability: without it the mode select,
+        the description and the cutoff do not exist on the page. ``semantic_wait`` is how
+        long this process may not embed a query (the embedding gate's pause after a 429):
+        for that long the Semantic option is disabled and the row says when to retry."""
         super().__init__(*args, **kwargs)
 
+        self.semantic_notice: str | None = None
         if not semantic:
             for name in ("mode", "description", "min_similarity"):
                 del self.fields[name]
         else:
+            if semantic_wait > 0:
+                mode_widget = self.fields["mode"].widget
+                assert isinstance(mode_widget, ModeSelect)
+                mode_widget.disabled_values = {MODE_SEMANTIC}
+                self.semantic_notice = semantic_wait_notice(semantic_wait)
             default_cutoff = settings.SEARCH_SEMANTIC_MIN_SIMILARITY
             if default_cutoff is not None:
                 self.fields["min_similarity"].widget.attrs["placeholder"] = (
@@ -98,6 +134,7 @@ class SearchForm(forms.Form):
                 "query",
                 mode_field="mode" if semantic else None,
                 description_field="description" if semantic else None,
+                notice=self.semantic_notice,
                 query_attrs={
                     "placeholder": "Input your search terms",
                     "autocomplete": "off",

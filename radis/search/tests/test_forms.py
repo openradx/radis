@@ -287,6 +287,26 @@ def test_query_row_with_the_capability_renders_the_select_and_both_rows() -> Non
 
 
 @pytest.mark.django_db
+def test_the_semantic_option_is_disabled_for_the_gate_wait() -> None:
+    html = _row_html(SearchForm(semantic=True, semantic_wait=40.0))
+    assert '<option value="semantic" disabled>Semantic</option>' in html
+    assert "Semantic search is rate limited right now. Try again in about 40 seconds." in html
+
+
+@pytest.mark.django_db
+def test_a_semantic_url_during_the_wait_keeps_its_mode_selected() -> None:
+    form = SearchForm({"mode": "semantic", "description": "x"}, semantic=True, semantic_wait=40.0)
+    assert '<option value="semantic" selected disabled>Semantic</option>' in _row_html(form)
+
+
+@pytest.mark.django_db
+def test_the_semantic_option_is_enabled_without_a_wait() -> None:
+    html = _row_html(SearchForm(semantic=True))
+    assert '<option value="semantic">Semantic</option>' in html
+    assert "rate limited" not in html
+
+
+@pytest.mark.django_db
 def test_cutoff_field_is_in_the_filters_only_with_the_capability() -> None:
     with_capability = SearchForm(semantic=True)
     html = " ".join(render_crispy_form(with_capability, with_capability.filters_helper).split())

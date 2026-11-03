@@ -78,7 +78,7 @@ Analysis operations follow a Job -> Task pattern (similar to ADIT):
 - **Provider system**: Plugin-based architecture (currently PostgreSQL, extensible for Vespa/ElasticSearch)
 - **QueryParser**: Parses complex queries with operators, field filters, and boolean logic
 - **Two modes, nothing fused**: Full-text (default) returns exactly the keyword hits ranked by `ts_rank`. Semantic returns the `SEARCH_HNSW_EF_SEARCH` reports nearest to the description under the same filters, in similarity order, cut at `SEARCH_SEMANTIC_MIN_SIMILARITY` when set
-- **Degradation**: an embedding failure flags a semantic result degraded instead of falling back to full-text; the page says so
+- **Unavailability**: an embedding failure raises `SemanticSearchUnavailable` instead of falling back to full-text; the page shows a notice, names the wait when the service is rate limiting, and disables the Semantic option while the embedding gate is closed
 
 ### Docker Services
 
@@ -269,9 +269,10 @@ client.update_report("DOC-12345", {"body": "Updated findings..."}, upsert=True)
 - Check `docker compose logs embeddings_worker` for failed subjobs
 - Reports ingested before the model was configured have no vector; run
   `docker compose exec web ./manage.py embed_pending` to backfill them
-- A semantic search whose embedding fails is flagged degraded: the page shows an error and no
-  list, and the `web` log names the cause; full-text searches never call the service. A query
-  embedding waits at most `EMBEDDINGS_QUERY_REQUEST_TIMEOUT_SECONDS` plus the gate budget
+- A semantic search whose embedding fails shows a notice and no list (with the wait when the
+  service is rate limiting, during which the Semantic option is disabled), and the `web` log
+  names the cause; full-text searches never call the service. A query embedding waits at most
+  `EMBEDDINGS_QUERY_REQUEST_TIMEOUT_SECONDS` plus the gate budget
 - Verify the endpoint serves the model: `docker compose exec web sh -c 'curl -sf -H
   "Authorization: Bearer ${EMBEDDINGS_API_KEY:-$LLM_API_KEY}"
   "${EMBEDDINGS_BASE_URL:-$LLM_BASE_URL}/models"'`

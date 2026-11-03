@@ -24,6 +24,7 @@
             {% if description_field %}
                 {% include "search/form_elements/description_input.html" with value=description_value %}
             {% endif %}
+            {% if notice %}<div class="form-text text-danger">{{ notice }}</div>{% endif %}
         </div>
     </div>
 {% else %}

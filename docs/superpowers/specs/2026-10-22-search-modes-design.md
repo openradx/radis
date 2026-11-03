@@ -160,7 +160,6 @@ class SearchResult(NamedTuple):
     total_count: int
     total_relation: Literal["exact", "at_least", "approximately"]
     documents: list[ReportDocument]
-    degraded: bool = False     # the semantic part could not be applied (§4.3, §5.5)
 
 
 class ReportDocument(NamedTuple):
@@ -191,6 +190,13 @@ they are dropped after ordering) because the re-rank and the `score` field need 
 Removed: the vector arm, RRF, and the three negation-exclusion helpers
 (`_collect_and_negations`, `_build_negative_query_string`, `_exclude_negations`), which only
 existed to make vector candidates respect `NOT`. The tsquery carries `!term` itself.
+
+> **Amendment (2026-11-03).** The window re-rank and the description writer (§4.2–4.4, §6.5)
+> were built in PR #374, which was closed after the judged evaluation: the cosine blend cannot
+> address polarity and only reorders keyword hits. `SearchResult.degraded`, which §4.3 reads as
+> "keyword order instead of the re-rank", no longer exists; a semantic search that cannot embed
+> its text raises `SemanticSearchUnavailable` instead (§5.5). The §4.2–4.4 text below is the
+> record of that design, not the branch.
 
 ### 4.2 Window re-rank
 
@@ -269,7 +275,7 @@ depend on the embedding:
   their scores and similarities, keyed additionally by the re-rank text,
   `SEARCH_RERANK_WINDOW`, `SEARCH_RERANK_SEMANTIC_WEIGHT` and the embedding configuration.
   The result list is the window layer followed by the rest of the keyword layer.
-- **Semantic entries** (§5): ordered ids and similarities, cached unless degraded, keyed by
+- **Semantic entries** (§5): ordered ids and similarities, cached unless the embedding failed, keyed by
   schema, the text, every filter field, `SEARCH_HNSW_EF_SEARCH`,
   `SEARCH_SEMANTIC_ITERATIVE_SCAN` and the embedding configuration. The minimum similarity is
   not in any key: it is applied to the cached list (§5.4).
@@ -405,13 +411,22 @@ inside the margin still entered the page as a vector-only report, and it needed 
 deployment constant. This one is absolute, there is no keyword list for a vector-only report
 to intrude on, and it is off until a value is chosen with the override field.
 
-### 5.5 Degradation and caller errors
+### 5.5 Unavailability and caller errors
 
-If the embedding call fails, the result is empty with `degraded = True`; the page says
-semantic search is unavailable right now. Nothing is cached. The wait is bounded by the
-query-path timeout of §4.3. A `SemanticSearch` in a deployment without an embedding model is
-a caller error and raises `ValueError`: the page never builds one, because the form has no
-mode field without the capability.
+If the embedding call fails, the provider raises `SemanticSearchUnavailable` and the page
+shows a notice instead of a list: "Semantic search is unavailable right now", or, when a 429
+closed the process's embedding gate, "Semantic search is rate limited right now. Try again in
+about N seconds" (minutes from 60 seconds up), the gate's remaining pause travelling on the
+exception as `retry_after`. Nothing is cached. The wait is bounded by the query-path timeout
+of §4.3. While the gate is closed the provider reports the remaining pause through
+`SearchProvider.semantic_wait`, and the form renders the Semantic option disabled with the
+same notice under the search row, so a new semantic search is not sent to a closed gate; a
+semantic URL opened during the wait keeps its mode selected and gets the notice from the
+provider; full-text searches are unaffected. The gate is per process, so the option can be
+enabled on one replica and disabled on another; the notice is the same either way. A
+`SemanticSearch` in a deployment without an embedding model is a caller error and raises
+`ValueError`: the page never builds one, because the form has no mode field without the
+capability.
 
 ### 5.6 Hydration
 
@@ -771,12 +786,13 @@ Provider, semantic (`test_provider_semantic.py`):
   before the `<=>` statement when the setting is on and no `SET` when it is off (a `SHOW`
   after the search cannot serve, because the provider's `atomic()` is a savepoint inside the
   test transaction and the setting lingers); `hnsw.ef_search` is the setting.
-- embedding failure: empty, `degraded = True`, not cached; no model: `ValueError`.
+- embedding failure: raises `SemanticSearchUnavailable`, with the gate's remaining pause as
+  `retry_after` when a 429 closed it, not cached; no model: `ValueError`.
 
 Ranking cache (`test_ranking_cache.py`): identical searches and page two run no ranking
 query; the keyword layer is shared by a plain search, a described search and an extraction
 count; mode, description, window and weight participate in the window and semantic keys;
-the cutoff does not; a degraded window order and a degraded semantic result are not cached;
+the cutoff does not; a failed window order and a failed semantic embedding are not cached;
 zero disables.
 
 SQL shape (`test_filter_query_equivalence.py`): the single-table and no-traversal guards stay;
@@ -793,8 +809,9 @@ characters; the description collapses whitespace; the cutoff validates; full-tex
 description builds a `FullTextSearch` with a `SimilarityRerank`; semantic builds a
 `SemanticSearch` with the override and ignores a posted query; the two mismatch notices;
 semantic with a blank description calls no provider; the count line in all its forms (below
-the window, above it, capped, semantic with and without a cutoff, zero hits); both degraded
-states, with no re-rank wording and no "Re-rank score" line on a degraded page; the header
+the window, above it, capped, semantic with and without a cutoff, zero hits); the unavailable
+notice with and without a wait, and the Semantic option disabled while the gate is closed;
+no re-rank wording and no "Re-rank score" line on a failed page; the header
 lines including the not-embedded-yet line; the info card with and without the capability; a
 plain-string summary with `<b>` from a stub provider renders escaped and a marked-safe `<em>`
 renders as a tag; `page_sizes` is in the context; `test_views_e2e.py` stays as is.

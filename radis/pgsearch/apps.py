@@ -144,6 +144,7 @@ def _index_reports(reports):
 def register_app():
     from django.conf import settings
 
+    from radis.core.utils.embedding_client import EMBEDDING_GATE
     from radis.extractions.site import (
         ExtractionRetrievalProvider,
         register_extraction_retrieval_provider,
@@ -172,6 +173,7 @@ def register_app():
             # The paging cap of a full-text list; a semantic list is at most the beam width long.
             max_results=settings.SEARCH_FTS_MAX_RESULTS,
             semantic=settings.EMBEDDINGS_MODEL is not None,
+            semantic_wait=EMBEDDING_GATE.seconds_until_open,
         )
     )
 

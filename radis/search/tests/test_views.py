@@ -13,6 +13,7 @@ from radis.search.site import (
     SearchProvider,
     SearchResult,
     SemanticSearch,
+    SemanticSearchUnavailable,
 )
 from radis.search.utils.query_parser import QueryParser
 
@@ -487,17 +488,32 @@ def _inside(response, tag: str, **attrs: str) -> list[tuple[str, dict[str, str |
     return parser.subtrees[0]
 
 
-def _provider(result: SearchResult, *, semantic: bool = True, captured: dict | None = None):
+def _provider(
+    result: SearchResult,
+    *,
+    semantic: bool = True,
+    captured: dict | None = None,
+    raises: Exception | None = None,
+    semantic_wait: float = 0.0,
+):
     def search(request):
         if captured is not None:
             captured["request"] = request
+        if raises is not None:
+            raise raises
         return result
 
-    return SearchProvider(name="Stub", search=search, max_results=1000, semantic=semantic)
+    return SearchProvider(
+        name="Stub",
+        search=search,
+        max_results=1000,
+        semantic=semantic,
+        semantic_wait=lambda: semantic_wait,
+    )
 
 
-def _empty(degraded: bool = False) -> SearchResult:
-    return SearchResult(total_count=0, total_relation="exact", documents=[], degraded=degraded)
+def _empty() -> SearchResult:
+    return SearchResult(total_count=0, total_relation="exact", documents=[])
 
 
 @pytest.fixture
@@ -582,7 +598,7 @@ def test_semantic_url_without_the_capability_runs_full_text(client: Client):
 @pytest.mark.django_db
 def test_page_beyond_a_short_semantic_list_is_clamped(client: Client, two_reports):
     client.force_login(create_test_user_with_active_group())
-    result = SearchResult(total_count=2, total_relation="exact", documents=[], degraded=False)
+    result = SearchResult(total_count=2, total_relation="exact", documents=[])
     with patch("radis.search.views.search_provider", _provider(result)):
         response = client.get("/search/", {"mode": "semantic", "description": "x", "page": "3"})
     assert response.status_code == 200
@@ -663,16 +679,60 @@ def test_semantic_zero_hits(client: Client):
 
 
 @pytest.mark.django_db
-def test_degraded_semantic_shows_only_the_error(client: Client):
+def test_an_unavailable_semantic_search_shows_only_the_notice(client: Client):
     client.force_login(create_test_user_with_active_group())
-    with patch("radis.search.views.search_provider", _provider(_empty(degraded=True))):
+    provider = _provider(_empty(), raises=SemanticSearchUnavailable("down"))
+    with patch("radis.search.views.search_provider", provider):
         response = client.get("/search/", {"mode": "semantic", "description": "free air"})
     content = _text(response)
     assert "Semantic search is unavailable right now." in content
+    assert "rate limited" not in content
+    assert "documents" not in response.context
     assert "most similar to your description" not in content
     assert "No results found" not in content
     # An empty result's count line would read "No reports similar to your description".
     assert "similar to your description" not in content
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "retry_after, wait",
+    [(40.0, "about 40 seconds"), (0.3, "about 1 second"), (150.0, "about 3 minutes")],
+)
+def test_a_rate_limited_semantic_search_names_the_wait(client: Client, retry_after, wait):
+    client.force_login(create_test_user_with_active_group())
+    failure = SemanticSearchUnavailable("429", retry_after=retry_after)
+    with patch("radis.search.views.search_provider", _provider(_empty(), raises=failure)):
+        response = client.get("/search/", {"mode": "semantic", "description": "free air"})
+    content = _text(response)
+    assert f"Semantic search is rate limited right now. Try again in {wait}." in content
+    assert "documents" not in response.context
+
+
+@pytest.mark.django_db
+def test_the_semantic_option_is_disabled_while_the_gate_is_closed(client: Client):
+    client.force_login(create_test_user_with_active_group())
+    with patch("radis.search.views.search_provider", _provider(_empty(), semantic_wait=40.0)):
+        closed = client.get("/search/")
+    with patch("radis.search.views.search_provider", _provider(_empty(), semantic_wait=0.0)):
+        opened = client.get("/search/")
+    assert "disabled" in _element(closed, "option", value="semantic")
+    assert "Semantic search is rate limited right now. Try again in about 40 seconds." in _text(
+        closed
+    )
+    assert "disabled" not in _element(opened, "option", value="semantic")
+    assert "rate limited" not in _text(opened)
+
+
+@pytest.mark.django_db
+def test_a_full_text_search_runs_while_the_gate_is_closed(client: Client):
+    client.force_login(create_test_user_with_active_group())
+    captured: dict = {}
+    provider = _provider(_empty(), captured=captured, semantic_wait=40.0)
+    with patch("radis.search.views.search_provider", provider):
+        response = client.get("/search/", {"query": "chest"})
+    assert isinstance(captured["request"], FullTextSearch)
+    assert "0 reports found" in _text(response)
 
 
 @pytest.mark.django_db

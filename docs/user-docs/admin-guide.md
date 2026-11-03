@@ -114,7 +114,7 @@ New and updated reports are embedded automatically by the `embeddings_worker` se
 
 The same is available in Django Admin under **Pgsearch** → **Report search indexes**: the page shows the state of the embedding pipeline, has a **Cancel queued backfill** button, and offers the actions "Enqueue embedding for selected rows (NULL only)" and "Clear embeddings (NULL them)" on selected reports. **Embedding backfill runs** lists past and current backfills.
 
-When the embedding service is unreachable or rate limiting, a semantic search is flagged degraded: the page shows an error instead of a list, and a warning is logged in the `web` service. Full-text searches never call the service. A query embedding waits at most `EMBEDDINGS_QUERY_REQUEST_TIMEOUT_SECONDS` (10 s by default) plus the rate-limit gate's query budget.
+When the embedding service is unreachable, a semantic search shows a notice instead of a list and a warning is logged in the `web` service. When the service is rate limiting, the notice names the wait the service asked for, and the Semantic option of the search bar is disabled for that long on the web replica that received the 429. Full-text searches never call the service. A query embedding waits at most `EMBEDDINGS_QUERY_REQUEST_TIMEOUT_SECONDS` (10 s by default) plus the rate-limit gate's query budget.
 
 See the [Contributing guide](../dev-docs/contributing.md) for how to run Ollama with a chat and an embedding model, and the troubleshooting sections there for connection problems.
 

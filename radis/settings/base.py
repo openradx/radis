@@ -536,7 +536,7 @@ EMBEDDINGS_RATE_LIMIT_BACKOFF_BASE_SECONDS = 2.0
 EMBEDDINGS_RATE_LIMIT_BACKOFF_MAX_SECONDS = 120.0
 EMBEDDINGS_RATE_LIMIT_HEADER_CEILING_SECONDS = 1800.0
 # Wait budgets: long for background embedding tasks; short for the search path, where a
-# user is waiting and a degraded search beats hanging on a closed gate.
+# user is waiting and an unavailable notice beats hanging on a closed gate.
 EMBEDDINGS_RATE_LIMIT_MAX_WAIT_SECONDS = 300.0
 EMBEDDINGS_RATE_LIMIT_QUERY_MAX_WAIT_SECONDS = 10.0
 # Local retries of transient (non-429) embedding call failures, mirroring the

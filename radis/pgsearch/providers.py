@@ -18,6 +18,7 @@ from django.utils import timezone
 from pgvector.django import CosineDistance
 
 from radis.core.utils.embedding_client import (
+    EMBEDDING_GATE,
     PERMANENT_EMBEDDING_ERRORS,
     EmbeddingClient,
     EmbeddingClientError,
@@ -32,6 +33,7 @@ from radis.search.site import (
     SearchRequest,
     SearchResult,
     SemanticSearch,
+    SemanticSearchUnavailable,
 )
 from radis.search.utils.query_parser import (
     BinaryNode,
@@ -232,10 +234,10 @@ def _embedding_config_key() -> tuple[str, str | None]:
 
 
 def _embed_query_or_none(query_text: str, caller: str) -> list[float] | None:
-    """Embed the text, or return None to signal a degraded search.
+    """Embed the text, or return None when the service cannot.
 
-    The caller flags a missing vector as degraded, so every failure returns None
-    instead of raising — but at different log levels: transient conditions
+    The caller turns a missing vector into SemanticSearchUnavailable, so every failure
+    returns None instead of raising — but at different log levels: transient conditions
     (rate limiting, connection blips, 5xx) are expected under load and log a
     WARNING, while permanent misconfiguration logs a full exception (once per
     configuration, see _LOGGED_PERMANENT_FAILURE_CONFIGS) so it reaches operators;
@@ -256,7 +258,7 @@ def _embed_query_or_none(query_text: str, caller: str) -> list[float] | None:
             logger.warning(
                 "%s unavailable; embedding service still misconfigured for this "
                 "configuration (check EMBEDDINGS_BASE_URL=%r and EMBEDDINGS_MODEL=%r): "
-                "%s: %s -- the search runs degraded until this is fixed; the full "
+                "%s: %s -- semantic search stays unavailable until this is fixed; the full "
                 "traceback was already logged once for this configuration",
                 caller,
                 base_url,
@@ -281,7 +283,7 @@ def _embed_query_cached(query_text: str, caller: str) -> list[float] | None:
     config changes: "qwen3" on one deployment and "qwen3" on another are different
     weights, so the endpoint has to be part of the fingerprint too (the API key
     is not identity and stays out of the cache key). Failures are not cached: a
-    transient outage must not pin searches to a degraded result for the TTL.
+    transient outage must not pin searches to a failure for the TTL.
     """
     spec = settings.EMBEDDINGS_MODEL
     if spec is None:
@@ -372,7 +374,6 @@ class Ranking(NamedTuple):
     relation: Literal["exact", "at_least", "approximately"]
     configs: list[tuple[str, list[str]]]
     query_str: str
-    degraded: bool
 
 
 # Bumped whenever a cached payload's shape changes, so entries written by an older
@@ -478,7 +479,6 @@ def _rank_fulltext(request: FullTextSearch) -> Ranking:
         relation=keyword.relation,
         configs=keyword.configs,
         query_str=keyword.query_str,
-        degraded=False,
     )
 
 
@@ -498,7 +498,7 @@ def _semantic_scan_queryset(filter_query: Q, vec: list[float]):
     )
 
 
-def _semantic_ranking(ids: list[int], similarity: dict[int, float], *, degraded: bool) -> Ranking:
+def _semantic_ranking(ids: list[int], similarity: dict[int, float]) -> Ranking:
     return Ranking(
         ids=ids,
         score_by_id=dict(similarity),
@@ -506,13 +506,12 @@ def _semantic_ranking(ids: list[int], similarity: dict[int, float], *, degraded:
         relation="exact",
         configs=[],
         query_str="",
-        degraded=degraded,
     )
 
 
 def _rank_semantic(request: SemanticSearch, caller: str) -> Ranking:
-    """The reports most similar to the text, in similarity order; cached unless the
-    embedding failed, in which case the list is empty and degraded."""
+    """The reports most similar to the text, in similarity order, cached. Raises
+    SemanticSearchUnavailable when the text cannot be embedded; nothing is cached then."""
     if settings.EMBEDDINGS_MODEL is None:
         raise ValueError("A semantic search needs an embedding model (EMBEDDINGS_MODEL).")
     timeout = settings.SEARCH_RANKING_CACHE_TIMEOUT_SECONDS
@@ -528,10 +527,13 @@ def _rank_semantic(request: SemanticSearch, caller: str) -> Ranking:
         cached = cache.get(key)
         if cached is not None:
             similarity = dict(zip(cached["ids"], cached["similarities"], strict=True))
-            return _semantic_ranking(list(cached["ids"]), similarity, degraded=False)
+            return _semantic_ranking(list(cached["ids"]), similarity)
     vec = _embed_query_cached(request.text, caller)
     if vec is None:
-        return _semantic_ranking([], {}, degraded=True)
+        raise SemanticSearchUnavailable(
+            f"{caller} unavailable: the text could not be embedded.",
+            retry_after=EMBEDDING_GATE.seconds_until_open() or None,
+        )
     filter_query = _build_filter_query(request.filters)
     # SET LOCAL lasts to the end of the enclosing transaction, so the scan gets its own:
     # the search view runs outside any transaction and the setting ends with the scan.
@@ -548,7 +550,7 @@ def _rank_semantic(request: SemanticSearch, caller: str) -> Ranking:
             {"ids": ids, "similarities": [similarity[rid] for rid in ids]},
             timeout=timeout,
         )
-    return _semantic_ranking(ids, similarity, degraded=False)
+    return _semantic_ranking(ids, similarity)
 
 
 def _effective_min_similarity(request: SemanticSearch) -> float | None:
@@ -663,7 +665,6 @@ def search(request: SearchRequest) -> SearchResult:
         total_count=len(ranking.ids),
         total_relation=ranking.relation,
         documents=documents,
-        degraded=ranking.degraded,
     )
 
 

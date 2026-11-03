@@ -31,8 +31,6 @@ class SearchResult(NamedTuple):
     total_count: int
     total_relation: Literal["exact", "at_least", "approximately"]
     documents: list[ReportDocument]
-    # True when a semantic search could not run because no embedding was available.
-    degraded: bool = False
 
 
 @dataclass
@@ -112,21 +110,43 @@ class SemanticSearch(Search):
 SearchRequest = FullTextSearch | SemanticSearch
 
 
+class SemanticSearchUnavailable(Exception):
+    """A semantic search could not run because its text could not be embedded.
+
+    ``retry_after`` is how many seconds the embedding service asked this process to wait
+    before its next request (rate limiting); None when the service was unreachable or
+    misconfigured. Full-text searches never raise it.
+    """
+
+    def __init__(self, message: str, *, retry_after: float | None = None) -> None:
+        super().__init__(message)
+        self.retry_after = retry_after
+
+
+def _no_wait() -> float:
+    return 0.0
+
+
 class SearchProvider(NamedTuple):
     """A registered search backend.
 
     Attributes:
     - name: The name of the search provider.
-    - search: Runs one request of either mode.
+    - search: Runs one request of either mode; a semantic request raises
+      SemanticSearchUnavailable when its text cannot be embedded.
     - max_results: The paging cap of a full-text list; offset + limit must stay below it.
     - semantic: Whether SemanticSearch requests are available (an embedding model is
       configured).
+    - semantic_wait: Seconds until this process may embed the next query, 0.0 when it may
+      now (the embedding gate's remaining pause after a 429). The page disables semantic
+      mode for that long instead of letting searches fail at the gate.
     """
 
     name: str
     search: Callable[[SearchRequest], SearchResult]
     max_results: int
     semantic: bool = False
+    semantic_wait: Callable[[], float] = _no_wait
 
 
 search_provider: SearchProvider | None = None

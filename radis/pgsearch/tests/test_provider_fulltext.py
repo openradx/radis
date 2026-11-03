@@ -95,7 +95,6 @@ def test_keyword_search_makes_no_embedding_call_and_keeps_keyword_order(group, c
     ]
     assert result.total_count == 3
     assert result.total_relation == "exact"
-    assert result.degraded is False
     for doc in result.documents:
         assert doc.similarity is None
         assert doc.score == doc.relevance

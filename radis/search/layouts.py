@@ -9,7 +9,7 @@ from django.utils.html import conditional_escape
 class QueryInput(TemplateNameMixin):
     """The search row, rendered by ``form_elements/query_input.html``: one keyword input
     group, or, with a mode field, the mode select beside a keyword row and a description
-    row, of which only the active mode's is shown."""
+    row, of which only the active mode's is shown. A ``notice`` is shown under the rows."""
 
     def __init__(
         self,
@@ -17,6 +17,7 @@ class QueryInput(TemplateNameMixin):
         *,
         mode_field: str | None = None,
         description_field: str | None = None,
+        notice: str | None = None,
         css_class: str | None = None,
         query_attrs: dict[str, Any] | None = None,
         **kwargs,
@@ -24,6 +25,7 @@ class QueryInput(TemplateNameMixin):
         self.query_field = query_field
         self.mode_field = mode_field
         self.description_field = description_field
+        self.notice = notice
 
         self.query_attrs: dict[str, Any] = {}
 
@@ -51,5 +53,6 @@ class QueryInput(TemplateNameMixin):
                 "mode_field": form[self.mode_field] if self.mode_field else None,
                 "description_field": description_field,
                 "description_value": description_field.value() or "" if description_field else "",
+                "notice": self.notice,
             },
         )
