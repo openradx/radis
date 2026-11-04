@@ -147,8 +147,8 @@ Extraction jobs let you pull structured data out of many reports at once. Creati
 
 Jobs of regular users start in the "Unverified" state and are queued once an administrator has verified them. On the job page you can follow the progress of the individual tasks and, once results come in:
 
-- Click **View Results** to browse the extracted values in a table with one column per field
-- Click **Download CSV** to export the table
+- Click **View Results** to browse the extracted values in a table with one column per field. When a report does not contain the information for a field, the cell stays empty; the AI is instructed not to guess a value
+- Click **Download CSV** to export the table (empty cells stay empty)
 - Use the control panel to cancel a running job, resume a canceled one, retry failed tasks, or delete the job. Administrators additionally see buttons to verify a job and to restart it entirely
 - Click a task to see its reports and the extracted values per report
 

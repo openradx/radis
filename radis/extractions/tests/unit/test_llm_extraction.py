@@ -87,8 +87,9 @@ def test_generate_output_fields_schema_maps_each_output_type():
     fields = Schema.model_fields
 
     assert set(fields) == {"finding", "size", "malignant"}
-    assert fields["finding"].annotation is str
-    assert fields["malignant"].annotation is bool
+    # Every value may be null so the model can say the report lacks the information.
+    assert fields["finding"].annotation == (str | None)
+    assert fields["malignant"].annotation == (bool | None)
     # NUMERIC maps to ``float | int`` (a Union), so a float and an int validate.
     # Schema is built dynamically, so its fields aren't statically known to the type
     # checker; access them through Any-typed instances.
@@ -177,6 +178,10 @@ def test_report_text_and_fields_reach_the_model(mocker: MockerFixture):
     schema = call["response_format"]
     assert issubclass(schema, BaseModel)
     assert set(schema.model_fields) == set(field_names)
+    # The model must be able to answer null for information the report lacks, and
+    # the prompt must tell it to do so instead of fabricating a value.
+    assert schema(**{name: None for name in field_names})
+    assert "respond with null" in sent_prompt
 
 
 # --------------------------------------------------------------------------- #
@@ -210,6 +215,25 @@ def test_output_is_parsed_and_persisted_per_instance(mocker: MockerFixture):
 
     task.refresh_from_db()
     assert task.status == ExtractionTask.Status.SUCCESS
+
+
+@pytest.mark.django_db(transaction=True)
+def test_null_answers_are_persisted_as_none():
+    """A null answer is stored as None, not coerced to 0/""/False, so a missing
+    value stays distinguishable from a real one in the results and the export."""
+    task = create_extraction_task(num_output_fields=2, num_extraction_instances=1)
+
+    class Output(BaseModel):
+        answer: str | None
+        score: int | None
+
+    openai_mock, _ = make_capturing_openai_mock(Output(answer=None, score=None))
+    with patch("openai.OpenAI", return_value=openai_mock):
+        ExtractionTaskProcessor(task).start()
+
+    instance = task.instances.get()
+    assert instance.is_processed is True
+    assert instance.output == {"answer": None, "score": None}
 
 
 @pytest.mark.django_db(transaction=True)

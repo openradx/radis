@@ -656,6 +656,7 @@ and guidelines in radiological practices.
 Extract the following information from the given radiology report by using the below field
 definitions. The report and fields can be given in any language.
 Only provide data that is really found in the report. Don't make up new data and don't hallucinate.
+If the report does not contain the requested information, respond with null for that field.
 Return the extracted information in JSON format.
 
 Radiology Report:

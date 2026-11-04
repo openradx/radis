@@ -743,7 +743,7 @@ class ExtractionResultListView(
         extra_columns = []
         for field in job.output_fields.all():
             extra_columns.append(
-                (field.name, tables.Column(field.name, accessor=f"output.{field.name}"))
+                (field.name, tables.Column(field.name, accessor=f"output__{field.name}"))
             )
 
         return super().get_table(extra_columns=extra_columns, **kwargs)
