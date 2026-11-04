@@ -112,5 +112,5 @@ class SearchView(LoginRequiredMixin, UserPassesTestMixin, View):
         try:
             page_size = max(1, min(int(page_size), 100))
         except ValueError:
-            page_size = 10
+            page_size = 25
         return page_size
