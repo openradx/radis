@@ -211,3 +211,15 @@ def test_parentheses_inside_phrases_do_not_count_as_nesting():
 def test_unbalanced_parentheses_are_fixed_before_the_depth_check():
     query = "(" * (MAX_NESTING_DEPTH + 5) + "foo"
     assert is_fixed_query(query, "foo", 1)
+
+
+def test_nesting_at_the_limit_with_many_operands_parses():
+    operands = " ".join(["foo"] * 60)
+    query = "(" * MAX_NESTING_DEPTH + operands + ")" * MAX_NESTING_DEPTH
+    assert is_valid_query(query)
+
+
+def test_long_flat_chains_parse():
+    assert is_valid_query(" ".join(["a"] * 100))
+    assert is_valid_query(" OR ".join(["a"] * 50))
+    assert is_valid_query("NOT " * 50 + "a")
