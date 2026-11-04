@@ -73,7 +73,6 @@ INSTALLED_APPS = [
     "revproxy",
     "loginas",
     "django_cotton.apps.SimpleAppConfig",
-    "block_fragments.apps.SimpleAppConfig",
     "crispy_forms",
     "crispy_bootstrap5",
     "django_htmx",
@@ -122,16 +121,11 @@ TEMPLATES = [
         "OPTIONS": {
             "loaders": [
                 (
-                    "block_fragments.loader.Loader",
+                    "django.template.loaders.cached.Loader",
                     [
-                        (
-                            "django.template.loaders.cached.Loader",
-                            [
-                                "django_cotton.cotton_loader.Loader",
-                                "django.template.loaders.filesystem.Loader",
-                                "django.template.loaders.app_directories.Loader",
-                            ],
-                        )
+                        "django_cotton.cotton_loader.Loader",
+                        "django.template.loaders.filesystem.Loader",
+                        "django.template.loaders.app_directories.Loader",
                     ],
                 )
             ],
