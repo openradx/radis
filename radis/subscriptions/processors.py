@@ -35,9 +35,9 @@ class SubscriptionTaskProcessor(AnalysisTaskProcessor):
         self.client = LLMClient("subscriptions")
 
     def process_task(self, task: SubscriptionTask) -> None:
-        # Scope by the subscription's group, not the owner's active group: the
-        # owner may have switched groups (or have none) while this background
-        # job runs, and the refresh already searched with the subscription's group.
+        # The subscription's group defines the scope. The owner's active group
+        # is a per-session choice that may have changed, or been cleared, by
+        # the time this background task runs.
         group = task.job.subscription.group
 
         futures: list[Future] = []
