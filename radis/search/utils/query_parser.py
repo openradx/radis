@@ -9,8 +9,9 @@ import pyparsing as pp
 QUOTED_SEGMENT_PATTERN = re.compile(r'(".*?(?<!\\)")')
 
 # Each nesting level recurses through the grammar, so the depth bounds the Python
-# stack the parser needs: it overflows the default recursion limit at roughly 60
-# levels. Real queries rarely exceed two or three.
+# stack the parser needs. It overflows the default recursion limit somewhere between
+# 40 and 75 levels, depending on how deep the calling stack already is. Real queries
+# rarely exceed two or three.
 MAX_NESTING_DEPTH = 10
 
 
