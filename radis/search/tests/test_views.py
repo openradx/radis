@@ -391,3 +391,38 @@ def test_search_view_tolerates_invalid_url_parameters(client: Client, params: di
         response = client.get("/search/", {"query": "test query", **params})
 
     assert response.status_code == 200
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("per_page", "expected_limit"),
+    [
+        (None, 25),
+        ("abc", 25),
+        ("0", 1),
+        ("-5", 1),
+        ("50", 50),
+        ("1000", 100),
+    ],
+)
+def test_search_view_clamps_page_size(
+    client: Client, per_page: str | None, expected_limit: int
+) -> None:
+    """per_page is clamped to 1..100; an absent or non-numeric value uses the default."""
+    user = create_test_user_with_active_group()
+    client.force_login(user)
+
+    captured: dict[str, Search] = {}
+
+    def capturing_search(search: Search) -> SearchResult:
+        captured["search"] = search
+        return SearchResult(total_count=0, total_relation="exact", documents=[])
+
+    provider = SearchProvider(name="Capturing", search=capturing_search, max_results=1000)
+    params = {"query": "chest"} if per_page is None else {"query": "chest", "per_page": per_page}
+
+    with patch("radis.search.views.search_provider", provider):
+        response = client.get("/search/", params)
+
+    assert response.status_code == 200
+    assert captured["search"].limit == expected_limit
