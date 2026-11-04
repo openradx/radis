@@ -11,11 +11,8 @@ type Numeric = float | int
 def generate_output_fields_schema(fields: Iterable[OutputField]) -> type[BaseModel]:
     """Build a Pydantic model that describes the structure the extractor must output.
 
-    Every key is required but its value may be ``null``: the prompts instruct the
-    model to answer null when the report does not contain the requested
-    information. A schema without that option forces the model to fabricate a
-    value (zero for numbers, one of the options for a Selection), which is
-    indistinguishable from a real finding in the results.
+    Every key is required, but any value may be ``null`` so that the model can say
+    the report does not contain the requested information instead of guessing.
     """
     field_definitions: dict[str, Any] = {}
     for field in fields:
