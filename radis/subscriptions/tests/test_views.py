@@ -166,7 +166,7 @@ def test_subscription_create_view_post_valid(client: Client):
         "output_fields-INITIAL_FORMS": "0",
         "output_fields-MIN_NUM_FORMS": "0",
         "output_fields-MAX_NUM_FORMS": "10",
-        "output_fields-0-name": "Pneumothorax status",
+        "output_fields-0-name": "pneumothorax_status",
         "output_fields-0-description": "Extract pneumothorax related findings",
         "output_fields-0-output_type": "T",
     }

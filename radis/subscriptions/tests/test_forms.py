@@ -11,7 +11,8 @@ from adit_radis_shared.accounts.factories import GroupFactory, UserFactory
 
 from radis.core.constants import AGE_STEP
 from radis.reports.factories import LanguageFactory
-from radis.subscriptions.forms import SubscriptionForm
+from radis.subscriptions.factories import SubscriptionFactory
+from radis.subscriptions.forms import OutputFieldFormSet, SubscriptionForm
 
 
 def _form_data(**overrides) -> dict:
@@ -80,3 +81,23 @@ def test_age_from_greater_than_age_till_is_rejected(_ref_data):
     form = SubscriptionForm(data=_form_data(age_from=80, age_till=40))
     assert not form.is_valid()
     assert "Age from must be less than age till" in str(form.errors)
+
+
+@pytest.mark.django_db
+def test_output_field_formset_rejects_reserved_name():
+    subscription = SubscriptionFactory.create()
+    formset = OutputFieldFormSet(
+        data={
+            "output_fields-TOTAL_FORMS": "1",
+            "output_fields-INITIAL_FORMS": "0",
+            "output_fields-0-name": "model_config",
+            "output_fields-0-description": "Some description.",
+            "output_fields-0-output_type": "T",
+            "output_fields-0-selection_options": "[]",
+            "output_fields-0-is_array": "false",
+        },
+        instance=subscription,
+    )
+
+    assert not formset.is_valid()
+    assert "name" in formset.forms[0].errors

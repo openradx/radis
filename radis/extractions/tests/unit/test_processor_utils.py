@@ -1,6 +1,7 @@
 from typing import Literal, get_args, get_origin
 
 import pytest
+from django.core.exceptions import ValidationError
 
 from radis.extractions.factories import ExtractionJobFactory, OutputFieldFactory
 from radis.extractions.models import OutputType
@@ -78,3 +79,18 @@ def test_generate_output_fields_schema_nullable_accepts_null_values():
     strict_schema = generate_output_fields_schema(job.output_fields.all())
     with pytest.raises(ValueError):
         strict_schema(finding=None, grade="Grade 1")
+
+
+@pytest.mark.django_db
+def test_output_field_names_that_break_the_schema_fail_validation():
+    """Names Pydantic drops (``_x``) or rejects (``model_*``) never reach ``create_model``."""
+    job = ExtractionJobFactory.create()
+
+    for name in ("_dropped", "model_config"):
+        field = OutputFieldFactory.build(job=job, name=name, output_type=OutputType.TEXT)
+        with pytest.raises(ValidationError):
+            field.full_clean()
+
+    field = OutputFieldFactory.create(job=job, name="kept", output_type=OutputType.TEXT)
+    schema = generate_output_fields_schema([field])
+    assert "kept" in schema.model_fields

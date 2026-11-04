@@ -12,6 +12,8 @@ from procrastinate.contrib.django.models import ProcrastinateJob
 from radis.core.models import AnalysisJob, AnalysisTask
 from radis.reports.models import Language, Modality, Report
 
+from .validators import OUTPUT_FIELD_NAME_HELP_TEXT, validate_output_field_name
+
 
 class ExtractionsAppSettings(AppSettings):
     class Meta:
@@ -82,7 +84,11 @@ class OutputType(models.TextChoices):
 
 
 class OutputField(models.Model):
-    name = models.CharField(max_length=30)
+    name = models.CharField(
+        max_length=30,
+        validators=[validate_output_field_name],
+        help_text=OUTPUT_FIELD_NAME_HELP_TEXT,
+    )
     description = models.CharField(max_length=300)
     output_type = models.CharField(
         max_length=1, choices=OutputType.choices, default=OutputType.TEXT
