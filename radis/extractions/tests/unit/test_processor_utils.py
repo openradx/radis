@@ -82,15 +82,12 @@ def test_generate_output_fields_schema_nullable_accepts_null_values():
 
 
 @pytest.mark.django_db
-def test_output_field_names_that_break_the_schema_fail_validation():
+@pytest.mark.parametrize("name", ["_dropped", "model_config"])
+def test_output_field_names_that_break_the_schema_fail_validation(name: str):
     """Names Pydantic drops (``_x``) or rejects (``model_*``) never reach ``create_model``."""
-    job = ExtractionJobFactory.create()
+    field = OutputFieldFactory.build(job=ExtractionJobFactory.create(), name=name)
 
-    for name in ("_dropped", "model_config"):
-        field = OutputFieldFactory.build(job=job, name=name, output_type=OutputType.TEXT)
-        with pytest.raises(ValidationError):
-            field.full_clean()
+    with pytest.raises(ValidationError) as excinfo:
+        field.full_clean()
 
-    field = OutputFieldFactory.create(job=job, name="kept", output_type=OutputType.TEXT)
-    schema = generate_output_fields_schema([field])
-    assert "kept" in schema.model_fields
+    assert "name" in excinfo.value.message_dict

@@ -301,19 +301,3 @@ def test_output_field_form_rejects_unsafe_names(name: str):
 
     assert not form.is_valid()
     assert "name" in form.errors
-
-
-@pytest.mark.django_db
-def test_output_field_full_clean_rejects_reserved_name():
-    job = ExtractionJobFactory.create()
-    field = OutputField(
-        job=job,
-        name="model_config",
-        description="Some description.",
-        output_type=OutputType.TEXT,
-    )
-
-    with pytest.raises(ValidationError) as excinfo:
-        field.full_clean()
-
-    assert "name" in excinfo.value.message_dict
