@@ -12,13 +12,16 @@ from radis.core.form_fields import (
 )
 from radis.core.layouts import RangeSlider
 from radis.labels.models import Label
+from radis.search.utils.query_parser import QueryParser, QueryTooDeepError
 
 from .layouts import QueryInput
+
+QUERY_MAX_LENGTH = 200
 
 
 class SearchForm(forms.Form):
     # Query fields
-    query = forms.CharField(required=False, label=False)  # type: ignore
+    query = forms.CharField(required=False, label=False, max_length=QUERY_MAX_LENGTH)  # type: ignore
     # Filter fields - language, modalities, labels, and age fields created in __init__
     study_date_from = forms.DateField(
         required=False, widget=forms.DateInput(attrs={"type": "date"})
@@ -67,7 +70,7 @@ class SearchForm(forms.Form):
                 query_attrs={
                     "placeholder": "Input your search terms",
                     "autocomplete": "off",
-                    "maxlength": 200,
+                    "maxlength": QUERY_MAX_LENGTH,
                 },
             ),
         )
@@ -98,6 +101,16 @@ class SearchForm(forms.Form):
                 css_class="d-flex justify-content-center",
             ),
         )
+
+    def clean_query(self) -> str:
+        query = self.cleaned_data["query"]
+        try:
+            query_node, fixes = QueryParser().parse(query)
+        except QueryTooDeepError as err:
+            raise forms.ValidationError(str(err)) from err
+        self.cleaned_data["query_node"] = query_node
+        self.cleaned_data["query_fixes"] = fixes
+        return query
 
     def clean_age_from(self) -> int | None:
         age_from = self.cleaned_data["age_from"]

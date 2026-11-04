@@ -1,7 +1,13 @@
 # def stringify
 
+import time
+
+import pytest
+
 from radis.search.utils.query_parser import (
+    MAX_NESTING_DEPTH,
     QueryParser,
+    QueryTooDeepError,
     is_search_query_char,
     is_search_token_char,
 )
@@ -177,3 +183,31 @@ def test_search_token_helpers():
     assert is_search_query_char(")")
     assert is_search_query_char(combining)
     assert not is_search_query_char("$")
+
+
+def test_nesting_up_to_the_limit_parses_quickly():
+    query = "(" * MAX_NESTING_DEPTH + "foo" + ")" * MAX_NESTING_DEPTH
+
+    start = time.perf_counter()
+    assert is_valid_query(query)
+    assert time.perf_counter() - start < 1.0
+
+
+def test_nesting_beyond_the_limit_is_rejected_quickly():
+    depth = MAX_NESTING_DEPTH + 2
+    query = "(" * depth + "foo" + ")" * depth
+
+    start = time.perf_counter()
+    with pytest.raises(QueryTooDeepError):
+        QueryParser().parse(query)
+    assert time.perf_counter() - start < 1.0
+
+
+def test_parentheses_inside_phrases_do_not_count_as_nesting():
+    query = '"' + "(" * (MAX_NESTING_DEPTH + 5) + ' foo"'
+    assert is_valid_query(query)
+
+
+def test_unbalanced_parentheses_are_fixed_before_the_depth_check():
+    query = "(" * (MAX_NESTING_DEPTH + 5) + "foo"
+    assert is_fixed_query(query, "foo", 1)

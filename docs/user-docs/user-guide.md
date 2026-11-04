@@ -44,7 +44,7 @@ The search feature is the core of RADIS, allowing you to find relevant reports q
 - **Phrases**: Use quotes for exact matches (e.g., `"lung cancer"`)
 - **Grouping**: Use parentheses to combine operators (e.g., `(fracture OR lesion) NOT metastasis`)
 
-Operators must be written in capital letters; `or`, `and`, and `not` in lowercase are treated as ordinary search terms. A minus sign in front of a term does not exclude it, wildcards such as `pneumo*` are not supported (the `*` is dropped), and `field:value` syntax is not supported — the whole `field:value` token is removed; use the filters instead. A query is required (filters alone do not search) and may be at most 200 characters long.
+Operators must be written in capital letters; `or`, `and`, and `not` in lowercase are treated as ordinary search terms. A minus sign in front of a term does not exclude it, wildcards such as `pneumo*` are not supported (the `*` is dropped), and `field:value` syntax is not supported — the whole `field:value` token is removed; use the filters instead. A query is required (filters alone do not search), may be at most 200 characters long, and may nest parentheses at most 10 levels deep.
 
 If your query contains mistakes such as unbalanced quotes or parentheses, unsupported characters, or stray operators, RADIS repairs it and shows a "Fixed invalid query" notice above the results with the query it actually ran.
 

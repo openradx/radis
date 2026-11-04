@@ -3,7 +3,8 @@ from crispy_forms.layout import Field, Layout
 
 from radis.labels.factories import LabelFactory
 from radis.reports.factories import LanguageFactory
-from radis.search.forms import SearchForm
+from radis.search.forms import QUERY_MAX_LENGTH, SearchForm
+from radis.search.utils.query_parser import MAX_NESTING_DEPTH, QueryParser
 
 
 def get_layout_field_names(layout: Layout) -> list[str]:
@@ -84,3 +85,38 @@ def test_labels_field_absent_from_layout_when_no_active_labels() -> None:
 
     assert "labels" not in field_names
     assert form.fields["labels"].choices == []  # type: ignore
+
+
+@pytest.mark.django_db
+def test_query_longer_than_max_length_is_rejected() -> None:
+    form = SearchForm(data={"query": "a" * (QUERY_MAX_LENGTH + 1)})
+
+    assert not form.is_valid()
+    assert "query" in form.errors
+
+
+@pytest.mark.django_db
+def test_query_nested_too_deeply_is_rejected_with_a_form_error() -> None:
+    depth = MAX_NESTING_DEPTH + 2
+    form = SearchForm(data={"query": "(" * depth + "chest" + ")" * depth})
+
+    assert not form.is_valid()
+    assert "nested" in form.errors["query"][0]
+
+
+@pytest.mark.django_db
+def test_valid_query_is_parsed_into_cleaned_data() -> None:
+    form = SearchForm(data={"query": "chest (ct OR mri)"})
+
+    assert form.is_valid(), form.errors
+    assert form.cleaned_data["query_fixes"] == []
+    assert QueryParser.unparse(form.cleaned_data["query_node"]) == "chest (ct OR mri)"
+
+
+@pytest.mark.django_db
+def test_empty_query_is_valid_and_parses_to_nothing() -> None:
+    form = SearchForm(data={"query": ""})
+
+    assert form.is_valid(), form.errors
+    assert form.cleaned_data["query_node"] is None
+    assert form.cleaned_data["query_fixes"] == []

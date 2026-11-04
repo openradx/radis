@@ -5,6 +5,29 @@ from typing import Literal, cast
 
 import pyparsing as pp
 
+# Memoize sub-parse results so balanced nesting is parsed in linear instead of
+# exponential time. Without it every nesting level roughly quintuples the parse
+# time and a 21-character query pins a worker thread for minutes.
+pp.ParserElement.enable_packrat()
+
+# Matches a double-quoted phrase, honouring backslash-escaped quotes inside it.
+QUOTED_SEGMENT_PATTERN = re.compile(r'(".*?(?<!\\)")')
+
+# The parser is recursive, so the nesting depth bounds the Python stack it needs.
+# Real queries rarely exceed two or three levels.
+MAX_NESTING_DEPTH = 10
+
+
+class QueryTooDeepError(ValueError):
+    """Raised when a query nests parentheses deeper than ``MAX_NESTING_DEPTH``."""
+
+    def __init__(self, depth: int):
+        self.depth = depth
+        super().__init__(
+            f"Parentheses are nested {depth} levels deep, "
+            f"but at most {MAX_NESTING_DEPTH} levels are allowed."
+        )
+
 
 class TermNode:
     def __init__(self, term_type: Literal["WORD", "PHRASE"], value: str):
@@ -129,8 +152,7 @@ class QueryParser:
     def _modify_unquoted_segments(
         self, input_string: str, unquoted_segment_handler: Callable[[str], str]
     ) -> str:
-        pattern = re.compile(r'(".*?(?<!\\)")')
-        parts = pattern.split(input_string)
+        parts = QUOTED_SEGMENT_PATTERN.split(input_string)
 
         results: list[str] = []
         for part in parts:
@@ -204,6 +226,25 @@ class QueryParser:
     def _reduce_spaces(self, input_string: str) -> str:
         return self._modify_unquoted_segments(input_string, lambda s: re.sub(r"\s+", " ", s))
 
+    @staticmethod
+    def nesting_depth(input_string: str) -> int:
+        """Return the deepest level of parentheses outside quoted phrases.
+
+        Expects balanced parentheses, as produced by the sanitizing steps.
+        """
+        depth = 0
+        max_depth = 0
+        for part in QUOTED_SEGMENT_PATTERN.split(input_string):
+            if part.startswith('"'):
+                continue
+            for char in part:
+                if char == "(":
+                    depth += 1
+                    max_depth = max(max_depth, depth)
+                elif char == ")":
+                    depth -= 1
+        return max_depth
+
     def _parse_string(self, input_string: str) -> QueryNode:
         not_ = pp.Keyword("NOT")
         and_ = pp.Keyword("AND")
@@ -250,6 +291,15 @@ class QueryParser:
         return cast(QueryNode, or_expression.parse_string(input_string, parse_all=True)[0])
 
     def parse(self, query: str) -> tuple[QueryNode | None, list[str]]:
+        """Sanitize and parse a query.
+
+        Returns the query tree (``None`` if nothing is left after sanitizing)
+        and a list of the fixes that were applied.
+
+        Raises:
+            QueryTooDeepError: If the parentheses nest deeper than
+                ``MAX_NESTING_DEPTH`` after sanitizing.
+        """
         fixes: list[str] = []
 
         query_before = query
@@ -309,6 +359,10 @@ class QueryParser:
 
         if query_after == "":
             return None, fixes
+
+        depth = self.nesting_depth(query_after)
+        if depth > MAX_NESTING_DEPTH:
+            raise QueryTooDeepError(depth)
 
         node = self._parse_string(query_after)
         return node, fixes
