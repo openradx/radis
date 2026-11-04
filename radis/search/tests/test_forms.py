@@ -84,3 +84,30 @@ def test_labels_field_absent_from_layout_when_no_active_labels() -> None:
 
     assert "labels" not in field_names
     assert form.fields["labels"].choices == []  # type: ignore
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("age_from", "15"),
+        ("age_till", "65"),
+        ("age_from", "abc"),
+        ("age_till", "abc"),
+    ],
+)
+def test_invalid_age_yields_form_error_instead_of_crashing(field: str, value: str) -> None:
+    """A rejected age field surfaces as a form error; clean() must not assume the key exists."""
+    form = SearchForm(data={field: value})
+
+    assert not form.is_valid()
+    assert field in form.errors
+
+
+@pytest.mark.django_db
+def test_age_from_must_be_less_than_age_till() -> None:
+    """The cross-field age check still fires when both fields are individually valid."""
+    form = SearchForm(data={"age_from": "80", "age_till": "30"})
+
+    assert not form.is_valid()
+    assert "Age from must be less than age till" in form.non_field_errors()

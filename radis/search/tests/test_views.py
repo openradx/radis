@@ -365,3 +365,29 @@ def test_search_view_threads_selected_labels_into_filters(client: Client) -> Non
 
     assert response.status_code == 200
     assert captured["search"].filters.labels == ["edema", "pneumonia"]
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "params",
+    [
+        {"per_page": "0"},
+        {"per_page": "-5"},
+        {"per_page": "abc"},
+        {"per_page": "1000"},
+        {"page": "0"},
+        {"page": "-1"},
+        {"page": "abc"},
+        {"age_from": "15"},
+        {"age_from": "abc", "age_till": "60"},
+    ],
+)
+def test_search_view_tolerates_invalid_url_parameters(client: Client, params: dict[str, str]):
+    """Hand-edited pagination and filter parameters never produce a server error."""
+    user = create_test_user_with_active_group()
+    client.force_login(user)
+
+    with patch("radis.search.views.search_provider", create_test_search_provider()):
+        response = client.get("/search/", {"query": "test query", **params})
+
+    assert response.status_code == 200
