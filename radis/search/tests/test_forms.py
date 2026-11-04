@@ -1,6 +1,7 @@
 import pytest
 from crispy_forms.layout import Field, Layout
 
+from radis.core.constants import AGE_STEP
 from radis.labels.factories import LabelFactory
 from radis.reports.factories import LanguageFactory
 from radis.search.forms import SearchForm
@@ -88,20 +89,22 @@ def test_labels_field_absent_from_layout_when_no_active_labels() -> None:
 
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    ("field", "value"),
+    ("field", "value", "message"),
     [
-        ("age_from", "15"),
-        ("age_till", "65"),
-        ("age_from", "abc"),
-        ("age_till", "abc"),
+        ("age_from", "15", f"Age from must be a multiple of {AGE_STEP}"),
+        ("age_till", "65", f"Age till must be a multiple of {AGE_STEP}"),
+        ("age_from", "abc", "Enter a whole number."),
+        ("age_till", "abc", "Enter a whole number."),
     ],
 )
-def test_invalid_age_yields_form_error_instead_of_crashing(field: str, value: str) -> None:
+def test_invalid_age_yields_form_error_instead_of_crashing(
+    field: str, value: str, message: str
+) -> None:
     """A rejected age field surfaces as a form error; clean() must not assume the key exists."""
     form = SearchForm(data={field: value})
 
     assert not form.is_valid()
-    assert field in form.errors
+    assert form.errors[field] == [message]
 
 
 @pytest.mark.django_db
