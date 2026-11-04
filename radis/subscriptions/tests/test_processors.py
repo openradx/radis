@@ -65,8 +65,7 @@ def make_capturing_openai_mock(answers: dict[str, bool]) -> tuple[MagicMock, _Ca
 
 
 def _make_task_with_reports(question_texts: list[str], num_reports: int = 1) -> SubscriptionTask:
-    """Build a SubscriptionTask whose owner has an active group and whose
-    reports are visible to that group."""
+    """Build a SubscriptionTask whose reports are visible to the subscription's group."""
     user = UserFactory.create(is_active=True)
     group = GroupFactory.create()
     add_user_to_group(user, group, force_activate_group=True)
@@ -186,9 +185,9 @@ def test_no_subscribed_item_when_any_answer_is_false():
 
 
 @pytest.mark.django_db(transaction=True)
-def test_reports_not_in_active_group_are_skipped():
+def test_reports_outside_the_subscription_group_are_skipped():
     task = _make_task_with_reports(["q one"], num_reports=0)
-    # Report that is NOT in the owner's active group must be filtered out.
+    # Report that is NOT in the subscription's group must be filtered out.
     orphan = ReportFactory.create()
     task.reports.add(orphan)
     names = _field_names(task)
@@ -197,9 +196,51 @@ def test_reports_not_in_active_group_are_skipped():
     with patch("openai.OpenAI", return_value=openai_mock):
         SubscriptionTaskProcessor(task).start()
 
-    # The LLM was never consulted because no report matched the active group.
+    # The LLM was never consulted because no report matched the subscription's group.
     assert len(capture.calls) == 0
     assert SubscribedItem.objects.count() == 0
+
+
+# --------------------------------------------------------------------------- #
+# Gate: scope is the subscription's group, not the owner's active group
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.django_db(transaction=True)
+def test_reports_are_processed_when_owner_has_switched_active_group():
+    task = _make_task_with_reports(["q one"], num_reports=1)
+    owner = task.job.owner
+    other_group = GroupFactory.create()
+    add_user_to_group(owner, other_group, force_activate_group=True)
+    assert owner.active_group != task.job.subscription.group
+    names = _field_names(task)
+
+    openai_mock, capture = make_capturing_openai_mock({names[0]: True})
+    with patch("openai.OpenAI", return_value=openai_mock):
+        SubscriptionTaskProcessor(task).start()
+
+    assert len(capture.calls) == 1
+    assert SubscribedItem.objects.count() == 1
+    task.refresh_from_db()
+    assert task.status == SubscriptionTask.Status.SUCCESS
+
+
+@pytest.mark.django_db(transaction=True)
+def test_reports_are_processed_when_owner_has_no_active_group():
+    task = _make_task_with_reports(["q one"], num_reports=1)
+    owner = task.job.owner
+    owner.active_group = None
+    owner.save()
+    names = _field_names(task)
+
+    openai_mock, capture = make_capturing_openai_mock({names[0]: True})
+    with patch("openai.OpenAI", return_value=openai_mock):
+        SubscriptionTaskProcessor(task).start()
+
+    assert len(capture.calls) == 1
+    assert SubscribedItem.objects.count() == 1
+    task.refresh_from_db()
+    assert task.status == SubscriptionTask.Status.SUCCESS
 
 
 # --------------------------------------------------------------------------- #

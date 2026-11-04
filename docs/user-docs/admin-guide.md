@@ -366,7 +366,7 @@ Subscriptions are refreshed at the top of every hour. Each refresh looks at the 
 
 The subscription list only shows a user's own subscriptions. Staff users can still open any user's inbox and its CSV export by URL (the subscription ID is shown in Django Admin).
 
-A refresh only considers reports of the owner's **current** active group, not the group the subscription was created in. A subscription silently stops collecting reports while its owner has another group active.
+A refresh only considers reports of the group the subscription was created in. The owner's current active group has no effect on it, so a subscription keeps collecting reports while its owner has another group (or none) active.
 
 ## Background Workers and Crash Recovery
 
