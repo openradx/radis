@@ -96,7 +96,7 @@ default-groups = ["dev", "client", "docs"]
 constraint-dependencies = ["autobahn<25.11.1"]
 
 [tool.uv.sources]
-adit-radis-shared = { git = "https://github.com/openradx/adit-radis-shared.git", tag = "0.28.1" }
+adit-radis-shared = { git = "https://github.com/openradx/adit-radis-shared.git", tag = "0.29.0" }
 radis-client = { path = "./radis-client", editable = true }
 
 [tool.pyright]
@@ -139,6 +139,8 @@ lint.select = ["E", "F", "I", "DJ", "UP"]
 
 [tool.djlint]
 profile = "django"
+# Git worktrees live under .claude/worktrees/.
+extend_exclude = ".claude"
 max_line_length = 120
 ignore = "H021,H030,H031,T002"
 custom_blocks = "specialspaceless"

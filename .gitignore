@@ -152,3 +152,7 @@ models/
 .docker-data/
 .worktrees/
 .superpowers/
+
+# Claude Code worktrees
+.claude/worktrees/
+.claude/settings.local.json
