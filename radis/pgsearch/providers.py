@@ -220,7 +220,7 @@ def _build_filter_query(filters: SearchFilters) -> Q:
 # (EMBEDDINGS_BASE_URL, model) pairs that have already logged a full permanent-failure
 # traceback in this process. Failures are deliberately not cached (see
 # _embed_query_cached), so without this a persistent misconfiguration would log a full
-# traceback on every single search request, forever; membership here downgrades the
+# traceback on every semantic search, forever; membership here downgrades the
 # repeat occurrences to a one-line WARNING. A config change is a new key, so it still
 # gets its own fresh traceback. Bounded by the number of distinct embedding
 # configurations this process observes -- realistically one, since it only changes on
@@ -268,7 +268,19 @@ def _embed_query_or_none(query_text: str, caller: str) -> list[float] | None:
             )
         return None
     except (RateLimited, openai.OpenAIError) as e:
-        logger.warning("%s unavailable: %s", caller, e)
+        base_url, model = _embedding_config_key()
+        # The SDK's message ("Connection error.") names neither the host nor the reason,
+        # and the operator needs both to tell a dead endpoint from a wrong one.
+        logger.warning(
+            "%s unavailable (EMBEDDINGS_BASE_URL=%r, EMBEDDINGS_MODEL=%r, query timeout %ss): "
+            "%s: %s",
+            caller,
+            base_url,
+            model,
+            settings.EMBEDDINGS_QUERY_REQUEST_TIMEOUT_SECONDS,
+            type(e).__name__,
+            e.__cause__ or e,
+        )
         return None
 
 
@@ -355,7 +367,8 @@ def _fts_candidate_queryset(filter_query: Q, configs: list[tuple[str, list[str]]
 
 
 class _KeywordRanking(NamedTuple):
-    """The keyword layer: every hit of the tsquery in ts_rank order."""
+    """The keyword layer: the tsquery's hits in ts_rank order, at most
+    SEARCH_FTS_MAX_RESULTS of them."""
 
     ids: list[int]
     ts_rank_by_id: dict[int, float]
@@ -535,8 +548,10 @@ def _rank_semantic(request: SemanticSearch, caller: str) -> Ranking:
             retry_after=EMBEDDING_GATE.seconds_until_open() or None,
         )
     filter_query = _build_filter_query(request.filters)
-    # SET LOCAL lasts to the end of the enclosing transaction, so the scan gets its own:
-    # the search view runs outside any transaction and the setting ends with the scan.
+    # SET LOCAL lasts to the end of the enclosing transaction, so the scan gets its own.
+    # Callers run in autocommit (ATOMIC_REQUESTS is off), so atomic() opens a real
+    # transaction and the setting ends with the scan; inside an outer transaction it would
+    # last until that one ends.
     with transaction.atomic():
         if settings.SEARCH_SEMANTIC_ITERATIVE_SCAN:
             with connection.cursor() as cursor:
@@ -579,9 +594,10 @@ def _hydration_queryset(
     configs: list[tuple[str, list[str]]],
     query_str: str,
 ):
-    """The page slice: single-table apart from the headline's deliberate join on
-    ``report__body``. The group predicate keeps a report removed from the group off
-    the page at once even while the cached ranking still lists it."""
+    """The page slice, by primary key, which ``_hydrate`` joins to ``report`` for the
+    body, the headline and the metadata; the single-table discipline belongs to the
+    candidate scan, not to these few rows. The group predicate keeps a report removed
+    from the group off the page at once even while the cached ranking still lists it."""
     rows = ReportSearchIndex.objects.filter(report_id__in=page_ids).filter(_group_query(group))
     if not configs or not query_str:
         return rows.annotate(

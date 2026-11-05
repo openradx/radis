@@ -270,3 +270,34 @@ def test_a_semantic_search_without_a_model_is_a_caller_error(group, corpus, sett
 
     with pytest.raises(ValueError):
         search(_request(group.pk))
+
+
+def test_hydration_skips_a_report_removed_from_the_group(group, corpus, embed):
+    request = _request(group.pk)
+    search(request)  # caches the semantic list
+    corpus["near"].groups.remove(group)
+
+    result = search(request)
+
+    assert _ids(result) == [corpus["mid"].document_id, corpus["far"].document_id]
+    assert result.total_count == 3  # the cached count catches up when the entry expires
+
+
+@pytest.mark.django_db(transaction=True)
+def test_the_iterative_scan_setting_lives_in_the_scan_transaction(group, corpus, embed):
+    """SET LOCAL outside a transaction block is discarded with a warning Django never
+    shows, so the scan has to run inside one, and the setting must not outlive it."""
+    in_atomic_block: list[bool] = []
+
+    def record(execute, sql, params, many, context):
+        if "<=>" in sql:
+            in_atomic_block.append(context["connection"].in_atomic_block)
+        return execute(sql, params, many, context)
+
+    with connection.execute_wrapper(record):
+        search(_request(group.pk))
+
+    assert in_atomic_block == [True]
+    with connection.cursor() as cursor:
+        cursor.execute("SHOW hnsw.iterative_scan")
+        assert cursor.fetchone()[0] == "off"

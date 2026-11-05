@@ -294,9 +294,13 @@ def test_the_semantic_option_is_disabled_for_the_gate_wait() -> None:
 
 
 @pytest.mark.django_db
-def test_a_semantic_url_during_the_wait_keeps_its_mode_selected() -> None:
+def test_a_semantic_url_during_the_wait_keeps_its_mode_selected_and_enabled() -> None:
+    """A disabled option is left out of a submission, which would turn a resubmitted
+    semantic search into an empty full-text one; the gate refuses the search instead."""
     form = SearchForm({"mode": "semantic", "description": "x"}, semantic=True, semantic_wait=40.0)
-    assert '<option value="semantic" selected disabled>Semantic</option>' in _row_html(form)
+    html = _row_html(form)
+    assert '<option value="semantic" selected>Semantic</option>' in html
+    assert "Semantic search is rate limited right now. Try again in about 40 seconds." in html
 
 
 @pytest.mark.django_db

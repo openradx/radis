@@ -139,6 +139,8 @@ def test_differing_base_url_does_not_share_a_cache_entry(monkeypatch):
 
 
 def test_a_repeated_semantic_search_embeds_once(group, report, settings):
+    # With the ranking cache off, only the query-embedding cache can spare the second call.
+    settings.SEARCH_RANKING_CACHE_TIMEOUT_SECONDS = 0
     patcher, embed_query = _mock_embedding_client(settings.EMBEDDINGS_DIM)
     request = _semantic_search("free air", group.pk)
     try:

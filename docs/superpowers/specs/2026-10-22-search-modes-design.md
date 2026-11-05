@@ -421,8 +421,9 @@ exception as `retry_after`. Nothing is cached. The wait is bounded by the query-
 of §4.3. While the gate is closed the provider reports the remaining pause through
 `SearchProvider.semantic_wait`, and the form renders the Semantic option disabled with the
 same notice under the search row, so a new semantic search is not sent to a closed gate; a
-semantic URL opened during the wait keeps its mode selected and gets the notice from the
-provider; full-text searches are unaffected. The gate is per process, so the option can be
+semantic URL opened during the wait keeps its mode selected and enabled, since a disabled
+option would be left out of a resubmission, and gets the notice from the provider; full-text
+searches are unaffected. The gate is per process, so the option can be
 enabled on one replica and disabled on another; the notice is the same either way. A
 `SemanticSearch` in a deployment without an embedding model is a caller error and raises
 `ValueError`: the page never builds one, because the form has no mode field without the
@@ -810,7 +811,8 @@ description builds a `FullTextSearch` with a `SimilarityRerank`; semantic builds
 `SemanticSearch` with the override and ignores a posted query; the two mismatch notices;
 semantic with a blank description calls no provider; the count line in all its forms (below
 the window, above it, capped, semantic with and without a cutoff, zero hits); the unavailable
-notice with and without a wait, and the Semantic option disabled while the gate is closed;
+notice with and without a wait, the Semantic option disabled while the gate is closed and
+kept enabled on a page already in semantic mode;
 no re-rank wording and no "Re-rank score" line on a failed page; the header
 lines including the not-embedded-yet line; the info card with and without the capability; a
 plain-string summary with `<b>` from a stub provider renders escaped and a marked-safe `<em>`

@@ -166,3 +166,18 @@ def test_a_cached_page_hydrates_in_two_queries(group):
     assert {d.document_id: sorted(d.modalities) for d in result.documents} == {
         report.document_id: sorted(codes) for report, codes in zip(reports, modalities)
     }
+
+
+def test_the_cap_bounds_the_list_and_marks_a_lower_bound(group, corpus, embed, settings):
+    settings.SEARCH_FTS_MAX_RESULTS = 2
+    request = _request("pneumothorax", group.pk)
+
+    result = search(request)
+
+    assert _ids(result) == [corpus["twice"].document_id, corpus["near"].document_id]
+    assert result.total_count == 2
+    assert result.total_relation == "at_least"
+    assert count(request) == 2
+
+    settings.SEARCH_FTS_MAX_RESULTS = 10_000  # the cap is part of the cache key
+    assert search(request).total_relation == "exact"

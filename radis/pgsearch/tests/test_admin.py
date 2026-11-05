@@ -471,7 +471,7 @@ def test_enqueue_pending_embeddings_warns_while_backfill_active():
 def test_enqueue_pending_embeddings_warns_when_model_not_configured(settings):
     """The other three EMBEDDINGS_MODEL-is-None guards are covered at
     test_embed_pending_command.py, test_embed_reports_task.py, and
-    test_provider_fulltext.py — this is the admin action's own no-model path:
+    test_provider_semantic.py — this is the admin action's own no-model path:
     it must not create a run or enqueue any subjob, and must surface a
     warning naming the setting the operator needs to set."""
     settings.EMBEDDINGS_MODEL = None
@@ -496,9 +496,7 @@ def test_change_form_is_read_only(admin_client):
     report = ReportFactory.create()
     rsi = ReportSearchIndex.objects.get(report=report)
 
-    response = admin_client.get(
-        reverse("admin:pgsearch_reportsearchindex_change", args=[rsi.pk])
-    )
+    response = admin_client.get(reverse("admin:pgsearch_reportsearchindex_change", args=[rsi.pk]))
 
     assert response.status_code == 200
     content = response.content.decode()

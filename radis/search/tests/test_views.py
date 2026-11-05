@@ -583,6 +583,19 @@ def test_semantic_mode_without_a_description_shows_the_notice(client: Client):
 
 
 @pytest.mark.django_db
+def test_a_blank_description_in_semantic_mode_shows_the_notice(client: Client):
+    """Whitespace collapses to nothing in the form, so it never reaches the provider,
+    whose request type rejects a blank text."""
+    client.force_login(create_test_user_with_active_group())
+    captured: dict = {}
+    with patch("radis.search.views.search_provider", _provider(_empty(), captured=captured)):
+        response = client.get("/search/", {"mode": "semantic", "description": "  \n "})
+    assert response.status_code == 200
+    assert "request" not in captured
+    assert response.context["mode_notice"] == "Semantic mode needs a description."
+
+
+@pytest.mark.django_db
 def test_semantic_url_without_the_capability_runs_full_text(client: Client):
     client.force_login(create_test_user_with_active_group())
     captured: dict = {}
@@ -725,6 +738,24 @@ def test_the_semantic_option_is_disabled_while_the_gate_is_closed(client: Client
 
 
 @pytest.mark.django_db
+def test_a_semantic_page_during_the_wait_keeps_its_option_enabled(client: Client):
+    """Browsers leave a disabled selected option out of the submission, so the page a
+    rate-limited semantic search lands on keeps its option: resubmitting it reaches the
+    gate again and gets the same notice instead of an empty full-text search."""
+    client.force_login(create_test_user_with_active_group())
+    failure = SemanticSearchUnavailable("429", retry_after=40.0)
+    provider = _provider(_empty(), raises=failure, semantic_wait=40.0)
+    with patch("radis.search.views.search_provider", provider):
+        response = client.get("/search/", {"mode": "semantic", "description": "free air"})
+    option = _element(response, "option", value="semantic")
+    assert "selected" in option
+    assert "disabled" not in option
+    assert "Semantic search is rate limited right now. Try again in about 40 seconds." in _text(
+        response
+    )
+
+
+@pytest.mark.django_db
 def test_a_full_text_search_runs_while_the_gate_is_closed(client: Client):
     client.force_login(create_test_user_with_active_group())
     captured: dict = {}
@@ -784,6 +815,19 @@ def test_a_field_error_is_shown_with_the_field_name(client: Client):
     assert response.status_code == 200
     content = _text(response)
     assert "Query: Ensure this value has at most 200 characters (it has 201)." in content
+    assert 'class="alert alert-danger' in content
+
+
+@pytest.mark.django_db
+def test_an_age_off_the_step_is_a_form_error_on_the_page(client: Client):
+    client.force_login(create_test_user_with_active_group())
+    captured: dict = {}
+    with patch("radis.search.views.search_provider", _provider(_empty(), captured=captured)):
+        response = client.get("/search/", {"query": "chest", "age_from": "15"})
+    assert response.status_code == 200
+    assert "request" not in captured
+    content = _text(response)
+    assert "Age from must be a multiple of 10" in content
     assert 'class="alert alert-danger' in content
 
 

@@ -77,8 +77,8 @@ Analysis operations follow a Job -> Task pattern (similar to ADIT):
 
 - **Provider system**: Plugin-based architecture (currently PostgreSQL, extensible for Vespa/ElasticSearch)
 - **QueryParser**: Parses complex queries with operators, field filters, and boolean logic
-- **Two modes, nothing fused**: Full-text (default) returns exactly the keyword hits ranked by `ts_rank`. Semantic returns the `SEARCH_HNSW_EF_SEARCH` reports nearest to the description under the same filters, in similarity order, cut at `SEARCH_SEMANTIC_MIN_SIMILARITY` when set
-- **Unavailability**: an embedding failure raises `SemanticSearchUnavailable` instead of falling back to full-text; the page shows a notice, names the wait when the service is rate limiting, and disables the Semantic option while the embedding gate is closed
+- **Two modes, nothing fused**: Full-text (default) returns exactly the keyword hits ranked by `ts_rank`. Semantic returns the reports nearest to the description under the same filters, at most `SEARCH_HNSW_EF_SEARCH` of them, in similarity order, cut at `SEARCH_SEMANTIC_MIN_SIMILARITY` when set
+- **Unavailability**: an embedding failure raises `SemanticSearchUnavailable` instead of falling back to full-text; the page shows a notice, names the wait when the service is rate limiting, and disables the Semantic option for new searches while the embedding gate is closed (a page already in semantic mode keeps its option and is refused at the gate)
 
 ### Docker Services
 
@@ -125,8 +125,9 @@ Embeddings and search tuning (`radis.pgsearch`):
   60s by default), not to a fixed value — raising the LLM timeout raises this one too
   unless set here explicitly
 - `EMBEDDINGS_QUERY_CACHE_TIMEOUT_SECONDS`: How long a search query's embedding stays in
-  the Django cache (default `900`s). The knob to reach for right after a model/provider
-  swap — cached query vectors otherwise keep serving stale results for up to this long
+  the Django cache (default `900`s). A swap that changes the model name, endpoint or
+  parameters misses the old vectors by itself; lower this (and the ranking cache) or clear
+  the cache when the weights behind an unchanged endpoint and model name are replaced
 - `EMBEDDINGS_BATCH_SIZE`, `EMBEDDINGS_SUBJOB_SIZE`, `EMBEDDINGS_WORKER_CONCURRENCY`:
   Throughput tuning
 - `EMBEDDINGS_QUERY_REQUEST_TIMEOUT_SECONDS`: Request timeout of a query embedding on the search
@@ -270,19 +271,19 @@ client.update_report("DOC-12345", {"body": "Updated findings..."}, upsert=True)
 - Reports ingested before the model was configured have no vector; run
   `docker compose exec web ./manage.py embed_pending` to backfill them
 - A semantic search whose embedding fails shows a notice and no list (with the wait when the
-  service is rate limiting, during which the Semantic option is disabled), and the `web` log
+  service is rate limiting, during which no new semantic search is offered), and the `web` log
   names the cause; full-text searches never call the service. A query embedding waits at most
   `EMBEDDINGS_QUERY_REQUEST_TIMEOUT_SECONDS` plus the gate budget
 - Verify the endpoint serves the model: `docker compose exec web sh -c 'curl -sf -H
   "Authorization: Bearer ${EMBEDDINGS_API_KEY:-$LLM_API_KEY}"
   "${EMBEDDINGS_BASE_URL:-$LLM_BASE_URL}/models"'`
-- Leaving `EMBEDDINGS_BASE_URL` unset (now the normal case, since it inherits
+- Leaving `EMBEDDINGS_BASE_URL` unset (the normal case, since it inherits
   `LLM_BASE_URL`) can point embeddings at an endpoint that serves chat but not
   `/v1/embeddings` — a gateway route that only forwards chat, or an Ollama where the
   embedding model was never `ollama pull`ed. This surfaces as `openai.NotFoundError` or
   `openai.BadRequestError`, logged differently depending on the path: a search request
   (`docker compose logs web`) logs the full traceback once per `(EMBEDDINGS_BASE_URL,
-  MODEL)` configuration, then a single-line WARNING on every search after that until the
+  MODEL)` configuration, then a single-line WARNING on every semantic search after that until the
   configuration changes — one traceback followed by repeating WARNINGs is this working as
   designed, not a new problem. An embedding subjob (`docker compose logs
   embeddings_worker`) is a separate code path with no such throttle, so each subjob still

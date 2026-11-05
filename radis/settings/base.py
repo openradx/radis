@@ -479,7 +479,7 @@ def _resolve_embeddings_model() -> ModelSpec | None:
     Unlike the LLM models this one is optional: without it RADIS serves full-text
     search only, which is a complete product rather than a broken one. That makes the
     model the feature switch — every embedding code path asks this one question
-    instead of inferring configuredness from a URL that now has a fallback anyway.
+    instead of inferring configuredness from a URL that has a fallback anyway.
 
     Same 'model[?param=value&...]' grammar as the LLM models, so request-body
     parameters (OpenAI's `dimensions`, a provider's `truncate`) are configured
@@ -522,8 +522,10 @@ EMBEDDINGS_BACKFILL_PRIORITY = 0
 # How long a search query's embedding (the description of a semantic search) stays in the
 # Django cache. Rankings have their own cache (SEARCH_RANKING_CACHE_TIMEOUT_SECONDS); this
 # one spares the embedding call when a ranking has expired or the same description is
-# searched again with other filters. Vectors are tiny (~8 KB) and deterministic per model
-# config, so the TTL only bounds staleness across model/config changes, not correctness.
+# searched again with other filters. Vectors are tiny (~8 KB), and the key fingerprints
+# endpoint, model, params, instruction and dimension, so a configuration change misses the
+# old entries by itself; the TTL bounds the table and the window in which weights replaced
+# behind an unchanged endpoint and model name keep serving their old vectors.
 EMBEDDINGS_QUERY_CACHE_TIMEOUT_SECONDS = env.int(
     "EMBEDDINGS_QUERY_CACHE_TIMEOUT_SECONDS", default=900
 )
@@ -554,10 +556,12 @@ EMBEDDINGS_TASK_EXPONENTIAL_WAIT_SECONDS = 6
 # How many keyword hits a full-text search ranks and paginates.
 SEARCH_FTS_MAX_RESULTS = 10_000
 # pgvector's HNSW beam width, carried as a libpq connection option so every connection
-# scans at the same depth, and the number of reports a semantic search lists: one index
-# scan yields on the order of ef_search rows and the provider caps its list at exactly
-# this value. 1..1000 is the server's valid range; an out-of-range value would fail GUC
-# validation at connect time and silently leave the scan at pgvector's default of 40.
+# scans at the same depth, and the most reports a semantic search lists: one index scan
+# yields on the order of ef_search rows and the provider caps its list at exactly this
+# value. 1..1000 is pgvector's valid range. The connection accepts any value, because
+# pgvector is not preloaded: the GUC is a placeholder until the library loads on the first
+# vector operator, where an out-of-range value is rejected with a server-side WARNING
+# Django never shows, and the scan silently runs at pgvector's default of 40.
 SEARCH_HNSW_EF_SEARCH = _optional_env("SEARCH_HNSW_EF_SEARCH", int, 500)
 if not 1 <= SEARCH_HNSW_EF_SEARCH <= 1000:
     raise ImproperlyConfigured(
@@ -574,8 +578,9 @@ DATABASES["default"].setdefault("OPTIONS", {})["options"] = (
 # stays cached, in seconds. Pagination re-runs the search for every page and ranking
 # every keyword hit of a common term costs seconds on a large corpus, so page 2..n and
 # repeated searches reuse the cached ranking. The trade is freshness: reports created or
-# updated within the TTL join a cached query's results only after it expires. 0 disables
-# the cache. A semantic list whose embedding failed is never cached.
+# updated within the TTL join a cached query's results only after it expires, and a report
+# deleted or removed from the group leaves the page at once but the count only then. 0
+# disables the cache. A semantic list whose embedding failed is never cached.
 SEARCH_RANKING_CACHE_TIMEOUT_SECONDS = _optional_env(
     "SEARCH_RANKING_CACHE_TIMEOUT_SECONDS", int, 300
 )

@@ -6,8 +6,9 @@ from django.utils.safestring import SafeString, mark_safe
 from radis.pgsearch.models import ReportSearchIndex
 from radis.search.site import ReportDocument
 
-# Markers ts_headline puts around highlighted words. Control characters that no
-# ingestion path produces; summary_markup tolerates strays anyway.
+# Markers ts_headline puts around highlighted words. Nothing validates control characters
+# out of a report body, so summary_markup escapes first and turns a stray pair into a
+# harmless <em>.
 HEADLINE_START = "\x02"
 HEADLINE_STOP = "\x03"
 _HIGHLIGHT = re.compile(f"{HEADLINE_START}([^{HEADLINE_START}{HEADLINE_STOP}]*){HEADLINE_STOP}")

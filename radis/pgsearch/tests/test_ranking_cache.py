@@ -198,3 +198,17 @@ def test_zero_timeout_disables_the_semantic_cache(group, reports, embed, setting
         search(_semantic_request(group.pk))
 
     assert _ran_vector_query(ctx.captured_queries)
+
+
+def test_a_cache_served_page_keeps_its_highlights_and_ranks(group, reports):
+    """The cached payload carries the text-search configurations and the tsquery that
+    hydration highlights and ranks with; without them a repeated search would render
+    like a semantic one."""
+    search(_request(group.pk))
+    with CaptureQueriesContext(connection) as ctx:
+        result = search(_request(group.pk))
+
+    assert not _ran_keyword_ranking(ctx.captured_queries)
+    assert len(result.documents) == 2
+    assert all("<em>pneumothorax</em>" in d.summary for d in result.documents)
+    assert all(d.relevance is not None for d in result.documents)

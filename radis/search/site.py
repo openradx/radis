@@ -76,8 +76,8 @@ class SearchFilters:
 class Search:
     """Inputs every search mode shares.
 
-    Offset and limit both 0 ask the provider for the most accurate total count it
-    can give; extractions rely on this.
+    ``offset`` and ``limit`` slice the documents a search returns; its total count does
+    not depend on them, so a limit of 0 asks for the count alone.
     """
 
     filters: SearchFilters
@@ -113,9 +113,10 @@ SearchRequest = FullTextSearch | SemanticSearch
 class SemanticSearchUnavailable(Exception):
     """A semantic search could not run because its text could not be embedded.
 
-    ``retry_after`` is how many seconds the embedding service asked this process to wait
-    before its next request (rate limiting); None when the service was unreachable or
-    misconfigured. Full-text searches never raise it.
+    ``retry_after`` is the embedding gate's remaining pause after a 429, in seconds (the
+    service's Retry-After, or the gate's own backoff when it sent none); None when the
+    gate is open, as after a connection failure or a misconfiguration. Full-text searches
+    never raise it.
     """
 
     def __init__(self, message: str, *, retry_after: float | None = None) -> None:
@@ -132,14 +133,15 @@ class SearchProvider(NamedTuple):
 
     Attributes:
     - name: The name of the search provider.
-    - search: Runs one request of either mode; a semantic request raises
-      SemanticSearchUnavailable when its text cannot be embedded.
-    - max_results: The paging cap of a full-text list; offset + limit must stay below it.
+    - search: Runs one request of either mode; a semantic request, sent only when
+      ``semantic`` is True, raises SemanticSearchUnavailable when its text cannot be
+      embedded.
+    - max_results: The paging cap of a full-text list; offset + limit must not exceed it.
     - semantic: Whether SemanticSearch requests are available (an embedding model is
       configured).
     - semantic_wait: Seconds until this process may embed the next query, 0.0 when it may
-      now (the embedding gate's remaining pause after a 429). The page disables semantic
-      mode for that long instead of letting searches fail at the gate.
+      now (the embedding gate's remaining pause after a 429). For that long the page
+      offers no new semantic search instead of letting one fail at the gate.
     """
 
     name: str

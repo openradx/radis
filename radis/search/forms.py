@@ -25,7 +25,7 @@ MODE_CHOICES = [("", "Full-text"), (MODE_SEMANTIC, "Semantic")]
 
 
 def semantic_wait_notice(seconds: float) -> str:
-    """The page's wording while the embedding service has asked this process to wait."""
+    """The page's wording while the embedding gate is closed after a 429."""
     whole = max(1, math.ceil(seconds))
     if whole < 60:
         wait = f"about {whole} second{'s' if whole != 1 else ''}"
@@ -81,7 +81,8 @@ class SearchForm(forms.Form):
         """``semantic`` is the registered provider's capability: without it the mode select,
         the description and the cutoff do not exist on the page. ``semantic_wait`` is how
         long this process may not embed a query (the embedding gate's pause after a 429):
-        for that long the Semantic option is disabled and the row says when to retry."""
+        for that long the row says when to retry and the Semantic option is disabled, unless
+        the page is already in semantic mode."""
         super().__init__(*args, **kwargs)
 
         self.semantic_notice: str | None = None
@@ -90,10 +91,15 @@ class SearchForm(forms.Form):
                 del self.fields[name]
         else:
             if semantic_wait > 0:
-                mode_widget = self.fields["mode"].widget
-                assert isinstance(mode_widget, ModeSelect)
-                mode_widget.disabled_values = {MODE_SEMANTIC}
                 self.semantic_notice = semantic_wait_notice(semantic_wait)
+                # A disabled option is left out of a submission, so a page already in
+                # semantic mode keeps its option: resubmitting it reaches the gate, which
+                # refuses it with the same notice, instead of quietly turning into an
+                # empty full-text search.
+                if self.data.get("mode") != MODE_SEMANTIC:
+                    mode_widget = self.fields["mode"].widget
+                    assert isinstance(mode_widget, ModeSelect)
+                    mode_widget.disabled_values = {MODE_SEMANTIC}
             default_cutoff = settings.SEARCH_SEMANTIC_MIN_SIMILARITY
             if default_cutoff is not None:
                 self.fields["min_similarity"].widget.attrs["placeholder"] = (
