@@ -1,5 +1,8 @@
 function SearchForm($el) {
   return {
+    // "" is full-text. The mode select fills it on init when the page has one
+    // (x-model.fill); a page without an embedding model has no select and stays "".
+    mode: "",
     handleSubmit() {
       // Additionally remove age from and age till form the query url if
       // they are equal to the min and max values of the age range

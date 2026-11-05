@@ -32,9 +32,11 @@ The development server is then available on <http://localhost:8000>. File change
 
 RADIS runs no inference server. Everything AI-powered (chat, extractions, subscriptions, labeling)
 goes to the OpenAI-compatible endpoint configured by `LLM_BASE_URL` and `LLM_DEFAULT_MODEL`,
-without which the app refuses to start. `LLM_API_KEY` is optional — self-hosted providers such as
-Ollama ignore it. Any endpoint that supports the OpenAI client and structured outputs will do — a commercial API, a server your group already runs,
-or Ollama on your own machine. `example.env` assumes the last of those.
+without which the app refuses to start. `LLM_API_KEY` must be non-empty, but self-hosted providers
+such as Ollama ignore its value, so any placeholder will do (`example.env` sets `whatever`). Any
+endpoint that supports the OpenAI client and structured outputs will do — a commercial API, a
+server your group already runs, or Ollama on your own machine. `example.env` assumes the last of
+those.
 
 #### Ollama on your machine
 
@@ -105,9 +107,10 @@ the quality matters.
 
 ### Embedding Setup (optional)
 
-Hybrid search needs a second model, an embedding model, reached over the same kind of
-OpenAI-compatible endpoint. It is optional: with `EMBEDDINGS_MODEL` empty, search runs
-full-text only and nothing else changes — no queued jobs, no failed calls.
+The semantic search mode needs a second model, an embedding model, reached over the same
+kind of OpenAI-compatible endpoint. It is optional: with `EMBEDDINGS_MODEL` empty, search
+runs full-text only, the search page shows no mode select, and nothing else changes — no
+queued jobs, no failed calls.
 
 To turn it on with the Ollama you already have:
 

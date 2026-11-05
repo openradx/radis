@@ -15,7 +15,7 @@ from radis.core.form_fields import (
 )
 from radis.core.layouts import RangeSlider
 from radis.reports.models import Language, Modality
-from radis.search.site import Search, SearchFilters
+from radis.search.site import FullTextSearch, SearchFilters
 from radis.search.utils.query_parser import QueryParser
 
 from .models import ExtractionJob, OutputField, OutputType
@@ -132,7 +132,7 @@ class SearchForm(forms.ModelForm):
         language = cast("Language | None", cleaned_data["language"])
         modalities = cast(QuerySet[Modality], cleaned_data["modalities"])
 
-        search = Search(
+        search = FullTextSearch(
             query=cleaned_data["query_node"],
             offset=0,
             limit=0,

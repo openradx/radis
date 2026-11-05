@@ -273,6 +273,8 @@ mirroring `document_id` would be scope for no measured gain. Hydration is
 untouched — `page_rows` still `select_related("report")` for `ts_headline` over
 `report__body`, which is 25 rows.
 
+*(2026-10-22: `_fuse_hybrid` and `_exclude_negations` were removed by the search modes design; `search()`, `count()` and `retrieve()` now route through the keyword ranking, which runs this same candidate query.)*
+
 ### 4.4 Migration and backfill
 
 `pgsearch/migrations/0003_search_projection.py`, with `atomic = False`:

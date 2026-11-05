@@ -42,7 +42,7 @@ def test_a_configured_setting_overrides_the_llm_counterpart(clean_embeddings_env
     )
 
 
-def test_no_model_configured_means_hybrid_search_is_off(clean_embeddings_env):
+def test_no_model_configured_means_semantic_search_is_off(clean_embeddings_env):
     assert _resolve_embeddings_model() is None
 
 
@@ -71,7 +71,7 @@ def test_a_malformed_model_names_the_setting_at_fault(clean_embeddings_env):
 
 
 @pytest.fixture
-def _restore_base_settings_after_reload():
+def _restore_base_settings_after_reload(monkeypatch):
     """`EMBEDDINGS_QUERY_INSTRUCTION` is a bare module-level assignment (like its
     `EMBEDDINGS_DIM`/`EMBEDDINGS_BATCH_SIZE` neighbours), not a function, so the only way
     to observe it re-read a monkeypatched env var is to reload the settings module. That
@@ -80,13 +80,12 @@ def _restore_base_settings_after_reload():
     for other tests. Still reload back to the real environment afterwards so this test's
     patch doesn't leak into the module object for whatever runs next in this process.
 
-    Requested BEFORE `monkeypatch` in test signatures on purpose: pytest tears
-    function-scoped fixtures down in reverse setup order, so requesting this one first
-    means it is torn down LAST — its `importlib.reload` below runs only after
-    `monkeypatch` has already undone the env change, so the reload actually restores the
-    module to the real environment rather than re-baking the test's patched value into
-    it. Swap the argument order back and this docstring's claim goes false again."""
+    It undoes the patched environment itself before that reload. pytest-django's autouse
+    fixtures set `monkeypatch` up before any fixture a test requests, so no argument order
+    makes it the last one torn down; a reload that still saw the patched variables would
+    re-bake them into the module, or raise when a test patched one to an invalid value."""
     yield
+    monkeypatch.undo()
     importlib.reload(settings_base)
 
 
@@ -127,3 +126,77 @@ def test_the_setting_defaults_to_its_llm_counterpart(embeddings_name: str, llm_n
         pytest.skip(f"{embeddings_name} is set in the environment, so its default is not in play")
 
     assert getattr(dj_settings, embeddings_name) == getattr(dj_settings, llm_name)
+
+
+# The search settings are plain module-level assignments, so their boot-time checks only
+# run when the settings module is imported: each case below reloads it with the variable
+# patched. They are tested here because the reload fixture is local to this module.
+
+# What each setting falls back to when its variable is blank.
+SEARCH_SETTING_DEFAULTS = {
+    "SEARCH_HNSW_EF_SEARCH": 500,
+    "SEARCH_RANKING_CACHE_TIMEOUT_SECONDS": 300,
+    "SEARCH_SEMANTIC_MIN_SIMILARITY": None,
+    "EMBEDDINGS_QUERY_REQUEST_TIMEOUT_SECONDS": 10.0,
+}
+
+
+@pytest.mark.parametrize(
+    ("name", "raw", "expected"),
+    [
+        ("SEARCH_HNSW_EF_SEARCH", "1", 1),
+        ("SEARCH_HNSW_EF_SEARCH", "1000", 1000),
+        ("SEARCH_RANKING_CACHE_TIMEOUT_SECONDS", "0", 0),
+        ("SEARCH_SEMANTIC_ITERATIVE_SCAN", "false", False),
+        ("SEARCH_SEMANTIC_MIN_SIMILARITY", "0", 0.0),
+        ("SEARCH_SEMANTIC_MIN_SIMILARITY", "0.35", 0.35),
+        ("SEARCH_SEMANTIC_MIN_SIMILARITY", "1", 1.0),
+        ("EMBEDDINGS_QUERY_REQUEST_TIMEOUT_SECONDS", "0.5", 0.5),
+    ],
+)
+def test_a_valid_search_setting_is_read_from_the_environment(
+    _restore_base_settings_after_reload, monkeypatch, name: str, raw: str, expected
+):
+    monkeypatch.setenv(name, raw)
+
+    reloaded = importlib.reload(settings_base)
+
+    assert getattr(reloaded, name) == expected
+
+
+@pytest.mark.parametrize(
+    ("name", "raw"),
+    [
+        ("SEARCH_HNSW_EF_SEARCH", "0"),
+        ("SEARCH_HNSW_EF_SEARCH", "1001"),
+        ("SEARCH_HNSW_EF_SEARCH", "many"),
+        ("SEARCH_RANKING_CACHE_TIMEOUT_SECONDS", "-1"),
+        ("SEARCH_SEMANTIC_MIN_SIMILARITY", "2"),
+        ("SEARCH_SEMANTIC_MIN_SIMILARITY", "-0.1"),
+        ("SEARCH_SEMANTIC_MIN_SIMILARITY", "nan"),
+        ("EMBEDDINGS_QUERY_REQUEST_TIMEOUT_SECONDS", "0"),
+        ("EMBEDDINGS_QUERY_REQUEST_TIMEOUT_SECONDS", "-1"),
+        ("EMBEDDINGS_QUERY_REQUEST_TIMEOUT_SECONDS", "nan"),
+    ],
+)
+def test_an_invalid_search_setting_names_the_setting_at_fault(
+    _restore_base_settings_after_reload, monkeypatch, name: str, raw: str
+):
+    # Otherwise it boots fine and every search fails at runtime.
+    monkeypatch.setenv(name, raw)
+
+    with pytest.raises(ImproperlyConfigured, match=name):
+        importlib.reload(settings_base)
+
+
+@pytest.mark.parametrize("raw", ["", "   "])
+@pytest.mark.parametrize(("name", "default"), SEARCH_SETTING_DEFAULTS.items())
+def test_a_blank_search_setting_counts_as_unset(
+    _restore_base_settings_after_reload, monkeypatch, name: str, default, raw: str
+):
+    # An `.env` line with nothing after the '=' means "not configured".
+    monkeypatch.setenv(name, raw)
+
+    reloaded = importlib.reload(settings_base)
+
+    assert getattr(reloaded, name) == default

@@ -28,7 +28,7 @@ from radis.pgsearch import providers
 from radis.pgsearch.models import ReportSearchIndex
 from radis.reports.factories import LanguageFactory, ReportFactory
 from radis.reports.models import Report
-from radis.search.site import Search, SearchFilters
+from radis.search.site import FullTextSearch, SearchFilters
 from radis.search.utils.query_parser import QueryNode, QueryParser, TermNode
 
 pytestmark = pytest.mark.django_db
@@ -79,8 +79,8 @@ def _search(
     language: str = "en",
     limit: int | None = 10,
     offset: int = 0,
-) -> Search:
-    return Search(
+) -> FullTextSearch:
+    return FullTextSearch(
         query=node,
         filters=SearchFilters(group=_search_group().pk, language=language),
         offset=offset,
@@ -114,8 +114,8 @@ def test_updating_report_body_refreshes_search_vector():
 
     report.body = "revised findings about fracture"
     report.save()
-    # The fused union of the "pneumonia" search above is cached for
-    # HYBRID_FUSED_CACHE_TIMEOUT_SECONDS and would still list the report; this
+    # The keyword ranking of the "pneumonia" search above is cached for
+    # SEARCH_RANKING_CACHE_TIMEOUT_SECONDS and would still list the report; this
     # test is about the signal, not the cache's documented staleness window.
     cache.clear()
 
@@ -415,7 +415,7 @@ def test_updated_after_includes_boundary_and_excludes_older_reports():
     node = parse("pneumonia")
     assert node is not None
     result = providers.search(
-        Search(
+        FullTextSearch(
             query=node,
             filters=SearchFilters(group=_search_group().pk, language="en", updated_after=cutoff),
             offset=0,
@@ -425,3 +425,17 @@ def test_updated_after_includes_boundary_and_excludes_older_reports():
 
     matched = {doc.document_id for doc in result.documents}
     assert matched == {at_cutoff.document_id, newer.document_id}
+
+
+def test_summary_escapes_report_text_and_keeps_highlights():
+    # ts_headline drops whole tags such as <b> by itself, so the body uses a bare "<",
+    # which it passes through to the escaping.
+    make_report("Findings: pneumonia <5mm & effusion.")
+
+    result = providers.search(_search(parse("pneumonia"), language="en"))  # type: ignore[arg-type]
+
+    summary = result.documents[0].summary
+    assert "<em>pneumonia</em>" in summary
+    assert "&lt;5mm" in summary
+    assert "&amp;" in summary
+    assert "<5mm" not in summary

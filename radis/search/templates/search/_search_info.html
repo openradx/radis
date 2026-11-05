@@ -1,17 +1,38 @@
 <div class="card mt-3">
     <div class="card-body">
         <h5 class="card-title">Search Info</h5>
-        <p>
-            Provide your search query in the search box above to search for reports. You can use
-            additional filters to narrow down the search results (on the right side).
-        </p>
-        <p>The following search rules apply:</p>
+        {% if form.fields.mode %}
+            <p>
+                Choose a mode in the search bar. <strong>Full-text</strong> finds exactly the reports
+                that contain your keywords, with the matched words highlighted.
+            </p>
+            <p>
+                <strong>Semantic</strong> takes a description of the reports you are looking for instead
+                of keywords: the result is the list of reports whose meaning is closest to it, in
+                similarity order, without highlighting. Operators, quotes and NOT have no special meaning
+                in a description. The optional "Minimum similarity" filter cuts the list where the
+                similarity drops below the value you enter.
+            </p>
+            <p>
+                Newly imported reports are embedded in the background and do not appear in semantic mode
+                until then.
+            </p>
+        {% else %}
+            <p>
+                Provide your search query in the search box above to search for reports. You can use
+                additional filters to narrow down the search results (on the right side).
+            </p>
+        {% endif %}
+        <p>The following rules apply to keywords:</p>
         <ul>
             <li>Search terms are case-insensitive.</li>
             <li>All terms in a query must be matched by a document (implicit AND query).</li>
             <li>term1 OR term2 (capital OR) means that either term1 or term2 must match.</li>
             <li>A phrase surrounded by quotes will look for an exact match, e.g. "lung disease".</li>
-            <li>- in front of a term means that the term or phrase must not be present.</li>
+            <li>
+                NOT in front of a term means that the term or phrase must not be present.
+                A minus sign does not exclude.
+            </li>
         </ul>
     </div>
 </div>

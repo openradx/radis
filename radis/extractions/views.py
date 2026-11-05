@@ -47,7 +47,7 @@ from radis.core.views import (
     AnalysisTaskResetView,
     BaseUpdatePreferencesView,
 )
-from radis.search.site import Search, SearchFilters
+from radis.search.site import FullTextSearch, SearchFilters
 from radis.search.utils.query_parser import QueryParser
 
 from .filters import ExtractionInstanceFilter, ExtractionJobFilter, ExtractionTaskFilter
@@ -408,7 +408,7 @@ class ExtractionSearchPreviewView(LoginRequiredMixin, PermissionRequiredMixin, V
         active_group = user.active_group
 
         # Build Search object
-        search = Search(
+        search = FullTextSearch(
             query=query_node,
             offset=0,
             limit=0,

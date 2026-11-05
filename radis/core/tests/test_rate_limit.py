@@ -528,3 +528,26 @@ async def test_transient_retry_async_does_not_catch_rate_limit_error():
     with pytest.raises(make_rate_limit_error().__class__):
         await with_transient_retries_async(fn, attempts=2, base=1.0, sleep=fake_sleep)
     assert calls["n"] == 1
+
+
+# --- the remaining wait, read without blocking ---
+
+
+def test_seconds_until_open_is_zero_while_the_gate_is_open():
+    clock = FakeClock()
+    gate = make_gate(clock)
+
+    assert gate.seconds_until_open() == 0.0
+
+
+def test_seconds_until_open_counts_down_the_armed_pause():
+    clock = FakeClock()
+    gate = make_gate(clock)
+    gate.note_rate_limited(30.0)
+
+    assert gate.seconds_until_open() == 30.0
+    clock.t += 10.0
+    assert gate.seconds_until_open() == 20.0
+    clock.t += 25.0
+    assert gate.seconds_until_open() == 0.0
+    assert clock.slept == []

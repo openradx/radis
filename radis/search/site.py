@@ -8,7 +8,7 @@ from radis.search.utils.query_parser import QueryNode
 
 
 class ReportDocument(NamedTuple):
-    relevance: float | None
+    relevance: float | None  # ts_rank of a full-text hit; None in semantic mode
     document_id: str
     pacs_name: str
     pacs_link: str
@@ -16,9 +16,11 @@ class ReportDocument(NamedTuple):
     patient_sex: Literal["F", "M", "U"]
     study_description: str
     modalities: list[str]
+    # HTML-safe markup: escaped report text plus <em> highlights, marked safe by the
+    # provider. A plain string from another provider is autoescaped by the template.
     summary: str
-    cosine_distance: float | None = None
-    rrf_score: float = 0.0
+    similarity: float | None = None  # 1 - cosine distance when measured, else None
+    score: float = 0.0  # the value that decided the position in the result list
 
     @property
     def full_report(self) -> Report:
@@ -70,38 +72,83 @@ class SearchFilters:
     updated_after: datetime | None = None
 
 
-class Search(NamedTuple):
-    """A class representing a search.
+@dataclass(frozen=True, kw_only=True)
+class Search:
+    """Inputs every search mode shares.
 
-    If both offset and limit are set to 0, then the search provider
-    should return the most accurate total count it can calculate.
-
-    Attributes:
-    - query: The query to search.
-    - filters: The filters to apply to the search.
-    - offset: The offset of the search results.
-    - limit: The size limit of the search results.
+    ``offset`` and ``limit`` slice the documents a search returns; its total count does
+    not depend on them, so a limit of 0 asks for the count alone.
     """
 
-    query: QueryNode
     filters: SearchFilters
     offset: int = 0
     limit: int | None = 10
 
 
+@dataclass(frozen=True, kw_only=True)
+class FullTextSearch(Search):
+    """Exactly the keyword hits, in keyword order."""
+
+    query: QueryNode
+
+
+@dataclass(frozen=True, kw_only=True)
+class SemanticSearch(Search):
+    """The reports most similar to ``text``, in similarity order."""
+
+    text: str
+    # Overrides SEARCH_SEMANTIC_MIN_SIMILARITY for this search; None means the setting.
+    min_similarity: float | None = None
+
+    def __post_init__(self) -> None:
+        if not self.text.strip():
+            raise ValueError("The semantic search text must not be blank.")
+        if self.min_similarity is not None and not 0.0 <= self.min_similarity <= 1.0:
+            raise ValueError("min_similarity must be between 0 and 1.")
+
+
+SearchRequest = FullTextSearch | SemanticSearch
+
+
+class SemanticSearchUnavailable(Exception):
+    """A semantic search could not run because its text could not be embedded.
+
+    ``retry_after`` is the embedding gate's remaining pause after a 429, in seconds (the
+    service's Retry-After, or the gate's own backoff when it sent none); None when the
+    gate is open, as after a connection failure or a misconfiguration. Full-text searches
+    never raise it.
+    """
+
+    def __init__(self, message: str, *, retry_after: float | None = None) -> None:
+        super().__init__(message)
+        self.retry_after = retry_after
+
+
+def _no_wait() -> float:
+    return 0.0
+
+
 class SearchProvider(NamedTuple):
-    """A class representing a search provider.
+    """A registered search backend.
 
     Attributes:
     - name: The name of the search provider.
-    - search: The function that handles the search.
-    - max_results: The maximum number of results that can be fetched by a search.
-        Must be smaller than offset + limit when searching.
+    - search: Runs one request of either mode; a semantic request, sent only when
+      ``semantic`` is True, raises SemanticSearchUnavailable when its text cannot be
+      embedded.
+    - max_results: The paging cap of a full-text list; offset + limit must not exceed it.
+    - semantic: Whether SemanticSearch requests are available (an embedding model is
+      configured).
+    - semantic_wait: Seconds until this process may embed the next query, 0.0 when it may
+      now (the embedding gate's remaining pause after a 429). For that long the page
+      offers no new semantic search instead of letting one fail at the gate.
     """
 
     name: str
-    search: Callable[[Search], SearchResult]
+    search: Callable[[SearchRequest], SearchResult]
     max_results: int
+    semantic: bool = False
+    semantic_wait: Callable[[], float] = _no_wait
 
 
 search_provider: SearchProvider | None = None

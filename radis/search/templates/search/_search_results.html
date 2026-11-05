@@ -1,13 +1,17 @@
 <div class="d-flex flex-column">
     <div class="mb-3">
         <small class="ms-2">
-            {% if total_relation == "at_least" %}
-                More than
-            {% elif total_relation == "approximately" %}
-                Approximately
+            {% if mode == "semantic" %}
+                {% if total_count %}
+                    The {{ total_count }} report{{ total_count|pluralize }} most similar to your description
+                {% else %}
+                    No reports similar to your description
+                {% endif %}
+                {% if cutoff %}with similarity at least {{ cutoff|floatformat:3 }}{% endif %}
+            {% else %}
+                {% if total_relation == "at_least" %}More than{% endif %}
+                {{ total_count }} report{{ total_count|pluralize }} found
             {% endif %}
-            {{ total_count }} report{{ total_count|pluralize }}
-            found
         </small>
     </div>
     {% if fixed_query %}
@@ -18,7 +22,9 @@
     {% for document in documents %}
         {% include "search/_result_document.html" %}
     {% empty %}
-        <div class="alert alert-light" role="alert">No results found</div>
+        {% if mode != "semantic" %}
+            <div class="alert alert-light" role="alert">No results found</div>
+        {% endif %}
     {% endfor %}
     <c-pagination :page-obj="page_obj" :page-sizes="page_sizes" />
 </div>

@@ -288,7 +288,8 @@ def test_no_report_traversal_remains_in_the_candidate_query():
         for line in source.splitlines()
         if "report__" in line
         and "report__body" not in line  # hydration headline, deliberately joined
-        and "report__document_id" not in line  # filter(), deliberately joined
+        and "report__document_id" not in line  # filter() and retrieve(), deliberately joined
+        and 'prefetch_related("report__modalities")' not in line  # hydration, own query by id
         and not line.strip().startswith("#")
     ]
 
@@ -320,7 +321,7 @@ def test_date_range_boundary_matches_legacy_in_non_utc_timezone():
 
 
 def _candidate_queryset(filters: SearchFilters, query: str = "pneumonia"):
-    """The FTS candidate queryset ``_fuse_hybrid`` actually runs.
+    """The FTS candidate queryset ``_keyword_ranking`` actually runs.
 
     Built by calling the same production helpers in the same order the provider
     does, so a regression introduced anywhere along that path -- the filter, the
@@ -382,4 +383,55 @@ def test_fts_candidate_query_is_single_table(corpus, language):
     # "reports_report" also covers "reports_report_groups" and
     # "reports_report_modalities".
     for table in ("reports_report", "reports_language", "reports_modality"):
+        assert table not in plan, plan
+
+
+def test_semantic_scan_is_single_table_and_uses_the_hnsw_index(corpus):
+    """The semantic scan must touch no table but the search index and must use the
+    HNSW index. On a small table the planner prefers a sequential or a bitmap scan
+    followed by a full sort, by a margin that grows with the dead index entries
+    earlier tests leave behind. The EXPLAIN therefore runs with sequential scans and
+    full sorts disabled for its transaction, which leaves the HNSW scan, under an
+    Incremental Sort for the report_id tie-break, as the only plan not penalised."""
+    from django.db import connection, transaction
+
+    from radis.pgsearch.providers import _semantic_scan_queryset
+
+    filters = SearchFilters(group=corpus["group_a"].pk, language="en")
+    vec = [0.0] * 1024
+    vec[0] = 1.0
+    queryset = _semantic_scan_queryset(_build_filter_query(filters), vec)
+    sql, params = queryset.query.sql_with_params()
+
+    assert "DISTINCT" not in sql
+    with transaction.atomic(), connection.cursor() as cursor:
+        cursor.execute("SET LOCAL enable_seqscan = off")
+        cursor.execute("SET LOCAL enable_sort = off")
+        cursor.execute(f"EXPLAIN {sql}", params)
+        plan = "\n".join(row[0] for row in cursor.fetchall())
+
+    assert "pgsearch_embedding_hnsw" in plan, plan
+    for table in ("reports_report", "reports_language", "reports_modality"):
+        assert table not in plan, plan
+
+
+def test_hydration_query_joins_nothing_but_the_report_body(corpus):
+    """The headline deliberately joins reports_report for the body; nothing else."""
+    from django.db import connection
+
+    from radis.pgsearch.providers import _hydration_queryset
+
+    filters = SearchFilters(group=corpus["group_a"].pk, language="en")
+    node, _ = QueryParser().parse("pneumonia")
+    assert node is not None
+    queryset = _hydration_queryset(
+        [1, 2], filters.group, _language_configs(filters), _build_query_string(node)
+    )
+    sql, params = queryset.query.sql_with_params()
+
+    assert "group_ids" in sql
+    with connection.cursor() as cursor:
+        cursor.execute(f"EXPLAIN {sql}", params)
+        plan = "\n".join(row[0] for row in cursor.fetchall())
+    for table in ("reports_language", "reports_modality"):
         assert table not in plan, plan
