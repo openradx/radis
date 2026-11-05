@@ -213,14 +213,20 @@ def test_reports_are_processed_when_owner_has_switched_active_group():
     other_group = GroupFactory.create()
     add_user_to_group(owner, other_group, force_activate_group=True)
     assert owner.active_group != task.job.subscription.group
+    subscription_report = task.reports.get()
+    active_group_report = ReportFactory.create()
+    active_group_report.groups.add(other_group)
+    task.reports.add(active_group_report)
     names = _field_names(task)
 
     openai_mock, capture = make_capturing_openai_mock({names[0]: True})
     with patch("openai.OpenAI", return_value=openai_mock):
         SubscriptionTaskProcessor(task).start()
 
+    # Only the subscription group's report reaches the LLM and the inbox; the
+    # report of the group the owner is now viewing is left alone.
     assert len(capture.calls) == 1
-    assert SubscribedItem.objects.count() == 1
+    assert SubscribedItem.objects.get().report == subscription_report
     task.refresh_from_db()
     assert task.status == SubscriptionTask.Status.SUCCESS
 

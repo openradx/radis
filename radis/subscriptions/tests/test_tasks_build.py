@@ -237,11 +237,16 @@ def test_subscription_launcher_skips_subscription_whose_owner_left_the_group(mon
     monkeypatch.setattr(SubscriptionJob, "delay", lambda self: None, raising=True)
 
     subscription = _member_subscription()
+    last_refreshed = subscription.last_refreshed
     subscription.owner.groups.remove(subscription.group)
 
     subscription_launcher(0)
 
     assert subscription.jobs.count() == 0
+    # The watermark must not move either, so the subscription resumes with the
+    # reports it missed once the owner is a member again.
+    subscription.refresh_from_db()
+    assert subscription.last_refreshed == last_refreshed
 
 
 @pytest.mark.django_db
