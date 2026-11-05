@@ -10,7 +10,7 @@ from radis.extractions.factories import ExtractionJobFactory
 from radis.extractions.forms import OutputFieldForm, SearchForm
 from radis.extractions.models import OutputField, OutputType
 from radis.extractions.site import ExtractionRetrievalProvider
-from radis.reports.factories import LanguageFactory
+from radis.reports.factories import LanguageFactory, ReportFactory
 from radis.search.site import Search
 
 
@@ -254,12 +254,14 @@ def test_language_field_offers_all_and_is_the_default():
 def test_job_saved_with_no_language_persists_none():
     """Submitting the search step with 'All' selected must save language=None
     on the ExtractionJob rather than raising or falling back to some language."""
-    LanguageFactory.create(code="en")
+    english = LanguageFactory.create(code="en")
     user = UserFactory.create(is_active=True)
     group = GroupFactory.create()
     user.groups.add(group)
     user.active_group = group
     user.save()
+    # The form refuses a search matching nothing, so give the real provider a hit.
+    ReportFactory.create(body="Findings: pneumonia.", language=english).groups.add(group)
 
     data = {
         "title": "My Extraction",
@@ -350,3 +352,18 @@ def test_search_form_rejects_search_matching_more_than_the_maximum(monkeypatch, 
     (error,) = form.non_field_errors()
     assert "more than 5 reports" in error
     assert "refine" in error
+
+
+@pytest.mark.django_db
+def test_search_form_rejects_search_matching_no_reports(monkeypatch, settings):
+    """A job over an empty cohort would create no tasks and so never finish."""
+    settings.EXTRACTION_MAXIMUM_REPORTS_COUNT = 5
+    LanguageFactory.create(code="en")
+    monkeypatch.setattr(forms_module, "extraction_retrieval_provider", _provider_matching(0, []))
+
+    form = SearchForm(data=_search_step_data(), user=_user_with_active_group())
+
+    assert not form.is_valid()
+    (error,) = form.non_field_errors()
+    assert "matches no reports" in error
+    assert "broaden" in error

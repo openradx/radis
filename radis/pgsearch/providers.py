@@ -514,8 +514,8 @@ def _fuse_hybrid(search: Search, caller: str) -> _FusedHybrid:
 def _fuse_hybrid_uncached(search: Search, caller: str) -> tuple[_FusedHybrid, bool]:
     """Run both retrievers and fuse them with RRF.
 
-    Shared by search(), retrieve() and count() so all three describe the same
-    union. The vector half embeds only the positive branches (§7.8 strips
+    Used by search() only; retrieve() and count() select the text matches
+    directly. The vector half embeds only the positive branches (§7.8 strips
     ``NOT``) and enforces the top-level negations on its candidates; the FTS
     half consumes the full boolean tsquery. Returns the fused, ordered report
     ids plus the per-id scores/distances and the query metadata callers reuse,

@@ -603,7 +603,7 @@ def test_extraction_job_wizard_persists_modalities(client: Client, settings):
     """The wizard saves the job with ``save(commit=False)``, so the many-to-many
     modalities filter only reaches the database through ``save_m2m()``."""
     settings.START_EXTRACTION_JOB_UNVERIFIED = False
-    LanguageFactory.create(code="en")
+    english = LanguageFactory.create(code="en")
     user = UserFactory.create(is_active=True)
     group = GroupFactory.create()
     user.groups.add(group)
@@ -612,6 +612,11 @@ def test_extraction_job_wizard_persists_modalities(client: Client, settings):
     user.user_permissions.add(Permission.objects.get(codename="add_extractionjob"))
     ct = ModalityFactory.create(code="CT", filterable=True)
     mr = ModalityFactory.create(code="MR", filterable=True)
+    # The search step refuses a search matching nothing, so give the real provider a hit.
+    report = ReportFactory.create(
+        body="Findings: pneumonia.", language=english, modalities=[ct.code]
+    )
+    report.groups.add(group)
     client.force_login(user)
 
     url = "/extractions/jobs/new/"
@@ -718,3 +723,34 @@ def test_retry_of_a_job_that_failed_before_creating_tasks_reruns_preparation(
     job.refresh_from_db()
     assert job.status == ExtractionJob.Status.PENDING
     mock_delay.assert_called_once()
+
+
+@pytest.mark.django_db
+def test_search_preview_refuses_an_empty_cohort(client: Client, monkeypatch):
+    """A search matching nothing is shown as a refusal, not as "0 reports will be
+    retrieved" with a green check mark."""
+    from radis.extractions import forms as forms_module
+    from radis.extractions.site import ExtractionRetrievalProvider
+
+    LanguageFactory.create(code="en")
+    user = UserFactory.create(is_active=True)
+    group = GroupFactory.create()
+    user.groups.add(group)
+    user.active_group = group
+    user.save()
+    user.user_permissions.add(Permission.objects.get(codename="add_extractionjob"))
+    client.force_login(user)
+    monkeypatch.setattr(
+        forms_module,
+        "extraction_retrieval_provider",
+        ExtractionRetrievalProvider(
+            name="dummy", count=lambda _search: 0, retrieve=lambda _search: []
+        ),
+    )
+
+    response = client.get("/extractions/jobs/new/search-preview/", {"1-query": "pneumonia"})
+
+    assert response.status_code == 200
+    content = response.content.decode()
+    assert "matches no reports" in content
+    assert "will be retrieved" not in content

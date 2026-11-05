@@ -170,6 +170,12 @@ class SearchForm(forms.ModelForm):
                 "extraction job may cover. Please refine your search query."
             )
 
+        if retrieval_count == 0:
+            raise forms.ValidationError(
+                "Your search matches no reports, so there is nothing to extract. "
+                "Please broaden your search query."
+            )
+
         cleaned_data["retrieval_count"] = retrieval_count
         return cleaned_data
 

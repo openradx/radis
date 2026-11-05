@@ -348,7 +348,7 @@ Jobs created by regular users start in the **Unverified** state and are not proc
 2. **View Details**: Click on a job to see its owner and group, query and filters, status and message, and its output fields
 3. **Extraction tasks** show the individual batches of a job together with the extracted data per report
 
-Each job may cover at most `EXTRACTION_MAXIMUM_REPORTS_COUNT` reports (default 25,000); the wizard refuses a search matching more. A job of a regular user may wait for verification while the archive grows, so preparing it checks the limit again and fails the job with a message if the search has outgrown it; retrying the job repeats the check. The reports of a job are every report whose text matches the query and filters, retrieved without ranking; the hybrid ranking and its candidate cap apply to the search page only.
+Each job may cover at most `EXTRACTION_MAXIMUM_REPORTS_COUNT` reports (default 25,000); the wizard refuses a search matching more. A job of a regular user may wait for verification while the archive grows, so preparing it checks the limit again and fails the job with a message if the search has outgrown it, or if its reports have meanwhile been deleted and it matches nothing; retrying the job repeats the check. The reports of a job are every report whose text matches the query and filters, retrieved without ranking; the hybrid ranking and its candidate cap apply to the search page only.
 
 ### Urgent Priority
 

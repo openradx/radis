@@ -131,7 +131,7 @@ Hybrid search embeddings (`radis.pgsearch`):
 
 Extractions (`radis.extractions`):
 
-- `EXTRACTION_MAXIMUM_REPORTS_COUNT`: Most reports one extraction job may cover (default `25000`). The wizard refuses a search matching more, and job preparation checks again. Extraction retrieval is text-only: every report matching the boolean query, unranked and without the search page's `HYBRID_FTS_MAX_RESULTS` candidate cap.
+- `EXTRACTION_MAXIMUM_REPORTS_COUNT`: Most reports one extraction job may cover (default `25000`). The wizard refuses a search matching more (or none at all), and job preparation checks again. Extraction retrieval is text-only: every report matching the boolean query, unranked and without the search page's `HYBRID_FTS_MAX_RESULTS` candidate cap.
 
 Auto-labeling (`radis.labels`):
 

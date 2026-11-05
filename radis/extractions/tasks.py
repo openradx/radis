@@ -30,6 +30,13 @@ def process_extraction_task(task_id: int) -> None:
     task.save()
 
 
+def _fail_preparation(job: ExtractionJob, message: str) -> None:
+    # The preparation run itself is over; its own queue row must not count as queued.
+    job.queued_job_id = None
+    job.save(update_fields=["queued_job_id"])
+    job.fail_before_tasks(message)
+
+
 @app.task
 def process_extraction_job(job_id: int) -> None:
     job = ExtractionJob.objects.get(id=job_id)
@@ -102,11 +109,11 @@ def process_extraction_job(job_id: int) -> None:
         )
 
         if retrieval_provider.count(search) > max_reports:
-            job.queued_job_id = None
-            job.fail_before_tasks(
+            _fail_preparation(
+                job,
                 f"The search now matches more than {max_reports} reports, which is more than "
                 "an extraction job may cover. Please refine the search query and create a "
-                "new job."
+                "new job.",
             )
             logger.info("Job %s failed: its search exceeds the maximum report count", job)
             return
@@ -123,6 +130,18 @@ def process_extraction_job(job_id: int) -> None:
             for document_id in document_ids:
                 report = Report.objects.get(document_id=document_id)
                 ExtractionInstance.objects.create(task=task, report_id=report.pk)
+
+        # The form refused an empty search, but the matches can have been deleted
+        # meanwhile. A PENDING job without tasks would never finish: only a task
+        # ending moves a job on.
+        if not job.tasks.exists():
+            _fail_preparation(
+                job,
+                "The search no longer matches any reports, so there is nothing to extract. "
+                "Please broaden the search query and create a new job.",
+            )
+            logger.info("Job %s failed: its search matches no reports", job)
+            return
 
         tasks_to_enqueue = job.tasks.filter(status=ExtractionTask.Status.PENDING)
 

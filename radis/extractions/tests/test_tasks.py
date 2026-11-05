@@ -315,3 +315,70 @@ def test_preparation_counts_with_a_bound_and_retrieves_without_one(monkeypatch, 
     assert seen["count"].limit == 3
     assert seen["retrieve"].limit is None
     assert ExtractionInstance.objects.filter(task__job=job).count() == 2
+
+
+@pytest.mark.django_db
+def test_preparation_fails_the_job_when_the_search_matches_no_reports(monkeypatch, settings):
+    """The form refuses an empty search, but the matching reports can be deleted while
+    the job waits for verification. Without tasks nothing would ever end a PENDING
+    job, so preparation must fail it instead."""
+    settings.EXTRACTION_MAXIMUM_REPORTS_COUNT = 2
+    monkeypatch.setattr(
+        extraction_site, "extraction_retrieval_provider", _provider_matching([], {})
+    )
+    job = ExtractionJobFactory.create(
+        owner=UserFactory.create(), group=GroupFactory.create(), status=AnalysisJob.Status.PENDING
+    )
+
+    with patch.object(ExtractionTask, "delay", autospec=True) as mock_delay:
+        process_extraction_job(int(job.pk))
+
+    job.refresh_from_db()
+    assert job.status == AnalysisJob.Status.FAILURE
+    assert "matches any reports" in job.message
+    assert job.ended_at is not None
+    assert job.queued_job_id is None
+    assert not job.tasks.exists()
+    mock_delay.assert_not_called()
+
+
+@pytest.mark.django_db
+def test_preparation_failure_does_not_overwrite_a_cancel_issued_during_the_count(
+    monkeypatch, settings
+):
+    """Counting a large cohort takes a while, long enough for the user to cancel the
+    PREPARING job. The failure the count then leads to must not replace that cancel,
+    and no finished mail may claim the job failed."""
+    settings.EXTRACTION_MAXIMUM_REPORTS_COUNT = 1
+    doc_ids = ["DOC-0", "DOC-1"]
+    for doc_id in doc_ids:
+        ReportFactory.create(document_id=doc_id)
+    provider = _provider_matching(doc_ids, {})
+
+    def count_while_the_user_cancels(search: Search) -> int:
+        ExtractionJob.objects.filter(status=AnalysisJob.Status.PREPARING).update(
+            status=AnalysisJob.Status.CANCELED
+        )
+        return provider.count(search)
+
+    monkeypatch.setattr(
+        extraction_site,
+        "extraction_retrieval_provider",
+        ExtractionRetrievalProvider(
+            name="dummy", count=count_while_the_user_cancels, retrieve=provider.retrieve
+        ),
+    )
+    job = ExtractionJobFactory.create(
+        owner=UserFactory.create(),
+        group=GroupFactory.create(),
+        status=AnalysisJob.Status.PENDING,
+        send_finished_mail=True,
+    )
+
+    process_extraction_job(int(job.pk))
+
+    job.refresh_from_db()
+    assert job.status == AnalysisJob.Status.CANCELED
+    assert job.queued_job_id is None
+    assert not job.tasks.exists()
+    assert len(mail.outbox) == 0

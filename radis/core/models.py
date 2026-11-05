@@ -168,11 +168,24 @@ class AnalysisJob(models.Model):
 
     def fail_before_tasks(self, message: str) -> None:
         """End a job that could not be prepared. With no tasks there is nothing
-        for update_job_state() to derive a final state from."""
+        for update_job_state() to derive a final state from.
+
+        The write is guarded like the final write in update_job_state(): the user
+        can cancel the job while it is being prepared, and that cancel must not be
+        replaced by the failure, nor announced as one by the finished mail.
+        """
         self.status = self.Status.FAILURE
         self.message = message
         self.ended_at = timezone.now()
-        self.save()
+        updated = (
+            type(self)
+            .objects.filter(pk=self.pk)
+            .exclude(status__in=[self.Status.CANCELING, self.Status.CANCELED])
+            .update(status=self.status, message=self.message, ended_at=self.ended_at)
+        )
+        if updated == 0:
+            self.refresh_from_db(fields=["status", "message", "ended_at"])
+            return
         if self.send_finished_mail:
             self._send_job_finished_mail()
 
