@@ -1,38 +1,31 @@
 """Model field validators for the extractions app."""
 
-import keyword
-
 from django.core.exceptions import ValidationError
 
 OUTPUT_FIELD_NAME_HELP_TEXT = (
-    "Letters, digits and single underscores, starting with a letter "
-    '(e.g. lung_nodule_size). Names starting with "model_" are reserved.'
+    'Must not start with an underscore or "model_", and must not contain a dot '
+    "or a double underscore."
 )
 
 
 def validate_output_field_name(name: str) -> None:
-    """Ensures a name is safe as a Pydantic schema attribute and a table accessor.
+    """Rejects the names that a consumer of the field drops, crashes on or misreads.
 
-    Output field names become attributes of a ``pydantic.create_model`` class. Pydantic
-    silently drops attributes starting with an underscore (treating them as private) and
-    rejects names in its reserved ``model_`` namespace. The results table reaches each
-    value through a django-tables2 accessor, which splits its path on ``__``.
+    Output field names become attributes of a ``pydantic.create_model`` class, which
+    silently drops names starting with an underscore (private attributes) and crashes on
+    names that shadow ``BaseModel`` members such as ``model_config``. The results table
+    reads each value through a django-tables2 accessor, which splits its path on dots, and
+    sorts through the matching Django JSON lookup, which splits on double underscores.
+    Anything else, spaces included, works everywhere a name is used.
 
     Raises:
-        ValidationError: If the name is not a usable identifier.
+        ValidationError: If the name is unsafe for one of those consumers.
     """
-    if not name.isidentifier():
-        raise ValidationError(
-            "Use only letters, digits and underscores, starting with a letter.",
-            code="invalid",
-        )
-    if keyword.iskeyword(name):
-        raise ValidationError(
-            '"%(name)s" is a reserved word.', code="invalid", params={"name": name}
-        )
     if name.startswith("_"):
         raise ValidationError("Name must not start with an underscore.", code="invalid")
-    if "__" in name:
-        raise ValidationError("Name must not contain two underscores in a row.", code="invalid")
     if name.startswith("model_"):
         raise ValidationError('Names starting with "model_" are reserved.', code="invalid")
+    if "." in name:
+        raise ValidationError("Name must not contain a dot.", code="invalid")
+    if "__" in name:
+        raise ValidationError("Name must not contain a double underscore.", code="invalid")

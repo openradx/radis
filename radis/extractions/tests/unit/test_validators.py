@@ -8,16 +8,19 @@ from radis.extractions.validators import validate_output_field_name
     "name",
     [
         "lung_nodule_size",
-        "size",
-        "Grade2",
+        "Pneumothorax status",
+        "Size (mm)",
+        "nodule-size",
+        "1st finding",
+        "Größe",
+        "class",
         "model",
         "modelled_size",
         "a_model_field",
-        "x1",
-        "größe",
+        "size_",
     ],
 )
-def test_validate_output_field_name_accepts_identifiers(name: str):
+def test_validate_output_field_name_accepts_everyday_names(name: str):
     validate_output_field_name(name)
 
 
@@ -26,18 +29,13 @@ def test_validate_output_field_name_accepts_identifiers(name: str):
     [
         "_size",
         "__size",
+        "model_config",
+        "model_dump",
+        "model_",
+        "nodule.size",
+        "Approx. size",
         "nodule__size",
         "size__",
-        "model_config",
-        "model_fields",
-        "model_",
-        "nodule size",
-        "nodule-size",
-        "1st_finding",
-        "size!",
-        "",
-        "class",
-        "None",
     ],
 )
 def test_validate_output_field_name_rejects_unsafe_names(name: str):

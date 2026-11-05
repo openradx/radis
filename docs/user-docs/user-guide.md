@@ -136,7 +136,7 @@ Extraction jobs let you pull structured data out of many reports at once. Creati
 
 **Step 1 – Define fields.** Add one to five fields that you want extracted from each report. For each field, specify:
 
-- **Name**: A short column name for the results. Use letters, digits and single underscores, starting with a letter (e.g. `lung_nodule_size`); names starting with `model_` are reserved
+- **Name**: A short column name for the results. It must not start with an underscore or `model_`, and must not contain a dot or a double underscore
 - **Description**: What the AI should extract (e.g. "Largest diameter of the primary tumor in mm")
 - **Output Type**: Text, Numeric, Boolean, or Selection. For Selection, enter the allowed options (up to seven)
 - The **`[ ]` toggle** next to the type switches the field to an array, so multiple values of that type are returned per report (e.g. a list of all affected vertebrae)
