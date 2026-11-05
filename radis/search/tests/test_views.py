@@ -426,3 +426,26 @@ def test_search_view_clamps_page_size(
 
     assert response.status_code == 200
     assert captured["search"].limit == expected_limit
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("params", "message"),
+    [
+        ({"age_from": "15"}, "Age from must be a multiple of 10"),
+        ({"age_till": "65"}, "Age till must be a multiple of 10"),
+        ({"age_from": "abc"}, "Enter a whole number."),
+    ],
+)
+def test_search_view_shows_age_field_errors(
+    client: Client, params: dict[str, str], message: str
+) -> None:
+    """An invalid age is reported next to the age slider, not silently swallowed."""
+    user = create_test_user_with_active_group()
+    client.force_login(user)
+
+    with patch("radis.search.views.search_provider", create_test_search_provider()):
+        response = client.get("/search/", {"query": "test query", **params})
+
+    assert response.status_code == 200
+    assert message in response.content.decode()

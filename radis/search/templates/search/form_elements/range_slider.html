@@ -13,4 +13,11 @@
         <span class="tillIndicator" x-text="till">{{ till_field.value }}</span>
         <span>y</span>
     </div>
+    {% if from_field.errors or till_field.errors %}
+        {# invalid-feedback is hidden unless a sibling input is marked invalid, hence d-block #}
+        <div class="invalid-feedback d-block">
+            {% for error in from_field.errors %}<p class="mb-0"><strong>{{ error }}</strong></p>{% endfor %}
+            {% for error in till_field.errors %}<p class="mb-0"><strong>{{ error }}</strong></p>{% endfor %}
+        </div>
+    {% endif %}
 </div>
