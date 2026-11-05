@@ -193,7 +193,7 @@ def subscription_launcher(timestamp: int):
         # is, so the subscription resumes with the missed reports once its
         # owner may run it again.
         if not subscription.owner_in_group:  # type: ignore[attr-defined]  # Exists() annotation
-            logger.info(
+            logger.debug(
                 "Skipping Subscription %s of user %s - owner is no longer a member of group %s",
                 subscription.name,
                 subscription.owner,
@@ -202,7 +202,7 @@ def subscription_launcher(timestamp: int):
             continue
 
         if not subscription.owner.is_active:
-            logger.info(
+            logger.debug(
                 "Skipping Subscription %s of user %s - owner is deactivated",
                 subscription.name,
                 subscription.owner,
