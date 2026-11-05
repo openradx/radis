@@ -282,3 +282,22 @@ def test_job_saved_with_no_language_persists_none():
     job.refresh_from_db()
 
     assert job.language is None
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("name", ["_hidden", "model_config", "nodule.size", "left__right"])
+def test_output_field_form_rejects_unsafe_names(name: str):
+    job = ExtractionJobFactory.create()
+    form = OutputFieldForm(
+        data={
+            "name": name,
+            "description": "Some description.",
+            "output_type": OutputType.TEXT,
+            "selection_options": json.dumps([]),
+            "is_array": "false",
+        },
+        instance=OutputField(job=job),
+    )
+
+    assert not form.is_valid()
+    assert "name" in form.errors
