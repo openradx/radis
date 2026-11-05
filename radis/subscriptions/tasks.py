@@ -175,7 +175,7 @@ def subscription_launcher(timestamp: int):
                 )
             ),
         )
-        .all()
+        .select_related("owner", "group")
         .iterator(chunk_size=100)
     )
 
