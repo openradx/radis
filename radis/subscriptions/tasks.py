@@ -190,14 +190,22 @@ def subscription_launcher(timestamp: int):
             continue
 
         # Skipping here, before a job is built, keeps last_refreshed where it
-        # is, so the subscription resumes with the missed reports once the
-        # owner is a member again.
+        # is, so the subscription resumes with the missed reports once its
+        # owner may run it again.
         if not subscription.owner_in_group:  # type: ignore[attr-defined]  # Exists() annotation
             logger.info(
                 "Skipping Subscription %s of user %s - owner is no longer a member of group %s",
                 subscription.name,
                 subscription.owner,
                 subscription.group,
+            )
+            continue
+
+        if not subscription.owner.is_active:
+            logger.info(
+                "Skipping Subscription %s of user %s - owner is deactivated",
+                subscription.name,
+                subscription.owner,
             )
             continue
 

@@ -5,7 +5,7 @@
   branch.
 - subscription_launcher: one PREPARING job per subscription, no new job
   while one is still active, and no job while the owner is not a member of
-  the subscription's group.
+  the subscription's group or is deactivated.
 
 The existing test_tasks.py already covers the "only enqueue after PENDING"
 invariant; these focus on the build/launch behaviour.
@@ -245,6 +245,22 @@ def test_subscription_launcher_skips_subscription_whose_owner_left_the_group(mon
     assert subscription.jobs.count() == 0
     # The watermark must not move either, so the subscription resumes with the
     # reports it missed once the owner is a member again.
+    subscription.refresh_from_db()
+    assert subscription.last_refreshed == last_refreshed
+
+
+@pytest.mark.django_db
+def test_subscription_launcher_skips_subscription_of_deactivated_owner(monkeypatch):
+    monkeypatch.setattr(SubscriptionJob, "delay", lambda self: None, raising=True)
+
+    subscription = _member_subscription()
+    last_refreshed = subscription.last_refreshed
+    subscription.owner.is_active = False
+    subscription.owner.save()
+
+    subscription_launcher(0)
+
+    assert subscription.jobs.count() == 0
     subscription.refresh_from_db()
     assert subscription.last_refreshed == last_refreshed
 
