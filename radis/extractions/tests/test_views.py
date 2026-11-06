@@ -250,6 +250,63 @@ def test_extraction_result_download_view(client: Client):
     assert lines[1] == f"{instance.pk},{instance.report.pk},yes,value,42,no"
 
 
+@pytest.mark.django_db
+def test_extraction_result_list_view_shows_null_value_as_empty_cell(client: Client):
+    """A null answer (information not in the report) renders as an empty cell,
+    not as the string "None" and not as the table's "—" placeholder."""
+    user = UserFactory.create(is_active=True)
+    job = create_test_extraction_job(owner=user)
+    OutputFieldFactory.create(job=job, name="laenge_mm")
+    OutputFieldFactory.create(job=job, name="region")
+    task = create_test_extraction_task(job=job)
+    language = LanguageFactory.create(code="en")
+    report = ReportFactory.create(language=language)
+    ExtractionInstanceFactory.create(
+        task=task,
+        report=report,
+        is_processed=True,
+        output={"laenge_mm": None, "region": "zervikal"},
+    )
+
+    client.force_login(user)
+    response = client.get(f"/extractions/jobs/{job.pk}/results/")
+    assert response.status_code == 200
+
+    (row,) = response.context["table"].rows
+    assert row.get_cell("laenge_mm") == ""
+    assert row.get_cell("region") == "zervikal"
+    html = response.content.decode()
+    assert ">None<" not in html
+    assert ">—<" not in html
+
+
+@override_settings(DEBUG_TOOLBAR_CONFIG={"SHOW_TOOLBAR_CALLBACK": _hide_toolbar})
+@pytest.mark.django_db
+def test_extraction_result_download_view_null_value_is_empty_cell(client: Client):
+    user = UserFactory.create(is_active=True)
+    job = create_test_extraction_job(owner=user)
+    OutputFieldFactory.create(job=job, name="laenge_mm")
+    OutputFieldFactory.create(job=job, name="region")
+    OutputFieldFactory.create(job=job, name="malignant")
+    task = create_test_extraction_task(job=job)
+    language = LanguageFactory.create(code="en")
+    report = ReportFactory.create(language=language)
+    instance = ExtractionInstanceFactory.create(
+        task=task,
+        report=report,
+        is_processed=True,
+        output={"laenge_mm": None, "region": "zervikal", "malignant": None},
+    )
+
+    client.force_login(user)
+    response = client.get(f"/extractions/jobs/{job.pk}/results/download/")
+    assert response.status_code == 200
+
+    lines = [line.strip() for line in _collect_csv(response).strip().splitlines()]
+    assert lines[0] == "instance_id,report_id,is_processed,laenge_mm,region,malignant"
+    assert lines[1] == f"{instance.pk},{instance.report.pk},yes,,zervikal,"
+
+
 @override_settings(DEBUG_TOOLBAR_CONFIG={"SHOW_TOOLBAR_CALLBACK": _hide_toolbar})
 @pytest.mark.django_db
 def test_extraction_result_download_view_unauthorized(client: Client):

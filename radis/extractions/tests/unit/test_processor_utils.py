@@ -8,6 +8,12 @@ from radis.extractions.models import OutputType
 from radis.extractions.utils.processor_utils import generate_output_fields_schema
 
 
+def _without_null(annotation: object) -> object:
+    """Return the value type of a nullable field annotation (``T | None`` -> ``T``)."""
+    (value_type,) = [arg for arg in get_args(annotation) if arg is not type(None)]
+    return value_type
+
+
 @pytest.mark.django_db
 def test_generate_output_fields_schema_uses_literal_for_selection_fields():
     job = ExtractionJobFactory.create()
@@ -21,8 +27,7 @@ def test_generate_output_fields_schema_uses_literal_for_selection_fields():
 
     schema = generate_output_fields_schema(job.output_fields.all())
 
-    grade_field = schema.model_fields["grade"]
-    annotation = grade_field.annotation
+    annotation = _without_null(schema.model_fields["grade"].annotation)
     assert get_origin(annotation) is Literal
     assert set(get_args(annotation)) == {"Grade 1", "Grade 2"}
 
@@ -41,8 +46,7 @@ def test_generate_output_fields_schema_wraps_literal_in_list_for_array_selection
 
     schema = generate_output_fields_schema(job.output_fields.all())
 
-    grade_field = schema.model_fields["grade_multi"]
-    annotation = grade_field.annotation
+    annotation = _without_null(schema.model_fields["grade_multi"].annotation)
     assert get_origin(annotation) is list
     (inner_annotation,) = get_args(annotation)
     assert get_origin(inner_annotation) is Literal
@@ -50,35 +54,51 @@ def test_generate_output_fields_schema_wraps_literal_in_list_for_array_selection
 
 
 @pytest.mark.django_db
-def test_generate_output_fields_schema_nullable_accepts_null_values():
-    """With nullable=True every value (incl. Selection literals) validates as
-    None while the keys themselves stay required. The subscription extraction
-    prompt instructs the model to answer null for missing information; without
-    a nullable schema that instruction could never validate."""
+def test_generate_output_fields_schema_accepts_null_for_every_output_type():
+    """Every value may be null so the model can say "not in the report" instead of
+    fabricating a value; the keys themselves stay required."""
     job = ExtractionJobFactory.create()
     OutputFieldFactory(job=job, name="finding", output_type=OutputType.TEXT)
+    OutputFieldFactory(job=job, name="laenge_mm", output_type=OutputType.NUMERIC)
+    OutputFieldFactory(job=job, name="malignant", output_type=OutputType.BOOLEAN)
     selection = OutputFieldFactory(job=job, name="grade", output_type=OutputType.SELECTION)
     selection.selection_options = ["Grade 1", "Grade 2"]
     selection.save()
+    OutputFieldFactory(job=job, name="vertebrae", output_type=OutputType.TEXT, is_array=True)
 
-    schema = generate_output_fields_schema(job.output_fields.all(), nullable=True)
+    schema = generate_output_fields_schema(job.output_fields.all())
 
-    instance = schema(finding=None, grade=None)
-    assert instance.finding is None  # type: ignore[attr-defined]
-    assert instance.grade is None  # type: ignore[attr-defined]
+    instance = schema(finding=None, laenge_mm=None, malignant=None, grade=None, vertebrae=None)
+    assert instance.model_dump() == {
+        "finding": None,
+        "laenge_mm": None,
+        "malignant": None,
+        "grade": None,
+        "vertebrae": None,
+    }
 
     # Non-null values still validate...
-    instance = schema(finding="pneumothorax", grade="Grade 1")
+    instance = schema(
+        finding="pneumothorax", laenge_mm=12.5, malignant=True, grade="Grade 1", vertebrae=["L1"]
+    )
     assert instance.grade == "Grade 1"  # type: ignore[attr-defined]
 
-    # ...the keys themselves stay required...
+    # ...and the keys themselves stay required.
     with pytest.raises(ValueError):
         schema(finding="pneumothorax")
 
-    # ...and the default (non-nullable) schema still rejects null.
-    strict_schema = generate_output_fields_schema(job.output_fields.all())
-    with pytest.raises(ValueError):
-        strict_schema(finding=None, grade="Grade 1")
+
+@pytest.mark.django_db
+def test_generate_output_fields_schema_json_schema_offers_null_option():
+    """The JSON schema sent to the model must list null as an alternative; a bare
+    required ``$ref`` forces the model to produce a value for every field."""
+    job = ExtractionJobFactory.create()
+    OutputFieldFactory(job=job, name="laenge_mm", output_type=OutputType.NUMERIC)
+
+    json_schema = generate_output_fields_schema(job.output_fields.all()).model_json_schema()
+
+    assert json_schema["required"] == ["laenge_mm"]
+    assert {"type": "null"} in json_schema["properties"]["laenge_mm"]["anyOf"]
 
 
 @pytest.mark.django_db

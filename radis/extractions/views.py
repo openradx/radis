@@ -742,9 +742,10 @@ class ExtractionResultListView(
 
         extra_columns = []
         for field in job.output_fields.all():
-            extra_columns.append(
-                (field.name, tables.Column(field.name, accessor=f"output.{field.name}"))
-            )
+            # A null answer means the report lacks the information. Show it as an empty
+            # cell, like the CSV export, not as the table's "—" placeholder.
+            column = tables.Column(field.name, accessor=f"output__{field.name}", default="")
+            extra_columns.append((field.name, column))
 
         return super().get_table(extra_columns=extra_columns, **kwargs)
 
