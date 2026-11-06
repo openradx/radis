@@ -2,6 +2,10 @@ from .base import *  # noqa: F403
 
 DEBUG = False
 
+# Read by the base_url template tag when a job's finished mail is rendered; set in
+# development.py and production.py, which these settings do not inherit from.
+ENVIRONMENT = "development"
+
 # We must force our background worker that is started while testing
 # in a subprocess to use the test database.
 if not DATABASES["default"]["NAME"].startswith("test_"):  # noqa: F405

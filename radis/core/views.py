@@ -253,7 +253,11 @@ class AnalysisJobRetryView(LoginRequiredMixin, SingleObjectMixin, View):
         job.message = ""
         job.save()
 
-        transaction.on_commit(lambda: [task.delay() for task in tasks])
+        if job.tasks.exists():
+            transaction.on_commit(lambda: [task.delay() for task in tasks])
+        else:
+            # The job failed while being prepared, so there is no task to re-run.
+            transaction.on_commit(job.delay)
 
         messages.success(request, self.success_message % job.__dict__)
         return redirect(job)

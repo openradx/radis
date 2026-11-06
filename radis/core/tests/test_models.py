@@ -738,3 +738,40 @@ def test_update_job_state_guards_final_write_against_late_cancel(monkeypatch):
 
     db_status = type(job).objects.values_list("status", flat=True).get(pk=job.pk)
     assert db_status == AnalysisJob.Status.CANCELED
+
+
+@pytest.mark.django_db
+def test_fail_before_tasks_ends_the_job_and_sends_the_finished_mail():
+    job = ExtractionJobFactory.create(
+        owner=UserFactory.create(), status=AnalysisJob.Status.PREPARING, send_finished_mail=True
+    )
+
+    with patch.object(AnalysisJob, "_send_job_finished_mail") as mock_send_mail:
+        job.fail_before_tasks("Nothing to prepare.")
+
+    job.refresh_from_db()
+    assert job.status == AnalysisJob.Status.FAILURE
+    assert job.message == "Nothing to prepare."
+    assert job.ended_at is not None
+    mock_send_mail.assert_called_once_with()
+
+
+@pytest.mark.django_db
+def test_fail_before_tasks_does_not_overwrite_a_concurrent_cancel():
+    """The user can cancel a job while the worker is still preparing it. The worker's
+    instance is then stale; its failure must neither replace the cancel nor be
+    announced by the finished mail."""
+    job = ExtractionJobFactory.create(
+        owner=UserFactory.create(), status=AnalysisJob.Status.PREPARING, send_finished_mail=True
+    )
+    type(job).objects.filter(pk=job.pk).update(status=AnalysisJob.Status.CANCELED)
+
+    with patch.object(AnalysisJob, "_send_job_finished_mail") as mock_send_mail:
+        job.fail_before_tasks("Nothing to prepare.")
+
+    assert job.status == AnalysisJob.Status.CANCELED
+    db_job = type(job).objects.get(pk=job.pk)
+    assert db_job.status == AnalysisJob.Status.CANCELED
+    assert db_job.message != "Nothing to prepare."
+    assert db_job.ended_at is None
+    mock_send_mail.assert_not_called()

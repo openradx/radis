@@ -603,7 +603,7 @@ def test_extraction_job_wizard_persists_modalities(client: Client, settings):
     """The wizard saves the job with ``save(commit=False)``, so the many-to-many
     modalities filter only reaches the database through ``save_m2m()``."""
     settings.START_EXTRACTION_JOB_UNVERIFIED = False
-    LanguageFactory.create(code="en")
+    english = LanguageFactory.create(code="en")
     user = UserFactory.create(is_active=True)
     group = GroupFactory.create()
     user.groups.add(group)
@@ -612,6 +612,11 @@ def test_extraction_job_wizard_persists_modalities(client: Client, settings):
     user.user_permissions.add(Permission.objects.get(codename="add_extractionjob"))
     ct = ModalityFactory.create(code="CT", filterable=True)
     mr = ModalityFactory.create(code="MR", filterable=True)
+    # The search step refuses a search matching nothing, so give the real provider a hit.
+    report = ReportFactory.create(
+        body="Findings: pneumonia.", language=english, modalities=[ct.code]
+    )
+    report.groups.add(group)
     client.force_login(user)
 
     url = "/extractions/jobs/new/"
@@ -657,3 +662,95 @@ def test_extraction_job_wizard_persists_modalities(client: Client, settings):
 
     job = ExtractionJob.objects.get(title="Modality filtered job")
     assert set(job.modalities.values_list("code", flat=True)) == {"CT", "MR"}
+
+
+@pytest.mark.django_db
+def test_search_preview_refuses_a_cohort_above_the_maximum(client: Client, monkeypatch, settings):
+    """The live counter runs through the search form, so a cohort above the maximum
+    is shown as a refusal rather than as a number of reports to be processed."""
+    from radis.extractions import forms as forms_module
+    from radis.extractions.site import ExtractionRetrievalProvider
+
+    settings.EXTRACTION_MAXIMUM_REPORTS_COUNT = 5
+    LanguageFactory.create(code="en")
+    user = UserFactory.create(is_active=True)
+    group = GroupFactory.create()
+    user.groups.add(group)
+    user.active_group = group
+    user.save()
+    user.user_permissions.add(Permission.objects.get(codename="add_extractionjob"))
+    client.force_login(user)
+    monkeypatch.setattr(
+        forms_module,
+        "extraction_retrieval_provider",
+        ExtractionRetrievalProvider(
+            name="dummy",
+            count=lambda search: min(50, search.limit or 50),
+            retrieve=lambda _search: [],
+        ),
+    )
+
+    response = client.get("/extractions/jobs/new/search-preview/", {"1-query": "pneumonia"})
+
+    assert response.status_code == 200
+    content = response.content.decode()
+    assert "more than 5 reports" in content
+    assert "will be retrieved" not in content
+
+
+@pytest.mark.django_db
+def test_retry_of_a_job_that_failed_before_creating_tasks_reruns_preparation(
+    client: Client, django_capture_on_commit_callbacks
+):
+    """A job that failed while preparing (e.g. its search exceeded the maximum) has
+    no tasks to re-enqueue, so retrying it must queue the preparation again instead
+    of leaving it PENDING with nothing queued."""
+    from unittest.mock import patch
+
+    user = UserFactory.create(is_active=True)
+    job = create_test_extraction_job(owner=user)
+    job.status = ExtractionJob.Status.FAILURE
+    job.save()
+    client.force_login(user)
+
+    with (
+        patch.object(ExtractionJob, "delay", autospec=True) as mock_delay,
+        django_capture_on_commit_callbacks(execute=True),
+    ):
+        response = client.post(f"/extractions/jobs/{job.pk}/retry/")
+
+    assert response.status_code == 302
+    job.refresh_from_db()
+    assert job.status == ExtractionJob.Status.PENDING
+    mock_delay.assert_called_once()
+
+
+@pytest.mark.django_db
+def test_search_preview_refuses_an_empty_cohort(client: Client, monkeypatch):
+    """A search matching nothing is shown as a refusal, not as "0 reports will be
+    retrieved" with a green check mark."""
+    from radis.extractions import forms as forms_module
+    from radis.extractions.site import ExtractionRetrievalProvider
+
+    LanguageFactory.create(code="en")
+    user = UserFactory.create(is_active=True)
+    group = GroupFactory.create()
+    user.groups.add(group)
+    user.active_group = group
+    user.save()
+    user.user_permissions.add(Permission.objects.get(codename="add_extractionjob"))
+    client.force_login(user)
+    monkeypatch.setattr(
+        forms_module,
+        "extraction_retrieval_provider",
+        ExtractionRetrievalProvider(
+            name="dummy", count=lambda _search: 0, retrieve=lambda _search: []
+        ),
+    )
+
+    response = client.get("/extractions/jobs/new/search-preview/", {"1-query": "pneumonia"})
+
+    assert response.status_code == 200
+    content = response.content.decode()
+    assert "matches no reports" in content
+    assert "will be retrieved" not in content
