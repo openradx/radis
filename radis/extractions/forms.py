@@ -16,7 +16,7 @@ from radis.core.form_fields import (
 from radis.core.layouts import RangeSlider
 from radis.reports.models import Language, Modality
 from radis.search.site import Search, SearchFilters
-from radis.search.utils.query_parser import QueryParser
+from radis.search.utils.query_parser import QueryParser, QueryTooDeepError
 
 from .models import ExtractionJob, OutputField, OutputType
 from .site import extraction_retrieval_provider
@@ -108,7 +108,10 @@ class SearchForm(forms.ModelForm):
                 "A search query is required. "
                 "Please enter a query or go back to regenerate from fields."
             )
-        query_node, fixes = QueryParser().parse(query)
+        try:
+            query_node, fixes = QueryParser().parse(query)
+        except QueryTooDeepError as err:
+            raise forms.ValidationError(str(err)) from err
         if query_node is None:
             raise forms.ValidationError("Invalid query syntax")
         else:
