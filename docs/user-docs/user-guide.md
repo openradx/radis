@@ -119,6 +119,8 @@ Set up subscriptions to be notified when new reports match your criteria. RADIS 
 
 Only reports that arrive (or are updated) after the subscription was created are considered; existing reports are not searched retroactively.
 
+A subscription belongs to the group that was active when you created it and keeps collecting that group's reports even if you switch your active group later. The inbox always lists them, but a report only opens if it belongs to your active group, so you may need to switch back to that group. The report links in the notification mail work the same way. If you are removed from that group, the subscription pauses until you are a member again.
+
 #### Inbox
 
 The subscription list shows how many reports each subscription has collected, with a badge for reports you have not looked at yet. Click the count to open the inbox:

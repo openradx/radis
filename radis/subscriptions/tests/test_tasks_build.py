@@ -3,8 +3,9 @@
 - process_subscription_job: batching into SubscriptionTasks, report wiring,
   status transitions, last_refreshed update, and the missing-provider error
   branch.
-- subscription_launcher: one PREPARING job per subscription, and no new job
-  while one is still active.
+- subscription_launcher: one PREPARING job per subscription, no new job
+  while one is still active, and no job while the owner is not a member of
+  the subscription's group or is deactivated.
 
 The existing test_tasks.py already covers the "only enqueue after PENDING"
 invariant; these focus on the build/launch behaviour.
@@ -12,6 +13,7 @@ invariant; these focus on the build/launch behaviour.
 
 import pytest
 from adit_radis_shared.accounts.factories import GroupFactory, UserFactory
+from adit_radis_shared.common.utils.testing_helpers import add_user_to_group
 from django.core.exceptions import ImproperlyConfigured
 
 from radis.reports.factories import LanguageFactory, ReportFactory
@@ -172,13 +174,21 @@ def test_missing_filter_provider_raises(monkeypatch):
         process_subscription_job(int(job.pk))
 
 
+def _member_subscription():
+    """A subscription whose owner is a member of its group, as the create view
+    guarantees."""
+    subscription = SubscriptionFactory.create()
+    add_user_to_group(subscription.owner, subscription.group)
+    return subscription
+
+
 @pytest.mark.django_db
 def test_subscription_launcher_creates_one_preparing_job_per_subscription(monkeypatch):
     # The launcher schedules job.delay via transaction.on_commit; stub it out so
     # no real Procrastinate deferral happens.
     monkeypatch.setattr(SubscriptionJob, "delay", lambda self: None, raising=True)
 
-    subs = [SubscriptionFactory.create() for _ in range(3)]
+    subs = [_member_subscription() for _ in range(3)]
 
     assert SubscriptionJob.objects.count() == 0
     subscription_launcher(0)
@@ -196,7 +206,7 @@ def test_subscription_launcher_creates_one_preparing_job_per_subscription(monkey
 def test_subscription_launcher_skips_subscription_with_active_job(monkeypatch):
     monkeypatch.setattr(SubscriptionJob, "delay", lambda self: None, raising=True)
 
-    subscription = SubscriptionFactory.create()
+    subscription = _member_subscription()
     SubscriptionJobFactory.create(
         subscription=subscription,
         owner=subscription.owner,
@@ -207,6 +217,52 @@ def test_subscription_launcher_skips_subscription_with_active_job(monkeypatch):
 
     # No second job while one is still active.
     assert subscription.jobs.count() == 1
+
+
+@pytest.mark.django_db
+def test_subscription_launcher_ignores_which_group_the_owner_has_active(monkeypatch):
+    monkeypatch.setattr(SubscriptionJob, "delay", lambda self: None, raising=True)
+
+    subscription = _member_subscription()
+    add_user_to_group(subscription.owner, GroupFactory.create(), force_activate_group=True)
+    assert subscription.owner.active_group != subscription.group
+
+    subscription_launcher(0)
+
+    assert subscription.jobs.count() == 1
+
+
+@pytest.mark.django_db
+def test_subscription_launcher_skips_subscription_whose_owner_left_the_group(monkeypatch):
+    monkeypatch.setattr(SubscriptionJob, "delay", lambda self: None, raising=True)
+
+    subscription = _member_subscription()
+    last_refreshed = subscription.last_refreshed
+    subscription.owner.groups.remove(subscription.group)
+
+    subscription_launcher(0)
+
+    assert subscription.jobs.count() == 0
+    # The watermark must not move either, so the subscription resumes with the
+    # reports it missed once the owner is a member again.
+    subscription.refresh_from_db()
+    assert subscription.last_refreshed == last_refreshed
+
+
+@pytest.mark.django_db
+def test_subscription_launcher_skips_subscription_of_deactivated_owner(monkeypatch):
+    monkeypatch.setattr(SubscriptionJob, "delay", lambda self: None, raising=True)
+
+    subscription = _member_subscription()
+    last_refreshed = subscription.last_refreshed
+    subscription.owner.is_active = False
+    subscription.owner.save()
+
+    subscription_launcher(0)
+
+    assert subscription.jobs.count() == 0
+    subscription.refresh_from_db()
+    assert subscription.last_refreshed == last_refreshed
 
 
 @pytest.mark.django_db
