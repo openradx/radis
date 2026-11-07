@@ -19,6 +19,7 @@ from radis.pgsearch.tasks import (
     enqueue_embed_reports,
 )
 from radis.reports.factories import ReportFactory
+from radis.reports.models import Report
 
 
 @pytest.fixture
@@ -237,6 +238,35 @@ def test_embeds_in_internal_batches(settings):
     sizes = [len(call.args[0]) for call in fake.embed_documents.call_args_list]
     assert sorted(sizes) == [1, 2, 2]
     assert ReportSearchIndex.objects.filter(embedding__isnull=True).count() == 0
+
+
+def test_skips_embedding_when_report_changes_during_embedding(settings):
+    """A vector for the body read before an edit must never overwrite the edit."""
+    report = ReportFactory.create()
+    run = EmbeddingBackfillRun.objects.create(total_reports=1, triggered_by="test")
+    stale_vector = _unit_vec(settings.EMBEDDINGS_DIM)
+
+    def edit_report_then_return_vector(texts):
+        current = Report.objects.get(pk=report.pk)
+        current.body = "edited while the embedding request was in flight"
+        current.save()
+        return [stale_vector] * len(texts)
+
+    fake = MagicMock()
+    fake.__enter__ = MagicMock(return_value=fake)
+    fake.__exit__ = MagicMock(return_value=None)
+    fake.embed_documents = MagicMock(side_effect=edit_report_then_return_vector)
+
+    with patch("radis.pgsearch.tasks.EmbeddingClient", return_value=fake):
+        embed_reports_task([report.pk], run_id=run.pk)
+
+    report.refresh_from_db()
+    run.refresh_from_db()
+    assert report.body == "edited while the embedding request was in flight"
+    assert report.updated_at > report.created_at
+    assert ReportSearchIndex.objects.get(report=report).embedding is None
+    assert run.processed_reports == 0
+    assert run.finished_at is None
 
 
 def test_embed_chunk_with_retry_runs_through_gate_with_batch_budget(monkeypatch):
