@@ -1,14 +1,22 @@
-from django.db.models import Count, Exists, F, OuterRef, Q, QuerySet
+from django.db.models import Exists, F, OuterRef, QuerySet
 
 from radis.reports.models import Report
 
-from .models import GateAnswer, Label, LabelResult
+from .models import GateAnswer, Label, LabelGroup, LabelResult
 
 
-def _needs_work_queryset(active_group_count: int) -> QuerySet:
-    """Reports needing labeling work: missing/stale gate (condition A) OR a fresh YES
-    group with a missing/stale label result (condition B). Fresh means generated after
-    both the label-side updated_at and the report's updated_at."""
+def _needs_work_queryset() -> QuerySet:
+    """Reports with a missing/stale gate for an active group, or a missing/stale result
+    for an active label behind a fresh YES gate. Correlated EXISTS only, no aggregates."""
+    fresh_gate_for_group = GateAnswer.objects.filter(
+        report_id=OuterRef(OuterRef("pk")),
+        label_group_id=OuterRef("pk"),
+        generated_at__gte=OuterRef("updated_at"),
+    ).filter(generated_at__gte=OuterRef(OuterRef("updated_at")))
+    active_group_without_fresh_gate = LabelGroup.objects.filter(
+        Exists(Label.objects.filter(group_id=OuterRef("pk"), active=True))
+    ).filter(~Exists(fresh_gate_for_group))
+
     # Both predicates must match the SAME LabelResult row — otherwise a fresh result on
     # another report could mask this report's stale one.
     fresh_result_for_report = LabelResult.objects.filter(
@@ -22,21 +30,12 @@ def _needs_work_queryset(active_group_count: int) -> QuerySet:
         value=GateAnswer.Value.YES,
         generated_at__gte=F("label_group__updated_at"),
     ).filter(generated_at__gte=OuterRef(OuterRef("updated_at")))
-    return Report.objects.annotate(
-        non_stale_gate_count=Count(
-            "gate_answers",
-            filter=Q(
-                gate_answers__label_group__labels__active=True,
-                gate_answers__generated_at__gte=F("gate_answers__label_group__updated_at"),
-            )
-            & Q(gate_answers__generated_at__gte=F("updated_at")),
-            distinct=True,
-        ),
-    ).filter(
-        Q(non_stale_gate_count__lt=active_group_count)
-        | Exists(
-            Label.objects.filter(active=True)
-            .filter(Exists(fresh_yes_gate))
-            .filter(~Exists(fresh_result_for_report))
-        )
+    active_label_without_fresh_result = (
+        Label.objects.filter(active=True)
+        .filter(Exists(fresh_yes_gate))
+        .filter(~Exists(fresh_result_for_report))
+    )
+
+    return Report.objects.filter(
+        Exists(active_group_without_fresh_gate) | Exists(active_label_without_fresh_result)
     )

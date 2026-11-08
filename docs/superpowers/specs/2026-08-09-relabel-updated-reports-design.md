@@ -51,7 +51,7 @@ becomes a problem.
   freshness predicates gain `generated_at >= report.updated_at`:
   - `fresh_result_for_report`
   - `fresh_yes_gate`
-  - the `non_stale_gate_count` annotation filter
+  - the fresh-gate subquery of condition A
 - Consistency updates so tooling agrees with the engine:
   - `radis/labels/admin.py`: both `is_stale` displays (LabelResult, GateAnswer) add the
     report comparison.
