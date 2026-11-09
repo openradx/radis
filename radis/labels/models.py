@@ -24,14 +24,13 @@ def comparable_definition_value(value: object) -> object:
 
 
 class DefinitionTrackedModel(models.Model):
-    """Label-side object whose definition the LLM output depends on.
+    """Abstract base for Label and LabelGroup.
 
-    `definition_updated_at` moves only when a field in `DEFINITION_FIELDS` changes, text being
-    compared normalized; result staleness is measured against it. `updated_at` on the
-    subclasses is a plain audit timestamp: a no-op save or a change to any other field
-    invalidates nothing. Writes that bypass save() (QuerySet.update(), bulk_update(), loaddata)
-    skip this, exactly as they skip auto_now, and may store un-normalized text; the comparison
-    normalizes the stored side too, so it never depends on that.
+    Tracks when the definition the LLM depends on last changed. save() bumps
+    `definition_updated_at` only if a field named in `DEFINITION_FIELDS` differs from the stored
+    row (text is compared after normalization). Result staleness is measured against this field,
+    not against the auto_now `updated_at`. Like auto_now, it is not maintained by
+    QuerySet.update(), bulk_update() or loaddata.
     """
 
     DEFINITION_FIELDS: ClassVar[tuple[str, ...]] = ()
