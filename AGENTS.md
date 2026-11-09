@@ -324,6 +324,7 @@ reports = response.json()
 
 - Confirm the label exists and is `active`
 - Ensure a backfill has run or the periodic scan (`LABELING_SCAN_CRON`) has ticked since the label was created or the report was created/updated (any report update marks its labels stale and triggers re-labeling)
+- A label or group edit marks results stale only when its definition actually changed (`definition_updated_at`: a label's group, name or description; a group's name or gate question); a no-op save or an `active` toggle changes nothing. Results stale because of a definition change are regenerated only by a manual backfill, not by the periodic scan
 - Check the group gate was answered `YES` for the report (a `NO` gate skips per-label classification)
 - Verify the result is a surfacing bucket (`PRESENT`/`LIKELY`/`POSSIBLE`); `ABSENT`/`UNMENTIONED` never surface
 - Use `uv run cli shell` + `labels_status` (or `manage.py labels_status`) to inspect corpus-wide counts and the scan checkpoint
