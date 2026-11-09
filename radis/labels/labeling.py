@@ -48,7 +48,7 @@ def label_report(report_id: int) -> None:
         g
         for g in active_groups
         if g.id not in existing_gates
-        or existing_gates[g.id].generated_at < g.updated_at
+        or existing_gates[g.id].generated_at < g.definition_updated_at
         or existing_gates[g.id].generated_at < report.updated_at
     ]
     needing_ids = {g.id for g in groups_needing_gate}
@@ -105,8 +105,8 @@ def _run_label_set(client: LLMClient, report: Report, labels: list[Label]) -> No
 
 
 def _get_stale_or_missing_labels(report: Report, labels: list[Label]) -> list[Label]:
-    """Return labels whose LabelResult is missing or stale (generated before the label's or
-    the report's last update).
+    """Return labels whose LabelResult is missing or stale (generated before the label's
+    definition or the report last changed).
 
     One query answers both "should we run?" (non-empty) and "what to run?" (the list).
     A label that previously came back ABSENT/UNMENTIONED still has a fresh row → excluded.
@@ -115,7 +115,7 @@ def _get_stale_or_missing_labels(report: Report, labels: list[Label]) -> list[La
         LabelResult.objects.filter(
             report=report,
             label_id__in=[lbl.id for lbl in labels],
-            generated_at__gte=F("label__updated_at"),
+            generated_at__gte=F("label__definition_updated_at"),
         )
         .filter(generated_at__gte=report.updated_at)
         .values_list("label_id", flat=True)

@@ -284,3 +284,26 @@ def test_report_update_reruns_gate_even_when_previous_answer_was_no():
 
     assert len(client.gate_calls) == 1  # gate re-asked despite an existing NO answer
     assert client.label_calls == []
+
+
+@pytest.mark.django_db
+def test_noop_saves_of_group_and_label_trigger_no_llm_calls():
+    from radis.labels.labeling import label_report
+
+    report = ReportFactory.create(body="lungs clear")
+    group = LabelGroupFactory.create()
+    label = LabelFactory.create(group=group)
+    GateAnswerFactory.create(report=report, label_group=group, value="YES")
+    LabelResultFactory.create(report=report, label=label, value=LabelResult.Value.PRESENT)
+    group.save()
+    label.active = False
+    label.save()
+    label.active = True
+    label.save()
+
+    client = FakeChatClient()
+    with _patch_client(client):
+        label_report(report.pk)
+
+    assert client.gate_calls == []
+    assert client.label_calls == []

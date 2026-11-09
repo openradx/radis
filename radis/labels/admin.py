@@ -19,20 +19,20 @@ from .models import (
 
 @admin.register(LabelGroup)
 class LabelGroupAdmin(admin.ModelAdmin):
-    list_display = ("name", "gate_question", "updated_at")
+    list_display = ("name", "gate_question", "definition_updated_at", "updated_at")
     search_fields = ("name",)  # required for LabelAdmin autocomplete
     ordering = ("name",)
-    readonly_fields = ("updated_at",)
+    readonly_fields = ("definition_updated_at", "updated_at")
 
 
 @admin.register(Label)
 class LabelAdmin(admin.ModelAdmin):
     autocomplete_fields = ["group"]
-    list_display = ("name", "group", "active", "updated_at")
+    list_display = ("name", "group", "active", "definition_updated_at", "updated_at")
     list_filter = ("active", "group")
     search_fields = ("name", "group__name", "description")
     ordering = ("group__name", "name")
-    readonly_fields = ("created_at", "updated_at")
+    readonly_fields = ("created_at", "definition_updated_at", "updated_at")
 
 
 class _ReadOnlyAdmin(admin.ModelAdmin):
@@ -70,10 +70,7 @@ class GateAnswerAdmin(_ReadOnlyAdmin):
 
     @admin.display(boolean=True, description="Stale")
     def is_stale(self, obj: GateAnswer) -> bool:
-        return (
-            obj.generated_at < obj.label_group.updated_at
-            or obj.generated_at < obj.report.updated_at
-        )
+        return obj.is_stale
 
 
 @admin.register(LabelingScanCheckpoint)

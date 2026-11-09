@@ -165,3 +165,53 @@ def test_report_updated_after_result_needs_work_even_with_refreshed_gate():
     GateAnswer.objects.filter(pk=gate.pk).update(generated_at=timezone.now())
 
     assert report.pk in _ids()
+
+
+@pytest.mark.django_db
+def test_noop_label_save_keeps_report_out_of_scope():
+    group = LabelGroupFactory.create()
+    label = LabelFactory.create(group=group)
+    report = ReportFactory.create()
+    GateAnswerFactory.create(report=report, label_group=group, value=GateAnswer.Value.YES)
+    LabelResultFactory.create(report=report, label=label, value=LabelResult.Value.PRESENT)
+
+    label.save()
+    label.active = False
+    label.save()
+    label.active = True
+    label.save()
+    group.save()
+
+    assert report.pk not in _ids()
+
+
+@pytest.mark.django_db
+def test_group_rename_puts_report_in_scope():
+    group = LabelGroupFactory.create()
+    label = LabelFactory.create(group=group)
+    report = ReportFactory.create()
+    GateAnswerFactory.create(report=report, label_group=group, value=GateAnswer.Value.YES)
+    LabelResultFactory.create(report=report, label=label, value=LabelResult.Value.PRESENT)
+
+    group.name = "renamed"
+    group.save()
+
+    assert report.pk in _ids()
+
+
+@pytest.mark.django_db
+def test_noop_group_save_does_not_hide_a_stale_result():
+    """Condition B must keep comparing the gate against the group's definition timestamp: a
+    fresh YES gate plus a stale result stays in scope after a save that changes nothing."""
+    group = LabelGroupFactory.create()
+    label = LabelFactory.create(group=group)
+    report = ReportFactory.create()
+    GateAnswerFactory.create(report=report, label_group=group, value=GateAnswer.Value.YES)
+    LabelResultFactory.create(report=report, label=label, value=LabelResult.Value.PRESENT)
+    label.description = "edited"
+    label.save()
+    assert report.pk in _ids()
+
+    group.save()
+
+    assert report.pk in _ids()
