@@ -75,7 +75,7 @@ The report details page shows all metadata of a report (document ID, patient, st
 Administrators can define labels (e.g. "Pulmonary nodule" or "Fracture") that RADIS assigns to reports automatically using AI. Each label is classified as Present, Likely, or Possible when the report supports it; reports where the label is absent or not mentioned carry no badge.
 
 - Labels appear as badges on the report detail page, grouped by their label group. Hover over a badge to see whether the finding is Present, Likely, or Possible
-- A greyed-out badge means the report or the label definition changed since the label was assigned. A changed report is re-labeled by the next nightly run; a changed label definition is only refreshed when an administrator runs a backfill
+- A greyed-out badge means the report or the label definition (its name, description or group) changed since the label was assigned. A changed report is re-labeled by the next nightly run; a changed label definition is only refreshed when an administrator runs a backfill
 - Use the **Labels** filter in the search to find all reports carrying a label. Selecting several labels finds reports that carry any of them
 
 Labels cannot be edited by users. If a label seems wrong or missing, contact your administrator.
