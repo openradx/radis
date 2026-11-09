@@ -153,3 +153,29 @@ def test_raw_queue_row_delete_nulls_labeling_task_fk(settings):
     job.refresh_from_db()
     assert task.queued_job_id is None
     assert job.queued_job_id is None  # the job-level FK is covered by the same migration
+
+
+@pytest.mark.django_db
+def test_gate_answer_is_stale_after_report_update():
+    answer = GateAnswerFactory.create()
+    assert not answer.is_stale
+
+    answer.report.body = "changed"
+    answer.report.save()
+    answer.refresh_from_db()
+
+    assert answer.is_stale
+
+
+@pytest.mark.django_db
+def test_gate_answer_is_stale_after_gate_question_change_but_not_after_noop_save():
+    answer = GateAnswerFactory.create()
+
+    answer.label_group.save()
+    answer.refresh_from_db()
+    assert not answer.is_stale
+
+    answer.label_group.gate_question = "changed?"
+    answer.label_group.save()
+    answer.refresh_from_db()
+    assert answer.is_stale

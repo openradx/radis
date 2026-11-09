@@ -26,7 +26,7 @@ class Command(BaseCommand):
         for label in Label.objects.select_related("group").order_by("group__name", "name"):
             counts = {v.label: label.results.filter(value=v).count() for v in LabelResult.Value}
             stale = label.results.filter(
-                Q(generated_at__lt=F("label__updated_at"))
+                Q(generated_at__lt=F("label__definition_updated_at"))
                 | Q(generated_at__lt=F("report__updated_at"))
             ).count()
             summary = " · ".join(f"{n} {lbl}" for lbl, n in counts.items())
@@ -36,7 +36,7 @@ class Command(BaseCommand):
         for group in LabelGroup.objects.order_by("name"):
             gc = {v.label: group.gate_answers.filter(value=v).count() for v in GateAnswer.Value}
             gstale = group.gate_answers.filter(
-                Q(generated_at__lt=F("label_group__updated_at"))
+                Q(generated_at__lt=F("label_group__definition_updated_at"))
                 | Q(generated_at__lt=F("report__updated_at"))
             ).count()
             summary = " · ".join(f"{n} {lbl}" for lbl, n in gc.items())
