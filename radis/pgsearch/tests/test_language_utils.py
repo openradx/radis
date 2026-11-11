@@ -135,7 +135,9 @@ def test_get_available_search_configs_db_error_not_cached(monkeypatch):
             return [("english",)]
 
     language_utils._get_available_search_configs_cached.cache_clear()
-    monkeypatch.setattr(language_utils.connection, "cursor", lambda: FailingCursor())
+    # Patched once: `connection` is a proxy, and monkeypatch cannot undo two patches of the
+    # same attribute on it
+    cursors = iter([FailingCursor(), WorkingCursor()])
+    monkeypatch.setattr(language_utils.connection, "cursor", lambda: next(cursors))
     assert get_available_search_configs() == set()
-    monkeypatch.setattr(language_utils.connection, "cursor", lambda: WorkingCursor())
     assert get_available_search_configs() == {"english"}
