@@ -10,7 +10,7 @@ from procrastinate.contrib.django import app
 from radis.core.models import AnalysisJob, AnalysisTask
 from radis.reports.models import Report
 
-from .models import Label, LabelGroup, LabelingJob, LabelingScanCheckpoint, LabelingTask
+from .models import Label, LabelingJob, LabelingScanCheckpoint, LabelingTask
 from .scope import _needs_work_queryset
 
 logger = logging.getLogger(__name__)
@@ -19,8 +19,7 @@ logger = logging.getLogger(__name__)
 def _scope_queryset(job: LabelingJob) -> QuerySet:
     if job.scan_from is not None:  # SCAN job: recent window
         return Report.objects.filter(updated_at__gte=job.scan_from).order_by("pk")
-    active_group_count = LabelGroup.objects.filter(labels__active=True).distinct().count()
-    return _needs_work_queryset(active_group_count).order_by("pk")
+    return _needs_work_queryset().order_by("pk")
 
 
 def _flush_task(job: LabelingJob, report_ids: list[int]) -> None:

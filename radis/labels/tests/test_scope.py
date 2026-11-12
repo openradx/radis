@@ -6,18 +6,14 @@ from radis.labels.factories import (
     LabelGroupFactory,
     LabelResultFactory,
 )
-from radis.labels.models import GateAnswer, LabelGroup, LabelResult
+from radis.labels.models import GateAnswer, LabelResult
 from radis.reports.factories import ReportFactory
-
-
-def _active_group_count():
-    return LabelGroup.objects.filter(labels__active=True).distinct().count()
 
 
 def _ids():
     from radis.labels.scope import _needs_work_queryset
 
-    return list(_needs_work_queryset(_active_group_count()).values_list("pk", flat=True))
+    return list(_needs_work_queryset().values_list("pk", flat=True))
 
 
 @pytest.mark.django_db
@@ -119,18 +115,16 @@ def test_report_with_stale_gate_needs_work():
 
 @pytest.mark.django_db
 def test_report_with_one_fresh_gate_and_one_missing_gate_needs_work():
-    # Two active groups; gate answered for only one -> non_stale_gate_count (1) < count (2).
-    # Anchors the distinct=True rationale: the labels__active join must not inflate the count.
+    # Two active groups; gate answered for only one. group_a has two active labels so a
+    # fresh gate there must satisfy the group once, not stand in for group_b as well.
     group_a = LabelGroupFactory.create()
     LabelFactory.create(group=group_a)
-    LabelFactory.create(group=group_a)  # 2 active labels -> would inflate count without distinct
+    LabelFactory.create(group=group_a)
     group_b = LabelGroupFactory.create()
     LabelFactory.create(group=group_b)
     report = ReportFactory.create()
-    # Fresh NO gate for group_a only (counts as one non-stale gate); group_b has none.
     GateAnswerFactory.create(report=report, label_group=group_a, value=GateAnswer.Value.NO)
 
-    assert _active_group_count() == 2
     assert report.pk in _ids()
 
 
@@ -165,3 +159,32 @@ def test_report_updated_after_result_needs_work_even_with_refreshed_gate():
     GateAnswer.objects.filter(pk=gate.pk).update(generated_at=timezone.now())
 
     assert report.pk in _ids()
+
+
+@pytest.mark.django_db
+def test_gate_for_group_with_only_inactive_labels_is_not_required():
+    inactive_group = LabelGroupFactory.create()
+    LabelFactory.create(group=inactive_group, active=False)
+    active_group = LabelGroupFactory.create()
+    LabelFactory.create(group=active_group)
+    report = ReportFactory.create()
+    # Fresh gate for the active group only; the inactive group has none and needs none.
+    GateAnswerFactory.create(report=report, label_group=active_group, value=GateAnswer.Value.NO)
+
+    assert report.pk not in _ids()
+
+
+@pytest.mark.django_db
+def test_needs_work_query_has_no_aggregate():
+    """A COUNT over gate_answers compared to the active-group total makes the planner join
+    and group the whole corpus before the first row can stream to the task builder, instead
+    of probing each report's few gate rows by index. Checked on the SQL text, not the plan:
+    the planner may run an aggregate as HashAggregate or GroupAggregate, while the SQL
+    names it regardless of corpus size."""
+    from radis.labels.scope import _needs_work_queryset
+
+    sql, _ = _needs_work_queryset().query.sql_with_params()
+
+    assert "COUNT(" not in sql, sql
+    assert "GROUP BY" not in sql, sql
+    assert "HAVING" not in sql, sql
