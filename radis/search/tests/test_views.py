@@ -378,7 +378,8 @@ def test_search_view_threads_selected_labels_into_filters(client: Client) -> Non
         {"page": "0"},
         {"page": "-1"},
         {"page": "abc"},
-        {"age_from": "15"},
+        {"age_from": "-1"},
+        {"age_till": "121"},
         {"age_from": "abc", "age_till": "60"},
     ],
 )
@@ -432,8 +433,8 @@ def test_search_view_clamps_page_size(
 @pytest.mark.parametrize(
     ("params", "message"),
     [
-        ({"age_from": "15"}, "Age from must be a multiple of 10"),
-        ({"age_till": "65"}, "Age till must be a multiple of 10"),
+        ({"age_from": "-1"}, "Ensure this value is greater than or equal to 0."),
+        ({"age_till": "121"}, "Ensure this value is less than or equal to 120."),
         ({"age_from": "abc"}, "Enter a whole number."),
     ],
 )

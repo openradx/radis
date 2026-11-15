@@ -1,7 +1,6 @@
 import pytest
 from crispy_forms.layout import Field, Layout
 
-from radis.core.constants import AGE_STEP
 from radis.labels.factories import LabelFactory
 from radis.reports.factories import LanguageFactory
 from radis.search.forms import SearchForm
@@ -91,10 +90,10 @@ def test_labels_field_absent_from_layout_when_no_active_labels() -> None:
 @pytest.mark.parametrize(
     ("field", "value", "message"),
     [
-        ("age_from", "15", f"Age from must be a multiple of {AGE_STEP}"),
-        ("age_till", "65", f"Age till must be a multiple of {AGE_STEP}"),
         ("age_from", "abc", "Enter a whole number."),
         ("age_till", "abc", "Enter a whole number."),
+        ("age_from", "-1", "Ensure this value is greater than or equal to 0."),
+        ("age_till", "121", "Ensure this value is less than or equal to 120."),
     ],
 )
 def test_invalid_age_yields_form_error_instead_of_crashing(
@@ -105,6 +104,16 @@ def test_invalid_age_yields_form_error_instead_of_crashing(
 
     assert not form.is_valid()
     assert form.errors[field] == [message]
+
+
+@pytest.mark.django_db
+def test_ages_are_accepted_in_single_years() -> None:
+    """The age slider steps in single years, so any whole age within range is valid."""
+    form = SearchForm(data={"age_from": "15", "age_till": "65"})
+
+    assert form.is_valid(), form.errors
+    assert form.cleaned_data["age_from"] == 15
+    assert form.cleaned_data["age_till"] == 65
 
 
 @pytest.mark.django_db
