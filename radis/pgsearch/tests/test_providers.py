@@ -18,12 +18,16 @@ configs.
 """
 
 from datetime import timedelta
+from unittest.mock import patch
 
 import pytest
 from adit_radis_shared.accounts.factories import GroupFactory
 from django.core.cache import cache
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
+from radis.core.utils.model_spec import parse_model_spec
 from radis.pgsearch import providers
 from radis.pgsearch.models import ReportSearchIndex
 from radis.reports.factories import LanguageFactory, ReportFactory
@@ -292,7 +296,87 @@ def test_count_helper_matches_search_total():
         make_report(f"pneumonia variant {i}")
     make_report("unrelated normal study")
 
-    assert providers.count(_search(parse("pneumonia"))) == 3  # type: ignore[arg-type]
+    assert providers.count(_search(parse("pneumonia"), limit=None)) == 3  # type: ignore[arg-type]
+
+
+# ---------------------------------------------------------------------------
+# Extraction retrieval: every text match, no ranking, no candidate cap.
+# ---------------------------------------------------------------------------
+
+
+def test_count_and_retrieve_are_not_capped_by_the_search_candidate_pool(settings):
+    """The 10,000-candidate pool bounds what the search UI ranks, not what an
+    extraction job covers: with the pool set below the match count, count() and
+    retrieve() must still see every matching report."""
+    settings.SEARCH_FTS_MAX_RESULTS = 2
+    for i in range(3):
+        make_report(f"pneumonia variant {i}")
+
+    assert providers.count(_search(parse("pneumonia"), limit=None)) == 3  # type: ignore[arg-type]
+    assert len(list(providers.retrieve(_search(parse("pneumonia"), limit=None)))) == 3  # type: ignore[arg-type]
+
+
+def test_count_stops_at_the_search_limit():
+    """Callers that only need to know whether a cap is exceeded pass cap+1 as the
+    limit, so a query matching millions of reports is not counted in full."""
+    for i in range(3):
+        make_report(f"pneumonia variant {i}")
+
+    assert providers.count(_search(parse("pneumonia"), limit=2)) == 2  # type: ignore[arg-type]
+
+
+def test_count_does_not_order_the_rows_it_counts():
+    """With a bound, an ORDER BY would make PostgreSQL sort every match before
+    taking the first rows -- the full scan the bound exists to avoid."""
+    make_report("pneumonia")
+
+    with CaptureQueriesContext(connection) as queries:
+        providers.count(_search(parse("pneumonia"), limit=2))  # type: ignore[arg-type]
+
+    (count_sql,) = [q["sql"] for q in queries.captured_queries if "COUNT(" in q["sql"]]
+    assert "ORDER BY" not in count_sql
+
+
+def test_retrieve_honours_the_search_limit():
+    for i in range(3):
+        make_report(f"pneumonia variant {i}")
+
+    assert len(list(providers.retrieve(_search(parse("pneumonia"), limit=2)))) == 2  # type: ignore[arg-type]
+
+
+def test_retrieve_yields_document_ids_in_report_id_order():
+    reports = [make_report(f"pneumonia variant {i}") for i in range(3)]
+    expected = [r.document_id for r in sorted(reports, key=lambda r: r.pk)]
+
+    retrieved = list(providers.retrieve(_search(parse("pneumonia"), limit=None)))  # type: ignore[arg-type]
+
+    assert retrieved == expected
+
+
+def test_retrieve_excludes_a_negated_term():
+    """``A AND NOT B`` on the retrieve path is enforced by the tsquery itself."""
+    make_report("Findings: pneumothorax with a large pleural effusion.")
+    good = make_report("Findings: pneumothorax, otherwise unremarkable.")
+    request = _search(parse("pneumothorax AND NOT effusion"), limit=None)  # type: ignore[arg-type]
+
+    assert list(providers.retrieve(request)) == [good.document_id]
+
+
+def test_count_and_retrieve_leave_out_a_report_only_its_vector_would_find(settings):
+    """An extraction cohort is the text matches: a report whose embedding sits on the
+    query's vector but whose text lacks the words stays out, and no embedding is
+    requested to find out."""
+    settings.EMBEDDINGS_MODEL = parse_model_spec("qwen3")
+    report = make_report("Lungs are clear bilaterally.")
+    vector = [1.0] + [0.0] * (settings.EMBEDDINGS_DIM - 1)
+    ReportSearchIndex.objects.filter(report=report).update(embedding=vector)
+    request = _search(parse("pneumothorax"), limit=None)  # type: ignore[arg-type]
+
+    with patch("radis.pgsearch.providers.EmbeddingClient") as MockClient:
+        assert providers.count(request) == 0
+        assert list(providers.retrieve(request)) == []
+
+    assert MockClient.call_count == 0
 
 
 # ---------------------------------------------------------------------------

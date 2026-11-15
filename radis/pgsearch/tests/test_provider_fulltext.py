@@ -123,13 +123,13 @@ def test_hydration_skips_a_report_removed_from_the_group(group, corpus, embed):
     assert result.total_count == 3  # the cached count catches up when the entry expires
 
 
-def test_retrieve_skips_a_report_removed_from_the_group(group, corpus):
+def test_retrieve_and_count_follow_a_report_removed_from_the_group(group, corpus):
     request = _request("pneumothorax", group.pk)
-    list(retrieve(request))  # caches the keyword ranking
+    assert count(request) == 3
     corpus["near"].groups.remove(group)
 
     assert list(retrieve(request)) == [corpus["twice"].document_id, corpus["bare"].document_id]
-    assert count(request) == 3  # the cached count catches up when the entry expires
+    assert count(request) == 2
 
 
 @pytest.mark.parametrize("limit", [0, -1])
@@ -177,7 +177,7 @@ def test_the_cap_bounds_the_list_and_marks_a_lower_bound(group, corpus, embed, s
     assert _ids(result) == [corpus["twice"].document_id, corpus["near"].document_id]
     assert result.total_count == 2
     assert result.total_relation == "at_least"
-    assert count(request) == 2
+    assert count(request) == 3  # the cap bounds the search page, not an extraction cohort
 
     settings.SEARCH_FTS_MAX_RESULTS = 10_000  # the cap is part of the cache key
     assert search(request).total_relation == "exact"

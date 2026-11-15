@@ -5,10 +5,13 @@ from adit_radis_shared.accounts.factories import GroupFactory, UserFactory
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 
+from radis.extractions import forms as forms_module
 from radis.extractions.factories import ExtractionJobFactory
 from radis.extractions.forms import OutputFieldForm, SearchForm
 from radis.extractions.models import OutputField, OutputType
-from radis.reports.factories import LanguageFactory
+from radis.extractions.site import ExtractionRetrievalProvider
+from radis.reports.factories import LanguageFactory, ReportFactory
+from radis.search.site import Search
 
 
 @pytest.mark.django_db
@@ -251,12 +254,14 @@ def test_language_field_offers_all_and_is_the_default():
 def test_job_saved_with_no_language_persists_none():
     """Submitting the search step with 'All' selected must save language=None
     on the ExtractionJob rather than raising or falling back to some language."""
-    LanguageFactory.create(code="en")
+    english = LanguageFactory.create(code="en")
     user = UserFactory.create(is_active=True)
     group = GroupFactory.create()
     user.groups.add(group)
     user.active_group = group
     user.save()
+    # The form refuses a search matching nothing, so give the real provider a hit.
+    ReportFactory.create(body="Findings: pneumonia.", language=english).groups.add(group)
 
     data = {
         "title": "My Extraction",
@@ -282,3 +287,83 @@ def test_job_saved_with_no_language_persists_none():
     job.refresh_from_db()
 
     assert job.language is None
+
+
+def _user_with_active_group():
+    user = UserFactory.create(is_active=True)
+    group = GroupFactory.create()
+    user.groups.add(group)
+    user.active_group = group
+    user.save()
+    return user
+
+
+def _search_step_data() -> dict:
+    return {
+        "title": "My Extraction",
+        "query": "pneumonia",
+        "language": "",
+        "modalities": [],
+        "study_date_from": "",
+        "study_date_till": "",
+        "study_description": "",
+        "patient_sex": "",
+        "age_from": "",
+        "age_till": "",
+    }
+
+
+def _provider_matching(total: int, seen: list[Search]) -> ExtractionRetrievalProvider:
+    """A provider over ``total`` matching reports that counts the way the real one
+    does: up to the search's limit. Every search it is asked is appended to ``seen``."""
+
+    def count(search: Search) -> int:
+        seen.append(search)
+        return total if search.limit is None else min(total, search.limit)
+
+    return ExtractionRetrievalProvider(name="dummy", count=count, retrieve=lambda _search: [])
+
+
+@pytest.mark.django_db
+def test_search_form_counts_up_to_one_past_the_maximum(monkeypatch, settings):
+    """The form only needs to know whether the maximum is exceeded, so it bounds the
+    count at maximum + 1 instead of counting a huge cohort in full."""
+    settings.EXTRACTION_MAXIMUM_REPORTS_COUNT = 5
+    LanguageFactory.create(code="en")
+    seen: list[Search] = []
+    monkeypatch.setattr(forms_module, "extraction_retrieval_provider", _provider_matching(3, seen))
+
+    form = SearchForm(data=_search_step_data(), user=_user_with_active_group())
+
+    assert form.is_valid(), form.errors
+    assert form.cleaned_data["retrieval_count"] == 3
+    assert [search.limit for search in seen] == [6]
+
+
+@pytest.mark.django_db
+def test_search_form_rejects_search_matching_more_than_the_maximum(monkeypatch, settings):
+    settings.EXTRACTION_MAXIMUM_REPORTS_COUNT = 5
+    LanguageFactory.create(code="en")
+    monkeypatch.setattr(forms_module, "extraction_retrieval_provider", _provider_matching(50, []))
+
+    form = SearchForm(data=_search_step_data(), user=_user_with_active_group())
+
+    assert not form.is_valid()
+    (error,) = form.non_field_errors()
+    assert "more than 5 reports" in error
+    assert "refine" in error
+
+
+@pytest.mark.django_db
+def test_search_form_rejects_search_matching_no_reports(monkeypatch, settings):
+    """A job over an empty cohort would create no tasks and so never finish."""
+    settings.EXTRACTION_MAXIMUM_REPORTS_COUNT = 5
+    LanguageFactory.create(code="en")
+    monkeypatch.setattr(forms_module, "extraction_retrieval_provider", _provider_matching(0, []))
+
+    form = SearchForm(data=_search_step_data(), user=_user_with_active_group())
+
+    assert not form.is_valid()
+    (error,) = form.non_field_errors()
+    assert "matches no reports" in error
+    assert "broaden" in error

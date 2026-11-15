@@ -171,8 +171,7 @@ def _build_filter_query(filters: SearchFilters) -> Q:
     # traversal restores the join and the multi-second query shape it caused;
     # test_fts_candidate_query_is_single_table guards against that.
     #
-    # ``SearchView`` supplies ``group=active_group.pk``; the extraction preview may
-    # pass ``group=None`` when the user has no active group.
+    # Group-scoped access control; ``_group_query`` is fail-closed for ``None``.
     fq = _group_query(filters.group)
 
     # Apply hard filter criteria
@@ -319,6 +318,35 @@ def _embed_query_cached(query_text: str, caller: str) -> list[float] | None:
     return vec
 
 
+def _text_match_query(configs: list[tuple[str, list[str]]], tsqueries: dict[str, SearchQuery]) -> Q:
+    """Index rows matching the boolean tsquery. A document matches only under the
+    configuration it was indexed with."""
+    match_q = Q()
+    for config, codes in configs:
+        match_q |= Q(language_code__in=codes, search_vector=tsqueries[config])
+    return match_q
+
+
+def _text_match_queryset(request: FullTextSearch):
+    """Every index row whose text matches the boolean query and the filters, in
+    report id order. Extraction needs the complete cohort, so unlike full-text mode
+    there is no ranking and no candidate cap."""
+    configs = _language_configs(request.filters)
+    # An empty corpus (Report.language is a required FK) has no configurations,
+    # and an empty match_q would match every row rather than none.
+    if not configs:
+        return ReportSearchIndex.objects.none()
+    query_str = _build_query_string(request.query)
+    tsqueries = {
+        config: SearchQuery(query_str, search_type="raw", config=config) for config, _ in configs
+    }
+    return (
+        ReportSearchIndex.objects.filter(_build_filter_query(request.filters))
+        .filter(_text_match_query(configs, tsqueries))
+        .order_by("report_id")
+    )
+
+
 def _fts_candidate_queryset(filter_query: Q, configs: list[tuple[str, list[str]]], query_str: str):
     """The FTS candidate query: the single-table scan this whole design exists for.
 
@@ -333,11 +361,7 @@ def _fts_candidate_queryset(filter_query: Q, configs: list[tuple[str, list[str]]
     tsqueries = {
         config: SearchQuery(query_str, search_type="raw", config=config) for config, _ in configs
     }
-
-    # A document matches only under the configuration it was indexed with.
-    match_q = Q()
-    for config, codes in configs:
-        match_q |= Q(language_code__in=codes, search_vector=tsqueries[config])
+    match_q = _text_match_query(configs, tsqueries)
 
     # Rank strictly under the document's own configuration. Do not swap this for
     # Greatest over all configurations: a foreign config's ts_rank is not
@@ -684,22 +708,23 @@ def search(request: SearchRequest) -> SearchResult:
     )
 
 
+def _sliced(queryset, request: Search):
+    if request.limit is None:
+        return queryset[request.offset :]
+    return queryset[request.offset : request.offset + request.limit]
+
+
 def count(request: FullTextSearch) -> int:
-    return len(_keyword_ranking(request).ids)
+    """Number of reports retrieve() yields, counting at most ``request.limit`` of
+    them (None counts all). No ordering: with a bound, an ORDER BY would make
+    PostgreSQL sort every match before taking the first rows."""
+    queryset = _text_match_queryset(request).order_by().values("report_id")
+    return _sliced(queryset, request).count()
 
 
 def retrieve(request: FullTextSearch) -> Iterator[str]:
-    ordered_ids = _keyword_ranking(request).ids
-    if not ordered_ids:
-        return iter([])
-    # The cached ids may predate a group change; as on the search page, the group
-    # predicate keeps a report removed from the group out at once.
-    id_to_doc = dict(
-        ReportSearchIndex.objects.filter(report_id__in=ordered_ids)
-        .filter(_group_query(request.filters.group))
-        .values_list("report_id", "report__document_id")
-    )
-    return (id_to_doc[rid] for rid in ordered_ids if rid in id_to_doc)
+    queryset = _text_match_queryset(request).values_list("report__document_id", flat=True)
+    return _sliced(queryset, request).iterator()
 
 
 def filter(filter: SearchFilters) -> Iterator[str]:

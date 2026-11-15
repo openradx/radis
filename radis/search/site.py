@@ -77,7 +77,8 @@ class Search:
     """Inputs every search mode shares.
 
     ``offset`` and ``limit`` slice the documents a search returns; its total count does
-    not depend on them, so a limit of 0 asks for the count alone.
+    not depend on them, so a limit of 0 asks for the count alone. A limit of None means
+    no limit. An extraction retrieval provider counts at most ``limit`` reports.
     """
 
     filters: SearchFilters

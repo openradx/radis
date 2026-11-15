@@ -125,6 +125,8 @@ Set up subscriptions to be notified when new reports match your criteria. RADIS 
 
 Only reports that arrive (or are updated) after the subscription was created are considered; existing reports are not searched retroactively.
 
+A subscription belongs to the group that was active when you created it and keeps collecting that group's reports even if you switch your active group later. The inbox always lists them, but a report only opens if it belongs to your active group, so you may need to switch back to that group. The report links in the notification mail work the same way. If you are removed from that group, the subscription pauses until you are a member again.
+
 #### Inbox
 
 The subscription list shows how many reports each subscription has collected, with a badge for reports you have not looked at yet. Click the count to open the inbox:
@@ -147,7 +149,7 @@ Extraction jobs let you pull structured data out of many reports at once. Creati
 - **Output Type**: Text, Numeric, Boolean, or Selection. For Selection, enter the allowed options (up to seven)
 - The **`[ ]` toggle** next to the type switches the field to an array, so multiple values of that type are returned per report (e.g. a list of all affected vertebrae)
 
-**Step 2 – Search query.** Enter a job title. Unless your administrator has turned this off, RADIS generates a search query from your field descriptions, which you can edit or replace. Apply filters (Language, Modalities, Study Date, Study Description, Patient Sex, Age Range) to narrow down the reports. A live counter shows how many reports the job will process; a job may cover at most 25,000 reports. Click "Preview Search Results" to open the matching reports in the regular search view in a new tab.
+**Step 2 – Search query.** Enter a job title. Unless your administrator has turned this off, RADIS generates a search query from your field descriptions, which you can edit or replace. Apply filters (Language, Modalities, Study Date, Study Description, Patient Sex, Age Range) to narrow down the reports. A live counter shows how many reports the job will process. A job may cover at most 25,000 reports (your administrator may have set a different limit); a search matching more is refused, so narrow it down until the counter shows a number. A search matching no reports is refused as well, since there would be nothing to extract. Unlike the regular search, an extraction job covers exactly the reports whose text matches the query — no semantically similar reports are added. Click "Preview Search Results" to open the matching reports in the regular search view in a new tab.
 
 **Step 3 – Review & submit.** Check the summary, optionally tick "Notify me via Email when job is finished", and click "Create Extraction Job".
 
