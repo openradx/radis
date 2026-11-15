@@ -2,9 +2,7 @@
 {% load static from static %}
 {% block css %}
     {{ block.super }}
-    <link rel="stylesheet"
-          type="text/css"
-          href="{% static 'notes/notes.css' %}" />
+    <link rel="stylesheet" href="{% static 'notes/notes.css' %}" />
 {% endblock css %}
 {% block script %}
     {{ block.super }}

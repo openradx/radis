@@ -266,7 +266,6 @@ def test_process_extraction_job_creates_tasks_and_instances_in_batches(monkeypat
         name="dummy",
         count=lambda _s: len(doc_ids),
         retrieve=lambda _s: doc_ids,
-        max_results=100,
     )
     monkeypatch.setattr(extraction_site, "extraction_retrieval_provider", provider)
     # Don't actually enqueue (no procrastinate).

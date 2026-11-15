@@ -72,3 +72,4 @@ venv/
 
 # Project specific stuff
 /models/
+/.claude/worktrees/

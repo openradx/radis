@@ -7,6 +7,10 @@ repo_name: openradx/radis
 repo_url: https://github.com/openradx/radis
 edit_uri: edit/main/docs/
 
+# Design notes and implementation plans are not part of the published docs.
+exclude_docs: |
+  superpowers/
+
 theme:
   name: material
   palette:

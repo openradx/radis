@@ -204,6 +204,14 @@ REGISTRATION_FORM = "adit_radis_shared.accounts.forms.RegistrationForm"
 ACCOUNT_ACTIVATION_DAYS = 14
 REGISTRATION_OPEN = True
 
+# The mailers available for sending email, overridden per environment.
+MAILERS = {
+    "default": {
+        "BACKEND": "django.core.mail.backends.smtp.EmailBackend",
+        "OPTIONS": {"host": "localhost", "port": 25},
+    },
+}
+
 EMAIL_SUBJECT_PREFIX = "[RADIS] "
 
 # An Email address used by the RADIS server to notify about finished jobs and
@@ -530,9 +538,41 @@ EMBEDDINGS_TASK_MAX_ATTEMPTS = 5
 EMBEDDINGS_TASK_EXPONENTIAL_WAIT_SECONDS = 6
 
 # Hybrid search tuning
-HYBRID_VECTOR_TOP_K = 100
 HYBRID_FTS_MAX_RESULTS = 10_000
 HYBRID_RRF_K = 60
+# The vector half of the fusion is whatever a single HNSW beam pass emits — there
+# is deliberately no separate app-level top-K. hnsw.ef_search is pgvector's beam
+# width and at the same time a hard cap on the rows one index scan emits (default
+# 40, server maximum 1000), so this one setting governs the depth of the semantic
+# side directly. The group/language/negation filters are applied to the emitted
+# candidates afterwards, so the semantic list is the accessible subset of roughly
+# the ef_search nearest reports corpus-wide and shrinks under selective filters.
+# No iterative scan to top it back up: one uniform relevance bar for every group,
+# and one bounded pass instead of digging through up to hnsw.max_scan_tuples
+# inaccessible neighbours — measured on 1.7M reports, merely enabling
+# strict_order cost ~2.4x unfiltered, while below ~5% filter selectivity the
+# scan budget ran out before filling a quota anyway.
+HYBRID_HNSW_EF_SEARCH = _optional_env("HYBRID_HNSW_EF_SEARCH", int, 500)
+if not 1 <= HYBRID_HNSW_EF_SEARCH <= 1000:
+    raise ImproperlyConfigured(
+        f"HYBRID_HNSW_EF_SEARCH={HYBRID_HNSW_EF_SEARCH} must be between 1 and 1000, "
+        "the server's valid hnsw.ef_search range."
+    )
+# Attached as a libpq connection option rather than as a database- or server-level
+# default, so the app carries the setting into every environment it connects to
+# (dev, tests, CI, a restored database); production.py extends this dict the same
+# way for the database password.
+DATABASES["default"].setdefault("OPTIONS", {})["options"] = (
+    f"-c hnsw.ef_search={HYBRID_HNSW_EF_SEARCH}"
+)
+# How long a query's fused RRF union (ordered ids and scores) stays cached, in
+# seconds. Pagination re-runs the whole fusion for every page, and ranking every
+# FTS match of a common term costs seconds on a large corpus, so page 2..n and
+# repeated searches reuse the cached union instead. The trade is freshness:
+# reports created or updated within the TTL appear in a cached query's results
+# only after it expires. 0 disables the cache. Degraded FTS-only results
+# (configured embedding model, no vector) are never cached.
+HYBRID_FUSED_CACHE_TIMEOUT_SECONDS = _optional_env("HYBRID_FUSED_CACHE_TIMEOUT_SECONDS", int, 300)
 
 # Chat
 CHAT_GENERATE_TITLE_SYSTEM_PROMPT = """
@@ -664,8 +704,9 @@ $fields
 
 Generate the search query:"""
 
-# The maximum number of reports that can be extracted by one extraction job.
-EXTRACTION_MAXIMUM_REPORTS_COUNT = 25000
+# The maximum number of reports one extraction job may cover. The wizard refuses a
+# search matching more, and preparing the job checks again.
+EXTRACTION_MAXIMUM_REPORTS_COUNT = _optional_env("EXTRACTION_MAXIMUM_REPORTS_COUNT", int, 25000)
 
 # The maximum number of enumerated options a Selection output field may define.
 EXTRACTION_MAX_SELECTION_OPTIONS = 7

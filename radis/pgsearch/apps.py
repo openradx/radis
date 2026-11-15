@@ -157,9 +157,7 @@ def register_app():
     from radis.search.site import SearchProvider, register_search_provider
     from radis.subscriptions.site import (
         SubscriptionFilterProvider,
-        SubscriptionRetrievalProvider,
         register_subscription_filter_provider,
-        register_subscription_retrieval_provider,
     )
 
     from .providers import count, filter, retrieve, search
@@ -172,8 +170,9 @@ def register_app():
             name="PG Search",
             search=search,
             # Deliberate cap on how many fused RRF results are paginated for
-            # viewing — not the true union size.
-            max_results=max(settings.HYBRID_VECTOR_TOP_K, settings.HYBRID_FTS_MAX_RESULTS),
+            # viewing — not the true union size (the vector side can add up to
+            # a beam pass of semantic-only results beyond the FTS matches).
+            max_results=settings.HYBRID_FTS_MAX_RESULTS,
         )
     )
 
@@ -182,16 +181,9 @@ def register_app():
             name="PG Search",
             count=count,
             retrieve=retrieve,
-            max_results=None,
         )
     )
 
-    register_subscription_retrieval_provider(
-        SubscriptionRetrievalProvider(
-            name="PG Search",
-            retrieve=retrieve,
-        )
-    )
     register_subscription_filter_provider(
         SubscriptionFilterProvider(
             name="PG Search",

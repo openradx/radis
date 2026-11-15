@@ -15,13 +15,6 @@
         <div>
             {% bootstrap_icon "check-circle" %}
             <strong>{{ count }} report{{ count|pluralize }}</strong> will be retrieved
-            {% if count > max_reports_limit %}
-                <br />
-                <small class="text-danger">
-                    {% bootstrap_icon "exclamation-triangle" %}
-                    This exceeds the maximum limit of {{ max_reports_limit }} reports. Please refine your query.
-                </small>
-            {% endif %}
         </div>
         {% if search_url %}
             <a href="{{ search_url }}"
