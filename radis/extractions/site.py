@@ -9,17 +9,16 @@ class ExtractionRetrievalProvider(NamedTuple):
 
     Attributes:
     - name: The name of the retrieval provider.
-    - count: A function that counts the number of results for a search.
-    - retrieve: A function that retrieves the document IDs
-      for a search.
-    - max_results: The maximum number of results that can be retrieved by this
-      provider, or None if there is no limit.
+    - count: Counts the reports retrieve() yields for a search, at most
+      ``Search.limit`` of them (None counts all). Callers pass one past the
+      maximum they accept, so an over-large cohort is not counted in full.
+    - retrieve: Yields the document IDs of every report matching a search, or
+      the first ``Search.limit`` of them when a limit is set.
     """
 
     name: str
     count: Callable[[Search], int]
     retrieve: Callable[[Search], Iterable[str]]
-    max_results: int | None
 
 
 extraction_retrieval_provider: ExtractionRetrievalProvider | None = None

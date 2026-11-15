@@ -198,28 +198,19 @@ def test_empty_summary_falls_back_to_body_head(group, settings):
     assert "<em>" not in doc.summary
 
 
-def test_retrieve_returns_hybrid_ordered_document_ids(group, reports_with_embeddings, settings):
+def test_retrieve_returns_text_matches_only_and_never_embeds(
+    group, reports_with_embeddings, settings
+):
+    """Extraction wants the cohort whose text matches the query, not the ranked
+    hybrid union: the vector-only neighbour r1 stays out even with an embedding
+    model configured, and no embedding call is made at all."""
     r0, r1, r2 = reports_with_embeddings
-    dim = settings.EMBEDDINGS_DIM
     with patch("radis.pgsearch.providers.EmbeddingClient") as MockClient:
-        MockClient.return_value.__enter__.return_value = MockClient.return_value
-        MockClient.return_value.__exit__.return_value = None
-        MockClient.return_value.embed_query.return_value = _unit_vec(0, dim)
         doc_ids = list(retrieve(_make_search("pneumothorax", group.pk)))
 
-    # r2 (both sides) first, then any order containing r0 and r1.
-    assert doc_ids[0] == r2.document_id
-    assert set(doc_ids) >= {r0.document_id, r1.document_id, r2.document_id}
-
-
-def test_retrieve_falls_back_to_fts_on_embedding_error(group, reports_with_embeddings):
-    r0, _, r2 = reports_with_embeddings
-    with patch("radis.pgsearch.providers.EmbeddingClient") as MockClient:
-        MockClient.return_value.__enter__.return_value = MockClient.return_value
-        MockClient.return_value.__exit__.return_value = None
-        MockClient.return_value.embed_query.side_effect = EmbeddingClientError("down")
-        doc_ids = list(retrieve(_make_search("pneumothorax", group.pk)))
-    assert set(doc_ids) == {r0.document_id, r2.document_id}
+    assert MockClient.call_count == 0
+    assert doc_ids == [r.document_id for r in sorted((r0, r2), key=lambda r: r.pk)]
+    assert r1.document_id not in doc_ids
 
 
 def test_documents_carry_cosine_distance_and_rrf_score(group, reports_with_embeddings, settings):
@@ -373,25 +364,16 @@ def test_search_excludes_negated_term_from_vector_candidates(group, settings):
     assert r_good.document_id in ids
 
 
-def test_retrieve_excludes_negated_term_from_vector_candidates(group, settings):
-    """`A AND NOT B` on the retrieve path: extraction/subscription consumers
-    must not receive a B-containing doc that leaked in via the vector half."""
-    dim = settings.EMBEDDINGS_DIM
-    r_leak = _make_report(body="Findings: pneumothorax with a large pleural effusion.")
-    r_leak.groups.add(group)
-    ReportSearchIndex.objects.filter(report=r_leak).update(embedding=_unit_vec(0, dim))
+def test_retrieve_excludes_negated_term(group):
+    """`A AND NOT B` on the retrieve path is enforced by the tsquery itself."""
+    r_excluded = _make_report(body="Findings: pneumothorax with a large pleural effusion.")
+    r_excluded.groups.add(group)
     r_good = _make_report(body="Findings: pneumothorax, otherwise unremarkable.")
     r_good.groups.add(group)
-    ReportSearchIndex.objects.filter(report=r_good).update(embedding=_unit_vec(1, dim))
 
-    with patch("radis.pgsearch.providers.EmbeddingClient") as MockClient:
-        MockClient.return_value.__enter__.return_value = MockClient.return_value
-        MockClient.return_value.__exit__.return_value = None
-        MockClient.return_value.embed_query.return_value = _unit_vec(0, dim)
-        doc_ids = list(retrieve(_make_search("pneumothorax AND NOT effusion", group.pk)))
+    doc_ids = list(retrieve(_make_search("pneumothorax AND NOT effusion", group.pk)))
 
-    assert r_leak.document_id not in doc_ids
-    assert r_good.document_id in doc_ids
+    assert doc_ids == [r_good.document_id]
 
 
 def test_or_nested_negation_is_not_excluded_globally(group, settings):
@@ -415,13 +397,10 @@ def test_or_nested_negation_is_not_excluded_globally(group, settings):
     assert r_or.document_id in ids
 
 
-def test_count_matches_retrieve_union_for_semantic_only_query(group, settings):
-    """count() must equal the size of retrieve()'s hybrid union. A vector-only
-    hit (no FTS match) would otherwise be counted as 0, letting the extraction
-    max-reports guard pass while retrieve() still yields the report."""
+def test_count_and_retrieve_ignore_vector_only_hits(group, settings):
+    """A report that only the vector side would find is not part of an
+    extraction cohort, so count() and retrieve() agree on leaving it out."""
     dim = settings.EMBEDDINGS_DIM
-    # Body does not lexically contain "pneumothorax" -> FTS misses it; the
-    # embedding sits on the query vector -> it is a vector hit.
     r = _make_report(body="lungs are clear bilaterally")
     r.groups.add(group)
     ReportSearchIndex.objects.filter(report=r).update(embedding=_unit_vec(0, dim))
@@ -434,9 +413,8 @@ def test_count_matches_retrieve_union_for_semantic_only_query(group, settings):
         cnt = count(s)
         ids = list(retrieve(s))
 
-    assert cnt == len(ids)
-    assert r.document_id in ids
-    assert cnt >= 1
+    assert cnt == 0
+    assert ids == []
 
 
 def test_openai_rate_limit_error_falls_back_to_fts(group, reports_with_embeddings):
@@ -475,24 +453,6 @@ def test_rate_limited_falls_back_to_fts(group, reports_with_embeddings):
 
     ids = [d.document_id for d in result.documents]
     assert set(ids) == {r0.document_id, r2.document_id}
-
-
-def test_openai_rate_limit_error_in_retrieve_falls_back_to_fts(group, reports_with_embeddings):
-    """Same parallel for retrieve()."""
-    import httpx2
-    import openai
-
-    r0, _, r2 = reports_with_embeddings
-    response = httpx2.Response(429, request=httpx2.Request("POST", "http://x"))
-    rate_limit_exc = openai.RateLimitError(message="slow down", response=response, body=None)
-    with patch("radis.pgsearch.providers.EmbeddingClient") as MockClient:
-        MockClient.return_value.__enter__.return_value = MockClient.return_value
-        MockClient.return_value.__exit__.return_value = None
-        MockClient.return_value.embed_query.side_effect = rate_limit_exc
-        result = retrieve(_make_search("pneumothorax", group.pk))
-
-    # No exception escaped; FTS-only retrieve returned something.
-    assert result is not None
 
 
 def test_connection_carries_hnsw_gucs(db, settings):

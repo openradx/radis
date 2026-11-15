@@ -73,14 +73,12 @@ class SearchFilters:
 class Search(NamedTuple):
     """A class representing a search.
 
-    If both offset and limit are set to 0, then the search provider
-    should return the most accurate total count it can calculate.
-
     Attributes:
     - query: The query to search.
     - filters: The filters to apply to the search.
     - offset: The offset of the search results.
-    - limit: The size limit of the search results.
+    - limit: The size limit of the search results, or None for no limit. An
+      extraction retrieval provider's count() also stops counting at the limit.
     """
 
     query: QueryNode

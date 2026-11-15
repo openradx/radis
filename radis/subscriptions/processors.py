@@ -3,7 +3,6 @@ from concurrent.futures import Future, ThreadPoolExecutor
 from string import Template
 from typing import Any
 
-from adit_radis_shared.common.types import User
 from django import db
 from django.conf import settings
 
@@ -36,13 +35,15 @@ class SubscriptionTaskProcessor(AnalysisTaskProcessor):
         self.client = LLMClient("subscriptions")
 
     def process_task(self, task: SubscriptionTask) -> None:
-        user: User = task.job.owner
-        active_group = user.active_group
+        # The subscription's group defines the scope. The owner's active group
+        # is a per-session choice that may have changed, or been cleared, by
+        # the time this background task runs.
+        group = task.job.subscription.group
 
         futures: list[Future] = []
         with ThreadPoolExecutor(max_workers=settings.EXTRACTION_LLM_CONCURRENCY_LIMIT) as executor:
             try:
-                for report in task.reports.filter(groups=active_group):
+                for report in task.reports.filter(groups=group):
                     future = executor.submit(self.process_report, report, task)
                     futures.append(future)
 

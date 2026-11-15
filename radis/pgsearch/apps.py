@@ -181,7 +181,6 @@ def register_app():
             name="PG Search",
             count=count,
             retrieve=retrieve,
-            max_results=None,
         )
     )
 

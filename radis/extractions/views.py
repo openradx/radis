@@ -47,7 +47,6 @@ from radis.core.views import (
     AnalysisTaskResetView,
     BaseUpdatePreferencesView,
 )
-from radis.search.site import Search, SearchFilters
 from radis.search.utils.query_parser import QueryParser
 
 from .filters import ExtractionInstanceFilter, ExtractionJobFilter, ExtractionTaskFilter
@@ -58,7 +57,6 @@ from .forms import (
 )
 from .mixins import ExtractionsLockedMixin
 from .models import ExtractionInstance, ExtractionJob, ExtractionTask
-from .site import extraction_retrieval_provider
 from .tables import (
     ExtractionInstanceTable,
     ExtractionJobTable,
@@ -383,14 +381,12 @@ class ExtractionSearchPreviewView(LoginRequiredMixin, PermissionRequiredMixin, V
                 "count": None,
                 "search_url": None,
                 "error": error,
-                "max_reports_limit": settings.EXTRACTION_MAXIMUM_REPORTS_COUNT,
             }
             return render(request, "extractions/_search_preview.html", context)
 
         # Extract validated data from form
         # Note: query already validated by clean_query() including QueryParser!
         query_str = form.cleaned_data["query"]
-        query_node = form.cleaned_data["query_node"]  # QueryNode object
         language = form.cleaned_data["language"]  # Language object or None
         modalities = form.cleaned_data["modalities"]  # QuerySet[Modality]
         study_date_from = form.cleaned_data["study_date_from"]  # date object or None
@@ -404,48 +400,8 @@ class ExtractionSearchPreviewView(LoginRequiredMixin, PermissionRequiredMixin, V
         language_code = language.code if language else ""
         modality_codes = list(modalities.values_list("code", flat=True))
 
-        # Get active group (user already cast above)
-        active_group = user.active_group
-
-        # Build Search object
-        search = Search(
-            query=query_node,
-            offset=0,
-            limit=0,
-            filters=SearchFilters(
-                group=active_group.pk if active_group else None,
-                language=language_code,  # Converted from Language object
-                modalities=modality_codes,  # Converted from QuerySet
-                study_date_from=study_date_from,  # Already date object from form
-                study_date_till=study_date_till,  # Already date object from form
-                study_description=study_description,
-                patient_sex=patient_sex,
-                patient_age_from=age_from,  # Already int from form
-                patient_age_till=age_till,  # Already int from form
-            ),
-        )
-
-        # Calculate count
-        if extraction_retrieval_provider is None:
-            context = {
-                "count": None,
-                "search_url": None,
-                "error": "Extraction retrieval provider is not configured",
-                "max_reports_limit": settings.EXTRACTION_MAXIMUM_REPORTS_COUNT,
-            }
-            return render(request, "extractions/_search_preview.html", context)
-
-        try:
-            retrieval_count = extraction_retrieval_provider.count(search)
-        except Exception:
-            logger.exception("Search preview count failed")
-            context = {
-                "count": None,
-                "search_url": None,
-                "error": "Failed to compute the report count. Please try again.",
-                "max_reports_limit": settings.EXTRACTION_MAXIMUM_REPORTS_COUNT,
-            }
-            return render(request, "extractions/_search_preview.html", context)
+        # Counted during validation, which also refuses a cohort above the maximum.
+        retrieval_count = form.cleaned_data["retrieval_count"]
 
         # Generate search URL with codes (FIX: use codes not PKs!)
         search_params: dict[str, str | list[str]] = {"query": query_str}
@@ -481,7 +437,6 @@ class ExtractionSearchPreviewView(LoginRequiredMixin, PermissionRequiredMixin, V
             "count": retrieval_count,
             "search_url": search_url,
             "error": None,
-            "max_reports_limit": settings.EXTRACTION_MAXIMUM_REPORTS_COUNT,
         }
         return render(request, "extractions/_search_preview.html", context)
 

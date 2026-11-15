@@ -348,7 +348,7 @@ Jobs created by regular users start in the **Unverified** state and are not proc
 2. **View Details**: Click on a job to see its owner and group, query and filters, status and message, and its output fields
 3. **Extraction tasks** show the individual batches of a job together with the extracted data per report
 
-Each job may cover at most 25,000 reports; the wizard refuses larger result sets.
+Each job may cover at most `EXTRACTION_MAXIMUM_REPORTS_COUNT` reports (default 25,000); the wizard refuses a search matching more. A job of a regular user may wait for verification while the archive grows, so preparing it checks the limit again and fails the job with a message if the search has outgrown it, or if its reports have meanwhile been deleted and it matches nothing; retrying the job repeats the check. The reports of a job are every report whose text matches the query and filters, retrieved without ranking; the hybrid ranking and its candidate cap apply to the search page only.
 
 ### Urgent Priority
 
@@ -366,7 +366,7 @@ Subscriptions are refreshed at the top of every hour. Each refresh looks at the 
 
 The subscription list only shows a user's own subscriptions. Staff users can still open any user's inbox and its CSV export by URL (the subscription ID is shown in Django Admin).
 
-A refresh only considers reports of the owner's **current** active group, not the group the subscription was created in. A subscription silently stops collecting reports while its owner has another group active.
+A refresh only considers reports of the group the subscription was created in. The owner's current active group has no effect on it, so a subscription keeps collecting reports while its owner has another group (or none) active. What matters is membership: a subscription whose owner has been removed from its group is skipped by the hourly refresh and resumes, with the reports it missed meanwhile, once the owner is a member again. The same happens while the owner's account is deactivated. Reports already collected stay in the inbox. Delete the subscription in Django Admin if it should stop for good or its inbox should go.
 
 ## Background Workers and Crash Recovery
 
