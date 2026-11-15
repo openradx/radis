@@ -28,7 +28,8 @@ class SearchView(LoginRequiredMixin, UserPassesTestMixin, View):
         if not form.is_valid():
             return render(request, "search/search.html", context)
 
-        query = form.cleaned_data["query"]
+        query_node = form.cleaned_data["query_node"]
+        fixes = form.cleaned_data["query_fixes"]
         language = form.cleaned_data["language"]
         modalities = form.cleaned_data["modalities"]
         study_date_from = form.cleaned_data["study_date_from"]
@@ -56,8 +57,6 @@ class SearchView(LoginRequiredMixin, UserPassesTestMixin, View):
 
         # TODO: when no active group is selected show user a error
         assert active_group
-
-        query_node, fixes = QueryParser().parse(query)
 
         if query_node is not None:
             if len(fixes) > 0:

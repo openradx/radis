@@ -5,6 +5,25 @@ from typing import Literal, cast
 
 import pyparsing as pp
 
+# Matches a double-quoted phrase, honouring backslash-escaped quotes inside it.
+QUOTED_SEGMENT_PATTERN = re.compile(r'(".*?(?<!\\)")')
+
+# Each nesting level recurses through the grammar, so the depth bounds the Python
+# stack the parser needs. It overflows the default recursion limit somewhere between
+# 40 and 75 levels, depending on how deep the calling stack already is. Real queries
+# rarely exceed two or three.
+MAX_NESTING_DEPTH = 10
+
+
+class QueryTooDeepError(ValueError):
+    """Raised when a query nests parentheses deeper than ``MAX_NESTING_DEPTH``."""
+
+    def __init__(self, depth: int):
+        super().__init__(
+            f"Parentheses are nested {depth} levels deep, "
+            f"but at most {MAX_NESTING_DEPTH} levels are allowed."
+        )
+
 
 class TermNode:
     def __init__(self, term_type: Literal["WORD", "PHRASE"], value: str):
@@ -129,8 +148,7 @@ class QueryParser:
     def _modify_unquoted_segments(
         self, input_string: str, unquoted_segment_handler: Callable[[str], str]
     ) -> str:
-        pattern = re.compile(r'(".*?(?<!\\)")')
-        parts = pattern.split(input_string)
+        parts = QUOTED_SEGMENT_PATTERN.split(input_string)
 
         results: list[str] = []
         for part in parts:
@@ -204,6 +222,25 @@ class QueryParser:
     def _reduce_spaces(self, input_string: str) -> str:
         return self._modify_unquoted_segments(input_string, lambda s: re.sub(r"\s+", " ", s))
 
+    @staticmethod
+    def _nesting_depth(input_string: str) -> int:
+        """Return the deepest level of parentheses outside quoted phrases.
+
+        Expects balanced parentheses, as produced by the sanitizing steps.
+        """
+        depth = 0
+        max_depth = 0
+        for part in QUOTED_SEGMENT_PATTERN.split(input_string):
+            if part.startswith('"'):
+                continue
+            for char in part:
+                if char == "(":
+                    depth += 1
+                    max_depth = max(max_depth, depth)
+                elif char == ")":
+                    depth -= 1
+        return max_depth
+
     def _parse_string(self, input_string: str) -> QueryNode:
         not_ = pp.Keyword("NOT")
         and_ = pp.Keyword("AND")
@@ -220,36 +257,67 @@ class QueryParser:
         )
         term = phrase | word
 
+        # Operator chains are matched as repetitions and folded into right-nested
+        # nodes afterwards. Expressing them as right-recursive rules instead would
+        # re-parse every operand once per alternative, which is exponential in the
+        # nesting depth, and would consume Python stack for every operand.
         or_expression = pp.Forward()
 
-        parens_expression = pp.Forward()
-        parens_expression <<= (
+        parens_expression = (
             pp.Suppress(lparen) + or_expression + pp.Suppress(rparen)
         ).set_parse_action(lambda t: ParensNode(t[0])) | term  # type: ignore
 
-        not_expression = pp.Forward()
-        not_expression <<= (not_ + not_expression).set_parse_action(
-            lambda t: UnaryNode("NOT", t[1])  # type: ignore
-        ) | parens_expression
-
-        and_expression = pp.Forward()
-        and_expression <<= (
-            (not_expression + and_ + and_expression).set_parse_action(
-                lambda t: BinaryNode("AND", t[0], t[2])  # type: ignore
-            )
-            | (not_expression + and_expression).set_parse_action(
-                lambda t: BinaryNode("AND", t[0], t[1], implicit=True)  # type: ignore
-            )
-            | not_expression
+        not_expression = (pp.ZeroOrMore(not_) + parens_expression).set_parse_action(
+            self._fold_not_chain
         )
 
-        or_expression <<= (and_expression + or_ + or_expression).set_parse_action(
-            lambda t: BinaryNode("OR", t[0], t[2])  # type: ignore
-        ) | and_expression
+        and_expression = (
+            not_expression + pp.ZeroOrMore(pp.Opt(and_) + not_expression)
+        ).set_parse_action(self._fold_and_chain)
+
+        or_expression <<= (and_expression + pp.ZeroOrMore(or_ + and_expression)).set_parse_action(
+            self._fold_or_chain
+        )
 
         return cast(QueryNode, or_expression.parse_string(input_string, parse_all=True)[0])
 
+    @staticmethod
+    def _fold_not_chain(tokens: pp.ParseResults) -> QueryNode:
+        node = cast(QueryNode, tokens[-1])
+        for _ in range(len(tokens) - 1):
+            node = UnaryNode("NOT", node)
+        return node
+
+    @staticmethod
+    def _fold_and_chain(tokens: pp.ParseResults) -> QueryNode:
+        node = cast(QueryNode, tokens[-1])
+        index = len(tokens) - 2
+        while index >= 0:
+            if tokens[index] == "AND":
+                node = BinaryNode("AND", cast(QueryNode, tokens[index - 1]), node)
+                index -= 2
+            else:
+                node = BinaryNode("AND", cast(QueryNode, tokens[index]), node, implicit=True)
+                index -= 1
+        return node
+
+    @staticmethod
+    def _fold_or_chain(tokens: pp.ParseResults) -> QueryNode:
+        node = cast(QueryNode, tokens[-1])
+        for index in range(len(tokens) - 3, -1, -2):
+            node = BinaryNode("OR", cast(QueryNode, tokens[index]), node)
+        return node
+
     def parse(self, query: str) -> tuple[QueryNode | None, list[str]]:
+        """Sanitize and parse a query.
+
+        Returns the query tree (``None`` if nothing is left after sanitizing)
+        and a list of the fixes that were applied.
+
+        Raises:
+            QueryTooDeepError: If the parentheses nest deeper than
+                ``MAX_NESTING_DEPTH`` after sanitizing.
+        """
         fixes: list[str] = []
 
         query_before = query
@@ -309,6 +377,10 @@ class QueryParser:
 
         if query_after == "":
             return None, fixes
+
+        depth = self._nesting_depth(query_after)
+        if depth > MAX_NESTING_DEPTH:
+            raise QueryTooDeepError(depth)
 
         node = self._parse_string(query_after)
         return node, fixes

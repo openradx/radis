@@ -1,3 +1,4 @@
+import time
 from unittest.mock import Mock, patch
 
 import pytest
@@ -5,7 +6,9 @@ from adit_radis_shared.accounts.factories import GroupFactory, UserFactory
 from django.test import Client
 
 from radis.reports.factories import LanguageFactory, ModalityFactory, ReportFactory
+from radis.search.forms import QUERY_MAX_LENGTH
 from radis.search.site import ReportDocument, Search, SearchProvider, SearchResult
+from radis.search.utils.query_parser import MAX_NESTING_DEPTH
 
 
 def create_test_user_with_active_group():
@@ -221,40 +224,44 @@ def test_search_view_query_with_fixes(client: Client):
         max_results=1000,
     )
 
-    with patch("radis.search.views.search_provider", test_provider):
-        with patch("radis.search.views.QueryParser") as mock_parser:
-            mock_parser_instance = Mock()
-            mock_parser.return_value = mock_parser_instance
+    with (
+        patch("radis.search.views.search_provider", test_provider),
+        patch("radis.search.forms.QueryParser") as mock_form_parser,
+        patch("radis.search.views.QueryParser") as mock_parser,
+    ):
+        # The form parses the query; the view only unparses the fixed tree.
+        mock_parser_instance = Mock()
+        mock_form_parser.return_value = mock_parser_instance
 
-            mock_query_node = Mock()
-            mock_parser_instance.parse.return_value = (
-                mock_query_node,
-                ["Fixed typo: 'teh' -> 'the'"],
-            )
-            mock_parser.unparse.return_value = "the brain"
+        mock_query_node = Mock()
+        mock_parser_instance.parse.return_value = (
+            mock_query_node,
+            ["Fixed typo: 'teh' -> 'the'"],
+        )
+        mock_parser.unparse.return_value = "the brain"
 
-            search_params = {
-                "query": "teh brain",
-            }
+        search_params = {
+            "query": "teh brain",
+        }
 
-            response = client.get("/search/", search_params)
-            assert response.status_code == 200
-            assert "form" in response.context
+        response = client.get("/search/", search_params)
+        assert response.status_code == 200
+        assert "form" in response.context
 
-            assert "fixed_query" in response.context
-            assert response.context["fixed_query"] == "the brain"
+        assert "fixed_query" in response.context
+        assert response.context["fixed_query"] == "the brain"
 
-            # Verify search was executed and returned results
-            assert "documents" in response.context
-            assert (
-                response.context["total_count"] == 0
-            )  # This test uses a provider that returns 0 results
+        # Verify search was executed and returned results
+        assert "documents" in response.context
+        assert (
+            response.context["total_count"] == 0
+        )  # This test uses a provider that returns 0 results
 
-            # Verify that QueryParser was called with the original query
-            mock_parser_instance.parse.assert_called_once_with("teh brain")
+        # Verify that QueryParser was called with the original query
+        mock_parser_instance.parse.assert_called_once_with("teh brain")
 
-            # Verify that unparse was called to generate the fixed query
-            mock_parser.unparse.assert_called_once_with(mock_query_node)
+        # Verify that unparse was called to generate the fixed query
+        mock_parser.unparse.assert_called_once_with(mock_query_node)
 
 
 @pytest.mark.django_db
@@ -365,3 +372,37 @@ def test_search_view_threads_selected_labels_into_filters(client: Client) -> Non
 
     assert response.status_code == 200
     assert captured["search"].filters.labels == ["edema", "pneumonia"]
+
+
+@pytest.mark.django_db
+def test_search_view_rejects_deeply_nested_query_with_form_error(client: Client):
+    user = create_test_user_with_active_group()
+    client.force_login(user)
+
+    depth = MAX_NESTING_DEPTH + 2
+    search_params = {"query": "(" * depth + "a" + ")" * depth}
+
+    with patch("radis.search.views.search_provider", create_test_search_provider()):
+        start = time.perf_counter()
+        response = client.get("/search/", search_params)
+        assert time.perf_counter() - start < 1.0
+
+    assert response.status_code == 200
+    assert "documents" not in response.context
+    assert "nested" in response.context["form"].errors["query"][0]
+    assert "nested" in response.content.decode()
+
+
+@pytest.mark.django_db
+def test_search_view_rejects_overlong_query_with_form_error(client: Client):
+    user = create_test_user_with_active_group()
+    client.force_login(user)
+
+    search_params = {"query": "a" * (QUERY_MAX_LENGTH + 1)}
+
+    with patch("radis.search.views.search_provider", create_test_search_provider()):
+        response = client.get("/search/", search_params)
+
+    assert response.status_code == 200
+    assert "documents" not in response.context
+    assert f"at most {QUERY_MAX_LENGTH} characters" in response.content.decode()
