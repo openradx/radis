@@ -205,8 +205,9 @@ def test_negation_excludes_leaking_vector_candidates_under_each_documents_own_co
         MockClient.return_value.__enter__.return_value = MockClient.return_value
         MockClient.return_value.__exit__.return_value = None
         MockClient.return_value.embed_query.return_value = _unit_vec(0, dim)
-        doc_ids = list(retrieve(_make_search("pneumothorax AND NOT effusion", group.pk)))
+        result = search(_make_search("pneumothorax AND NOT effusion", group.pk))
 
+    doc_ids = [doc.document_id for doc in result.documents]
     assert en_leak.document_id not in doc_ids
     assert de_leak.document_id not in doc_ids
     assert good.document_id in doc_ids

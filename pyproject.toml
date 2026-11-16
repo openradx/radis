@@ -72,6 +72,9 @@ dev = [
     "pyright>=1.1.402",
     "pytest>=8.3.4",
     "pytest-asyncio>=0.25.3",
+    # Provides the base_url fixture for pytest-playwright, whose own fallback fixture
+    # triggers a pytest deprecation warning
+    "pytest-base-url>=2.1.0",
     "pytest-cov>=6.0.0",
     "pytest-django>=4.10.0",
     "pytest-mock>=3.14.0",
@@ -96,7 +99,7 @@ default-groups = ["dev", "client", "docs"]
 constraint-dependencies = ["autobahn<25.11.1"]
 
 [tool.uv.sources]
-adit-radis-shared = { git = "https://github.com/openradx/adit-radis-shared.git", tag = "0.28.1" }
+adit-radis-shared = { git = "https://github.com/openradx/adit-radis-shared.git", tag = "0.29.0" }
 radis-client = { path = "./radis-client", editable = true }
 
 [tool.pyright]
@@ -113,6 +116,7 @@ log_cli_level = "INFO"
 log_cli_format = "%(asctime)s [%(levelname)8s] %(message)s (%(filename)s:%(lineno)s)"
 log_cli_date_format = "%Y-%m-%d %H:%M:%S"
 markers = ["acceptance: mark a test as an acceptance test."]
+asyncio_default_fixture_loop_scope = "function"
 filterwarnings = [
     # Fail on any warning not explicitly ignored below
     "error",
@@ -139,6 +143,8 @@ lint.select = ["E", "F", "I", "DJ", "UP"]
 
 [tool.djlint]
 profile = "django"
+# Git worktrees live under .claude/worktrees/.
+extend_exclude = ".claude"
 max_line_length = 120
 ignore = "H021,H030,H031,T002"
 custom_blocks = "specialspaceless"

@@ -656,6 +656,7 @@ and guidelines in radiological practices.
 Extract the following information from the given radiology report by using the below field
 definitions. The report and fields can be given in any language.
 Only provide data that is really found in the report. Don't make up new data and don't hallucinate.
+If the report does not contain the requested information, respond with null.
 Return the extracted information in JSON format.
 
 Radiology Report:
@@ -704,8 +705,9 @@ $fields
 
 Generate the search query:"""
 
-# The maximum number of reports that can be extracted by one extraction job.
-EXTRACTION_MAXIMUM_REPORTS_COUNT = 25000
+# The maximum number of reports one extraction job may cover. The wizard refuses a
+# search matching more, and preparing the job checks again.
+EXTRACTION_MAXIMUM_REPORTS_COUNT = _optional_env("EXTRACTION_MAXIMUM_REPORTS_COUNT", int, 25000)
 
 # The maximum number of enumerated options a Selection output field may define.
 EXTRACTION_MAX_SELECTION_OPTIONS = 7

@@ -112,6 +112,8 @@ Unsupported syntax (`-term`, `field:value`, wildcards) is stripped and the corre
 
 **Hybrid ranking**: When `EMBEDDINGS_MODEL` is set, the provider runs the full-text query (up to `HYBRID_FTS_MAX_RESULTS` candidates) and a cosine-distance nearest-neighbour query on the report vectors (`HYBRID_VECTOR_TOP_K`), then fuses both lists with reciprocal rank fusion (`HYBRID_RRF_K`). `NOT` terms are removed before the query is embedded, and query embeddings are cached. If the embedding service fails, the search degrades to full-text only.
 
+**Extraction retrieval**: Extraction jobs do not use the hybrid ranking. The provider's `count()` and `retrieve()` select every report whose text matches the boolean query and the filters, unranked, ordered by report id and without the candidate cap, so a job covers the complete matching cohort. The only limit is `EXTRACTION_MAXIMUM_REPORTS_COUNT`; `count()` honours `Search.limit`, which callers set to one past that limit so an over-large cohort is refused without counting it in full.
+
 **Text-search configurations**: reports are indexed with the PostgreSQL configuration for
 their own language, so stemming matches the text — an English report stores "effusion" as
 `effus`. Queries follow the same rule: with a language filter the search is restricted to

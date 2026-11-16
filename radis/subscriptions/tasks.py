@@ -2,6 +2,7 @@ import logging
 from datetime import datetime
 from itertools import batched
 
+from adit_radis_shared.accounts.models import User
 from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
 from django.db import transaction
@@ -165,9 +166,16 @@ def subscription_launcher(timestamp: int):
                 SubscriptionJob.objects.filter(
                     subscription=OuterRef("pk"), status__in=active_statuses
                 )
-            )
+            ),
+            # Membership is what grants access to the group's reports; the
+            # owner's active group is only the one they are currently viewing.
+            owner_in_group=Exists(
+                User.groups.through.objects.filter(
+                    user_id=OuterRef("owner_id"), group_id=OuterRef("group_id")
+                )
+            ),
         )
-        .all()
+        .select_related("owner", "group")
         .iterator(chunk_size=100)
     )
 
@@ -176,6 +184,26 @@ def subscription_launcher(timestamp: int):
         if subscription.has_active_job:  # type: ignore[attr-defined]  # Exists() annotation
             logger.debug(
                 "Skipping Subscription %s of user %s - active job already exists",
+                subscription.name,
+                subscription.owner,
+            )
+            continue
+
+        # Skipping here, before a job is built, keeps last_refreshed where it
+        # is, so the subscription resumes with the missed reports once its
+        # owner may run it again.
+        if not subscription.owner_in_group:  # type: ignore[attr-defined]  # Exists() annotation
+            logger.debug(
+                "Skipping Subscription %s of user %s - owner is no longer a member of group %s",
+                subscription.name,
+                subscription.owner,
+                subscription.group,
+            )
+            continue
+
+        if not subscription.owner.is_active:
+            logger.debug(
+                "Skipping Subscription %s of user %s - owner is deactivated",
                 subscription.name,
                 subscription.owner,
             )
