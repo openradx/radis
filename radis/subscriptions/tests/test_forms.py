@@ -1,7 +1,6 @@
 """Tests for SubscriptionForm age validators.
 
-AGE_STEP=10, MIN_AGE=0, MAX_AGE=120 (radis.search.forms). The form enforces:
-- age_from / age_till must be multiples of AGE_STEP (when provided)
+Ages are whole years from MIN_AGE to MAX_AGE (radis.core.constants). The form enforces:
 - age_from must be strictly less than age_till (when both provided)
 - both are optional (None passes)
 """
@@ -9,7 +8,6 @@ AGE_STEP=10, MIN_AGE=0, MAX_AGE=120 (radis.search.forms). The form enforces:
 import pytest
 from adit_radis_shared.accounts.factories import GroupFactory, UserFactory
 
-from radis.core.constants import AGE_STEP
 from radis.reports.factories import LanguageFactory
 from radis.subscriptions.forms import SubscriptionForm
 
@@ -52,19 +50,9 @@ def test_blank_ages_pass(_ref_data):
 
 
 @pytest.mark.django_db
-def test_age_from_not_multiple_of_step_is_rejected(_ref_data):
-    form = SubscriptionForm(data=_form_data(age_from=25, age_till=60))
-    assert not form.is_valid()
-    assert "age_from" in form.errors
-    assert f"multiple of {AGE_STEP}" in str(form.errors["age_from"])
-
-
-@pytest.mark.django_db
-def test_age_till_not_multiple_of_step_is_rejected(_ref_data):
-    form = SubscriptionForm(data=_form_data(age_from=20, age_till=55))
-    assert not form.is_valid()
-    assert "age_till" in form.errors
-    assert f"multiple of {AGE_STEP}" in str(form.errors["age_till"])
+def test_ages_are_accepted_in_single_years(_ref_data):
+    form = SubscriptionForm(data=_form_data(age_from=25, age_till=55))
+    assert form.is_valid(), form.errors
 
 
 @pytest.mark.django_db
