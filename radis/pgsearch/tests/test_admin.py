@@ -496,15 +496,14 @@ def test_change_form_is_read_only(admin_client):
     report = ReportFactory.create()
     rsi = ReportSearchIndex.objects.get(report=report)
 
-    response = admin_client.get(
-        reverse("admin:pgsearch_reportsearchindex_change", args=[rsi.pk])
-    )
+    response = admin_client.get(reverse("admin:pgsearch_reportsearchindex_change", args=[rsi.pk]))
 
     assert response.status_code == 200
     content = response.content.decode()
-    # readonly_fields render as text, not form inputs; group_ids is the one
-    # that must never be editable (access-control data).
+    # readonly_fields render as text, not form inputs; group_ids and withdrawn
+    # are the ones that must never be editable (they decide who sees a report).
     assert 'name="group_ids"' not in content
+    assert 'name="withdrawn"' not in content
     assert 'name="language_code"' not in content
     assert 'name="search_vector"' not in content
 
