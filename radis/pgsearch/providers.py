@@ -208,8 +208,9 @@ def _build_filter_query(filters: SearchFilters) -> Q:
         fq = Q(group_ids__contains=[filters.group])
 
     # Withdrawn reports are out of circulation (reports.Report.withdrawn_at).
-    # Excluding them here makes every provider entry point -- search(),
-    # count(), retrieve() and filter() -- fail-closed at once.
+    # Excluding them here covers every provider entry point at once: search(),
+    # count(), retrieve() and filter(). search() checks again when it builds a
+    # page, because its candidate ids can come from the cache.
     fq &= Q(withdrawn=False)
 
     # Apply hard filter criteria
@@ -501,8 +502,9 @@ def _fuse_hybrid(search: Search, caller: str) -> _FusedHybrid:
     is cached per query fingerprint and page 2..n (and repeated searches) reuse
     it. Degraded FTS-only results — a configured embedding model that produced
     no vector — are never cached, so an embedding outage cannot pin searches to
-    FTS-only for the TTL. New or updated reports enter a cached query's results
-    only after the TTL expires."""
+    FTS-only for the TTL. New, updated or restored reports enter a cached query's
+    results only after the TTL expires; a report withdrawn meanwhile stays in the
+    cached ids and is dropped when search() builds the page."""
     timeout = settings.HYBRID_FUSED_CACHE_TIMEOUT_SECONDS
     if timeout <= 0:
         return _fuse_hybrid_uncached(search, caller)[0]
@@ -645,9 +647,11 @@ def search(search: Search) -> SearchResult:
         output_field=FloatField(),
     )
 
-    # Headline + hydration for the page slice only.
+    # Headline + hydration for the page slice only. The fused ids can come from
+    # the cache and predate a withdrawal, so liveness is checked again here: a
+    # cached union must never render a report withdrawn since it was built.
     page_rows = (
-        ReportSearchIndex.objects.filter(report_id__in=page_ids)
+        ReportSearchIndex.objects.filter(report_id__in=page_ids, withdrawn=False)
         .annotate(
             summary=summary_expr,
             rank=rank_expr,

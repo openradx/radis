@@ -324,8 +324,11 @@ at any time.
 1. **Navigate** to **Django Admin** --> **Withdrawn reports** (the dedicated
    listing; it shows who withdrew each report, when and why).
 2. **Select** the reports and run **"Restore selected reports"**.
-3. Restored reports reappear everywhere immediately. Restoring clears the
-   stored reason/user/timestamp; the admin log keeps a record of both actions.
+3. Restored reports reappear everywhere immediately, with one exception: a
+   search that was run shortly before keeps its cached result list for up to
+   five minutes (`HYBRID_FUSED_CACHE_TIMEOUT_SECONDS`), so the report returns
+   to that search once the cache expires. Restoring clears the stored
+   reason/user/timestamp; the admin log keeps a record of both actions.
 
 #### Withdrawn Reports and the API
 

@@ -5,6 +5,7 @@ from django.contrib.auth.models import Group
 from django.core.cache import cache
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
+from django.utils import timezone
 
 from radis.core.utils.embedding_client import EmbeddingClientError
 from radis.core.utils.model_spec import parse_model_spec
@@ -170,6 +171,24 @@ def test_degraded_fts_only_result_is_not_cached(group, reports, settings):
         mocked.stop()
 
     assert r_vec.document_id in {d.document_id for d in recovered.documents}
+
+
+def test_report_withdrawn_after_caching_is_not_rendered(group, reports, settings):
+    r_fts, r_vec = reports
+    mocked, _ = _mock_embedding(settings.EMBEDDINGS_DIM)
+    try:
+        warm = search(_make_search("pneumothorax", group.pk))
+        Report.objects.filter(pk=r_fts.pk).update(withdrawn_at=timezone.now())
+        with CaptureQueriesContext(connection) as ctx:
+            cached = search(_make_search("pneumothorax", group.pk))
+    finally:
+        mocked.stop()
+
+    assert r_fts.document_id in {d.document_id for d in warm.documents}
+    # The second search is served from the union cached before the withdrawal,
+    # which still lists the report; it must be dropped when the page is built.
+    assert not _ran_fusion(ctx.captured_queries)
+    assert [d.document_id for d in cached.documents] == [r_vec.document_id]
 
 
 def test_zero_timeout_disables_the_cache(group, reports, settings):
