@@ -457,8 +457,9 @@ it (see Delivery).
 empty mode value means full-text, so the default never appears in the URL: the page's
 `x-ignore-empty-inputs` directive disables empty inputs at submit. `clean_description`
 collapses whitespace. `min_similarity` is not prefilled; its placeholder shows the setting's
-value when one is set ("default 0.300", three decimals like the similarities). `to_filters(group_id)` builds `SearchFilters` from
-the cleaned data, so the view builds it in one place. The no-op `form_show_errors` access in
+value when one is set ("default 0.300", three decimals like the field's step).
+`to_filters(group_id)` builds `SearchFilters` from the cleaned data, so the view builds it
+in one place. The no-op `form_show_errors` access in
 `__init__` is dropped. The deep link from the extraction preview (query and filter
 parameters, no mode) keeps working because an absent mode is full-text.
 
@@ -606,14 +607,11 @@ only the passage."
   unavailable); results are in keyword order. Search again to retry.", and no re-rank
   wording anywhere. Semantic: an error, "Semantic search is unavailable right now.", alone,
   with no count line, no empty-state alert and no pagination.
-- Result header right column: "Full-text rank" when `relevance` is not `None`;
-  "Similarity" when `similarity` is not `None`; "Re-rank score" when `reranked` and the hit
-  has a similarity; for a window hit without a similarity while `reranked`, "Similarity: not
-  available (report not embedded yet)". Tooltips explain each number: similarity as the
-  cosine similarity between the description and the report, the re-rank score as
-  "w × similarity + (1 − w) × keyword rank, each scaled 0–1 within the top W", with w and W
-  from the context. The RRF line goes. `floatformat` on `None` renders an empty string, so
-  the template tests for `None` explicitly.
+- Result header right column: the position in the list only. No rank, similarity or
+  score is shown in either mode; the keyword rank, cosine distance and RRF lines of the
+  hybrid page go. `ReportDocument` keeps `relevance`, `similarity` and `score` for the
+  providers and their tests. Whether the stacked PR shows its re-rank score, and how it
+  marks a window hit that has no vector yet, is decided there.
 - Summaries: highlighted in full-text mode, the report's opening in semantic mode, both
   escaped (§4.6).
 - The info card branches on `form.fields.mode`. With the capability it explains the two
@@ -677,10 +675,10 @@ select, and change in this PR (the AGENTS.md rule to keep docs in sync applies):
 - `README.md` (two sentences) and `docs/index.md` (one).
 - `docs/user-docs/user-guide.md`: the overview sentence (line 11), the search steps, the
   semantic search section, the query length sentence, the filters list (cutoff field), the
-  results section (scores per mode, no highlighting in semantic mode; the page-size sentence
-  becomes true with §6.4), the advice not to type patient identifiers into the description,
-  and the note that semantic controls appear only when the administrator configured an
-  embedding model.
+  results section (no score per hit, no highlighting in semantic mode; the page-size
+  sentence becomes true with §6.4), the advice not to type patient identifiers into the
+  description, and the note that semantic controls appear only when the administrator
+  configured an embedding model.
 - `docs/user-docs/admin-guide.md`: the embeddings section retitled with its two anchors
   updated, a search tuning subsection with every §7 setting and the cache `MAX_ENTRIES`, the
   degraded wording, the per-feature list, the upgrade step's setting groups, and the note that

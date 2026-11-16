@@ -72,7 +72,7 @@ Use "Reset filters" to clear all filters at once.
 
 #### Search Results
 
-Each result shows the patient age and sex, modalities, study description and the score that determined its rank: the full-text rank of the keywords in full-text mode, the similarity to your description in semantic mode. Full-text results show a highlighted excerpt, semantic results the opening of the report. Click "Show full report" to read the entire text. Results are paginated; the page size can be changed below the list. Each result panel has buttons to open the report details, add the report to a collection, add a note, start a chat about the report, and open the study in your PACS viewer.
+Each result shows its position in the list, the patient age and sex, modalities and study description. Full-text results show a highlighted excerpt, semantic results the opening of the report. Click "Show full report" to read the entire text. Results are paginated; the page size can be changed below the list. Each result panel has buttons to open the report details, add the report to a collection, add a note, start a chat about the report, and open the study in your PACS viewer.
 
 The report details page shows all metadata of a report (document ID, patient, study, accession number, modalities, additional metadata), its labels, and the full text. The arrows next to the Patient ID open a list of the same patient's earlier reports, later reports, or all reports.
 

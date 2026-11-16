@@ -619,16 +619,13 @@ def test_page_beyond_a_short_semantic_list_is_clamped(client: Client, two_report
 
 
 @pytest.mark.django_db
-def test_full_text_count_line_and_scores(client: Client, two_reports):
+def test_full_text_count_line(client: Client, two_reports):
     client.force_login(create_test_user_with_active_group())
     documents = [_document(r) for r in two_reports]
     result = SearchResult(total_count=2, total_relation="exact", documents=documents)
     with patch("radis.search.views.search_provider", _provider(result)):
         response = client.get("/search/", {"query": "chest"})
-    content = _text(response)
-    assert "2 reports found" in content
-    assert content.count("Full-text rank: 0.500") == 2
-    assert "Similarity:" not in content
+    assert "2 reports found" in _text(response)
 
 
 @pytest.mark.django_db
@@ -654,6 +651,33 @@ def test_result_numbers_continue_on_later_pages(client: Client, two_reports):
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize("mode", ["fulltext", "semantic"])
+def test_a_hit_shows_its_position_but_not_the_value_that_ranked_it(
+    client: Client, two_reports, settings, mode
+):
+    settings.SEARCH_SEMANTIC_MIN_SIMILARITY = 0.3
+    client.force_login(create_test_user_with_active_group())
+    if mode == "semantic":
+        params = {"mode": "semantic", "description": "free air"}
+        documents = [
+            _document(r, relevance=None, similarity=0.829, score=0.829) for r in two_reports
+        ]
+    else:
+        params = {"query": "chest"}
+        documents = [_document(r, relevance=0.317, score=0.317) for r in two_reports]
+    result = SearchResult(total_count=2, total_relation="exact", documents=documents)
+    with patch("radis.search.views.search_provider", _provider(result)):
+        response = client.get("/search/", params)
+    content = _text(response)
+    assert "Result: #1" in content
+    assert "Result: #2" in content
+    assert "Full-text rank" not in content
+    assert "Similarity:" not in content
+    assert "0.317" not in content
+    assert "0.829" not in content
+
+
+@pytest.mark.django_db
 def test_count_line_when_capped(client: Client):
     client.force_login(create_test_user_with_active_group())
     result = SearchResult(total_count=10000, total_relation="at_least", documents=[])
@@ -665,7 +689,7 @@ def test_count_line_when_capped(client: Client):
 @pytest.mark.django_db
 @pytest.mark.parametrize("cutoff, shown", [(0.3, "0.300"), (0.745, "0.745")])
 def test_semantic_count_line_names_the_cutoff(client: Client, two_reports, settings, cutoff, shown):
-    """Three decimals, as the similarities show, so a listed hit never looks below it."""
+    """Three decimals, the precision of the Minimum similarity field."""
     settings.SEARCH_SEMANTIC_MIN_SIMILARITY = cutoff
     client.force_login(create_test_user_with_active_group())
     documents = [_document(r, relevance=None, similarity=0.7, score=0.7) for r in two_reports]
@@ -677,8 +701,6 @@ def test_semantic_count_line_names_the_cutoff(client: Client, two_reports, setti
         f"The 2 reports most similar to your description with similarity at least {shown}"
         in content
     )
-    assert "Full-text rank:" not in content
-    assert "Similarity:" in content
 
 
 @pytest.mark.django_db
