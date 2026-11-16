@@ -15,7 +15,11 @@
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  padding-top: 14px;
+  /* Stay level with the controls beside it whatever the neighbouring columns show
+     below theirs (errors, help text): skip one .form-label line plus its margin,
+     then centre within one .form-select height. */
+  padding-top: calc(1.5em + 0.5rem);
+  height: calc((1.5em + 0.5rem) + (1.5em + 0.75rem + 2px));
 }
 
 .array-toggle-btn {
