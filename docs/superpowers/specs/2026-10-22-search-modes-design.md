@@ -1,4 +1,4 @@
-# Search modes: full-text with an optional similarity re-rank, and semantic search
+# Search modes: full-text and semantic search, nothing fused
 
 **Status:** Design, approved in conversation on 2026-10-22, awaiting review of this document
 **Branch:** `search-modes` (from `main` at 8ed9ea3e)
@@ -21,23 +21,24 @@ timeout ships here, the window layer and description cache of §4.4, §4.5's rer
 §5.3's comparison, the re-rank and writer parts of §6.1, §6.4 and §6.6, §6.5), the
 `SEARCH_RERANK_*` and `SEARCH_DESCRIPTION_*` settings of §7, the matching items of §8, §10
 and §13, and their tests in §11. In this PR the description field is the semantic query
-only, and the inactive field of the search row is hidden and disabled (§6.2, §6.3).
+only, and the inactive field of the search row is hidden and disabled (§6.2, §6.3). The
+stacked PR (#374) was closed unmerged on 2026-10-29 (see the amendment in §4.1), so those
+parts are the record of a design RADIS does not have.
 
 ## 1. Summary
 
-Hybrid search fuses the full-text hits of a keyword query with the vector neighbours of the
-same keywords, using reciprocal rank fusion (RRF). The fused first page mixes reports that
-contain the keywords with reports that merely resemble them, the count is the size of a union
-nobody asked for, and the vector arm is blind to negation, so "Pneumothorax" surfaces
-"kein Pneumothorax" as readily as a positive finding.
+The hybrid search this design replaced fused the full-text hits of a keyword query with the
+vector neighbours of the same keywords, using reciprocal rank fusion (RRF). The fused first
+page mixed reports that contain the keywords with reports that merely resemble them, the
+count was the size of a union nobody asked for, and the vector arm was blind to negation, so
+"Pneumothorax" surfaced "kein Pneumothorax" as readily as a positive finding.
 
 This design replaces fusion with two modes the user picks on the search page:
 
-- **Full-text** (default): exactly the keyword hits, highlighted, with an exact count up to
-  the 10,000 cap ("more than" beyond it). An optional *description* of the wanted reports,
-  typed by the user or written by the LLM from the keywords, re-orders the top N hits by a
-  blend of their similarity to the description and their keyword rank (pure similarity order
-  when the weight is 1). Hits beyond N follow in keyword order.
+- **Full-text** (default): exactly the keyword hits in keyword order, highlighted, with an
+  exact count up to the 10,000 cap ("more than" beyond it). The re-rank of the top N hits by
+  their similarity to an optional description (§4.2) went with the closed stacked PR (see
+  Delivery); full-text results never depend on embeddings.
 - **Semantic**: a description field takes the place of the keyword field and is the query.
   Results are the N reports most similar to it, in similarity order, with no highlighting
   and no similarity cutoff (§5.4).
@@ -470,8 +471,8 @@ search (`@keydown.enter` with a `shiftKey` check that calls `$el.form.requestSub
 submit handlers still run; Alpine has no `.exact` modifier); Shift+Enter inserts a newline.
 The Filters card is the same in both modes. Without the capability the row is
 today's single input group: the "Search" label, the keyword input, the clear button and the
-submit button. Where the full-text description and the "Write from keywords" button go is
-decided by the stacked PR that brings them (see Delivery).
+submit button. The full-text description and the "Write from keywords" button belonged to
+the closed stacked PR (see Delivery).
 
 ### 6.3 Switching modes
 
@@ -587,8 +588,7 @@ only the passage."
 - Result header right column: the position in the list only. No rank, similarity or
   score is shown in either mode; the keyword rank, cosine distance and RRF lines of the
   hybrid page go. `ReportDocument` keeps `relevance`, `similarity` and `score` for the
-  providers and their tests. Whether the stacked PR shows its re-rank score, and how it
-  marks a window hit that has no vector yet, is decided there.
+  providers and their tests.
 - Summaries: highlighted in full-text mode, the report's opening in semantic mode, both
   escaped (§4.6).
 - The info card branches on `form.fields.mode`. With the capability it explains the two
@@ -810,8 +810,8 @@ one that their requests never embed.
 
 ## 12. Rollout
 
-Two pull requests (see Delivery): PR #372 against `main` from `search-modes`, then the
-stacked PR `search-rerank` on top of it. The PR #372 description states the three behaviour
+PR #372 against `main` from `search-modes`; the stacked PR `search-rerank` (#374) was
+closed unmerged (see Delivery). The PR #372 description states the three behaviour
 changes: no fused results, extraction sets are keyword hits only, the summary is escaped.
 Settings renames and the new ones are listed for operators, with the worst-case waits of
 §7 and the production cache `MAX_ENTRIES`. The side stack on port 8503 runs this branch for

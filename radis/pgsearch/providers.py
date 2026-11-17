@@ -442,9 +442,9 @@ def _cache_key(**parts: object) -> str:
 
 
 def _keyword_ranking(request: FullTextSearch) -> _KeywordRanking:
-    """The keyword layer, cached whenever the cache is on. It never depends on the
-    embedding service, so a search and an extraction over the same query and filters
-    share one entry."""
+    """The keyword layer of a full-text search, cached whenever the cache is on. It never
+    depends on the embedding service. Only the search page reads it: extraction counts and
+    retrievals select the text matches directly."""
     timeout = settings.SEARCH_RANKING_CACHE_TIMEOUT_SECONDS
     key = _cache_key(
         layer="keyword",

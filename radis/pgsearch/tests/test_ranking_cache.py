@@ -106,8 +106,7 @@ def test_page_two_is_served_from_the_cached_ranking(group, reports):
     assert page1.documents[0].document_id != page2.documents[0].document_id
 
 
-def test_the_extraction_count_shares_the_keyword_layer(group, reports):
-    search(_request(group.pk))
+def test_an_extraction_count_runs_no_keyword_ranking(group, reports):
     with CaptureQueriesContext(connection) as ctx:
         assert count(_request(group.pk)) == 2
 

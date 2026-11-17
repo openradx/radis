@@ -175,7 +175,7 @@ def test_a_valid_search_setting_is_read_from_the_environment(
 def test_an_invalid_search_setting_names_the_setting_at_fault(
     _restore_base_settings_after_reload, monkeypatch, name: str, raw: str
 ):
-    # Otherwise it boots fine and every search fails at runtime.
+    # Otherwise it boots fine and the searches that read it fail at runtime.
     monkeypatch.setenv(name, raw)
 
     with pytest.raises(ImproperlyConfigured, match=name):
