@@ -970,13 +970,22 @@ def test_an_invalid_inactive_field_does_not_stop_the_search(client: Client, para
 
 
 @pytest.mark.django_db
-def test_a_filter_error_is_shown_once(client: Client):
+@pytest.mark.parametrize(
+    "params, message",
+    [
+        (
+            {"mode": "semantic", "description": "free air", "min_similarity": "5"},
+            "Ensure this value is less than or equal to 1",
+        ),
+        ({"query": "chest", "age_from": "-1"}, "Ensure this value is greater than or equal to 0."),
+    ],
+    ids=["cutoff", "age"],
+)
+def test_a_filter_error_is_shown_once(client: Client, params, message):
     client.force_login(create_test_user_with_active_group())
     with patch("radis.search.views.search_provider", _provider(_empty())):
-        response = client.get(
-            "/search/", {"mode": "semantic", "description": "free air", "min_similarity": "5"}
-        )
-    assert _text(response).count("Ensure this value is less than or equal to 1") == 1
+        response = client.get("/search/", params)
+    assert _text(response).count(message) == 1
 
 
 @pytest.mark.django_db
@@ -1053,7 +1062,7 @@ def test_search_view_clamps_page_size(
 def test_search_view_shows_age_field_errors(
     client: Client, params: dict[str, str], message: str
 ) -> None:
-    """An invalid age is reported next to the age slider, not silently swallowed."""
+    """An invalid age is reported on the page, not silently swallowed."""
     user = create_test_user_with_active_group()
     client.force_login(user)
 

@@ -55,5 +55,7 @@ class RangeSlider(LayoutObject):
                 "legend": self.legend,
                 "from_field": form[self.from_field],
                 "till_field": form[self.till_field],
+                # The helper's switch for inline errors, which crispy's field templates honour.
+                "form_show_errors": context.get("form_show_errors", True),
             },
         )
