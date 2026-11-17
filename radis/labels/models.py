@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Any, ClassVar
 
 from django.conf import settings
@@ -46,10 +47,17 @@ class DefinitionTrackedModel(models.Model):
             kwargs["update_fields"] = update_fields
         attnames = self._definition_attnames_to_save(update_fields)
         self._normalize_definition(attnames)
-        if self._definition_differs_from_stored(attnames):
-            self.definition_updated_at = timezone.now()
-            if update_fields is not None:
-                update_fields.add("definition_updated_at")
+        stored = self._stored_definition(attnames)
+        if stored is not None:
+            stored_updated_at, stored_values = stored
+            if tuple(getattr(self, a) for a in attnames) != stored_values:
+                self.definition_updated_at = timezone.now()
+                if update_fields is not None:
+                    update_fields.add("definition_updated_at")
+            else:
+                # Two overlapping saves of the same text: the later one loaded the row before
+                # the earlier one's bump and would otherwise write that older value back.
+                self.definition_updated_at = stored_updated_at
         super().save(**kwargs)
 
     def _definition_attnames_to_save(self, update_fields: set[str] | None) -> tuple[str, ...]:
@@ -74,23 +82,26 @@ class DefinitionTrackedModel(models.Model):
             if isinstance(value, str):
                 setattr(self, attname, normalize_definition_text(value))
 
-    def _definition_differs_from_stored(self, attnames: tuple[str, ...]) -> bool:
+    def _stored_definition(
+        self, attnames: tuple[str, ...]
+    ) -> tuple[datetime, tuple[object, ...]] | None:
+        """The stored definition_updated_at and definition values (made comparable), or None
+        on add, when nothing is being saved, or when the row is gone."""
         if self.pk is None or not attnames:
-            return False  # on add the field default already applies
+            return None  # on add the field default already applies
         # _base_manager, like refresh_from_db: a filtering default manager must not hide the
         # row and make a real change go unrecorded.
-        stored = (
+        row = (
             type(self)
             ._base_manager.using(self._state.db)
             .filter(pk=self.pk)
-            .values_list(*attnames)
+            .values_list("definition_updated_at", *attnames)
             .first()
         )
-        if stored is None:
-            return False
-        return tuple(getattr(self, a) for a in attnames) != tuple(
-            comparable_definition_value(v) for v in stored
-        )
+        if row is None:
+            return None
+        stored_updated_at, *values = row
+        return stored_updated_at, tuple(comparable_definition_value(v) for v in values)
 
 
 class LabelGroup(DefinitionTrackedModel):

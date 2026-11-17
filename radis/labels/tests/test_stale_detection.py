@@ -185,6 +185,27 @@ def test_save_with_update_fields_on_definition_persists_bump():
 
 
 @pytest.mark.django_db
+def test_overlapping_saves_of_the_same_text_keep_the_newer_timestamp():
+    """Request B loaded the row before request A saved the same edit; B must not write A's
+    bump back to the value it loaded."""
+    label = LabelFactory.create()
+    result = LabelResultFactory.create(label=label)
+    second = Label.objects.get(pk=label.pk)
+
+    label.description = "edited"
+    label.save()
+    bumped = Label.objects.get(pk=label.pk).definition_updated_at
+
+    second.description = "edited"
+    second.save()
+    second.refresh_from_db()
+    result.refresh_from_db()
+
+    assert second.definition_updated_at == bumped
+    assert result.is_stale
+
+
+@pytest.mark.django_db
 def test_gate_answer_becomes_stale_after_gate_question_edited():
     group = LabelGroupFactory.create()
     answer = GateAnswerFactory.create(label_group=group)
