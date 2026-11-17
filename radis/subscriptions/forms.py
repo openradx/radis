@@ -4,7 +4,6 @@ from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Column, Div, Field, Layout, Row
 from django import forms
 
-from radis.core.constants import AGE_STEP
 from radis.core.form_fields import (
     create_age_range_fields,
     create_language_field,
@@ -76,18 +75,6 @@ class SubscriptionForm(forms.ModelForm):
                 ),
             )
         )
-
-    def clean_age_from(self) -> int | None:
-        age_from = self.cleaned_data["age_from"]
-        if age_from is not None and age_from % AGE_STEP != 0:
-            raise forms.ValidationError(f"Age from must be a multiple of {AGE_STEP}")
-        return age_from
-
-    def clean_age_till(self) -> int | None:
-        age_till = self.cleaned_data["age_till"]
-        if age_till is not None and age_till % AGE_STEP != 0:
-            raise forms.ValidationError(f"Age till must be a multiple of {AGE_STEP}")
-        return age_till
 
     def clean(self) -> dict[str, Any] | None:
         age_from = self.cleaned_data.get("age_from")

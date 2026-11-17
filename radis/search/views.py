@@ -127,7 +127,7 @@ class SearchView(LoginRequiredMixin, UserPassesTestMixin, View):
     def get_page_size(self, request: HttpRequest) -> int:
         page_size = request.GET.get("per_page") or DEFAULT_PAGE_SIZE
         try:
-            page_size = min(int(page_size), 100)
+            page_size = max(1, min(int(page_size), 100))
         except ValueError:
             page_size = DEFAULT_PAGE_SIZE
-        return page_size if page_size >= 1 else DEFAULT_PAGE_SIZE
+        return page_size

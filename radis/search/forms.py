@@ -6,7 +6,6 @@ from crispy_forms.layout import Button, Div, Field
 from django import forms
 from django.conf import settings
 
-from radis.core.constants import AGE_STEP
 from radis.core.form_fields import (
     create_age_range_fields,
     create_language_field,
@@ -213,18 +212,6 @@ class SearchForm(forms.Form):
     def clean_description(self) -> str:
         return " ".join(self.cleaned_data["description"].split())
 
-    def clean_age_from(self) -> int | None:
-        age_from = self.cleaned_data["age_from"]
-        if age_from is not None and age_from % AGE_STEP != 0:
-            raise forms.ValidationError(f"Age from must be a multiple of {AGE_STEP}")
-        return age_from
-
-    def clean_age_till(self) -> int | None:
-        age_till = self.cleaned_data["age_till"]
-        if age_till is not None and age_till % AGE_STEP != 0:
-            raise forms.ValidationError(f"Age till must be a multiple of {AGE_STEP}")
-        return age_till
-
     def clean(self) -> dict[str, Any] | None:
         # The page disables the inactive mode's fields, so a value for them can only come from a
         # hand-made URL or a page without JavaScript; it must neither block the search nor reach
@@ -237,7 +224,7 @@ class SearchForm(forms.Form):
                 self.errors.pop(name, None)
                 self.cleaned_data[name] = empty
 
-        # An age its own clean method rejected is absent from cleaned_data.
+        # A field that failed its own validation is absent from cleaned_data.
         age_from = self.cleaned_data.get("age_from")
         age_till = self.cleaned_data.get("age_till")
 

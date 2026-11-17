@@ -332,14 +332,6 @@ def test_description_partial_escapes_its_value() -> None:
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize("field", ["age_from", "age_till"])
-def test_an_age_off_the_step_is_a_field_error_not_a_crash(field) -> None:
-    form = SearchForm({field: "15"})
-    assert form.is_valid() is False
-    assert field in form.errors
-
-
-@pytest.mark.django_db
 def test_only_the_semantic_controls_are_cloaked_until_alpine_starts() -> None:
     """The description row and the cutoff would flash before Alpine has read the mode
     without x-cloak. The keyword row is the server-rendered default and stays uncloaked,
@@ -354,3 +346,42 @@ def test_only_the_semantic_controls_are_cloaked_until_alpine_starts() -> None:
     assert len(keyword_rows) == 1 and len(semantic_only) == 2, tags
     assert not re.search(r"\bx-cloak\b", keyword_rows[0])
     assert all(re.search(r"\bx-cloak\b", tag) for tag in semantic_only), semantic_only
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("age_from", "abc", "Enter a whole number."),
+        ("age_till", "abc", "Enter a whole number."),
+        ("age_from", "-1", "Ensure this value is greater than or equal to 0."),
+        ("age_till", "121", "Ensure this value is less than or equal to 120."),
+    ],
+)
+def test_invalid_age_yields_form_error_instead_of_crashing(
+    field: str, value: str, message: str
+) -> None:
+    """A rejected age field surfaces as a form error; clean() must not assume the key exists."""
+    form = SearchForm(data={field: value})
+
+    assert not form.is_valid()
+    assert form.errors[field] == [message]
+
+
+@pytest.mark.django_db
+def test_ages_are_accepted_in_single_years() -> None:
+    """The age slider steps in single years, so any whole age within range is valid."""
+    form = SearchForm(data={"age_from": "15", "age_till": "65"})
+
+    assert form.is_valid(), form.errors
+    assert form.cleaned_data["age_from"] == 15
+    assert form.cleaned_data["age_till"] == 65
+
+
+@pytest.mark.django_db
+def test_age_from_must_be_less_than_age_till() -> None:
+    """The cross-field age check still fires when both fields are individually valid."""
+    form = SearchForm(data={"age_from": "80", "age_till": "30"})
+
+    assert not form.is_valid()
+    assert "Age from must be less than age till" in form.non_field_errors()

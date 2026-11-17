@@ -253,7 +253,7 @@ class OutputFieldForm(forms.ModelForm):
                         "justify-content-end array-toggle-field"
                     ),
                 ),
-                css_class="g-3 align-items-center",
+                css_class="g-3 align-items-start",
             ),
             "description",
             # Include the selection options widget partial template here.

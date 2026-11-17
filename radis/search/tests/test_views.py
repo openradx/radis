@@ -810,18 +810,6 @@ def test_info_card_explains_the_modes_only_with_the_capability(client: Client):
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize("per_page", ["0", "-1", "abc"])
-def test_an_unusable_page_size_falls_back_to_the_default(client: Client, per_page):
-    client.force_login(create_test_user_with_active_group())
-    captured: dict = {}
-    with patch("radis.search.views.search_provider", _provider(_empty(), captured=captured)):
-        response = client.get("/search/", {"query": "chest", "per_page": per_page})
-    assert response.status_code == 200
-    assert captured["request"].limit == 25
-    assert response.context["paginator"].per_page == 25
-
-
-@pytest.mark.django_db
 def test_page_sizes_are_offered(client: Client):
     client.force_login(create_test_user_with_active_group())
     with patch("radis.search.views.search_provider", _provider(_empty())):
@@ -841,15 +829,15 @@ def test_a_field_error_is_shown_with_the_field_name(client: Client):
 
 
 @pytest.mark.django_db
-def test_an_age_off_the_step_is_a_form_error_on_the_page(client: Client):
+def test_an_invalid_age_is_a_form_error_on_the_page(client: Client):
     client.force_login(create_test_user_with_active_group())
     captured: dict = {}
     with patch("radis.search.views.search_provider", _provider(_empty(), captured=captured)):
-        response = client.get("/search/", {"query": "chest", "age_from": "15"})
+        response = client.get("/search/", {"query": "chest", "age_from": "-1"})
     assert response.status_code == 200
     assert "request" not in captured
     content = _text(response)
-    assert "Age from must be a multiple of 10" in content
+    assert "Age from: Ensure this value is greater than or equal to 0." in content
     assert 'class="alert alert-danger' in content
 
 
@@ -989,3 +977,88 @@ def test_a_filter_error_is_shown_once(client: Client):
             "/search/", {"mode": "semantic", "description": "free air", "min_similarity": "5"}
         )
     assert _text(response).count("Ensure this value is less than or equal to 1") == 1
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "params",
+    [
+        {"per_page": "0"},
+        {"per_page": "-5"},
+        {"per_page": "abc"},
+        {"per_page": "1000"},
+        {"page": "0"},
+        {"page": "-1"},
+        {"page": "abc"},
+        {"age_from": "-1"},
+        {"age_till": "121"},
+        {"age_from": "abc", "age_till": "60"},
+    ],
+)
+def test_search_view_tolerates_invalid_url_parameters(client: Client, params: dict[str, str]):
+    """Hand-edited pagination and filter parameters never produce a server error."""
+    user = create_test_user_with_active_group()
+    client.force_login(user)
+
+    with patch("radis.search.views.search_provider", create_test_search_provider()):
+        response = client.get("/search/", {"query": "test query", **params})
+
+    assert response.status_code == 200
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("per_page", "expected_limit"),
+    [
+        (None, 25),
+        ("abc", 25),
+        ("0", 1),
+        ("-5", 1),
+        ("50", 50),
+        ("1000", 100),
+    ],
+)
+def test_search_view_clamps_page_size(
+    client: Client, per_page: str | None, expected_limit: int
+) -> None:
+    """per_page is clamped to 1..100; an absent or non-numeric value uses the default."""
+    user = create_test_user_with_active_group()
+    client.force_login(user)
+
+    captured: dict[str, Search] = {}
+
+    def capturing_search(search: Search) -> SearchResult:
+        captured["search"] = search
+        return SearchResult(total_count=0, total_relation="exact", documents=[])
+
+    provider = SearchProvider(name="Capturing", search=capturing_search, max_results=1000)
+    params = {"query": "chest"} if per_page is None else {"query": "chest", "per_page": per_page}
+
+    with patch("radis.search.views.search_provider", provider):
+        response = client.get("/search/", params)
+
+    assert response.status_code == 200
+    assert captured["search"].limit == expected_limit
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("params", "message"),
+    [
+        ({"age_from": "-1"}, "Ensure this value is greater than or equal to 0."),
+        ({"age_till": "121"}, "Ensure this value is less than or equal to 120."),
+        ({"age_from": "abc"}, "Enter a whole number."),
+    ],
+)
+def test_search_view_shows_age_field_errors(
+    client: Client, params: dict[str, str], message: str
+) -> None:
+    """An invalid age is reported next to the age slider, not silently swallowed."""
+    user = create_test_user_with_active_group()
+    client.force_login(user)
+
+    with patch("radis.search.views.search_provider", create_test_search_provider()):
+        response = client.get("/search/", {"query": "test query", **params})
+
+    assert response.status_code == 200
+    assert message in response.content.decode()
