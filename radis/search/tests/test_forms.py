@@ -107,9 +107,7 @@ def _query_layout_names(form: SearchForm) -> list[str]:
 def test_semantic_fields_exist_only_with_the_capability() -> None:
     with_capability = SearchForm(semantic=True)
     without = SearchForm()
-    for name in ("mode", "description", "min_similarity"):
-        assert name in with_capability.fields
-        assert name not in without.fields
+    assert set(with_capability.fields) - set(without.fields) == {"mode", "description"}
     assert _query_layout_names(with_capability) == ["query", "mode", "description"]
     assert _query_layout_names(without) == ["query"]
 
@@ -159,38 +157,10 @@ def test_full_text_mode_ignores_the_description_field() -> None:
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize("value", ["5", "abc"])
-def test_full_text_mode_ignores_the_cutoff(value) -> None:
-    form = SearchForm({"query": "chest", "min_similarity": value}, semantic=True)
-    assert form.is_valid(), form.errors
-    assert form.cleaned_data["min_similarity"] is None
-
-
-@pytest.mark.django_db
 def test_query_over_200_characters_is_invalid() -> None:
     form = SearchForm({"query": "a" * 201})
     assert not form.is_valid()
     assert "query" in form.errors
-
-
-@pytest.mark.django_db
-@pytest.mark.parametrize("value", ["1.5", "-0.1"])
-def test_min_similarity_outside_unit_interval_is_invalid(value) -> None:
-    form = SearchForm(
-        {"mode": "semantic", "description": "x", "min_similarity": value}, semantic=True
-    )
-    assert not form.is_valid()
-    assert "min_similarity" in form.errors
-
-
-@pytest.mark.django_db
-def test_min_similarity_is_optional_and_shows_the_default_as_placeholder(settings) -> None:
-    settings.SEARCH_SEMANTIC_MIN_SIMILARITY = 0.3
-    form = SearchForm({"mode": "semantic", "description": "x"}, semantic=True)
-    assert form.is_valid()
-    assert form.cleaned_data["min_similarity"] is None
-    assert form.fields["min_similarity"].widget.attrs["placeholder"] == "default 0.300"
-    assert form.fields["min_similarity"].initial is None
 
 
 @pytest.mark.django_db
@@ -311,16 +281,11 @@ def test_the_semantic_option_is_enabled_without_a_wait() -> None:
 
 
 @pytest.mark.django_db
-def test_cutoff_field_is_in_the_filters_only_with_the_capability() -> None:
-    with_capability = SearchForm(semantic=True)
-    html = " ".join(render_crispy_form(with_capability, with_capability.filters_helper).split())
-    assert "Minimum similarity" in html
-    assert 'name="min_similarity"' in html
-    # Disabled outside semantic mode, so the cutoff never rides along in a full-text URL.
-    assert ":disabled=\"mode !== 'semantic'\"" in unescape(html)
+def test_the_filters_are_the_same_in_both_modes() -> None:
+    def names(form: SearchForm) -> list[str]:
+        return re.findall(r'\bname="([^"]+)"', render_crispy_form(form, form.filters_helper))
 
-    without = SearchForm()
-    assert "min_similarity" not in render_crispy_form(without, without.filters_helper)
+    assert names(SearchForm(semantic=True)) == names(SearchForm())
 
 
 def test_description_partial_escapes_its_value() -> None:
@@ -333,9 +298,9 @@ def test_description_partial_escapes_its_value() -> None:
 
 @pytest.mark.django_db
 def test_only_the_semantic_controls_are_cloaked_until_alpine_starts() -> None:
-    """The description row and the cutoff would flash before Alpine has read the mode
-    without x-cloak. The keyword row is the server-rendered default and stays uncloaked,
-    so the page still searches without JavaScript."""
+    """The description row would flash before Alpine has read the mode without x-cloak.
+    The keyword row is the server-rendered default and stays uncloaked, so the page still
+    searches without JavaScript."""
     form = SearchForm(semantic=True)
     html = render_crispy_form(form, form.query_helper) + render_crispy_form(
         form, form.filters_helper
@@ -343,7 +308,7 @@ def test_only_the_semantic_controls_are_cloaked_until_alpine_starts() -> None:
     tags = [unescape(tag) for tag in re.findall(r"<[^>]*\bx-show=[^>]*>", html)]
     keyword_rows = [tag for tag in tags if "mode !== 'semantic'" in tag]
     semantic_only = [tag for tag in tags if "mode === 'semantic'" in tag]
-    assert len(keyword_rows) == 1 and len(semantic_only) == 2, tags
+    assert len(keyword_rows) == 1 and len(semantic_only) == 1, tags
     assert not re.search(r"\bx-cloak\b", keyword_rows[0])
     assert all(re.search(r"\bx-cloak\b", tag) for tag in semantic_only), semantic_only
 

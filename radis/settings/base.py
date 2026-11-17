@@ -596,15 +596,6 @@ if not SEARCH_RANKING_CACHE_TIMEOUT_SECONDS >= 0:
 # the default depth; the resumed scan costs more only under selective filters and on cold
 # index pages.
 SEARCH_SEMANTIC_ITERATIVE_SCAN = env.bool("SEARCH_SEMANTIC_ITERATIVE_SCAN", default=True)
-# Minimum similarity (1 - cosine distance, 0..1) a report needs to appear in semantic
-# mode. Applied after retrieval, so a query that matches nothing ends in a short list
-# instead of the nearest 500 reports. Comparable only within one embedding model and
-# corpus, hence unset (off) until calibrated; the page lets a user override it per search.
-SEARCH_SEMANTIC_MIN_SIMILARITY = _optional_env("SEARCH_SEMANTIC_MIN_SIMILARITY", float, None)
-if SEARCH_SEMANTIC_MIN_SIMILARITY is not None and not 0.0 <= SEARCH_SEMANTIC_MIN_SIMILARITY <= 1.0:
-    raise ImproperlyConfigured(
-        f"SEARCH_SEMANTIC_MIN_SIMILARITY={SEARCH_SEMANTIC_MIN_SIMILARITY} must be between 0 and 1."
-    )
 
 # Chat
 CHAT_GENERATE_TITLE_SYSTEM_PROMPT = """

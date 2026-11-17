@@ -1,7 +1,6 @@
 from typing import Any
 
 from adit_radis_shared.common.types import AuthenticatedHttpRequest
-from django.conf import settings
 from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
 from django.core.exceptions import ImproperlyConfigured
 from django.core.paginator import Paginator
@@ -72,15 +71,10 @@ class SearchView(LoginRequiredMixin, UserPassesTestMixin, View):
                 return render(request, "search/search.html", context)
             search = SemanticSearch(
                 text=description,
-                min_similarity=form.cleaned_data.get("min_similarity"),
                 filters=form.to_filters(active_group.pk),
                 offset=offset,
                 limit=page_size,
             )
-            cutoff = search.min_similarity
-            if cutoff is None:
-                cutoff = settings.SEARCH_SEMANTIC_MIN_SIMILARITY
-            context["cutoff"] = cutoff
         else:
             query_node, fixes = QueryParser().parse(form.cleaned_data["query"])
             if query_node is None:

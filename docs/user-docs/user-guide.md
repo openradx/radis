@@ -66,7 +66,6 @@ The description travels in the page address like the keywords and appears in you
 - **Study Description**: Filter by study description (partial match)
 - **Patient Sex**: All, Male, or Female
 - **Age Range**: Filter by patient age using the range slider
-- **Minimum similarity** (semantic mode only): cut the list where the similarity to your description drops below this value (0 to 1). Leave it empty for your administrator's default, or enter 0 to switch the cutoff off for one search
 
 Use "Reset filters" to clear all filters at once.
 

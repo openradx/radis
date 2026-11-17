@@ -7,7 +7,6 @@
                 {% else %}
                     No reports similar to your description
                 {% endif %}
-                {% if cutoff %}with similarity at least {{ cutoff|floatformat:3 }}{% endif %}
             {% else %}
                 {% if total_relation == "at_least" %}More than{% endif %}
                 {{ total_count }} report{{ total_count|pluralize }} found

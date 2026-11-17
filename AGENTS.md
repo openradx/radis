@@ -77,7 +77,7 @@ Analysis operations follow a Job -> Task pattern (similar to ADIT):
 
 - **Provider system**: Plugin-based architecture (currently PostgreSQL, extensible for Vespa/ElasticSearch)
 - **QueryParser**: Parses complex queries with operators, field filters, and boolean logic
-- **Two modes, nothing fused**: Full-text (default) returns exactly the keyword hits ranked by `ts_rank`. Semantic returns the reports nearest to the description under the same filters, at most `SEARCH_HNSW_EF_SEARCH` of them, in similarity order, cut at `SEARCH_SEMANTIC_MIN_SIMILARITY` when set
+- **Two modes, nothing fused**: Full-text (default) returns exactly the keyword hits ranked by `ts_rank`. Semantic returns the reports nearest to the description under the same filters, at most `SEARCH_HNSW_EF_SEARCH` of them, in similarity order
 - **Unavailability**: an embedding failure raises `SemanticSearchUnavailable` instead of falling back to full-text; the page shows a notice, names the wait when the service is rate limiting, and disables the Semantic option for new searches while the embedding gate is closed (a page already in semantic mode keeps its option and is refused at the gate)
 
 ### Docker Services
@@ -112,7 +112,7 @@ Embeddings and search tuning (`radis.pgsearch`):
 
 - `EMBEDDINGS_MODEL`: Embedding model, same `model[?param=value&...]` form as the LLM
   models. Empty means full-text search only — no embedding jobs, no calls to the service,
-  and no mode select, description or cutoff on the search page
+  and no mode select or description on the search page
 - `EMBEDDINGS_BASE_URL`, `EMBEDDINGS_API_KEY`: Default to `LLM_BASE_URL` / `LLM_API_KEY`.
   Set only when embeddings are served from a different endpoint, which is the normal case
   for vLLM and SGLang since they serve one model per process
@@ -138,8 +138,6 @@ Embeddings and search tuning (`radis.pgsearch`):
   `0` disables); new reports join a cached query's results when it expires
 - `SEARCH_SEMANTIC_ITERATIVE_SCAN`: Resume the index scan under selective filters
   (`hnsw.iterative_scan = strict_order`, default `true`)
-- `SEARCH_SEMANTIC_MIN_SIMILARITY`: Similarity cutoff for semantic mode, 0..1, unset by
-  default; users can override it per search
 
 Extractions (`radis.extractions`):
 
@@ -276,7 +274,7 @@ client.update_report("DOC-12345", {"body": "Updated findings..."}, upsert=True)
 ### Semantic Mode Missing or Unavailable
 
 - Confirm `EMBEDDINGS_MODEL` is set — empty is the documented way to run full-text only, and the
-  search page then has no mode select, description or cutoff
+  search page then has no mode select or description
 - Check `docker compose logs embeddings_worker` for failed subjobs
 - Reports ingested before the model was configured have no vector; run
   `docker compose exec web ./manage.py embed_pending` to backfill them

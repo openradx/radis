@@ -21,9 +21,8 @@ pytestmark = pytest.mark.django_db
 @pytest.fixture(autouse=True)
 def _semantic_search_settings(settings):
     """The premises every test here shares, pinned so a developer's .env cannot change
-    them: an embedding model, no default cutoff, and the ranking cache on."""
+    them: an embedding model and the ranking cache on."""
     settings.EMBEDDINGS_MODEL = parse_model_spec("qwen3")
-    settings.SEARCH_SEMANTIC_MIN_SIMILARITY = None
     settings.SEARCH_RANKING_CACHE_TIMEOUT_SECONDS = 300
 
 
@@ -131,50 +130,6 @@ def test_a_zero_vector_counts_as_not_embedded(group, corpus, embed, settings):
     assert _ids(result) == _ids(cached) == expected
     assert result.total_count == cached.total_count == 3
     assert not any("<=>" in q["sql"] for q in ctx.captured_queries)
-
-
-def test_the_setting_truncates_the_list(group, corpus, embed, settings):
-    settings.SEARCH_SEMANTIC_MIN_SIMILARITY = 0.5
-
-    result = search(_request(group.pk))
-
-    assert _ids(result) == [corpus["near"].document_id, corpus["mid"].document_id]
-    assert result.total_count == 2
-
-
-def test_the_per_search_cutoff_beats_the_setting(group, corpus, embed, settings):
-    settings.SEARCH_SEMANTIC_MIN_SIMILARITY = 0.5
-
-    assert _ids(search(_request(group.pk, min_similarity=0.7))) == [corpus["near"].document_id]
-    assert len(_ids(search(_request(group.pk, min_similarity=0.0)))) == 3
-
-
-def test_a_cutoff_nothing_passes_gives_an_empty_result(group, corpus, embed):
-    result = search(_request(group.pk, min_similarity=1.0))
-
-    assert result.documents == []
-    assert result.total_count == 0
-
-
-def test_a_cutoff_equal_to_a_similarity_keeps_that_hit(group, corpus, embed):
-    """The second search is served from the cached list, so the cutoff equals the
-    measured similarity of ``mid`` exactly."""
-    first = search(_request(group.pk))
-    mid = next(d for d in first.documents if d.document_id == corpus["mid"].document_id)
-    assert mid.similarity is not None
-
-    result = search(_request(group.pk, min_similarity=mid.similarity))
-
-    assert _ids(result) == [corpus["near"].document_id, corpus["mid"].document_id]
-
-
-def test_truncation_happens_after_retrieval(group, corpus, embed):
-    search(_request(group.pk, min_similarity=0.7))
-    with CaptureQueriesContext(connection) as ctx:
-        result = search(_request(group.pk))
-
-    assert not any("<=>" in q["sql"] for q in ctx.captured_queries)
-    assert result.total_count == 3
 
 
 def test_iterative_scan_is_set_for_the_scan_only(group, corpus, embed, settings):

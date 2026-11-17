@@ -4,7 +4,6 @@ from typing import Any
 from crispy_forms.helper import FormHelper, Layout
 from crispy_forms.layout import Button, Div, Field
 from django import forms
-from django.conf import settings
 
 from radis.core.form_fields import (
     create_age_range_fields,
@@ -56,14 +55,6 @@ class SearchForm(forms.Form):
     # The empty value is full-text, so the default never appears in the URL.
     mode = forms.ChoiceField(required=False, choices=MODE_CHOICES, label=False, widget=ModeSelect)  # type: ignore
     description = forms.CharField(required=False, label=False, max_length=DESCRIPTION_MAX_LENGTH)  # type: ignore
-    # Semantic mode only: overrides SEARCH_SEMANTIC_MIN_SIMILARITY for one search.
-    min_similarity = forms.FloatField(
-        required=False,
-        min_value=0.0,
-        max_value=1.0,
-        label="Minimum similarity",
-        widget=forms.NumberInput(attrs={"step": "0.001"}),
-    )
     # Filter fields - language, modalities, labels, and age fields created in __init__
     study_date_from = forms.DateField(
         required=False, widget=forms.DateInput(attrs={"type": "date"})
@@ -77,16 +68,16 @@ class SearchForm(forms.Form):
     )
 
     def __init__(self, *args, semantic: bool = False, semantic_wait: float = 0.0, **kwargs):
-        """``semantic`` is the registered provider's capability: without it the mode select,
-        the description and the cutoff do not exist on the page. ``semantic_wait`` is how
-        long this process may not embed a query (the embedding gate's pause after a 429):
-        for that long the row says when to retry and the Semantic option is disabled, unless
-        the page is already in semantic mode."""
+        """``semantic`` is the registered provider's capability: without it the mode select
+        and the description do not exist on the page. ``semantic_wait`` is how long this
+        process may not embed a query (the embedding gate's pause after a 429): for that long
+        the row says when to retry and the Semantic option is disabled, unless the page is
+        already in semantic mode."""
         super().__init__(*args, **kwargs)
 
         self.semantic_notice: str | None = None
         if not semantic:
-            for name in ("mode", "description", "min_similarity"):
+            for name in ("mode", "description"):
                 del self.fields[name]
         else:
             if semantic_wait > 0:
@@ -99,11 +90,6 @@ class SearchForm(forms.Form):
                     mode_widget = self.fields["mode"].widget
                     assert isinstance(mode_widget, ModeSelect)
                     mode_widget.disabled_values = {MODE_SEMANTIC}
-            default_cutoff = settings.SEARCH_SEMANTIC_MIN_SIMILARITY
-            if default_cutoff is not None:
-                self.fields["min_similarity"].widget.attrs["placeholder"] = (
-                    f"default {default_cutoff:.3f}"
-                )
 
         # Create fields using factory functions (use codes, not PKs)
         self.fields["language"] = create_language_field(use_pk=False, empty_label="All")
@@ -154,20 +140,6 @@ class SearchForm(forms.Form):
             if self.fields["labels"].choices  # type: ignore
             else []
         )
-        cutoff_field = (
-            [
-                Div(
-                    Field(
-                        "min_similarity",
-                        css_class="form-control-sm",
-                        **{":disabled": "mode !== 'semantic'"},
-                    ),
-                    **{"x-show": "mode === 'semantic'", "x-cloak": True},
-                )
-            ]
-            if "min_similarity" in self.fields
-            else []
-        )
         return Layout(
             Field("language", css_class="form-select-sm"),
             Field("modalities", css_class="form-select-sm"),
@@ -177,7 +149,6 @@ class SearchForm(forms.Form):
             Field("study_description", css_class="form-control-sm"),
             Field("patient_sex", css_class="form-select-sm"),
             RangeSlider("Age range", "age_from", "age_till", group_class="input-group-sm"),
-            *cutoff_field,
             Div(
                 Button(
                     "reset_filters",
@@ -216,9 +187,7 @@ class SearchForm(forms.Form):
         # The page disables the inactive mode's fields, so a value for them can only come from a
         # hand-made URL or a page without JavaScript; it must neither block the search nor reach
         # the view.
-        inactive = (
-            {"query": ""} if self.semantic_mode() else {"description": "", "min_similarity": None}
-        )
+        inactive = {"query": ""} if self.semantic_mode() else {"description": ""}
         for name, empty in inactive.items():
             if name in self.fields:
                 self.errors.pop(name, None)

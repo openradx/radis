@@ -98,14 +98,10 @@ class SemanticSearch(Search):
     """The reports most similar to ``text``, in similarity order."""
 
     text: str
-    # Overrides SEARCH_SEMANTIC_MIN_SIMILARITY for this search; None means the setting.
-    min_similarity: float | None = None
 
     def __post_init__(self) -> None:
         if not self.text.strip():
             raise ValueError("The semantic search text must not be blank.")
-        if self.min_similarity is not None and not 0.0 <= self.min_similarity <= 1.0:
-            raise ValueError("min_similarity must be between 0 and 1.")
 
 
 SearchRequest = FullTextSearch | SemanticSearch

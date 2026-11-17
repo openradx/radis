@@ -41,21 +41,6 @@ def test_blank_semantic_text_is_rejected():
         SemanticSearch(text=" \n", filters=SearchFilters(group=1))
 
 
-@pytest.mark.parametrize("value", [-0.1, 1.5])
-def test_min_similarity_outside_the_unit_interval_is_rejected(value):
-    with pytest.raises(ValueError):
-        SemanticSearch(text="free air", filters=SearchFilters(group=1), min_similarity=value)
-
-
-def test_min_similarity_bounds_are_accepted():
-    assert (
-        SemanticSearch(text="x", filters=SearchFilters(), min_similarity=0.0).min_similarity == 0.0
-    )
-    assert (
-        SemanticSearch(text="x", filters=SearchFilters(), min_similarity=1.0).min_similarity == 1.0
-    )
-
-
 def test_result_and_provider_defaults_keep_stubs_constructible():
     result = SearchResult(total_count=0, total_relation="exact", documents=[])
     assert not hasattr(result, "degraded")

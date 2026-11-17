@@ -592,26 +592,6 @@ def _rank_semantic(request: SemanticSearch, caller: str) -> Ranking:
     return _semantic_ranking(ids, similarity)
 
 
-def _effective_min_similarity(request: SemanticSearch) -> float | None:
-    if request.min_similarity is not None:
-        return request.min_similarity
-    return settings.SEARCH_SEMANTIC_MIN_SIMILARITY
-
-
-def _truncate(ranking: Ranking, cutoff: float | None) -> Ranking:
-    """Cut the similarity-ordered list at the first hit below ``cutoff``. Done after
-    retrieval rather than as a SQL predicate: with iterative scan on, pgvector would
-    keep scanning for rows that can no longer pass, up to its tuple budget."""
-    if cutoff is None or cutoff <= 0:
-        return ranking
-    kept: list[int] = []
-    for rid in ranking.ids:
-        if ranking.similarity_by_id.get(rid, 0.0) < cutoff:
-            break
-        kept.append(rid)
-    return ranking._replace(ids=kept)
-
-
 def _hydration_queryset(
     page_ids: list[int],
     group: int | None,
@@ -695,9 +675,7 @@ def _page(ids: list[int], request: Search) -> list[int]:
 
 def search(request: SearchRequest) -> SearchResult:
     if isinstance(request, SemanticSearch):
-        ranking = _truncate(
-            _rank_semantic(request, "Semantic search"), _effective_min_similarity(request)
-        )
+        ranking = _rank_semantic(request, "Semantic search")
     else:
         ranking = _rank_fulltext(request)
     documents = _hydrate(_page(ranking.ids, request), ranking, request.filters.group)

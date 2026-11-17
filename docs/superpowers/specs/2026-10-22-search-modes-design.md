@@ -39,8 +39,8 @@ This design replaces fusion with two modes the user picks on the search page:
   blend of their similarity to the description and their keyword rank (pure similarity order
   when the weight is 1). Hits beyond N follow in keyword order.
 - **Semantic**: a description field takes the place of the keyword field and is the query.
-  Results are the N reports most similar to it, in similarity order, with no highlighting.
-  An optional minimum similarity trims the tail.
+  Results are the N reports most similar to it, in similarity order, with no highlighting
+  and no similarity cutoff (§5.4).
 
 The provider interface models this as a typed request hierarchy with one entry point, the
 way search engines expose one search endpoint whose request structure carries the retrieval
@@ -108,7 +108,6 @@ class FullTextSearch(Search):
 @dataclass(frozen=True, kw_only=True)
 class SemanticSearch(Search):
     text: str                                  # __post_init__ rejects blank text
-    min_similarity: float | None = None        # per-search override of the setting; 0..1
 
 
 SearchRequest = FullTextSearch | SemanticSearch   # plain assignment (ruff UP040 under py312)
@@ -136,8 +135,8 @@ class SearchProvider(NamedTuple):
 
 One `search` function, dispatching on the request type. `semantic` is evaluated once at
 registration (`settings.EMBEDDINGS_MODEL is not None`; the pgsearch registration passes it
-explicitly) and handed by the view to the search form, which decides whether the mode select,
-the description and the cutoff field exist (§6.4, §6.6). The default keeps the stub
+explicitly) and handed by the view to the search form, which decides whether the mode select
+and the description exist (§6.4, §6.6). The default keeps the stub
 providers in `radis/search/tests` constructible. The extraction registry keeps `count` and
 `retrieve`, typed against `FullTextSearch`:
 
@@ -277,8 +276,7 @@ depend on the embedding:
   The result list is the window layer followed by the rest of the keyword layer.
 - **Semantic entries** (§5): ordered ids and similarities, cached unless the embedding failed, keyed by
   schema, the text, every filter field, `SEARCH_HNSW_EF_SEARCH`,
-  `SEARCH_SEMANTIC_ITERATIVE_SCAN` and the embedding configuration. The minimum similarity is
-  not in any key: it is applied to the cached list (§5.4).
+  `SEARCH_SEMANTIC_ITERATIVE_SCAN` and the embedding configuration.
 
 Keys are a prefix plus a SHA-256 hex digest (`pgsearch-ranking-`, schema bumped so entries
 written by older code are missed, not misread); payloads are plain dicts. Page two onwards,
@@ -385,31 +383,19 @@ may only flip the default value of the setting (in `base.py`, `example.env` and 
 the code path, the statement and the §11 tests are the same either way, and the outcome is
 recorded in the PR description.
 
-### 5.4 Minimum similarity
+### 5.4 No minimum similarity
 
-A cutoff is standard (Qdrant `score_threshold`, Weaviate `distance`, Elasticsearch kNN
-`similarity`, Azure `threshold`); every engine leaves the number to the application because
-similarities are comparable only within one model and corpus. It removes the tail of a query
-that matches nothing. It does not certify relevance at the top and does nothing about
-negation.
+The list is the `SEARCH_HNSW_EF_SEARCH` reports nearest to the description under the
+filters, and nothing cuts it. Engines that offer a cutoff (Qdrant `score_threshold`,
+Weaviate `distance`, Elasticsearch kNN `similarity`, Azure `threshold`) leave the number to
+the application, because similarities are comparable only within one embedding model and
+corpus: any fixed value is arbitrary, and a value tuned for one deployment's model means
+something else under another's. A cutoff would also only remove the tail of a query that
+matches nothing; it does not certify relevance at the top and does nothing about negation.
+So there is no setting, no field on the page and no clause in the count line.
 
-- `SEARCH_SEMANTIC_MIN_SIMILARITY`: float in [0, 1] or unset. Default unset (off) until
-  calibrated.
-- `SemanticSearch.min_similarity` overrides the setting for one search; the page offers it
-  as an optional field in semantic mode (§6.1, §6.2). An empty field means the setting
-  applies; a value of 0 turns the cutoff off for that search.
-- Applied as a truncation of the ordered list after retrieval, when the result is built from
-  the (cached) ranking: cut at the first hit whose similarity is below the effective cutoff.
-  Not a SQL predicate, because with iterative scan on a distance predicate would make
-  pgvector keep scanning for rows that can no longer pass, up to its tuple budget.
-- `total_count` is the truncated length; the count line names the cutoff when the effective
-  value is above 0.
-
-The spike dropped a distance cutoff (commit 529ddac9). That one was relative (best distance
-plus a margin) and trimmed the vector arm before fusing it with the keyword list, so anything
-inside the margin still entered the page as a vector-only report, and it needed a tuned
-deployment constant. This one is absolute, there is no keyword list for a vector-only report
-to intrude on, and it is off until a value is chosen with the override field.
+The spike dropped a distance cutoff as well (commit 529ddac9): a relative one (best
+distance plus a margin) that needed a tuned deployment constant.
 
 ### 5.5 Unavailability and caller errors
 
@@ -444,20 +430,16 @@ query = forms.CharField(required=False, label=False, max_length=200)   # server-
 mode = forms.ChoiceField(required=False, choices=[("", "Full-text"), ("semantic", "Semantic")])
 description = forms.CharField(required=False, label=False,
                               max_length=1000)   # rendered by hand (§6.2)
-min_similarity = forms.FloatField(required=False, min_value=0, max_value=1,
-                                  widget=forms.NumberInput(attrs={"step": "0.001"}))
 ```
 
 The description is the query in semantic mode and optional in full-text mode, where it
 drives the re-rank of §4.2. In PR #372 it is only the semantic query: full-text mode ignores
 it (see Delivery).
 
-`SearchForm.__init__(data, *, semantic: bool = False)` deletes `mode`, `description` and
-`min_similarity` when `semantic` is `False`; the view passes the provider's capability. The
-empty mode value means full-text, so the default never appears in the URL: the page's
-`x-ignore-empty-inputs` directive disables empty inputs at submit. `clean_description`
-collapses whitespace. `min_similarity` is not prefilled; its placeholder shows the setting's
-value when one is set ("default 0.300", three decimals like the field's step).
+`SearchForm.__init__(data, *, semantic: bool = False)` deletes `mode` and `description` when
+`semantic` is `False`; the view passes the provider's capability. The empty mode value means
+full-text, so the default never appears in the URL: the page's `x-ignore-empty-inputs`
+directive disables empty inputs at submit. `clean_description` collapses whitespace.
 `to_filters(group_id)` builds `SearchFilters` from the cleaned data, so the view builds it
 in one place. The no-op `form_show_errors` access in
 `__init__` is dropped. The deep link from the extraction preview (query and filter
@@ -483,13 +465,10 @@ an input group of the description textarea (two rows, at most 1,000 characters) 
 submit button. Wording, verbatim: the keyword placeholder is "Input your search terms", the
 description placeholder is "Describe the reports you are looking for", the accessible names
 are "Search mode" for the select, "Search terms" for the keyword input, "Clear search terms"
-for the clear button and "Search" for both submit buttons, and the cutoff field's label is
-"Minimum similarity". Enter in the textarea submits the search (`@keydown.enter` with a
-`shiftKey` check that calls `$el.form.requestSubmit()`, so the submit handlers still run;
-Alpine has no `.exact` modifier); Shift+Enter inserts a newline. `min_similarity` sits at the
-bottom of the Filters card, shown in semantic mode only and `:disabled="mode !== 'semantic'"`
-so it never rides along in a full-text URL; "Reset filters" clears it like every other
-filter, and an empty field means the setting applies. Without the capability the row is
+for the clear button and "Search" for both submit buttons. Enter in the textarea submits the
+search (`@keydown.enter` with a `shiftKey` check that calls `$el.form.requestSubmit()`, so the
+submit handlers still run; Alpine has no `.exact` modifier); Shift+Enter inserts a newline.
+The Filters card is the same in both modes. Without the capability the row is
 today's single input group: the "Search" label, the keyword input, the clear button and the
 submit button. Where the full-text description and the "Write from keywords" button go is
 decided by the stacked PR that brings them (see Delivery).
@@ -500,12 +479,12 @@ Alpine state in the existing `SearchForm` component: `mode` bound with `x-model.
 reload of `?mode=semantic` keeps the selection (plain `x-model` writes the data value into the
 element on init under the vendored Alpine 3.15). The component initialises `mode` to `''`
 and reads nothing from the DOM unconditionally, because the page without the capability
-(§6.6) has no select, textarea or cutoff field. The description textarea carries no
+(§6.6) has neither select nor textarea. The description textarea carries no
 `x-model`; its value is read by the server from the form.
 
 Each row is shown only in its own mode (`x-show`), and its fields are disabled in the other:
 the keyword input and the clear button carry `:disabled="mode === 'semantic'"`, the
-textarea `:disabled="mode !== 'semantic'"`, like the cutoff field. A disabled control is
+textarea `:disabled="mode !== 'semantic'"`. A disabled control is
 never submitted, so the URL carries only the active mode's field and a result page never
 shows the other mode's input. Hidden and disabled controls keep their values, so whatever
 was typed in either field survives switching back and forth within the page; the next
@@ -515,9 +494,9 @@ default, does not, so the page keeps a working full-text search without JavaScri
 
 The server trusts none of it. `SearchForm.clean()` counts only the active mode's field: in
 semantic mode it drops the keyword field, a validation error on it included, and in
-full-text mode the description and the cutoff, so a hand-made URL carrying the other field
-still searches and the view never parses keywords in semantic mode; `min_similarity` is read
-only in semantic mode. Semantic mode with an empty description renders a one-line notice
+full-text mode the description, so a hand-made URL carrying the other field still searches
+and the view never parses keywords in semantic mode. Semantic mode with an empty description
+renders a one-line notice
 above the info card without calling the provider ("Semantic mode needs a description.").
 Full-text mode without keywords shows the info card alone, as today, whatever else the URL
 carries.
@@ -528,13 +507,13 @@ The provider check moves before the form: `ImproperlyConfigured` when no provide
 registered, then `SearchForm(request.GET, semantic=search_provider.semantic)`. Full-text:
 `FullTextSearch(query=node, rerank=SimilarityRerank(description) if description else None,
 filters=form.to_filters(group.pk), offset=..., limit=...)`; the "fixed query" notice stays.
-Semantic: `SemanticSearch(text=description, min_similarity=..., filters=..., offset=...,
-limit=...)`. The paging guard against `max_results` stays; a semantic list is at most 1,000
-long. `page_sizes = [10, 25, 50]` is passed as the sibling list views do, so the page-size
-selector the user guide already promises renders.
+Semantic: `SemanticSearch(text=description, filters=..., offset=..., limit=...)`. The paging
+guard against `max_results` stays; a semantic list is at most 1,000 long.
+`page_sizes = [10, 25, 50]` is passed as the sibling list views do, so the page-size selector
+the user guide already promises renders.
 
 The context gains `mode`, `description`, `reranked` (a description was given and the result
-is not degraded), the window size, the weight, the effective cutoff, `result.degraded` and
+is not degraded), the window size, the weight, `result.degraded` and
 `page_sizes` for the templates.
 
 ### 6.5 The description endpoint and writer
@@ -599,10 +578,8 @@ only the passage."
   found, the top W re-ranked by your description, the rest in keyword order", W from the
   context, never a literal. With no hits the line reads "0 reports found" without the
   re-rank clause, even when a description was given.
-- Count line, semantic. "The N reports most similar to your description", plus "with
-  similarity at least 0.xxx" when the effective cutoff is above 0. Zero hits: "No reports
-  similar to your description" with the same cutoff clause, so the user sees the cutoff
-  removed everything.
+- Count line, semantic. "The N reports most similar to your description". Zero hits: "No
+  reports similar to your description".
 - Degraded. Full-text: a warning, "Your description could not be applied (embedding service
   unavailable); results are in keyword order. Search again to retry.", and no re-rank
   wording anywhere. Semantic: an error, "Semantic search is unavailable right now.", alone,
@@ -615,16 +592,15 @@ only the passage."
 - Summaries: highlighted in full-text mode, the report's opening in semantic mode, both
   escaped (§4.6).
 - The info card branches on `form.fields.mode`. With the capability it explains the two
-  modes, the description's two roles, the write button, the cutoff, that operators, quotes
+  modes, the description's two roles, the write button, that operators, quotes
   and `NOT` have no special meaning in a description, that semantic mode has no highlighting,
   and that newly imported reports are embedded in the background and rank by keywords only
   until then and do not appear in semantic mode. Without it, today's card. Both fix a
   pre-existing error: `-` does not exclude a term, `NOT` does. The note that an empty
   `EMBEDDINGS_MODEL` hides the semantic controls lives in the user and admin guides (§8).
-- Without an embedding model (`semantic` is `False`): the form deletes the three fields, the
-  query row renders the "Search" label instead of the select, the description row, the write
-  button and the cutoff field are absent, and the page is today's full-text page without
-  fusion.
+- Without an embedding model (`semantic` is `False`): the form deletes the two fields, the
+  query row renders the "Search" label instead of the select, the description row and the
+  write button are absent, and the page is today's full-text page without fusion.
 
 ## 7. Settings (`radis/settings/base.py`, `example.env`)
 
@@ -642,7 +618,6 @@ commented `example.env` entry with its default.
 | `SEARCH_RERANK_WINDOW` | new | 1,000, ≥ 1 | keyword hits re-ranked when a description is given |
 | `SEARCH_RERANK_SEMANTIC_WEIGHT` | new | 0.7, 0..1 | weight of similarity in the window score |
 | `SEARCH_SEMANTIC_ITERATIVE_SCAN` | new | on | `SET LOCAL hnsw.iterative_scan = strict_order` per semantic search |
-| `SEARCH_SEMANTIC_MIN_SIMILARITY` | new | unset | similarity cutoff, 0..1; unset is off |
 | `EMBEDDINGS_QUERY_REQUEST_TIMEOUT_SECONDS` | new | 10 s | request timeout of a query embedding (search path only; worst case with the gate budget 20 s) |
 | `SEARCH_DESCRIPTION_SYSTEM_PROMPT` | new | §6.5 text | the writer's instruction |
 | `SEARCH_DESCRIPTION_TIMEOUT` | new | 10 s | writer request timeout and gate budget (worst case about 20 s, no retries) |
@@ -674,7 +649,7 @@ select, and change in this PR (the AGENTS.md rule to keep docs in sync applies):
   removal of the "Search via API" example, which documents an endpoint that does not exist.
 - `README.md` (two sentences) and `docs/index.md` (one).
 - `docs/user-docs/user-guide.md`: the overview sentence (line 11), the search steps, the
-  semantic search section, the query length sentence, the filters list (cutoff field), the
+  semantic search section, the query length sentence, the
   results section (no score per hit, no highlighting in semantic mode; the page-size
   sentence becomes true with §6.4), the advice not to type patient identifiers into the
   description, and the note that semantic controls appear only when the administrator
@@ -735,9 +710,8 @@ by the #284 numbers at depth 1,000.
 Before the defaults are fixed, measured on the side stack (`radis_spike` on port 8503, sharing
 the staging database, rebuilt from this branch): semantic latency with the scan on and off at
 the 500 default, unfiltered and under the group and a modality filter, with `EXPLAIN
-ANALYZE` confirming the HNSW index on the real corpus; the window measurement at 1,000; and
-the similarity ranges of the spike's benchmark queries, present versus unmentioned, to pick a
-first cutoff. Only ids, verdicts and numbers are recorded. No report text is read.
+ANALYZE` confirming the HNSW index on the real corpus; and the window measurement at 1,000.
+Only ids, verdicts and numbers are recorded. No report text is read.
 
 ## 11. Testing
 
@@ -777,8 +751,6 @@ Provider, semantic (`test_provider_semantic.py`):
 - distance order; a report with no keyword match is found by description; `relevance` is
   `None`; the summary is the escaped opening without `<em>`; `total_count` equals the list
   length and `total_relation` is `"exact"`.
-- cutoff: truncation after retrieval; the per-search override beats the setting; 0 and
-  unset leave the list intact; a cutoff nothing passes gives an empty result, not a fallback.
 - iterative scan: `SHOW hnsw.iterative_scan` is `off` in a test that runs no semantic
   search (load pgvector first with a vector cast, as the existing GUC test does);
   `CaptureQueriesContext` shows `SET LOCAL hnsw.iterative_scan = strict_order` immediately
@@ -791,7 +763,7 @@ Provider, semantic (`test_provider_semantic.py`):
 Ranking cache (`test_ranking_cache.py`): identical searches and page two run no ranking
 query; the keyword layer is shared by a plain search, a described search and an extraction
 count; mode, description, window and weight participate in the window and semantic keys;
-the cutoff does not; a failed window order and a failed semantic embedding are not cached;
+a failed window order and a failed semantic embedding are not cached;
 zero disables.
 
 SQL shape (`test_filter_query_equivalence.py`): the single-table and no-traversal guards stay;
@@ -801,14 +773,14 @@ test's transaction, its plan shows `Index Scan using pgsearch_embedding_hnsw` (a
 sequential scan); the window measurement is an id-list query; the hydration query carries
 the group predicate and no join.
 
-Search page (`test_forms.py`, `test_views.py`): the three fields exist only when the form is
-built with `semantic=True`, and the view hands the patched provider's flag through (the tests
-keep patching `radis.search.views.search_provider`); the query is rejected above 200
-characters; the description collapses whitespace; the cutoff validates; full-text with a
-description builds a `FullTextSearch` with a `SimilarityRerank`; semantic builds a
-`SemanticSearch` with the override and ignores a posted query; the two mismatch notices;
+Search page (`test_forms.py`, `test_views.py`): the mode and description fields exist only
+when the form is built with `semantic=True`, and the view hands the patched provider's flag
+through (the tests keep patching `radis.search.views.search_provider`); the query is rejected
+above 200 characters; the description collapses whitespace; full-text with a description
+builds a `FullTextSearch` with a `SimilarityRerank`; semantic builds a `SemanticSearch` and
+ignores a posted query; the two mismatch notices;
 semantic with a blank description calls no provider; the count line in all its forms (below
-the window, above it, capped, semantic with and without a cutoff, zero hits); the unavailable
+the window, above it, capped, semantic, zero hits); the unavailable
 notice with and without a wait, the Semantic option disabled while the gate is closed and
 kept enabled on a page already in semantic mode;
 no re-rank wording and no "Re-rank score" line on a failed page; the header
@@ -861,8 +833,9 @@ iterative-scan default recorded there goes into the PR description.
 - `count` and `retrieve` ignore `rerank`: a set and a count have no order, and extractions
   must never depend on the embedding service.
 - Window 1,000, matching Azure's default text recall size and the spike's measured setting.
-- Minimum similarity off by default with a per-search override, because the number is
-  corpus-specific and the spike's deployment-constant cutoff is exactly what proved untunable.
+- No minimum similarity, because a similarity value depends on each deployment's embedding
+  model and corpus, so any cutoff is arbitrary; the spike's deployment-constant cutoff is
+  exactly what proved untunable.
 - Iterative scan on for semantic mode, confirmed by measurement before merge, because the
   beam is the whole product there.
 - Two cache layers, so an embedding outage never re-runs the keyword ranking and the

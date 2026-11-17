@@ -532,9 +532,7 @@ def test_mode_fields_exist_only_with_the_capability(client: Client):
         with_fields = client.get("/search/").context["form"].fields
     with patch("radis.search.views.search_provider", _provider(_empty(), semantic=False)):
         without = client.get("/search/").context["form"].fields
-    assert (
-        "mode" in with_fields and "description" in with_fields and "min_similarity" in with_fields
-    )
+    assert "mode" in with_fields and "description" in with_fields
     assert "mode" not in without and "description" not in without
 
 
@@ -545,18 +543,12 @@ def test_semantic_mode_builds_a_semantic_search_and_ignores_the_keywords(client:
     with patch("radis.search.views.search_provider", _provider(_empty(), captured=captured)):
         response = client.get(
             "/search/",
-            {
-                "mode": "semantic",
-                "description": "free  air",
-                "query": "ignored",
-                "min_similarity": "0.4",
-            },
+            {"mode": "semantic", "description": "free  air", "query": "ignored"},
         )
     assert response.status_code == 200
     request = captured["request"]
     assert isinstance(request, SemanticSearch)
     assert request.text == "free air"
-    assert request.min_similarity == 0.4
     assert response.context["mode"] == "semantic"
 
 
@@ -653,9 +645,8 @@ def test_result_numbers_continue_on_later_pages(client: Client, two_reports):
 @pytest.mark.django_db
 @pytest.mark.parametrize("mode", ["fulltext", "semantic"])
 def test_a_hit_shows_its_position_but_not_the_value_that_ranked_it(
-    client: Client, two_reports, settings, mode
+    client: Client, two_reports, mode
 ):
-    settings.SEARCH_SEMANTIC_MIN_SIMILARITY = 0.3
     client.force_login(create_test_user_with_active_group())
     if mode == "semantic":
         params = {"mode": "semantic", "description": "free air"}
@@ -684,23 +675,6 @@ def test_count_line_when_capped(client: Client):
     with patch("radis.search.views.search_provider", _provider(result)):
         response = client.get("/search/", {"query": "chest"})
     assert "More than 10000 reports found" in _text(response)
-
-
-@pytest.mark.django_db
-@pytest.mark.parametrize("cutoff, shown", [(0.3, "0.300"), (0.745, "0.745")])
-def test_semantic_count_line_names_the_cutoff(client: Client, two_reports, settings, cutoff, shown):
-    """Three decimals, the precision of the Minimum similarity field."""
-    settings.SEARCH_SEMANTIC_MIN_SIMILARITY = cutoff
-    client.force_login(create_test_user_with_active_group())
-    documents = [_document(r, relevance=None, similarity=0.7, score=0.7) for r in two_reports]
-    result = SearchResult(total_count=2, total_relation="exact", documents=documents)
-    with patch("radis.search.views.search_provider", _provider(result)):
-        response = client.get("/search/", {"mode": "semantic", "description": "free air"})
-    content = _text(response)
-    assert (
-        f"The 2 reports most similar to your description with similarity at least {shown}"
-        in content
-    )
 
 
 @pytest.mark.django_db
@@ -795,11 +769,9 @@ def test_info_card_explains_the_modes_only_with_the_capability(client: Client):
         with_modes = _text(client.get("/search/"))
     with patch("radis.search.views.search_provider", _provider(_empty(), semantic=False)):
         without = _text(client.get("/search/"))
-    assert "Minimum similarity" in with_modes
     assert (
         "A minus sign does not exclude" in with_modes and "A minus sign does not exclude" in without
     )
-    # The cutoff label also renders outside the card; this phrase does not.
     assert "Choose a mode in the search bar" in with_modes
     assert "Choose a mode in the search bar" not in without
     not_rule = (
@@ -851,23 +823,17 @@ def test_a_non_field_error_is_shown(client: Client):
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize("default, override", [(None, None), (0.3, "0")])
-def test_semantic_count_line_without_a_cutoff(
-    client: Client, two_reports, settings, default, override
-):
-    """No clause when the effective cutoff is 0 or unset; an explicit 0 beats the default."""
-    settings.SEARCH_SEMANTIC_MIN_SIMILARITY = default
+def test_no_page_names_a_similarity_cutoff(client: Client, two_reports):
     client.force_login(create_test_user_with_active_group())
     documents = [_document(r, relevance=None, similarity=0.7, score=0.7) for r in two_reports]
     result = SearchResult(total_count=2, total_relation="exact", documents=documents)
-    params = {"mode": "semantic", "description": "free air"}
-    if override is not None:
-        params["min_similarity"] = override
     with patch("radis.search.views.search_provider", _provider(result)):
-        response = client.get("/search/", params)
-    content = _text(response)
-    assert "The 2 reports most similar to your description" in content
-    assert "with similarity at least" not in content
+        start = _text(client.get("/search/"))
+        semantic = _text(client.get("/search/", {"mode": "semantic", "description": "free air"}))
+    assert "The 2 reports most similar to your description" in semantic
+    for content in (start, semantic):
+        assert "Minimum similarity" not in content
+        assert "similarity at least" not in content
 
 
 @pytest.mark.django_db
@@ -955,9 +921,8 @@ def test_each_mode_shows_its_own_row_and_disables_the_other(client: Client):
     [
         ({"mode": "semantic", "description": "free air", "query": "a" * 201}, SemanticSearch),
         ({"query": "chest", "description": "a" * 1001}, FullTextSearch),
-        ({"query": "chest", "min_similarity": "5"}, FullTextSearch),
     ],
-    ids=["semantic", "full-text", "full-text-cutoff"],
+    ids=["semantic", "full-text"],
 )
 def test_an_invalid_inactive_field_does_not_stop_the_search(client: Client, params, request_type):
     client.force_login(create_test_user_with_active_group())
@@ -970,22 +935,11 @@ def test_an_invalid_inactive_field_does_not_stop_the_search(client: Client, para
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize(
-    "params, message",
-    [
-        (
-            {"mode": "semantic", "description": "free air", "min_similarity": "5"},
-            "Ensure this value is less than or equal to 1",
-        ),
-        ({"query": "chest", "age_from": "-1"}, "Ensure this value is greater than or equal to 0."),
-    ],
-    ids=["cutoff", "age"],
-)
-def test_a_filter_error_is_shown_once(client: Client, params, message):
+def test_a_filter_error_is_shown_once(client: Client):
     client.force_login(create_test_user_with_active_group())
     with patch("radis.search.views.search_provider", _provider(_empty())):
-        response = client.get("/search/", params)
-    assert _text(response).count(message) == 1
+        response = client.get("/search/", {"query": "chest", "age_from": "-1"})
+    assert _text(response).count("Ensure this value is greater than or equal to 0.") == 1
 
 
 @pytest.mark.django_db
