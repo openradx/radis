@@ -33,8 +33,14 @@
     </p>
     {% for line in impact.details %}<p>{{ line }}</p>{% endfor %}
     <p>
-        Stale results keep surfacing with a greyed-out badge until then. The periodic scan does not pick up
-        label changes; run <strong>Labels → Labeling jobs → Run backfill now</strong> to apply the change.
+        {% if opts.model_name == "label" %}
+            Stale results keep surfacing with a greyed-out badge until then.
+        {% else %}
+            Gate answers have no badge: the label results of those reports keep their normal badges until the
+            backfill asks the gate again.
+        {% endif %}
+        The periodic scan does not pick up label changes; run
+        <strong>Labels → Labeling jobs → Run backfill now</strong> to apply the change.
     </p>
     <h2>{% trans "Changes" %}</h2>
     <ul>

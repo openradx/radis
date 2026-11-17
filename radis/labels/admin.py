@@ -72,10 +72,8 @@ class _DefinitionConfirmAdmin(admin.ModelAdmin):
         self, request: HttpRequest, object_id: str
     ) -> HttpResponse | None:
         """The confirmation page, or None to let the regular change view handle the POST:
-        upload present, object missing, no permission, already confirmed for the definition as
-        it is now, invalid form, definition unchanged, nothing to invalidate."""
-        if request.FILES:
-            return None  # the page echoes the POST as hidden inputs, which cannot carry files
+        object missing, no permission, already confirmed for the definition as it is now,
+        invalid form, definition unchanged, nothing to invalidate."""
         obj = self.get_object(request, unquote(object_id))
         if obj is None or not self.has_change_permission(request, obj):
             return None

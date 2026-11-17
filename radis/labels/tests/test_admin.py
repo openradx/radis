@@ -447,6 +447,7 @@ def test_label_description_change_renders_confirmation_without_saving(client):
     assert f'name="_confirm_definition_change" value="{_fingerprint(label)}"' in content
     assert 'method="post" action=""' in content
     assert "Run backfill now" in content
+    assert "greyed-out badge" in content
     label.refresh_from_db()
     assert label.description == old_description
     assert label.definition_updated_at == before
