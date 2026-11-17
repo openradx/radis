@@ -9,7 +9,7 @@ from django.template.loader import render_to_string
 
 from radis.labels.factories import LabelFactory
 from radis.reports.factories import LanguageFactory, ModalityFactory
-from radis.search.forms import DESCRIPTION_MAX_LENGTH, SearchForm
+from radis.search.forms import SearchForm
 from radis.search.layouts import QueryInput
 
 
@@ -293,7 +293,16 @@ def test_description_partial_escapes_its_value() -> None:
         "search/form_elements/description_input.html", {"value": "a </textarea><b>"}
     )
     assert ">a &lt;/textarea&gt;&lt;b&gt;</textarea>" in html
-    assert f'maxlength="{DESCRIPTION_MAX_LENGTH}"' in html
+
+
+@pytest.mark.django_db
+def test_the_inputs_carry_the_limits_the_form_validates() -> None:
+    form = SearchForm(semantic=True)
+    html = render_crispy_form(form, form.query_helper)
+    query = re.search(r'<input\b[^>]*\bname="query"[^>]*>', html)
+    description = re.search(r'<textarea\b[^>]*\bname="description"[^>]*>', html)
+    assert query and 'maxlength="200"' in query.group(0)
+    assert description and 'maxlength="1000"' in description.group(0)
 
 
 @pytest.mark.django_db

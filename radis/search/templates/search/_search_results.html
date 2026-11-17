@@ -1,7 +1,7 @@
 <div class="d-flex flex-column">
     <div class="mb-3">
         <small class="ms-2">
-            {% if mode == "semantic" %}
+            {% if semantic_mode %}
                 {% if total_count %}
                     The {{ total_count }} report{{ total_count|pluralize }} most similar to your description
                 {% else %}
@@ -21,7 +21,7 @@
     {% for document in documents %}
         {% include "search/_result_document.html" %}
     {% empty %}
-        {% if mode != "semantic" %}
+        {% if not semantic_mode %}
             <div class="alert alert-light" role="alert">No results found</div>
         {% endif %}
     {% endfor %}

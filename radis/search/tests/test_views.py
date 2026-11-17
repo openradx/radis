@@ -549,7 +549,7 @@ def test_semantic_mode_builds_a_semantic_search_and_ignores_the_keywords(client:
     request = captured["request"]
     assert isinstance(request, SemanticSearch)
     assert request.text == "free air"
-    assert response.context["mode"] == "semantic"
+    assert response.context["semantic_mode"] is True
 
 
 @pytest.mark.django_db
@@ -557,10 +557,11 @@ def test_full_text_mode_builds_a_full_text_search_and_ignores_a_description(clie
     client.force_login(create_test_user_with_active_group())
     captured: dict = {}
     with patch("radis.search.views.search_provider", _provider(_empty(), captured=captured)):
-        client.get("/search/", {"query": "chest", "description": "free air"})
+        response = client.get("/search/", {"query": "chest", "description": "free air"})
     request = captured["request"]
     assert isinstance(request, FullTextSearch)
     assert QueryParser.unparse(request.query) == "chest"
+    assert response.context["semantic_mode"] is False
 
 
 @pytest.mark.django_db

@@ -19,14 +19,11 @@ from .site import (
     search_provider,
 )
 
-PAGE_SIZES = [10, 25, 50]
-DEFAULT_PAGE_SIZE = 25
-SEMANTIC_NEEDS_DESCRIPTION = "Semantic mode needs a description."
-SEMANTIC_UNAVAILABLE = "Semantic search is unavailable right now."
-
 
 class SearchView(LoginRequiredMixin, UserPassesTestMixin, View):
     permission_denied_message = "You must be logged in and have an active group"
+    paginate_by = 25
+    page_sizes = [10, 25, 50]
     request: AuthenticatedHttpRequest
 
     def test_func(self) -> bool | None:
@@ -40,7 +37,7 @@ class SearchView(LoginRequiredMixin, UserPassesTestMixin, View):
         form = SearchForm(
             request.GET, semantic=search_provider.semantic, semantic_wait=semantic_wait
         )
-        context: dict[str, Any] = {"form": form, "page_sizes": PAGE_SIZES}
+        context: dict[str, Any] = {"form": form, "page_sizes": self.page_sizes}
 
         if not form.is_valid():
             return render(request, "search/search.html", context)
@@ -61,13 +58,13 @@ class SearchView(LoginRequiredMixin, UserPassesTestMixin, View):
         assert active_group
 
         semantic_mode = form.semantic_mode()
-        context["mode"] = "semantic" if semantic_mode else "fulltext"
+        context["semantic_mode"] = semantic_mode
 
         search: SearchRequest
         if semantic_mode:
             description = form.cleaned_data["description"]
             if not description:
-                context["mode_notice"] = SEMANTIC_NEEDS_DESCRIPTION
+                context["mode_notice"] = "Semantic mode needs a description."
                 return render(request, "search/search.html", context)
             search = SemanticSearch(
                 text=description,
@@ -92,7 +89,7 @@ class SearchView(LoginRequiredMixin, UserPassesTestMixin, View):
             result = search_provider.search(search)
         except SemanticSearchUnavailable as exc:
             context["unavailable_notice"] = (
-                SEMANTIC_UNAVAILABLE
+                "Semantic search is unavailable right now."
                 if exc.retry_after is None
                 else semantic_wait_notice(exc.retry_after)
             )
@@ -119,9 +116,9 @@ class SearchView(LoginRequiredMixin, UserPassesTestMixin, View):
         return page_number
 
     def get_page_size(self, request: HttpRequest) -> int:
-        page_size = request.GET.get("per_page") or DEFAULT_PAGE_SIZE
+        page_size = request.GET.get("per_page") or self.paginate_by
         try:
             page_size = max(1, min(int(page_size), 100))
         except ValueError:
-            page_size = DEFAULT_PAGE_SIZE
+            page_size = self.paginate_by
         return page_size

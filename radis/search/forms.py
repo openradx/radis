@@ -4,6 +4,7 @@ from typing import Any
 from crispy_forms.helper import FormHelper, Layout
 from crispy_forms.layout import Button, Div, Field
 from django import forms
+from django.db import models
 
 from radis.core.form_fields import (
     create_age_range_fields,
@@ -16,11 +17,6 @@ from radis.labels.models import Label
 from .layouts import QueryInput
 from .site import SearchFilters
 
-QUERY_MAX_LENGTH = 200
-DESCRIPTION_MAX_LENGTH = 1000
-MODE_SEMANTIC = "semantic"
-MODE_CHOICES = [("", "Full-text"), (MODE_SEMANTIC, "Semantic")]
-
 
 def semantic_wait_notice(seconds: float) -> str:
     """The page's wording while the embedding gate is closed after a 429."""
@@ -31,6 +27,12 @@ def semantic_wait_notice(seconds: float) -> str:
         minutes = math.ceil(whole / 60)
         wait = f"about {minutes} minute{'s' if minutes != 1 else ''}"
     return f"Semantic search is rate limited right now. Try again in {wait}."
+
+
+class SearchMode(models.TextChoices):
+    # The empty value is full-text, so the default never appears in the URL.
+    FULLTEXT = "", "Full-text"
+    SEMANTIC = "semantic", "Semantic"
 
 
 class ModeSelect(forms.Select):
@@ -51,10 +53,9 @@ class ModeSelect(forms.Select):
 
 class SearchForm(forms.Form):
     # Query fields
-    query = forms.CharField(required=False, label=False, max_length=QUERY_MAX_LENGTH)  # type: ignore
-    # The empty value is full-text, so the default never appears in the URL.
-    mode = forms.ChoiceField(required=False, choices=MODE_CHOICES, label=False, widget=ModeSelect)  # type: ignore
-    description = forms.CharField(required=False, label=False, max_length=DESCRIPTION_MAX_LENGTH)  # type: ignore
+    query = forms.CharField(required=False, label=False, max_length=200)  # type: ignore
+    mode = forms.ChoiceField(required=False, choices=SearchMode, label=False, widget=ModeSelect)  # type: ignore
+    description = forms.CharField(required=False, label=False, max_length=1000)  # type: ignore
     # Filter fields - language, modalities, labels, and age fields created in __init__
     study_date_from = forms.DateField(
         required=False, widget=forms.DateInput(attrs={"type": "date"})
@@ -86,10 +87,10 @@ class SearchForm(forms.Form):
                 # semantic mode keeps its option: resubmitting it reaches the gate, which
                 # refuses it with the same notice, instead of quietly turning into an
                 # empty full-text search.
-                if self.data.get("mode") != MODE_SEMANTIC:
+                if self.data.get("mode") != SearchMode.SEMANTIC:
                     mode_widget = self.fields["mode"].widget
                     assert isinstance(mode_widget, ModeSelect)
-                    mode_widget.disabled_values = {MODE_SEMANTIC}
+                    mode_widget.disabled_values = {SearchMode.SEMANTIC}
 
         # Create fields using factory functions (use codes, not PKs)
         self.fields["language"] = create_language_field(use_pk=False, empty_label="All")
@@ -126,11 +127,7 @@ class SearchForm(forms.Form):
                 mode_field="mode" if semantic else None,
                 description_field="description" if semantic else None,
                 notice=self.semantic_notice,
-                query_attrs={
-                    "placeholder": "Input your search terms",
-                    "autocomplete": "off",
-                    "maxlength": QUERY_MAX_LENGTH,
-                },
+                query_attrs={"placeholder": "Input your search terms", "autocomplete": "off"},
             ),
         )
 
@@ -162,7 +159,7 @@ class SearchForm(forms.Form):
         )
 
     def semantic_mode(self) -> bool:
-        return self.cleaned_data.get("mode") == MODE_SEMANTIC
+        return self.cleaned_data.get("mode") == SearchMode.SEMANTIC
 
     def to_filters(self, group_id: int) -> SearchFilters:
         """The structured filters of a validated form, scoped to ``group_id``."""
