@@ -20,6 +20,7 @@ class FakeChatClient:
         self.label_values = label_values or {}
         self.gate_calls: list[list[str]] = []
         self.label_calls: list[list[str]] = []
+        self.label_prompts: list[str] = []
 
     def extract_data(self, prompt: str, schema: type[BaseModel]) -> BaseModel:
         field_names = list(schema.model_fields.keys())
@@ -28,6 +29,7 @@ class FakeChatClient:
             data = {name: self.gate_values[name] for name in field_names}
         else:
             self.label_calls.append(field_names)
+            self.label_prompts.append(prompt)
             data = {name: self.label_values[name] for name in field_names}
         return schema.model_validate(data)
 

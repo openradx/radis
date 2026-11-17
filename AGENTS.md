@@ -135,7 +135,7 @@ Extractions (`radis.extractions`):
 
 Auto-labeling (`radis.labels`):
 
-- `LABELING_SYSTEM_PROMPT`: Generic per-label classification prompt (only `$report` is substituted). Has a built-in default.
+- `LABELING_SYSTEM_PROMPT`: Generic per-label classification prompt. `$labels` (one `- name: description` line per label) and `$report` are substituted; an override missing either fails startup (`labels.E001`). Has a built-in default.
 - `LABELING_GATE_SYSTEM_PROMPT`: Generic group gate (Yes/No) prompt. Has a built-in default.
 - `LABELING_JOB_PRIORITY`: Procrastinate priority for labeling jobs (default `1`).
 - `LABELING_TASK_BATCH_SIZE`: Reports per labeling task (default `100`).

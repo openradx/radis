@@ -316,7 +316,7 @@ RADIS can label reports automatically with an LLM. Labels are defined system-wid
 ### Managing Labels
 
 1. **Access Django Admin**: Navigate to **Labels** → **Label groups** and create a group with its gate question
-2. Navigate to **Labels** → **Labels** and add labels to the group. Write the description as the definition you would give a radiologist; it is sent to the LLM verbatim
+2. Navigate to **Labels** → **Labels** and add labels to the group. Write the description as the definition you would give a radiologist; it is placed in the LLM prompt next to the label name, with line breaks collapsed to spaces
 3. Run a backfill (see below) so that existing reports are labeled
 
 Saving a label (any field, not only the description) makes its existing results **stale**; saving a group (e.g. its gate question) makes the group's gate answers stale, but not the results of its labels. Stale results keep surfacing (with a greyed-out badge) until a backfill regenerates them; the periodic scan only picks up changed reports, not changed labels. Deactivating a label stops new classifications, but results already assigned remain visible on the reports.
@@ -333,6 +333,8 @@ The **Labeling jobs** page shows all jobs with their trigger (Periodic scan or M
 To check the corpus-wide state (checkpoint, per-label and per-gate counts, stale counts), run the `labels_status` management command (see [Running Management Commands](#running-management-commands)). The checkpoint alone is also visible in Django Admin under **Labels** → **Labeling scan checkpoints**.
 
 Tuning variables in `.env`: `LABELING_TASK_BATCH_SIZE`, `LABELING_LLM_CONCURRENCY_LIMIT`, `LABELING_GATE_BATCH_SIZE`, `LABELING_JOB_PRIORITY`, and the optional prompt overrides `LABELING_SYSTEM_PROMPT` and `LABELING_GATE_SYSTEM_PROMPT`. Use `LLM_LABELING_MODEL` to run labeling on a different model than the other features.
+
+A custom `LABELING_SYSTEM_PROMPT` must contain the placeholders `$labels` (replaced by one `- name: description` line per label) and `$report` (replaced by the report text). RADIS refuses to start with the error `labels.E001` if either is missing, because the prompt text is the only place the LLM reliably reads the label descriptions. Changing the prompt does not make existing results stale: to re-label with the new prompt, save each affected label in Django Admin and run a backfill.
 
 ## Extraction Jobs
 
