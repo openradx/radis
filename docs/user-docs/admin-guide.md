@@ -29,7 +29,7 @@ All settings are read from `.env`; the comments in `example.env` describe every 
 - Email: `DJANGO_EMAIL_URL`, `DJANGO_SERVER_EMAIL`, `DJANGO_ADMIN_EMAIL`, `DJANGO_ADMIN_FULL_NAME`, `SUPPORT_EMAIL`
 - Folders: `BACKUP_DIR` (see [Backups](../backups.md))
 
-Optional tuning: `RADIS_IMAGE` and `STACK_NAME` (a second stack such as staging on the same host), `BACKUP_CRON` and `BACKUP_ENABLED`, `TIME_ZONE`, the `EMBEDDINGS_*` group (see [Embeddings](#embeddings-hybrid-search)), the `LABELING_*` group (see [Auto-Labeling](#auto-labeling)), `ANALYSIS_STALLED_WORKER_GRACE_SECONDS` and `ANALYSIS_SWEEP_CRON` (see [Background Workers](#background-workers-and-crash-recovery)), `OTEL_EXPORTER_OTLP_ENDPOINT`, and `HTTP_PROXY`/`HTTPS_PROXY`/`NO_PROXY` behind a proxy.
+Optional tuning: `RADIS_IMAGE` and `STACK_NAME` (a second stack such as staging on the same host), `BACKUP_CRON` and `BACKUP_ENABLED`, `TIME_ZONE`, the `EMBEDDINGS_*` and `SEARCH_*` groups (see [Embeddings and search](#embeddings-and-search)), the `LABELING_*` group (see [Auto-Labeling](#auto-labeling)), `ANALYSIS_STALLED_WORKER_GRACE_SECONDS` and `ANALYSIS_SWEEP_CRON` (see [Background Workers](#background-workers-and-crash-recovery)), `OTEL_EXPORTER_OTLP_ENDPOINT`, and `HTTP_PROXY`/`HTTPS_PROXY`/`NO_PROXY` behind a proxy.
 
 !!! warning "No quotes in .env"
     Values must not be wrapped in quotes; Docker Swarm treats them as part of the value, and `stack-deploy` refuses to run when it finds any.
@@ -65,14 +65,14 @@ Follow these steps to safely update your RADIS installation:
 4. **Backup database**: Run `uv run cli db-backup` to create a database backup (see [Backups](../backups.md))
 5. **Remove stack**: Run `uv run cli stack-rm` to remove all Docker containers and services
 6. **Pull latest changes**: Run `git pull origin main` to fetch the latest code updates
-7. **Update environment**: Compare `example.env` with your `.env` file and add any new environment variables or update changed values. Pay particular attention to the `LLM_*`, `EMBEDDINGS_*`, `LABELING_*`, and `ANALYSIS_*` groups, which are explained below. Keep `STACK_NAME` unchanged, otherwise a second stack is deployed next to the old one
+7. **Update environment**: Compare `example.env` with your `.env` file and add any new environment variables or update changed values. Pay particular attention to the `LLM_*`, `EMBEDDINGS_*`, `SEARCH_*`, `LABELING_*`, and `ANALYSIS_*` groups, which are explained below. Keep `STACK_NAME` unchanged, otherwise a second stack is deployed next to the old one
 8. **Pull Docker images**: Run `uv run cli compose-pull` to download the latest Docker images
 9. **Deploy stack**: Run `uv run cli stack-deploy` to start all services with the updated image
 10. **Disable maintenance mode**: Uncheck "Maintenance" in **Project settings** and save
 
 Depending on what changed, one of these follow-up steps may be needed after the stack is up:
 
-- If you enabled or changed the embedding model, backfill the vectors of existing reports (see [Embeddings](#embeddings-hybrid-search))
+- If you enabled or changed the embedding model, backfill the vectors of existing reports (see [Embeddings and search](#embeddings-and-search))
 - If you added or changed labels, run a labeling backfill (see [Auto-Labeling](#auto-labeling))
 
 Tasks that were interrupted by the restart are repaired automatically (see [Background Workers](#background-workers-and-crash-recovery)).
@@ -86,7 +86,7 @@ All AI features (chats, extractions, subscriptions, labeling, query generation) 
 Set these in `.env`:
 
 - `LLM_BASE_URL` (required): Base URL of the endpoint, e.g. `http://llm.internal:11434/v1`
-- `LLM_API_KEY`: API key for the endpoint. Optional; many self-hosted providers ignore it
+- `LLM_API_KEY`: API key for the endpoint. It must be non-empty; a provider that ignores it accepts any placeholder
 - `LLM_DEFAULT_MODEL` (required): The model every feature uses unless overridden
 - `LLM_CHATS_MODEL`, `LLM_QUERY_GENERATION_MODEL`, `LLM_EXTRACTIONS_MODEL`, `LLM_SUBSCRIPTIONS_MODEL`, `LLM_LABELING_MODEL`: Per-feature overrides. Leave blank to use the default model. Useful to spend a stronger model where it matters (e.g. labeling) and a fast one for chat
 
@@ -100,21 +100,21 @@ Values are read as JSON where possible (`temperature=0` sends a number, `reasoni
 
 Request timeout, rate-limit handling, and transient retries have sensible defaults (`LLM_REQUEST_TIMEOUT_SECONDS`, `LLM_RATE_LIMIT_*`, `LLM_TRANSIENT_RETRY_*`); override them only if needed.
 
-### Embeddings (Hybrid Search)
+### Embeddings and search
 
-By default RADIS runs full-text search only. Setting `EMBEDDINGS_MODEL` switches on hybrid search, where full-text and semantic (vector) results are fused into one ranking:
+By default RADIS runs full-text search only. Setting `EMBEDDINGS_MODEL` adds a Semantic mode to the search page (the reports nearest to a description, in similarity order); full-text stays the default and nothing is fused:
 
 - `EMBEDDINGS_MODEL`: The embedding model, in the same `model[?param=value]` form. Leave empty for full-text search only
 - `EMBEDDINGS_BASE_URL`, `EMBEDDINGS_API_KEY`: Default to `LLM_BASE_URL` and `LLM_API_KEY`. Set them only when embeddings are served from a different endpoint, which is the normal case for vLLM and SGLang since they serve one model per process
 - `EMBEDDINGS_DIM`: Vector width (default `1024`). This is coupled to the database schema: changing it after deployment requires dropping the embedding column, re-migrating, and re-embedding all reports. If the model spec also sets `dimensions`, both must agree; RADIS checks this at startup
-- `EMBEDDINGS_QUERY_INSTRUCTION`: Model-specific instruction prefix for search queries (some models, e.g. Qwen3-Embedding, want one)
-- `EMBEDDINGS_QUERY_CACHE_TIMEOUT_SECONDS`: How long a query's vector stays cached (default 900 s). Lower it temporarily after swapping the model, or the old vectors keep serving stale results for up to this long
+- `EMBEDDINGS_QUERY_INSTRUCTION`: Model-specific instruction prefix for the description text that is embedded (some models, e.g. Qwen3-Embedding, want one)
+- `EMBEDDINGS_QUERY_CACHE_TIMEOUT_SECONDS`: How long a query's vector stays cached (default 900 s). A swap that changes the model name, endpoint or parameters misses the old vectors by itself; lower it (and `SEARCH_RANKING_CACHE_TIMEOUT_SECONDS`) temporarily, or clear the cache, when the weights behind an unchanged endpoint and model name are replaced
 
-New and updated reports are embedded automatically by the `embeddings_worker` service. Reports that existed before the model was configured have no vector and are found by full-text search only until you backfill them with the `embed_pending` management command (see [Running Management Commands](#running-management-commands)). It is idempotent and resumable, refuses to start while another backfill is running or `EMBEDDINGS_MODEL` is empty, and takes `--limit` and `--subjob-size` options; `embed_cancel` stops a running backfill.
+New and updated reports are embedded automatically by the `embeddings_worker` service. Reports that existed before the model was configured have no vector and are found by full-text search only until you backfill them with the `embed_pending` management command (see [Running Management Commands](#running-management-commands)). It is idempotent and resumable, refuses to start while another backfill is running or `EMBEDDINGS_MODEL` is empty, and takes `--limit` and `--subjob-size` options; `embed_cancel` stops a running backfill. Until a report is embedded, it never appears in semantic mode.
 
 The same is available in Django Admin under **Pgsearch** → **Report search indexes**: the page shows the state of the embedding pipeline, has a **Cancel queued backfill** button, and offers the actions "Enqueue embedding for selected rows (NULL only)" and "Clear embeddings (NULL them)" on selected reports. **Embedding backfill runs** lists past and current backfills.
 
-When the embedding service is unreachable or rate limiting, searches silently fall back to full-text results and a warning is logged in the `web` service.
+When the embedding service is unreachable, a semantic search shows a notice instead of a list and a warning is logged in the `web` service. When the service is rate limiting, the notice names the remaining wait of the rate-limit gate (the service's Retry-After, or the gate's own backoff when it sent none), and the Semantic option of the search bar is disabled for new searches for that long on the web replica that received the 429; a page already in semantic mode keeps its option and gets the same notice when resubmitted. Full-text searches never call the service. A query embedding waits at most `EMBEDDINGS_QUERY_REQUEST_TIMEOUT_SECONDS` (10 s by default) plus the rate-limit gate's query budget.
 
 See the [Contributing guide](../dev-docs/contributing.md) for how to run Ollama with a chat and an embedding model, and the troubleshooting sections there for connection problems.
 
@@ -146,6 +146,16 @@ them, every row carries an empty group list. A search that runs with no active
 group (the extraction preview does this for a user without one) filters on
 exactly that empty list, so during the window it would match the whole archive
 instead of only the reports belonging to no group.
+
+### Search tuning
+
+All optional, with defaults that fit a corpus of a few million reports:
+
+- `SEARCH_HNSW_EF_SEARCH`: HNSW beam width and the most reports a semantic search lists (default `500`, 1..1000)
+- `SEARCH_SEMANTIC_ITERATIVE_SCAN`: Resume the index scan under selective filters so a small group or a rare modality still fills the list (default `true`). No measurable cost on unfiltered searches at the default depth; the resumed scan costs more only under selective filters and on cold index pages
+- `SEARCH_RANKING_CACHE_TIMEOUT_SECONDS`: How long a ranking stays cached (default `300`s, `0` disables); reports created or updated within that time join a cached query's results when it expires, and a report deleted or removed from a group within that time leaves the list at once but the count only then
+
+The production cache table holds rankings and query vectors; it is sized at 2,000 entries (`MAX_ENTRIES` in `radis/settings/production.py`) because Django's default of 300 would evict hot rankings at random.
 
 ## Database tuning
 
@@ -316,7 +326,7 @@ RADIS can label reports automatically with an LLM. Labels are defined system-wid
 ### Managing Labels
 
 1. **Access Django Admin**: Navigate to **Labels** → **Label groups** and create a group with its gate question
-2. Navigate to **Labels** → **Labels** and add labels to the group. Write the description as the definition you would give a radiologist; it is sent to the LLM verbatim
+2. Navigate to **Labels** → **Labels** and add labels to the group. Write the description as the definition you would give a radiologist; it is placed in the LLM prompt next to the label name, with line breaks collapsed to spaces
 3. Run a backfill (see below) so that existing reports are labeled
 
 A label's existing results become **stale** only when its definition changes: its name or description (the text the LLM sees) or its group (which decides the gate its results were produced under). Likewise, a group's gate answers become stale only when its name or gate question changes; the results of its labels are not affected. Toggling a label's Active flag or saving without changes invalidates nothing. Before a definition change is saved, Django Admin shows a confirmation page, if any results (or gate answers) exist, with their number, since regenerating them costs roughly one LLM call per affected report. Stale results keep surfacing (with a greyed-out badge) until a backfill regenerates them; the periodic scan only picks up changed reports, not changed labels. One exception: after moving a label to another group, its results on reports whose new gate answers No are never regenerated, since backfills skip groups gated No; they stay greyed out until those reports are updated. Deactivating a label stops new classifications, but results already assigned remain visible on the reports; backfills skip inactive labels, so their stale results are only regenerated once the label is active again.
@@ -334,6 +344,8 @@ To check the corpus-wide state (checkpoint, per-label and per-gate counts, stale
 
 Tuning variables in `.env`: `LABELING_TASK_BATCH_SIZE`, `LABELING_LLM_CONCURRENCY_LIMIT`, `LABELING_GATE_BATCH_SIZE`, `LABELING_JOB_PRIORITY`, and the optional prompt overrides `LABELING_SYSTEM_PROMPT` and `LABELING_GATE_SYSTEM_PROMPT`. Use `LLM_LABELING_MODEL` to run labeling on a different model than the other features.
 
+A custom `LABELING_SYSTEM_PROMPT` must contain the placeholders `$labels` (replaced by one `- name: description` line per label) and `$report` (replaced by the report text). RADIS refuses to start with the error `labels.E001` if either is missing, because the prompt text is the only place the LLM reliably reads the label descriptions. Changing the prompt does not make existing results stale: to re-label with the new prompt, save each affected label in Django Admin and run a backfill.
+
 ## Extraction Jobs
 
 Users create extraction jobs through a wizard (see the [User Guide](user-guide.md#6-extractions)). Administrators verify and monitor them.
@@ -348,7 +360,7 @@ Jobs created by regular users start in the **Unverified** state and are not proc
 2. **View Details**: Click on a job to see its owner and group, query and filters, status and message, and its output fields
 3. **Extraction tasks** show the individual batches of a job together with the extracted data per report
 
-Each job may cover at most `EXTRACTION_MAXIMUM_REPORTS_COUNT` reports (default 25,000); the wizard refuses a search matching more. A job of a regular user may wait for verification while the archive grows, so preparing it checks the limit again and fails the job with a message if the search has outgrown it, or if its reports have meanwhile been deleted and it matches nothing; retrying the job repeats the check. The reports of a job are every report whose text matches the query and filters, retrieved without ranking; the hybrid ranking and its candidate cap apply to the search page only.
+Each job may cover at most `EXTRACTION_MAXIMUM_REPORTS_COUNT` reports (default 25,000); the wizard refuses a search matching more. A job of a regular user may wait for verification while the archive grows, so preparing it checks the limit again and fails the job with a message if the search has outgrown it, or if its reports have meanwhile been deleted and it matches nothing; retrying the job repeats the check. The reports of a job are every report whose text matches the query and filters, retrieved without ranking; the full-text ranking and its candidate cap apply to the search page only.
 
 ### Urgent Priority
 

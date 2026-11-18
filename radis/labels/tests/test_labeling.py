@@ -11,6 +11,7 @@ from radis.labels.factories import (
 )
 from radis.labels.models import GateAnswer, LabelResult
 from radis.labels.tests.helpers import FakeChatClient
+from radis.labels.utils.schemas import gate_field_name
 from radis.reports.factories import ReportFactory
 
 
@@ -54,7 +55,7 @@ def test_gate_no_skips_group_entirely():
     report = ReportFactory.create(body="abdomen study")
     group = LabelGroupFactory.create()
     label = LabelFactory.create(group=group)
-    client = FakeChatClient(gate_values={group.name: "NO"})
+    client = FakeChatClient(gate_values={gate_field_name(group): "NO"})
     with _patch_client(client):
         label_report(report.pk)
 
@@ -74,7 +75,7 @@ def test_gate_yes_runs_labels_and_stores_all_buckets():
     l_absent = LabelFactory.create(group=group)
     l_unmentioned = LabelFactory.create(group=group)
     client = FakeChatClient(
-        gate_values={group.name: "YES"},
+        gate_values={gate_field_name(group): "YES"},
         label_values={
             l_present.name: "PRESENT",
             l_absent.name: "ABSENT",
@@ -98,12 +99,30 @@ def test_gate_batching_two_calls_for_twenty_groups():
     groups = [LabelGroupFactory.create() for _ in range(20)]
     for g in groups:
         LabelFactory.create(group=g)
-    client = FakeChatClient(gate_values={g.name: "NO" for g in groups})
+    client = FakeChatClient(gate_values={gate_field_name(g): "NO" for g in groups})
     with _patch_client(client):
         label_report(report.pk)
 
     assert len(client.gate_calls) == 2
     assert [len(c) for c in client.gate_calls] == [10, 10]
+
+
+@pytest.mark.django_db
+def test_groups_sharing_a_gate_question_are_asked_once_and_both_get_the_answer():
+    from radis.labels.labeling import label_report
+
+    report = ReportFactory.create(body="abdomen study")
+    question = "Does this report describe imaging of the abdomen or pelvis?"
+    groups = [LabelGroupFactory.create(gate_question=question) for _ in range(2)]
+    for g in groups:
+        LabelFactory.create(group=g)
+    client = FakeChatClient(gate_values={question: "NO"})
+    with _patch_client(client):
+        label_report(report.pk)
+
+    assert client.gate_calls == [[question]]
+    answers = GateAnswer.objects.filter(report=report, label_group__in=groups)
+    assert [a.value for a in answers] == [GateAnswer.Value.NO, GateAnswer.Value.NO]
 
 
 @pytest.mark.django_db
@@ -130,12 +149,12 @@ def test_fresh_gate_yes_with_one_stale_label_runs_only_that_label():
 
     report = ReportFactory.create(body="lungs clear")
     group = LabelGroupFactory.create()
-    fresh_label = LabelFactory.create(group=group)
+    fresh_label = LabelFactory.create(group=group, description="definition of the fresh one")
     stale_label = LabelFactory.create(group=group)
     GateAnswerFactory.create(report=report, label_group=group, value="YES")
     LabelResult.objects.create(report=report, label=fresh_label, value=LabelResult.Value.PRESENT)
     LabelResult.objects.create(report=report, label=stale_label, value=LabelResult.Value.PRESENT)
-    stale_label.description = "edited"
+    stale_label.description = "definition of the edited one"
     stale_label.save()
 
     client = FakeChatClient(label_values={stale_label.name: "ABSENT"})
@@ -144,6 +163,10 @@ def test_fresh_gate_yes_with_one_stale_label_runs_only_that_label():
 
     assert client.gate_calls == []
     assert client.label_calls == [[stale_label.name]]
+    # The prompt defines exactly the labels being classified, no others of the group.
+    [prompt] = client.label_prompts
+    assert f"- {stale_label.name}: definition of the edited one" in prompt
+    assert "definition of the fresh one" not in prompt
     assert LabelResult.objects.get(report=report, label=stale_label).value == "ABSENT"
 
 
@@ -159,7 +182,7 @@ def test_gate_flip_yes_to_no_deletes_results_atomically():
     group.gate_question = "changed?"
     group.save()
 
-    client = FakeChatClient(gate_values={group.name: "NO"})
+    client = FakeChatClient(gate_values={gate_field_name(group): "NO"})
     with _patch_client(client):
         label_report(report.pk)
 
@@ -190,11 +213,11 @@ def test_gate_flip_deletion_is_scoped_to_flipping_group_and_report():
     group.gate_question = "changed?"  # only this group's gate goes stale
     group.save()
 
-    client = FakeChatClient(gate_values={group.name: "NO"})
+    client = FakeChatClient(gate_values={gate_field_name(group): "NO"})
     with _patch_client(client):
         label_report(report.pk)
 
-    assert client.gate_calls == [[group.name]]
+    assert client.gate_calls == [[gate_field_name(group)]]
     assert client.label_calls == []
     assert not LabelResult.objects.filter(report=report, label=label).exists()
     assert LabelResult.objects.filter(report=report, label=other_label).exists()
@@ -212,7 +235,10 @@ def test_stale_gate_new_yes_old_no_runs_all_labels():
     group.gate_question = "changed?"
     group.save()
 
-    client = FakeChatClient(gate_values={group.name: "YES"}, label_values={label.name: "PRESENT"})
+    client = FakeChatClient(
+        gate_values={gate_field_name(group): "YES"},
+        label_values={label.name: "PRESENT"},
+    )
     with _patch_client(client):
         label_report(report.pk)
 
@@ -234,7 +260,7 @@ def test_stale_gate_yes_yes_with_fresh_results_makes_no_label_calls():
     group.gate_question = "changed?"  # makes the gate stale -> re-evaluated
     group.save()
 
-    client = FakeChatClient(gate_values={group.name: "YES"})
+    client = FakeChatClient(gate_values={gate_field_name(group): "YES"})
     with _patch_client(client):
         label_report(report.pk)
 
@@ -257,7 +283,10 @@ def test_report_update_reruns_gate_and_labels():
     report.body = "changed body"
     report.save()
 
-    client = FakeChatClient(gate_values={group.name: "YES"}, label_values={label.name: "PRESENT"})
+    client = FakeChatClient(
+        gate_values={gate_field_name(group): "YES"},
+        label_values={label.name: "PRESENT"},
+    )
     with _patch_client(client):
         label_report(report.pk)
 
@@ -278,7 +307,7 @@ def test_report_update_reruns_gate_even_when_previous_answer_was_no():
     report.body = "changed body"
     report.save()
 
-    client = FakeChatClient(gate_values={group.name: "NO"})
+    client = FakeChatClient(gate_values={gate_field_name(group): "NO"})
     with _patch_client(client):
         label_report(report.pk)
 

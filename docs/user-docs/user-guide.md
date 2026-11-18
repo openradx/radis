@@ -8,7 +8,7 @@ RADIS acts as a centralized repository for radiology reports, providing powerful
 
 1. **Reports are stored** with structured metadata (patient info, study details, modalities, etc.)
 2. **You search** using natural language queries with optional filters
-3. **RADIS processes** your query with full-text search, combined with semantic (meaning-based) search when your administrator has configured it
+3. **RADIS processes** your query with full-text search by default, or, when your administrator has configured it, with a semantic search that finds the reports whose meaning is closest to your description
 4. **You receive** ranked results matching your criteria
 5. **You organize** reports into collections, add notes, and subscribe to searches
 6. **AI assists you** by labeling reports, extracting structured data, and answering questions about a report
@@ -31,9 +31,10 @@ After logging in, the menu at the top of every page leads to these sections:
 The search feature is the core of RADIS, allowing you to find relevant reports quickly:
 
 1. Navigate to the "Search" section
-2. Enter your search query in the search box
-3. Apply filters as needed on the right-hand side
-4. Review the search results
+2. Choose the mode in the search bar: Full-text (the default) or Semantic (offered when your administrator has configured an embedding model)
+3. Enter your keywords (full-text) or describe the reports you are looking for (semantic)
+4. Apply filters as needed on the right-hand side
+5. Review the search results
 
 #### Search Syntax
 
@@ -44,13 +45,17 @@ The search feature is the core of RADIS, allowing you to find relevant reports q
 - **Phrases**: Use quotes for exact matches (e.g., `"lung cancer"`)
 - **Grouping**: Use parentheses to combine operators (e.g., `(fracture OR lesion) NOT metastasis`)
 
-Operators must be written in capital letters; `or`, `and`, and `not` in lowercase are treated as ordinary search terms. A minus sign in front of a term does not exclude it, wildcards such as `pneumo*` are not supported (the `*` is dropped), and `field:value` syntax is not supported — the whole `field:value` token is removed; use the filters instead. A query is required (filters alone do not search) and may be at most 200 characters long.
+Operators must be written in capital letters; `or`, `and`, and `not` in lowercase are treated as ordinary search terms. A minus sign in front of a term does not exclude it, wildcards such as `pneumo*` are not supported (the `*` is dropped), and `field:value` syntax is not supported — the whole `field:value` token is removed; use the filters instead. In full-text mode a query is required (filters alone do not search) and may be at most 200 characters long; a description may be at most 1,000 characters.
 
 If your query contains mistakes such as unbalanced quotes or parentheses, unsupported characters, or stray operators, RADIS repairs it and shows a "Fixed invalid query" notice above the results with the query it actually ran.
 
 #### Semantic Search
 
-When your administrator has configured an embedding model, every search combines classic keyword matching with semantic search, which also finds reports that describe the same thing in different words. This happens automatically; there is no switch to turn it on or off. Each result shows the scores that determined its ranking.
+When your administrator has configured an embedding model, the search bar offers two modes. **Full-text** finds exactly the reports that contain your keywords and highlights them. **Semantic** swaps the keyword box for a description box: describe the reports you are looking for, and the result is the list of reports whose meaning is closest to your description, in similarity order, without highlighting. Operators, quotes and NOT have no special meaning in a description. What you typed in either box stays there while you switch modes on the page; a search submits only the box of the selected mode, and the result page shows only that one.
+
+Reports imported recently may not be embedded yet and do not appear in semantic mode until they are. If the embedding service is unavailable, semantic mode says so and shows no list; full-text search does not depend on it.
+
+The description travels in the page address like the keywords and appears in your browser history and in server logs, so do not type patient identifiers into it.
 
 #### Available Filters
 
@@ -60,13 +65,13 @@ When your administrator has configured an embedding model, every search combines
 - **Study Date**: Filter by date range (from/till)
 - **Study Description**: Filter by study description (partial match)
 - **Patient Sex**: All, Male, or Female
-- **Age Range**: Filter by patient age using the range slider (in steps of 10 years)
+- **Age Range**: Filter by patient age using the range slider
 
 Use "Reset filters" to clear all filters at once.
 
 #### Search Results
 
-Each result shows the patient age and sex, modalities, study description and the scores that determined its rank, followed by a highlighted excerpt of the report. Click "Show full report" to read the entire text. Results are paginated; the page size can be changed below the list. Each result panel has buttons to open the report details, add the report to a collection, add a note, start a chat about the report, and open the study in your PACS viewer.
+Each result shows its position in the list, the patient age and sex, modalities and study description. Full-text results show a highlighted excerpt, semantic results the opening of the report. Click "Show full report" to read the entire text. Results are paginated; the page size can be changed below the list. Each result panel has buttons to open the report details, add the report to a collection, add a note, start a chat about the report, and open the study in your PACS viewer.
 
 The report details page shows all metadata of a report (document ID, patient, study, accession number, modalities, additional metadata), its labels, and the full text. The arrows next to the Patient ID open a list of the same patient's earlier reports, later reports, or all reports.
 
@@ -143,7 +148,7 @@ Extraction jobs let you pull structured data out of many reports at once. Creati
 - **Output Type**: Text, Numeric, Boolean, or Selection. For Selection, enter the allowed options (up to seven)
 - The **`[ ]` toggle** next to the type switches the field to an array, so multiple values of that type are returned per report (e.g. a list of all affected vertebrae)
 
-**Step 2 – Search query.** Enter a job title. Unless your administrator has turned this off, RADIS generates a search query from your field descriptions, which you can edit or replace. Apply filters (Language, Modalities, Study Date, Study Description, Patient Sex, Age Range) to narrow down the reports. A live counter shows how many reports the job will process. A job may cover at most 25,000 reports (your administrator may have set a different limit); a search matching more is refused, so narrow it down until the counter shows a number. A search matching no reports is refused as well, since there would be nothing to extract. Unlike the regular search, an extraction job covers exactly the reports whose text matches the query — no semantically similar reports are added. Click "Preview Search Results" to open the matching reports in the regular search view in a new tab.
+**Step 2 – Search query.** Enter a job title. Unless your administrator has turned this off, RADIS generates a search query from your field descriptions, which you can edit or replace. Apply filters (Language, Modalities, Study Date, Study Description, Patient Sex, Age Range) to narrow down the reports. A live counter shows how many reports the job will process. A job may cover at most 25,000 reports (your administrator may have set a different limit); a search matching more is refused, so narrow it down until the counter shows a number. A search matching no reports is refused as well, since there would be nothing to extract. An extraction job covers exactly the reports whose text matches the query, the same reports a full-text search finds; semantic mode plays no part. Click "Preview Search Results" to open the matching reports in the regular search view in a new tab.
 
 **Step 3 – Review & submit.** Check the summary, optionally tick "Notify me via Email when job is finished", and click "Create Extraction Job".
 

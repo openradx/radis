@@ -78,6 +78,12 @@ class RateLimitGate:
             self._blocked_until = max(self._blocked_until, self._now() + pause)
             return pause
 
+    def seconds_until_open(self) -> float:
+        """How much longer the gate stays closed; 0.0 while it is open. Never blocks."""
+        with self._lock:
+            open_at = self._blocked_until
+        return max(0.0, open_at - self._now())
+
     def wait_until_open(self, deadline: float) -> bool:
         """Block until the gate opens.
 

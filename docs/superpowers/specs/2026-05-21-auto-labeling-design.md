@@ -186,21 +186,25 @@ Same Job/Task machinery; differs only by `trigger` and report scope (full corpus
   immediately instead of leaving it stuck in `PENDING` — `PENDING` is active and would block the
   singleton index forever.
 - Scope:
-  - **SCAN** (`scan_from` set): `Report.objects.filter(created_at__gte=scan_from).order_by("pk")`.
-  - **MANUAL** (`scan_from is None`): `_needs_work_queryset(active_group_count).order_by("pk")`.
+  - **SCAN** (`scan_from` set): `Report.objects.filter(updated_at__gte=scan_from).order_by("pk")`.
+  - **MANUAL** (`scan_from is None`): `_needs_work_queryset().order_by("pk")`.
 
 ### "Needs work" predicate (`radis/labels/scope.py`)
 
 Used only by the backfill. A report needs work if **either**:
 
-- **Condition A** — missing or stale gate answers for any active group
-  (`non_stale_gate_count < active_group_count`).
+- **Condition A** — there exists an active group (one with at least one active label) with no
+  fresh gate answer for this report ("not fresh" = no row, or `gate.generated_at <
+  group.updated_at`). Expressed as a correlated `Exists` over `LabelGroup` with a nested
+  `~Exists` on `GateAnswer`, never as an aggregate: a `COUNT` compared to the active-group total
+  forces the planner to join and group every report before returning a row.
 - **Condition B** — there exists a fresh `YES` gate answer whose group contains at least one active
   label without a fresh `LabelResult` for this report ("not fresh" = no row, or
   `result.generated_at < label.updated_at`). The inner `Exists` uses a double `OuterRef`.
 
-`active_label_count` is deliberately not a parameter: NO-gated groups have no `LabelResult` rows by
-design, so comparing a flat result count to the active-label count would always re-flag them.
+Condition B is deliberately scoped to YES-gated groups rather than comparing result rows against
+the set of active labels: NO-gated groups have no `LabelResult` rows by design, so a flat
+result-completeness check would always re-flag them.
 
 ### Phase 2 — IN_PROGRESS (`llm` queue): `process_labeling_task`
 

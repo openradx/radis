@@ -3,7 +3,7 @@
 Embedding failures are deliberately not cached (see `_embed_query_cached`'s
 docstring), so without a throttle a persistent misconfiguration (e.g.
 EMBEDDINGS_MODEL pointed at an endpoint that serves no /v1/embeddings) would log a
-full traceback on every single search request, indefinitely. These tests pin the
+full traceback on every semantic search, indefinitely. These tests pin the
 throttle: the first failure for a configuration logs a full traceback, a repeat
 failure under the same configuration logs a single WARNING with no traceback, and a
 failure under a changed configuration (a different endpoint or model) logs a fresh
@@ -80,7 +80,7 @@ def test_second_identical_failure_logs_warning_without_traceback(caplog):
     # logs), and says the traceback was already logged once.
     assert "EMBEDDINGS_BASE_URL" in message
     assert "EMBEDDINGS_MODEL" in message
-    assert "full-text-only" in message
+    assert "unavailable" in message
     assert "once" in message
     assert "EmbeddingClientError" in message
 

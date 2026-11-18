@@ -14,7 +14,7 @@ from radis.extractions.tasks import process_extraction_job
 from radis.pgsearch.providers import count as pgsearch_count
 from radis.pgsearch.providers import retrieve as pgsearch_retrieve
 from radis.reports.factories import LanguageFactory, ReportFactory
-from radis.search.site import Search
+from radis.search.site import FullTextSearch
 
 
 @pytest.mark.django_db
@@ -189,6 +189,37 @@ def test_process_extraction_job_with_no_language_matches_each_documents_own_conf
     assert matched_document_ids("Pleuraerguss") == {german.document_id}
 
 
+@pytest.mark.django_db
+def test_extraction_retrieval_never_calls_the_embedding_service(monkeypatch, settings):
+    from radis.core.utils.model_spec import parse_model_spec
+    from radis.search.site import FullTextSearch, SearchFilters
+    from radis.search.utils.query_parser import QueryParser
+
+    def must_not_embed(text: str, caller: str) -> list[float] | None:
+        raise AssertionError("must not embed")
+
+    settings.EMBEDDINGS_MODEL = parse_model_spec("qwen3")
+    # Patched above the query-embedding cache, so a vector cached by an earlier test
+    # cannot hide an embedding attempt.
+    monkeypatch.setattr("radis.pgsearch.providers._embed_query_cached", must_not_embed)
+    group = GroupFactory.create()
+    report = ReportFactory.create(
+        body="Befund: Pneumothorax links.", language=LanguageFactory.create(code="de")
+    )
+    report.groups.add(group)
+    node, _ = QueryParser().parse("Pneumothorax")
+    assert node is not None
+    request = FullTextSearch(
+        query=node,
+        filters=SearchFilters(group=group.pk, language="de"),
+        offset=0,
+        limit=None,
+    )
+
+    assert pgsearch_count(request) == 1
+    assert list(pgsearch_retrieve(request)) == [report.document_id]
+
+
 @pytest.mark.django_db(transaction=True)
 def test_crash_while_enqueueing_rolls_back_the_pending_flip(monkeypatch, settings):
     """The PENDING flip and the task enqueues commit together. If the worker dies mid-loop,
@@ -228,15 +259,17 @@ def test_crash_while_enqueueing_rolls_back_the_pending_flip(monkeypatch, setting
     ).exists()
 
 
-def _provider_matching(doc_ids: list[str], seen: dict[str, Search]) -> ExtractionRetrievalProvider:
+def _provider_matching(
+    doc_ids: list[str], seen: dict[str, FullTextSearch]
+) -> ExtractionRetrievalProvider:
     """A provider over ``doc_ids`` that counts the way the real one does: up to the
     search's limit. The searches it is asked are recorded under "count"/"retrieve"."""
 
-    def count(search: Search) -> int:
+    def count(search: FullTextSearch) -> int:
         seen["count"] = search
         return len(doc_ids) if search.limit is None else min(len(doc_ids), search.limit)
 
-    def retrieve(search: Search) -> list[str]:
+    def retrieve(search: FullTextSearch) -> list[str]:
         seen["retrieve"] = search
         return doc_ids
 
@@ -299,7 +332,7 @@ def test_preparation_counts_with_a_bound_and_retrieves_without_one(monkeypatch, 
     doc_ids = ["DOC-0", "DOC-1"]
     for doc_id in doc_ids:
         ReportFactory.create(document_id=doc_id)
-    seen: dict[str, Search] = {}
+    seen: dict[str, FullTextSearch] = {}
     monkeypatch.setattr(
         extraction_site, "extraction_retrieval_provider", _provider_matching(doc_ids, seen)
     )
@@ -355,7 +388,7 @@ def test_preparation_failure_does_not_overwrite_a_cancel_issued_during_the_count
         ReportFactory.create(document_id=doc_id)
     provider = _provider_matching(doc_ids, {})
 
-    def count_while_the_user_cancels(search: Search) -> int:
+    def count_while_the_user_cancels(search: FullTextSearch) -> int:
         ExtractionJob.objects.filter(status=AnalysisJob.Status.PREPARING).update(
             status=AnalysisJob.Status.CANCELED
         )
