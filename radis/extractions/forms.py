@@ -16,7 +16,7 @@ from radis.core.form_fields import (
 )
 from radis.core.layouts import RangeSlider
 from radis.reports.models import Language, Modality
-from radis.search.site import Search, SearchFilters
+from radis.search.site import FullTextSearch, SearchFilters
 from radis.search.utils.query_parser import QueryParser
 
 from .models import ExtractionJob, OutputField, OutputType
@@ -138,7 +138,7 @@ class SearchForm(forms.ModelForm):
         # Counting stops one past the maximum: that is enough to refuse the search,
         # and keeps a query matching millions of reports from being counted in full.
         max_reports = settings.EXTRACTION_MAXIMUM_REPORTS_COUNT
-        search = Search(
+        search = FullTextSearch(
             query=cleaned_data["query_node"],
             offset=0,
             limit=max_reports + 1,
