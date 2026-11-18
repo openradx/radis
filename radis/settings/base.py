@@ -734,19 +734,23 @@ SUBSCRIPTION_CRON = "0 * * * *"  # Refresh subscriptions at the top of every hou
 SUBSCRIPTION_REFRESH_TASK_BATCH_SIZE = 100
 
 # Labeling (radis.labels)
-# Generic prompt: label-specific text rides in each schema field's description; only $report
-# is substituted.
+# Generic prompt: $labels is replaced by one "- name: description" line per label and
+# $report by the report body. The definitions must be in the prompt text, because many
+# providers use the response schema only to constrain output and never show it to the model.
 _DEFAULT_LABELING_SYSTEM_PROMPT = """
-You are an AI medical assistant. The provided schema lists one field per label, each
-field's description defining the label. For every field, decide how strongly the report
-below supports that label, choosing exactly one of:
+You are an AI medical assistant. Below is a list of labels, each with its definition,
+followed by a radiology report. For every label, decide how strongly the report supports
+it according to its definition, choosing exactly one of:
   - "PRESENT"     — the report clearly states this is present
   - "LIKELY"      — the report strongly suggests it, without stating it outright
   - "POSSIBLE"    — the report leaves it as a possibility / cannot be excluded
   - "ABSENT"      — the report explicitly states this is not present
   - "UNMENTIONED" — the report does not address this at all
 
-Return answers in JSON format matching the provided schema.
+Return answers in JSON format matching the provided schema, with one field per label.
+
+Labels:
+$labels
 
 Radiology Report:
 $report

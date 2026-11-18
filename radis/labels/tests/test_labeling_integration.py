@@ -62,8 +62,12 @@ def test_real_llm_client_sends_rendered_prompt_and_built_schema():
     # The user message sent is exactly the labels code's rendered prompt for this report body.
     assert gate_kwargs["messages"] == [{"role": "user", "content": render_gate_prompt(report.body)}]
     assert label_kwargs["messages"] == [
-        {"role": "user", "content": render_label_prompt(report.body)}
+        {"role": "user", "content": render_label_prompt(report.body, [label])}
     ]
+    # The label definition is in the message text itself, not only in the schema.
+    assert (
+        "- ischemic stroke: acute or chronic infarction" in (label_kwargs["messages"][0]["content"])
+    )
 
     # response_format is the dynamically-built schema: name-keyed, carrying the gate question /
     # label definition the LLM is asked to honor.

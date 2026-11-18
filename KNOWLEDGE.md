@@ -4,13 +4,14 @@
 
 ### Prompt design
 
-- One **generic** system prompt classifies every label; the label-specific knowledge lives in each label's `description`, not in the prompt. Only `$report` (the report body) is substituted into `LABELING_SYSTEM_PROMPT`.
+- One **generic** system prompt classifies every label; the label-specific knowledge lives in each label's `description`, not in the prompt template. Two placeholders are substituted into `LABELING_SYSTEM_PROMPT`: `$labels` (one `- name: description` line per label being classified) and `$report` (the report body).
+- The definitions must be in the prompt text. The response schema also carries them as field descriptions, but self-hosted providers (Ollama, vLLM, llama.cpp) typically use the schema only to constrain the output and never show it to the model.
 - The gate uses a separate generic `LABELING_GATE_SYSTEM_PROMPT` that asks a Yes/No applicability question per group.
 - Keeping prompts generic means new labels/groups need no prompt engineering — authoring a good `description`/`gate_question` is the whole job.
 
 ### Authoring labels
 
-- A label `description` must be **self-contained**: it is the only definition the LLM sees. Define the finding precisely, including what counts and what does not.
+- A label `description` must be **self-contained**: it is the only definition the LLM sees, rendered into the prompt on a single line (line breaks are collapsed to spaces). Define the finding precisely, including what counts and what does not.
 - Don't rely on the label `name` to carry meaning; the name is only the badge/search token.
 - Deactivate (`active=False`) rather than delete labels you want to retire; editing a label's definition bumps `updated_at`, which marks existing results **stale**.
 

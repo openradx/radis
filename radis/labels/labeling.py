@@ -96,7 +96,7 @@ def label_report(report_id: int) -> None:
 
 def _run_label_set(client: LLMClient, report: Report, labels: list[Label]) -> None:
     schema = build_label_classification_schema(labels)
-    parsed = client.extract_data(render_label_prompt(report.body), schema)
+    parsed = client.extract_data(render_label_prompt(report.body, labels), schema)
     result_map = parsed.model_dump()
     for lbl in labels:
         LabelResult.objects.update_or_create(
