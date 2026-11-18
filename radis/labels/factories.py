@@ -17,7 +17,7 @@ class LabelGroupFactory(BaseDjangoModelFactory[LabelGroup]):
         model = LabelGroup
 
     name = factory.Sequence(lambda n: f"Group {n}")
-    gate_question = factory.Faker("sentence")
+    gate_question = factory.Sequence(lambda n: f"Is this report about region {n}?")
 
 
 class LabelFactory(BaseDjangoModelFactory[Label]):
