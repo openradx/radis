@@ -108,6 +108,24 @@ def test_gate_batching_two_calls_for_twenty_groups():
 
 
 @pytest.mark.django_db
+def test_groups_sharing_a_gate_question_are_asked_once_and_both_get_the_answer():
+    from radis.labels.labeling import label_report
+
+    report = ReportFactory.create(body="abdomen study")
+    question = "Does this report describe imaging of the abdomen or pelvis?"
+    groups = [LabelGroupFactory.create(gate_question=question) for _ in range(2)]
+    for g in groups:
+        LabelFactory.create(group=g)
+    client = FakeChatClient(gate_values={question: "NO"})
+    with _patch_client(client):
+        label_report(report.pk)
+
+    assert client.gate_calls == [[question]]
+    answers = GateAnswer.objects.filter(report=report, label_group__in=groups)
+    assert [a.value for a in answers] == [GateAnswer.Value.NO, GateAnswer.Value.NO]
+
+
+@pytest.mark.django_db
 def test_fresh_gate_and_fresh_results_make_zero_llm_calls():
     from radis.labels.labeling import label_report
 

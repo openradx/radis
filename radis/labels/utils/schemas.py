@@ -1,4 +1,3 @@
-import re
 from collections.abc import Sequence
 from enum import StrEnum
 from typing import Any
@@ -27,21 +26,20 @@ def build_label_classification_schema(labels: Sequence) -> type[BaseModel]:
 
 
 def gate_field_name(group) -> str:
-    """Structured-output field name for a group's gate answer.
+    """Structured-output field name for a group's gate answer: the gate question itself.
 
-    Derived from the gate *question*, deliberately NOT from the group's display
-    name. In structured output the model answers the field *name* far more
-    strongly than the field description, so the name has to carry the actual
-    scoping question. A display name like "Acute abdomen" makes the model judge
-    the diagnosis ("is this an acute abdomen?") instead of the scope ("is this
-    abdominal imaging?"), so it answers NO for most routine abdominal studies and
-    their findings are never computed — silently, with no row to audit. Measured
-    on real reports, keying by the question instead of the name cut the false-NO
-    rate on abdominal studies from ~88% to ~18%. The trailing id keeps the field
-    names unique even if two groups happen to share a question.
+    Deliberately not the group's display name. In structured output the model answers
+    the field *name* far more strongly than the field description, so a display name
+    like "Acute abdomen" makes it judge the diagnosis ("is this an acute abdomen?")
+    instead of the scope ("is this abdominal imaging?"). It then answers NO for most
+    routine abdominal studies, and their findings are never computed — silently, with
+    no row to audit.
+
+    The question is used verbatim, with only surrounding whitespace stripped, because
+    rewriting it could change what the model is asked. Groups that share a question
+    share one field and therefore one answer.
     """
-    slug = re.sub(r"[^a-z0-9]+", "_", (group.gate_question or "").lower()).strip("_")
-    return f"{slug or 'gate'}_{group.id}"
+    return group.gate_question.strip()
 
 
 def build_gate_schema(groups: Sequence) -> type[BaseModel]:

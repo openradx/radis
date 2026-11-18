@@ -41,14 +41,18 @@ def test_label_schema_field_is_required():
         Schema.model_validate({})
 
 
-def test_gate_field_name_is_derived_from_the_question_not_the_group_name():
+def test_gate_field_name_is_the_question_not_the_group_name():
     # The model answers the structured-output field *name* much more strongly than the
     # description, so the name must be the scoping question. A group name that is a
     # diagnosis ("Acute abdomen") must never become the field the model answers.
     g = _group(2, "Acute abdomen", "Does this report describe imaging of the abdomen or pelvis?")
-    fname = gate_field_name(g)
-    assert "abdomen" in fname and "imaging" in fname  # the question drives the name
-    assert "acute" not in fname  # the diagnosis display name does not leak in
+    assert gate_field_name(g) == "Does this report describe imaging of the abdomen or pelvis?"
+
+
+def test_gate_field_name_keeps_the_question_verbatim_and_only_strips_whitespace():
+    # Lowercasing or replacing punctuation and umlauts could change what the model is asked.
+    g = _group(3, "Schädel", "  Zeigt der Bericht eine Bildgebung des Schädels (CT/MRT)?\n")
+    assert gate_field_name(g) == "Zeigt der Bericht eine Bildgebung des Schädels (CT/MRT)?"
 
 
 def test_gate_schema_is_keyed_by_question_not_by_group_name():
@@ -71,12 +75,13 @@ def test_gate_schema_validates_yes_no_and_rejects_unknown():
         Schema.model_validate({key: "PROBABLY"})
 
 
-def test_gate_field_names_stay_unique_when_two_groups_share_a_question():
+def test_groups_sharing_a_question_share_one_gate_field():
     q = "Does this report describe imaging of the abdomen or pelvis?"
-    groups = [_group(2, "Acute abdomen", q), _group(5, "GI tract", q)]
+    groups = [_group(2, "Acute abdomen", q), _group(5, "GI tract", f" {q} ")]
     Schema = build_gate_schema(groups)
-    assert len(Schema.model_fields) == 2  # neither group's field was swallowed by a collision
-    assert set(Schema.model_fields) == {gate_field_name(g) for g in groups}
+    assert list(Schema.model_fields) == [q]  # the question is asked once
+    dumped = Schema.model_validate({q: "YES"}).model_dump()
+    assert all(dumped[gate_field_name(g)] == GateValue.YES for g in groups)
 
 
 def test_gate_results_round_trip_by_gate_field_name():

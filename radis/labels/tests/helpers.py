@@ -40,7 +40,7 @@ def create_labeling_openai_mock(
 ) -> MagicMock:
     """An ``openai.OpenAI`` double for the two-phase flow: ``parse`` returns an instance of
     whichever schema each call requests — gate ("GateScreening") from ``gate_values``, label
-    ("LabelClassification") from ``label_values``, keyed by group/label name. Patch via
+    ("LabelClassification") from ``label_values``, keyed by gate question/label name. Patch via
     ``patch("openai.OpenAI", return_value=...)`` so the real ``LLMClient`` runs.
     """
     gate_values = gate_values or {}
