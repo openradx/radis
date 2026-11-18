@@ -218,15 +218,19 @@ def test_gate_answer_becomes_stale_after_gate_question_edited():
 
 
 @pytest.mark.django_db
-def test_gate_answer_becomes_stale_after_group_renamed():
+def test_group_rename_keeps_gate_answer_fresh():
+    """The gate schema keys on the question, so the LLM never sees the group's name."""
     group = LabelGroupFactory.create()
     answer = GateAnswerFactory.create(label_group=group)
+    before = group.definition_updated_at
 
     group.name = "renamed"
     group.save()
+    group.refresh_from_db()
     answer.refresh_from_db()
 
-    assert answer.is_stale
+    assert group.definition_updated_at == before
+    assert not answer.is_stale
 
 
 @pytest.mark.django_db

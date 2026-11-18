@@ -105,7 +105,8 @@ class DefinitionTrackedModel(models.Model):
 
 
 class LabelGroup(DefinitionTrackedModel):
-    DEFINITION_FIELDS = ("name", "gate_question")  # name is the gate schema's field key
+    # The gate schema keys on the question itself, so the name is never shown to the LLM.
+    DEFINITION_FIELDS = ("gate_question",)
 
     id: int
     name = models.CharField(max_length=100, unique=True)
@@ -212,8 +213,7 @@ class GateAnswer(models.Model):
 
     @property
     def is_stale(self) -> bool:
-        """Stale when the group's definition (name or gate question) or the report's content
-        changed after generation."""
+        """Stale when the gate question or the report's content changed after generation."""
         return (
             self.generated_at < self.label_group.definition_updated_at
             or self.generated_at < self.report.updated_at

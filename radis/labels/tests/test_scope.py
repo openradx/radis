@@ -209,7 +209,7 @@ def test_noop_label_save_keeps_report_out_of_scope():
 
 
 @pytest.mark.django_db
-def test_group_rename_puts_report_in_scope():
+def test_group_rename_keeps_report_out_of_scope():
     group = LabelGroupFactory.create()
     label = LabelFactory.create(group=group)
     report = ReportFactory.create()
@@ -219,7 +219,7 @@ def test_group_rename_puts_report_in_scope():
     group.name = "renamed"
     group.save()
 
-    assert report.pk in _ids()
+    assert report.pk not in _ids()
 
 
 @pytest.mark.django_db

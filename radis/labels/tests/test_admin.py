@@ -599,6 +599,29 @@ def test_group_gate_question_change_confirms_with_gate_counts(client):
 
 @_no_toolbar
 @pytest.mark.django_db
+def test_group_rename_saves_without_confirmation(client):
+    from radis.labels.factories import GateAnswerFactory
+
+    answer = GateAnswerFactory.create()
+    group = answer.label_group
+    before = group.definition_updated_at
+    _login_admin(client)
+
+    response = client.post(
+        reverse("admin:labels_labelgroup_change", args=[group.pk]),
+        {"name": "Renamed", "gate_question": group.gate_question, "_save": "Save"},
+    )
+
+    assert response.status_code == 302
+    group.refresh_from_db()
+    answer.refresh_from_db()
+    assert group.name == "Renamed"
+    assert group.definition_updated_at == before
+    assert not answer.is_stale
+
+
+@_no_toolbar
+@pytest.mark.django_db
 def test_group_unchanged_save_goes_straight_through(client):
     from radis.labels.factories import GateAnswerFactory
 

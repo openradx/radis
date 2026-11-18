@@ -2,7 +2,7 @@ import django.utils.timezone
 from django.db import migrations, models
 from django.db.models import F
 
-DEFINITION_FIELDS = {"LabelGroup": ("name", "gate_question"), "Label": ("name", "description")}
+DEFINITION_FIELDS = {"LabelGroup": ("gate_question",), "Label": ("name", "description")}
 
 
 def _normalize(value: str) -> str:
@@ -18,8 +18,9 @@ def copy_updated_at_and_normalize(apps, schema_editor):
         model = apps.get_model("labels", model_name)
         # Names are unique, so two that differ only in surrounding whitespace would collide.
         by_normalized_name: dict[str, list[str]] = {}
-        for name in model.objects.values_list("name", flat=True):
-            by_normalized_name.setdefault(_normalize(name), []).append(repr(name))
+        if "name" in fields:
+            for name in model.objects.values_list("name", flat=True):
+                by_normalized_name.setdefault(_normalize(name), []).append(repr(name))
         collisions = [names for names in by_normalized_name.values() if len(names) > 1]
         if collisions:
             raise RuntimeError(
