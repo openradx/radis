@@ -41,8 +41,8 @@ uv run cli db-backup                 # Backup database
 
 ### Tech Stack
 
-- **Backend**: Python 3.12+, Django 6.0+, PostgreSQL 17
-- **Search**: pg_vector (semantic), pg_search (full-text), hybrid ranking
+- **Backend**: Python 3.12+, Django 6.1+, PostgreSQL 17
+- **Search**: PostgreSQL full-text search (tsvector), pg_vector (semantic), hybrid RRF ranking
 - **Async**: Daphne (ASGI), Django Channels, Procrastinate (task queue)
 - **Frontend**: Django templates, Cotton components, HTMX, Alpine.js, Bootstrap 5
 - **LLM**: External OpenAI-compatible API endpoint
@@ -86,7 +86,7 @@ Analysis operations follow a Job -> Task pattern (similar to ADIT):
 - **default_worker**: General background task processor (Procrastinate queue: `default`)
 - **llm_worker**: LLM-specific task processor (Procrastinate queue: `llm`)
 - **embeddings_worker**: Embedding task processor (Procrastinate queue: `embeddings`)
-- **postgres**: PostgreSQL 17 with pg_vector and pg_search extensions (port 5432)
+- **postgres**: PostgreSQL 17 with the pg_vector extension (port 5432)
 
 ### LLM Endpoint
 
@@ -129,9 +129,13 @@ Hybrid search embeddings (`radis.pgsearch`):
 - `EMBEDDINGS_BATCH_SIZE`, `EMBEDDINGS_SUBJOB_SIZE`, `EMBEDDINGS_WORKER_CONCURRENCY`:
   Throughput tuning
 
+Extractions (`radis.extractions`):
+
+- `EXTRACTION_MAXIMUM_REPORTS_COUNT`: Most reports one extraction job may cover (default `25000`). The wizard refuses a search matching more (or none at all), and job preparation checks again. Extraction retrieval is text-only: every report matching the boolean query, unranked and without the search page's `HYBRID_FTS_MAX_RESULTS` candidate cap.
+
 Auto-labeling (`radis.labels`):
 
-- `LABELING_SYSTEM_PROMPT`: Generic per-label classification prompt (only `$report` is substituted). Has a built-in default.
+- `LABELING_SYSTEM_PROMPT`: Generic per-label classification prompt. `$labels` (one `- name: description` line per label) and `$report` are substituted; an override missing either fails startup (`labels.E001`). Has a built-in default.
 - `LABELING_GATE_SYSTEM_PROMPT`: Generic group gate (Yes/No) prompt. Has a built-in default.
 - `LABELING_JOB_PRIORITY`: Procrastinate priority for labeling jobs (default `1`).
 - `LABELING_TASK_BATCH_SIZE`: Reports per labeling task (default `100`).
@@ -146,6 +150,36 @@ Worker-crash recovery (`radis.core`):
 
 Labeling uses the shared core LLM client (`radis.core.utils.llm_client`); its timeout, rate-limit gate, and transient-retry knobs are the global `LLM_REQUEST_TIMEOUT_SECONDS`, `LLM_RATE_LIMIT_*`, and `LLM_TRANSIENT_RETRY_*` settings.
 
+PostgreSQL parallelism (compose-only overrides, not in `example.env` — set in `.env`
+only to override the compose file's default):
+
+- `POSTGRES_MAX_PARALLEL_WORKERS_PER_GATHER`: Parallel workers per query node scanning
+  the report index (default `4`, raised from PostgreSQL's own default of `2`)
+- `POSTGRES_MAX_PARALLEL_WORKERS`, `POSTGRES_MAX_WORKER_PROCESSES`: Cluster-wide worker
+  pool sizes (each defaults to `8`, PostgreSQL's own default). Raise together with
+  `POSTGRES_MAX_PARALLEL_WORKERS_PER_GATHER` on a larger host
+- `POSTGRES_SHARED_BUFFERS`: PostgreSQL's shared memory buffer (default `128MB`,
+  PostgreSQL's own default)
+- `POSTGRES_MAINTENANCE_WORK_MEM`: memory for VACUUM and index builds (default
+  `64MB`, PostgreSQL's own default). Raise for the migration window on a large
+  embedded archive so the pgsearch 0005 HNSW rebuild assembles its graph in
+  memory (a 1.7M-vector corpus built in 7m36s with `16GB` and 7 workers), and
+  for the manual rebuilds in the admin guide's compaction section
+- `POSTGRES_MAX_PARALLEL_MAINTENANCE_WORKERS`: parallel workers per index build
+  (default `2`, PostgreSQL's own default); also capped by
+  `POSTGRES_MAX_PARALLEL_WORKERS`
+- `POSTGRES_SHM_SIZE_BYTES`: tmpfs size of the container's `/dev/shm` in bytes
+  (default `1073741824` = 1 GiB — a cap, not a reservation; Docker's own 64 MB
+  default is too small for parallel queries). Parallel maintenance
+  pre-allocates its whole `maintenance_work_mem` budget here, so keep it at
+  least as large as `POSTGRES_MAINTENANCE_WORK_MEM`
+
+## Git Worktrees
+
+In a linked worktree (e.g. `.claude/worktrees/<name>`, into which Claude Code copies the files listed in `.worktreeinclude`), every `uv run cli` command except `init-workspace` first gives the worktree a slot N in its `.env`: the host ports from `docker-compose.dev.yml` shifted by N × 100 (slot 1: web 8100, Postgres 5532, debugger 5778) and `STACK_NAME=radis_wt<N>_<name>`, so it runs its own containers, volumes and database, with session cookies that don't log the main checkout out. The first command picks the slot, skipping any whose ports are in use, and later commands keep it. In a worktree git can't read (its `.git` file points at a path that doesn't exist here, or git refuses it as another user's), these commands stop with an error instead, since its `.env` is still the main checkout's. Values changed by hand in the worktree's `.env` stay; `uv run cli worktree-env --slot N` picks another slot, and with it a new stack name, so an empty database. VS Code's `.vscode/launch.json` attaches to 5678, the main checkout's debugger; in a worktree, attach to its `REMOTE_DEBUGGING_PORT` instead. Before deleting a worktree, run `uv run cli compose-down -- -v`. A worktree deleted without that leaves its stack behind, or only its volumes if it was stopped without `-v`: `docker compose ls -a` lists the projects that still have containers, and `docker volume ls --filter label=com.docker.compose.project --format '{{.Label "com.docker.compose.project"}}' | sort -u` those that still have volumes. For a project named after a worktree that `git worktree list` no longer shows, `docker compose -p <project> down -v` removes its containers, volumes and network, and `docker images --filter label=com.docker.compose.project=<project>` lists the images it leaves for `docker image rm`. Details: adit-radis-shared's `adit_radis_shared/cli/worktree_env.py`.
+
+If a stack fails because a host port is taken ("port is already allocated", "address already in use"), another program holds it: leave that program alone. Set a free port for that variable in this checkout's `.env`; in a worktree, later `uv run cli` commands keep it.
+
 ## Code Standards
 
 - **Style Guide**: Google Python Style Guide
@@ -155,6 +189,9 @@ Labeling uses the shared core LLM client (`radis.core.utils.llm_client`); its ti
 - **Comments**: only where the code cannot speak for itself; explain *why*, not *what*
 - **No history in comments**: describe the code as it is, not how it changed — that
   belongs in the commit message (docstrings too)
+- **Keep the docs in sync**: when a change adds a feature or alters behaviour that the
+  docs describe (`README.md`, `docs/`, this file, in-app help templates), update them in
+  the same PR
 
 ## Key Dependencies
 
@@ -219,7 +256,7 @@ reports = response.json()
 
 ### Search Not Returning Expected Results
 
-- Check PostgreSQL extensions are installed: `pg_vector`, `pg_search`
+- Check the `vector` extension is installed in PostgreSQL
 - Verify report has `body` text indexed
 - Check search provider is configured in settings
 - Review QueryParser syntax for complex queries

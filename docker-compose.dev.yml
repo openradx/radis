@@ -26,12 +26,15 @@ services:
     profiles:
       - never
 
+  # In development `web` runs the migrations the workers below wait for, so
+  # their WAIT_INIT_TIMEOUT must outlast the longest migration too. Dev has no
+  # restart policy, so a timeout leaves the worker containers exited.
   web:
     <<: *default-app
-    image: radis_dev-web:latest
+    image: ${STACK_NAME:-radis_dev}-web:latest
     ports:
       - ${WEB_DEV_PORT:-8000}:8000
-      - ${REMOTE_DEBUGGING_PORT:-5678}:5678
+      - ${REMOTE_DEBUGGING_PORT:-5678}:${REMOTE_DEBUGGING_PORT:-5678}
     command: >
       bash -c "
         wait-for-it -s postgres.local:5432 -t ${WAIT_POSTGRES_TIMEOUT:-180} &&
@@ -48,29 +51,29 @@ services:
 
   default_worker:
     <<: *default-app
-    image: radis_dev-default_worker:latest
+    image: ${STACK_NAME:-radis_dev}-default_worker:latest
     command: >
       bash -c "
         wait-for-it -s postgres.local:5432 -t ${WAIT_POSTGRES_TIMEOUT:-180} &&
-        wait-for-it -s web.local:8000 -t 300 &&
+        wait-for-it -s web.local:8000 -t ${WAIT_INIT_TIMEOUT:-3600} &&
         ./manage.py sweep_stale_tasks &&
         ./manage.py bg_worker -l debug -q default --autoreload
       "
 
   llm_worker:
     <<: *default-app
-    image: radis_dev-llm_worker:latest
+    image: ${STACK_NAME:-radis_dev}-llm_worker:latest
     command: >
       bash -c "
         wait-for-it -s postgres.local:5432 -t ${WAIT_POSTGRES_TIMEOUT:-180} &&
-        wait-for-it -s web.local:8000 -t 300 &&
+        wait-for-it -s web.local:8000 -t ${WAIT_INIT_TIMEOUT:-3600} &&
         ./manage.py sweep_stale_tasks &&
         ./manage.py bg_worker -l debug -q llm --autoreload
       "
 
   embeddings_worker:
     <<: *default-app
-    image: radis_dev-embeddings_worker:latest
+    image: ${STACK_NAME:-radis_dev}-embeddings_worker:latest
     command: >
       bash -c "
         wait-for-it -s postgres.local:5432 -t ${WAIT_POSTGRES_TIMEOUT:-180} &&

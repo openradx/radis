@@ -30,6 +30,13 @@ def process_extraction_task(task_id: int) -> None:
     task.save()
 
 
+def _fail_preparation(job: ExtractionJob, message: str) -> None:
+    # The preparation run itself is over; its own queue row must not count as queued.
+    job.queued_job_id = None
+    job.save(update_fields=["queued_job_id"])
+    job.fail_before_tasks(message)
+
+
 @app.task
 def process_extraction_job(job_id: int) -> None:
     job = ExtractionJob.objects.get(id=job_id)
@@ -80,10 +87,14 @@ def process_extraction_job(job_id: int) -> None:
         if len(fixes) > 0:
             logger.info(f"The following fixes were applied to the query:\n{'\n - '.join(fixes)}")
 
+        # The form refused a cohort above the maximum when the job was created, but
+        # the archive and the maximum can change while a job waits for verification.
+        # Counting stops one past the maximum, which is all the check needs.
+        max_reports = settings.EXTRACTION_MAXIMUM_REPORTS_COUNT
         search = Search(
             query=query_node,
             offset=0,
-            limit=retrieval_provider.max_results,
+            limit=max_reports + 1,
             filters=SearchFilters(
                 group=job.group.pk,
                 language=job.language.code if job.language else "",
@@ -97,6 +108,17 @@ def process_extraction_job(job_id: int) -> None:
             ),
         )
 
+        if retrieval_provider.count(search) > max_reports:
+            _fail_preparation(
+                job,
+                f"The search now matches more than {max_reports} reports, which is more than "
+                "an extraction job may cover. Please refine the search query and create a "
+                "new job.",
+            )
+            logger.info("Job %s failed: its search exceeds the maximum report count", job)
+            return
+
+        search = search._replace(limit=None)
         logger.debug("Searching reports for task with search: %s", search)
 
         for document_ids in batched(
@@ -108,6 +130,18 @@ def process_extraction_job(job_id: int) -> None:
             for document_id in document_ids:
                 report = Report.objects.get(document_id=document_id)
                 ExtractionInstance.objects.create(task=task, report_id=report.pk)
+
+        # The form refused an empty search, but the matches can have been deleted
+        # meanwhile. A PENDING job without tasks would never finish: only a task
+        # ending moves a job on.
+        if not job.tasks.exists():
+            _fail_preparation(
+                job,
+                "The search no longer matches any reports, so there is nothing to extract. "
+                "Please broaden the search query and create a new job.",
+            )
+            logger.info("Job %s failed: its search matches no reports", job)
+            return
 
         tasks_to_enqueue = job.tasks.filter(status=ExtractionTask.Status.PENDING)
 

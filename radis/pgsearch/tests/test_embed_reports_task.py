@@ -4,7 +4,7 @@ import logging
 from contextlib import contextmanager
 from unittest.mock import MagicMock, patch
 
-import httpx
+import httpx2
 import numpy as np
 import openai
 import pytest
@@ -84,7 +84,7 @@ def _timeout_error() -> openai.APITimeoutError:
     empirically against the real embedding gateway — it accepts arbitrarily
     large batches and just gets proportionally slower), so an oversized
     chunk surfaces as a timeout instead of an error response."""
-    request = httpx.Request("POST", "https://embedding.example/v1/embeddings")
+    request = httpx2.Request("POST", "https://embedding.example/v1/embeddings")
     return openai.APITimeoutError(request)
 
 
@@ -117,8 +117,8 @@ def _mock_embedding_client(error: Exception | None = None):
 
 
 def _auth_error() -> openai.AuthenticationError:
-    resp = httpx.Response(
-        401, request=httpx.Request("POST", "https://embedding.example/v1/embeddings")
+    resp = httpx2.Response(
+        401, request=httpx2.Request("POST", "https://embedding.example/v1/embeddings")
     )
     return openai.AuthenticationError(message="invalid api key", response=resp, body=None)
 
@@ -542,7 +542,7 @@ def test_embed_chunk_does_not_retry_rate_limit_error_locally():
     a passthrough here, so the 429 surfaces directly.)"""
     from radis.pgsearch import tasks as tasks_module
 
-    response = httpx.Response(429, request=httpx.Request("POST", "http://x"))
+    response = httpx2.Response(429, request=httpx2.Request("POST", "http://x"))
     fake_client = MagicMock()
     fake_client.embed_documents = MagicMock(
         side_effect=openai.RateLimitError(message="slow", response=response, body=None)

@@ -131,12 +131,12 @@ def test_fresh_gate_yes_with_one_stale_label_runs_only_that_label():
 
     report = ReportFactory.create(body="lungs clear")
     group = LabelGroupFactory.create()
-    fresh_label = LabelFactory.create(group=group)
+    fresh_label = LabelFactory.create(group=group, description="definition of the fresh one")
     stale_label = LabelFactory.create(group=group)
     GateAnswerFactory.create(report=report, label_group=group, value="YES")
     LabelResult.objects.create(report=report, label=fresh_label, value=LabelResult.Value.PRESENT)
     LabelResult.objects.create(report=report, label=stale_label, value=LabelResult.Value.PRESENT)
-    stale_label.description = "edited"
+    stale_label.description = "definition of the edited one"
     stale_label.save()
 
     client = FakeChatClient(label_values={stale_label.name: "ABSENT"})
@@ -145,6 +145,10 @@ def test_fresh_gate_yes_with_one_stale_label_runs_only_that_label():
 
     assert client.gate_calls == []
     assert client.label_calls == [[stale_label.name]]
+    # The prompt defines exactly the labels being classified, no others of the group.
+    [prompt] = client.label_prompts
+    assert f"- {stale_label.name}: definition of the edited one" in prompt
+    assert "definition of the fresh one" not in prompt
     assert LabelResult.objects.get(report=report, label=stale_label).value == "ABSENT"
 
 

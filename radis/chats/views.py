@@ -7,7 +7,7 @@ from adit_radis_shared.common.types import AuthenticatedHttpRequest
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
-from django.core.exceptions import SuspiciousOperation
+from django.core.exceptions import PermissionDenied, SuspiciousOperation
 from django.http import HttpResponse
 from django.shortcuts import aget_object_or_404, get_object_or_404, redirect, render
 from django.urls import reverse
@@ -72,7 +72,12 @@ async def chat_create_view(request: AuthenticatedHttpRequest) -> HttpResponse:
             user_prompt: str = form.cleaned_data["prompt"]
 
             if report_id:
-                report = await aget_object_or_404(Report, pk=report_id)
+                # Same access rule as the GET path and ReportDetailView: a report is
+                # only reachable through the user's active group.
+                active_group = request.user.active_group
+                if active_group is None:
+                    raise PermissionDenied("An active group is required to chat about a report.")
+                report = await aget_object_or_404(Report, pk=report_id, groups=active_group)
                 instructions_system_prompt = Template(
                     settings.CHAT_REPORT_SYSTEM_PROMPT
                 ).substitute({"report": report.body})
