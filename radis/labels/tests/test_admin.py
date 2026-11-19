@@ -803,3 +803,128 @@ def test_stale_fingerprint_shows_confirmation_again_instead_of_saving(client):
     assert response.status_code == 302
     label.refresh_from_db()
     assert label.description == "My definition"
+
+
+# --- "Mark selected as stale" action -------------------------------------------------------
+
+MARK_STALE_TEMPLATE = "admin/labels/mark_stale_confirmation.html"
+
+
+@_no_toolbar
+@pytest.mark.django_db
+def test_mark_stale_action_shows_confirmation_with_counts(client):
+    from radis.labels.factories import LabelFactory, LabelResultFactory
+
+    first = LabelFactory.create(name="edema")
+    second = LabelFactory.create(name="nodule")
+    LabelResultFactory.create(label=first)
+    LabelResultFactory.create(label=first)
+    LabelResultFactory.create(label=second)
+    before = (first.definition_updated_at, second.definition_updated_at)
+    _login_admin(client)
+
+    response = client.post(
+        reverse("admin:labels_label_changelist"),
+        {"action": "mark_stale", "_selected_action": [first.pk, second.pk]},
+    )
+
+    assert response.status_code == 200
+    assert any(t.name == MARK_STALE_TEMPLATE for t in response.templates)
+    content = response.content.decode()
+    assert "<strong>edema</strong>: 2 label results" in content
+    assert "<strong>nodule</strong>: 1 label result\n" in content
+    assert "<strong>3 label results</strong>" in content
+    assert 'name="post" value="yes"' in content
+    first.refresh_from_db()
+    second.refresh_from_db()
+    assert (first.definition_updated_at, second.definition_updated_at) == before
+
+
+@_no_toolbar
+@pytest.mark.django_db
+def test_mark_stale_action_confirmed_bumps_only_selected(client):
+    from radis.labels.factories import LabelFactory, LabelResultFactory
+
+    selected = LabelFactory.create()
+    other = LabelFactory.create()
+    selected_result = LabelResultFactory.create(label=selected)
+    other_result = LabelResultFactory.create(label=other)
+    before = selected.definition_updated_at
+    _login_admin(client)
+
+    response = client.post(
+        reverse("admin:labels_label_changelist"),
+        {"action": "mark_stale", "_selected_action": [selected.pk], "post": "yes"},
+        follow=True,
+    )
+
+    assert response.redirect_chain[-1][0].endswith(reverse("admin:labels_label_changelist"))
+    assert "Marked 1 label result of 1 labels stale" in response.content.decode()
+    assert "Run backfill now" in response.content.decode()
+    selected.refresh_from_db()
+    selected_result.refresh_from_db()
+    other_result.refresh_from_db()
+    assert selected.definition_updated_at > before
+    assert selected.description == selected_result.label.description  # text untouched
+    assert selected_result.is_stale
+    assert not other_result.is_stale
+
+
+@_no_toolbar
+@pytest.mark.django_db
+def test_mark_stale_action_on_groups_marks_gate_answers_stale(client):
+    from radis.labels.factories import (
+        GateAnswerFactory,
+        LabelFactory,
+        LabelGroupFactory,
+        LabelResultFactory,
+    )
+    from radis.labels.models import GateAnswer
+
+    group = LabelGroupFactory.create()
+    label = LabelFactory.create(group=group)
+    yes = GateAnswerFactory.create(label_group=group, value=GateAnswer.Value.YES)
+    result = LabelResultFactory.create(label=label, report=yes.report)
+    _login_admin(client)
+    url = reverse("admin:labels_labelgroup_changelist")
+    data = {"action": "mark_stale", "_selected_action": [group.pk]}
+
+    response = client.post(url, data)
+    assert response.status_code == 200
+    assert "1 of them currently answer Yes" in response.content.decode()
+
+    response = client.post(url, {**data, "post": "yes"})
+
+    assert response.status_code == 302
+    yes.refresh_from_db()
+    result.refresh_from_db()
+    assert yes.is_stale
+    assert not result.is_stale  # a group marks its gate answers stale, not its labels' results
+
+
+@_no_toolbar
+@pytest.mark.django_db
+def test_mark_stale_action_needs_change_permission(client):
+    from django.contrib.auth.models import Permission
+
+    from radis.labels.factories import LabelResultFactory
+
+    result = LabelResultFactory.create()
+    label = result.label
+    before = label.definition_updated_at
+    viewer = UserFactory.create(is_staff=True, is_active=True)
+    viewer.user_permissions.add(Permission.objects.get(codename="view_label"))
+    client.force_login(viewer)
+
+    response = client.post(
+        reverse("admin:labels_label_changelist"),
+        {"action": "mark_stale", "_selected_action": [label.pk], "post": "yes"},
+    )
+
+    # The action is not offered to this user, so Django re-renders the changelist with an error.
+    assert response.status_code == 200
+    assert not any(t.name == MARK_STALE_TEMPLATE for t in response.templates)
+    label.refresh_from_db()
+    result.refresh_from_db()
+    assert label.definition_updated_at == before
+    assert not result.is_stale

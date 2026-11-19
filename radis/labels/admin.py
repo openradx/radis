@@ -2,14 +2,16 @@ from dataclasses import dataclass
 from typing import Any
 
 from django.contrib import admin, messages
+from django.contrib.admin import helpers
 from django.contrib.admin.options import IS_POPUP_VAR
 from django.contrib.admin.utils import flatten_fieldsets, unquote
 from django.db import IntegrityError, transaction
-from django.db.models import Count, Q
+from django.db.models import Count, Q, QuerySet
 from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
 from django.shortcuts import get_object_or_404
 from django.template.response import TemplateResponse
 from django.urls import path, reverse
+from django.utils import timezone
 
 from radis.core.utils.model_utils import cancel_job
 
@@ -44,9 +46,41 @@ class _DefinitionConfirmAdmin(admin.ModelAdmin):
     does the add form, since nothing exists yet to invalidate."""
 
     confirmation_template = "admin/labels/definition_change_confirmation.html"
+    mark_stale_template = "admin/labels/mark_stale_confirmation.html"
+    actions = ["mark_stale"]
 
     def definition_change_impact(self, obj: Any) -> DefinitionChangeImpact:
         raise NotImplementedError
+
+    @admin.action(description="Mark selected as stale", permissions=["change"])
+    def mark_stale(self, request: HttpRequest, queryset: QuerySet) -> HttpResponse | None:
+        """Move definition_updated_at to now on the selected rows, after a page showing what
+        that invalidates. The way to force a re-run when the definition text itself did not
+        change, for instance after a prompt change or a fix to how the gate is asked."""
+        items = [(obj, self.definition_change_impact(obj)) for obj in queryset]
+        total = sum(impact.count for _, impact in items)
+        noun = items[0][1].noun if items else "result"
+        rows = f"{total} {noun}{'' if total == 1 else 's'}"
+        if request.POST.get("post") == "yes":
+            queryset.update(definition_updated_at=timezone.now())
+            self.message_user(
+                request,
+                f"Marked {rows} of {len(items)} {self.opts.verbose_name_plural} stale. Run "
+                "Labels → Labeling jobs → Run backfill now to regenerate them.",
+                level=messages.SUCCESS,
+            )
+            return None
+        context = {
+            **self.admin_site.each_context(request),
+            "title": f"Mark {self.opts.verbose_name_plural} as stale",
+            "opts": self.opts,
+            "items": items,
+            "rows": rows,
+            "queryset": queryset,
+            "action_checkbox_name": helpers.ACTION_CHECKBOX_NAME,
+            "media": self.media,
+        }
+        return TemplateResponse(request, self.mark_stale_template, context)
 
     def changeform_view(
         self,
