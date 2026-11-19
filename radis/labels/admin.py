@@ -5,6 +5,7 @@ from django.contrib import admin, messages
 from django.contrib.admin.options import IS_POPUP_VAR
 from django.contrib.admin.utils import flatten_fieldsets, unquote
 from django.db import IntegrityError, transaction
+from django.db.models import Count, Q
 from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
 from django.shortcuts import get_object_or_404
 from django.template.response import TemplateResponse
@@ -66,7 +67,9 @@ class _DefinitionConfirmAdmin(admin.ModelAdmin):
 
     @staticmethod
     def _definition_fingerprint(obj: Any) -> str:
-        return obj.definition_updated_at.isoformat()
+        # The audit timestamp, not definition_updated_at: any save in between, such as an
+        # active toggle, must invalidate a confirmation that would replay the whole form.
+        return obj.updated_at.isoformat()
 
     def _definition_change_confirmation(
         self, request: HttpRequest, object_id: str
@@ -77,8 +80,8 @@ class _DefinitionConfirmAdmin(admin.ModelAdmin):
         obj = self.get_object(request, unquote(object_id))
         if obj is None or not self.has_change_permission(request, obj):
             return None
-        # The fingerprint binds a confirmation to the definition the admin saw: a concurrent
-        # edit in between changes it, and the page is shown again with the new diff.
+        # The fingerprint binds a confirmation to the row the admin saw: a concurrent edit in
+        # between changes it, and the page is shown again with the current values.
         fingerprint = self._definition_fingerprint(obj)
         confirmed = request.POST.get(CONFIRM_DEFINITION_CHANGE)
         if confirmed == fingerprint:
@@ -107,8 +110,8 @@ class _DefinitionConfirmAdmin(admin.ModelAdmin):
         if confirmed is not None:
             messages.warning(
                 request,
-                "The definition was changed by someone else since you opened this page. "
-                "Review the new differences before confirming.",
+                "This record was changed by someone else since you opened this page. "
+                "Review the current differences before confirming.",
             )
         context = {
             **self.admin_site.each_context(request),
@@ -139,14 +142,15 @@ class LabelGroupAdmin(_DefinitionConfirmAdmin):
     readonly_fields = ("definition_updated_at", "updated_at")
 
     def definition_change_impact(self, obj: Any) -> DefinitionChangeImpact:
-        gate_answers = GateAnswer.objects.filter(label_group=obj)
-        total = gate_answers.count()
-        yes = gate_answers.filter(value=GateAnswer.Value.YES).count()
+        counts = GateAnswer.objects.filter(label_group=obj).aggregate(
+            total=Count("id"), yes=Count("id", filter=Q(value=GateAnswer.Value.YES))
+        )
+        total, yes = counts["total"], counts["yes"]
         details = [
             f"{yes} of them currently answer Yes. A Yes that flips to No removes that report's "
-            "label results for this group; a No that flips to Yes classifies all of the group's "
-            "active labels for that report, one more LLM call each. Results of reports whose "
-            "answer does not flip stay fresh."
+            "label results for this group; a No that flips to Yes classifies the group's active "
+            "labels for that report in one more LLM request. Results of reports whose answer "
+            "does not flip stay fresh."
         ]
         if not Label.objects.filter(group=obj, active=True).exists():
             details.append(

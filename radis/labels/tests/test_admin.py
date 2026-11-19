@@ -340,7 +340,7 @@ def _rendered_confirmation(response) -> bool:
 
 def _fingerprint(obj) -> str:
     obj.refresh_from_db()
-    return obj.definition_updated_at.isoformat()
+    return obj.updated_at.isoformat()
 
 
 @_no_toolbar
