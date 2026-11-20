@@ -45,6 +45,16 @@ class ExtractionTaskProcessor(AnalysisTaskProcessor):
                 if exceptions:
                     raise exceptions[0]
 
+                # Without this the task, and with it the job, would report success
+                # for reports it never extracted from.
+                skipped = task.instances.filter(
+                    is_processed=False, report__withdrawn_at__isnull=False
+                ).count()
+                if skipped:
+                    logger.info("Task %s skipped %d withdrawn report(s).", task, skipped)
+                    task.status = ExtractionTask.Status.WARNING
+                    task.message = f"{skipped} report(s) skipped because they were withdrawn."
+
             finally:
                 db.close_old_connections()
 

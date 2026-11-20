@@ -10,6 +10,7 @@ the prompt and the requested schema so we can assert the report text + questions
 reach the model.
 """
 
+from datetime import timedelta
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -331,3 +332,25 @@ def test_process_task_skips_withdrawn_reports(monkeypatch):
 
     assert withdrawn.pk not in processed
     assert set(processed) == live_report_pks
+
+
+@pytest.mark.django_db
+def test_finished_mail_leaves_out_reports_withdrawn_during_the_job():
+    task = _make_task_with_reports(["Is this relevant?"], num_reports=2)
+    job = task.job
+    job.status = SubscriptionJob.Status.SUCCESS
+    job.started_at = timezone.now() - timedelta(minutes=5)
+    job.save()
+    live, gone = task.reports.order_by("pk")
+    Report.objects.filter(pk=live.pk).update(patient_id="LIVE-PATIENT")
+    Report.objects.filter(pk=gone.pk).update(patient_id="GONE-PATIENT")
+    for report in (live, gone):
+        SubscribedItem.objects.create(subscription=job.subscription, report=report, job=job)
+    Report.objects.filter(pk=gone.pk).update(withdrawn_at=timezone.now())
+
+    with patch("radis.core.models.send_mail") as send_mail:
+        job._send_job_finished_mail()
+
+    html = send_mail.call_args.kwargs["html_message"]
+    assert "LIVE-PATIENT" in html
+    assert "GONE-PATIENT" not in html

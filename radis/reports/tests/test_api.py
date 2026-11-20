@@ -21,6 +21,7 @@ from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APIClient
 
+from radis.reports.api.serializers import ReportSerializer
 from radis.reports.factories import LanguageFactory, ReportFactory
 from radis.reports.models import Language, Modality, Report
 
@@ -488,3 +489,46 @@ def test_bulk_upsert_reports_withdrawn_document_ids(admin_client):
     assert body["updated"] == 2
     assert body["withdrawn"] == ["doc-bulk-withdrawn"]
     assert Report.objects.get(document_id="doc-bulk-withdrawn").is_withdrawn
+
+
+@pytest.mark.django_db
+def test_writes_cannot_set_the_withdrawal_fields(admin_client):
+    group = GroupFactory.create()
+    admin_client.post(LIST_URL, make_payload(document_id="doc-live", group=group), format="json")
+    payload = make_payload(document_id="doc-live", group=group)
+    payload["withdrawn_at"] = timezone.now().isoformat()
+    payload["withdrawn_by"] = AdminUserFactory.create().pk
+    payload["withdrawal_reason"] = "set by a client"
+
+    response = admin_client.put(detail_url("doc-live") + "?upsert=true", payload, format="json")
+
+    assert response.status_code == 200
+    report = Report.objects.get(document_id="doc-live")
+    assert not report.is_withdrawn
+    assert report.withdrawn_by is None
+    assert report.withdrawal_reason == ""
+
+
+@pytest.mark.django_db
+def test_update_keeps_a_withdrawal_made_after_the_report_was_loaded():
+    """The view loads the report before validating the payload; an admin can
+    withdraw it in between, and saving the loaded copy must not undo that."""
+    group = GroupFactory.create()
+    report = ReportFactory.create(
+        document_id="doc-race", language=LanguageFactory.create(code="en")
+    )
+    loaded = Report.objects.get(pk=report.pk)
+    Report.objects.filter(pk=report.pk).update(
+        withdrawn_at=timezone.now(), withdrawal_reason="wrong patient"
+    )
+
+    serializer = ReportSerializer(
+        loaded, data=make_payload(document_id="doc-race", group=group, body="Corrected")
+    )
+    serializer.is_valid(raise_exception=True)
+    serializer.save()
+
+    report.refresh_from_db()
+    assert report.body == "Corrected"
+    assert report.is_withdrawn
+    assert report.withdrawal_reason == "wrong patient"

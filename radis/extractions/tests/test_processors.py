@@ -48,3 +48,29 @@ def test_process_task_skips_instances_of_withdrawn_reports(monkeypatch):
     ExtractionTaskProcessor(task).process_task(task)
 
     assert processed == [live.pk]
+
+
+@pytest.mark.django_db
+def test_process_task_warns_about_skipped_withdrawn_reports(monkeypatch):
+    task = ExtractionTaskFactory.create()
+    ExtractionInstanceFactory.create(task=task, is_processed=False)
+    withdrawn = ExtractionInstanceFactory.create(task=task, is_processed=False)
+    Report.objects.filter(pk=withdrawn.report.pk).update(withdrawn_at=timezone.now())
+    monkeypatch.setattr(ExtractionTaskProcessor, "process_instance", lambda self, instance: None)
+
+    ExtractionTaskProcessor(task).process_task(task)
+
+    assert task.status == AnalysisTask.Status.WARNING
+    assert task.message == "1 report(s) skipped because they were withdrawn."
+
+
+@pytest.mark.django_db
+def test_process_task_without_withdrawn_reports_leaves_the_status_alone(monkeypatch):
+    task = ExtractionTaskFactory.create(status=AnalysisTask.Status.IN_PROGRESS)
+    ExtractionInstanceFactory.create(task=task, is_processed=False)
+    monkeypatch.setattr(ExtractionTaskProcessor, "process_instance", lambda self, instance: None)
+
+    ExtractionTaskProcessor(task).process_task(task)
+
+    assert task.status == AnalysisTask.Status.IN_PROGRESS
+    assert task.message == ""

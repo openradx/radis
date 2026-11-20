@@ -43,8 +43,10 @@ class SubscriptionTaskProcessor(AnalysisTaskProcessor):
         futures: list[Future] = []
         with ThreadPoolExecutor(max_workers=settings.EXTRACTION_LLM_CONCURRENCY_LIMIT) as executor:
             try:
-                # live(): a report can be withdrawn between the refresh that
-                # selected it and this task running -- never gate or email it.
+                # A report can be withdrawn between the refresh that selected it
+                # and this task: skip it, so its text is not sent to the LLM and it
+                # gets no inbox item. Restoring it moves updated_at, so a later
+                # refresh offers it to the subscription again.
                 for report in (
                     task.reports.live().filter(groups=group)  # type: ignore[attr-defined]
                 ):

@@ -390,8 +390,8 @@ class ReportViewSet(
             "created": len(created_ids),
             "updated": len(updated_ids),
             "invalid": len(errors),
-            # Ingest pipelines watch this: these reports were updated but stay
-            # out of circulation until an admin restores them.
+            # Lets an ingest pipeline see that it updated withdrawn reports: they
+            # stay hidden until an admin restores them.
             "withdrawn": withdrawn_ids,
         }
         if errors:
