@@ -1,5 +1,11 @@
 # Report Withdrawal Implementation Plan
 
+> **Historical.** This is the plan the first implementation followed. Review then
+> changed the admin (one Reports page with a "By withdrawn" filter, no
+> `WithdrawnReport` proxy page, no admin log entries), renumbered the pgsearch
+> migrations to 0006/0007, and added the fixes listed in the spec. Where this plan
+> and the spec or the code differ, the spec and the code are right.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Admins can withdraw a report (reversible, audited soft delete) and restore it later; a withdrawn report is invisible everywhere outside the admin, including search.

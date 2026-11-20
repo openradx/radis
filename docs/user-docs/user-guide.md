@@ -75,6 +75,8 @@ Each result shows its position in the list, the patient age and sex, modalities 
 
 The report details page shows all metadata of a report (document ID, patient, study, accession number, modalities, additional metadata), its labels, and the full text. The arrows next to the Patient ID open a list of the same patient's earlier reports, later reports, or all reports.
 
+An administrator can withdraw a report, for example one imported in error or attached to the wrong patient. A withdrawn report no longer appears in search, report lists, your collections, notes, chats, subscription inboxes or extraction results, and links to it show "Not Found". Nothing of yours is deleted: your notes, collection entries and chats about the report come back if an administrator restores it.
+
 ### 2. Labels
 
 Administrators can define labels (e.g. "Pulmonary nodule" or "Fracture") that RADIS assigns to reports automatically using AI. Each label is classified as Present, Likely, or Possible when the report supports it; reports where the label is absent or not mentioned carry no badge.
