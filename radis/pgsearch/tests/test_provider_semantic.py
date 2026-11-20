@@ -6,6 +6,7 @@ import pytest
 from django.contrib.auth.models import Group
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
+from django.utils import timezone
 
 from radis.core.utils.embedding_client import EMBEDDING_GATE, EmbeddingClientError
 from radis.core.utils.model_spec import parse_model_spec
@@ -13,6 +14,7 @@ from radis.core.utils.rate_limit import RateLimited
 from radis.pgsearch.models import ReportSearchIndex
 from radis.pgsearch.providers import ITERATIVE_SCAN_SQL, search
 from radis.reports.factories import ReportFactory
+from radis.reports.models import Report
 from radis.search.site import SearchFilters, SemanticSearch, SemanticSearchUnavailable
 
 pytestmark = pytest.mark.django_db
@@ -231,6 +233,26 @@ def test_hydration_skips_a_report_removed_from_the_group(group, corpus, embed):
     request = _request(group.pk)
     search(request)  # caches the semantic list
     corpus["near"].groups.remove(group)
+
+    result = search(request)
+
+    assert _ids(result) == [corpus["mid"].document_id, corpus["far"].document_id]
+    assert result.total_count == 3  # the cached count catches up when the entry expires
+
+
+def test_withdrawn_reports_are_not_listed(group, corpus, embed):
+    Report.objects.filter(pk=corpus["near"].pk).update(withdrawn_at=timezone.now())
+
+    result = search(_request(group.pk))
+
+    assert _ids(result) == [corpus["mid"].document_id, corpus["far"].document_id]
+    assert result.total_count == 2
+
+
+def test_hydration_skips_a_report_withdrawn_since_the_list_was_cached(group, corpus, embed):
+    request = _request(group.pk)
+    search(request)  # caches the semantic list
+    Report.objects.filter(pk=corpus["near"].pk).update(withdrawn_at=timezone.now())
 
     result = search(request)
 

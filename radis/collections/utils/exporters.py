@@ -20,7 +20,7 @@ def export_collection(collection: Collection) -> BytesIO:
     )
 
     rows = []
-    for report in collection.reports.all():
+    for report in collection.reports.live():  # type: ignore[attr-defined]
         birth_date = formats.date_format(report.patient_birth_date, "SHORT_DATE_FORMAT")
         study_date = formats.date_format(report.study_datetime, "SHORT_DATE_FORMAT")
         modalities = ", ".join(modality.code for modality in report.modalities.all())

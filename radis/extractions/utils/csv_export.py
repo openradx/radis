@@ -24,8 +24,10 @@ def iter_extraction_result_rows(job: ExtractionJob) -> Iterable[Sequence[str]]:
     header.extend(escape_formula(name) for name in field_names)
     yield header
 
+    # output holds values extracted from the report text, so a withdrawn report's
+    # row is hidden like the report itself.
     instances = (
-        ExtractionInstance.objects.filter(task__job=job)
+        ExtractionInstance.objects.filter(task__job=job, report__withdrawn_at__isnull=True)
         .order_by("pk")
         .values_list("pk", "report_id", "is_processed", "output")
     )

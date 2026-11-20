@@ -1,12 +1,19 @@
 """The canonical SQL that fills the ReportSearchIndex search projection.
 
-Triggers (migration 0003) maintain the projection when its sources change.
-This module fills it when an index row is first created, which happens before
-the report's groups and modalities are attached. The backfill migration
-duplicates this statement in SQL, the same way bulk_upsert_report_search_indexes
-already duplicates the tsvector logic -- keep them in sync. The two trigger
-functions in migration 0003 and check_search_projection.DRIFT_SQL repeat the
-same array_agg shape and belong to that set as well.
+Triggers maintain the projection when its sources change. This module fills it
+when an index row is first created, which happens before the report's groups
+and modalities are attached.
+
+Two parts of the statement are repeated elsewhere and change together:
+
+- the array_agg aggregations: the pgsearch_sync_group_ids(),
+  pgsearch_sync_modality_codes() and pgsearch_sync_modality_code_rename()
+  trigger functions, the 0004 backfill and check_search_projection.DRIFT_SQL;
+- the scalar columns, withdrawn included: the pgsearch_sync_report_fields()
+  trigger function and DRIFT_SQL. The 0004 backfill runs before the withdrawn
+  column exists and does not set it.
+
+A trigger function changes through a new migration that replaces it.
 """
 
 from collections.abc import Iterable
@@ -33,7 +40,8 @@ SET group_ids = COALESCE(g.ids, '{}'),
     study_datetime = r.study_datetime,
     study_description = r.study_description,
     report_created_at = r.created_at,
-    report_updated_at = r.updated_at
+    report_updated_at = r.updated_at,
+    withdrawn = (r.withdrawn_at IS NOT NULL)
 FROM reports_report r
 LEFT JOIN reports_language l ON l.id = r.language_id
 LEFT JOIN LATERAL (

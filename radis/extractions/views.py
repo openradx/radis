@@ -646,7 +646,8 @@ class ExtractionTaskDetailView(ExtractionsLockedMixin, AnalysisTaskDetailView, S
     def get_context_data(self, **kwargs) -> dict[str, Any]:
         context = super().get_context_data(**kwargs)
         task = cast(ExtractionTask, self.get_object())
-        self.object_list = task.instances.all()
+        # Same set of instances as the result list and the CSV export.
+        self.object_list = task.instances.filter(report__withdrawn_at__isnull=True)
         table = self.get_table()
         context[self.get_context_table_name(table)] = table
         return context
@@ -666,9 +667,13 @@ class ExtractionInstanceDetailView(LoginRequiredMixin, DetailView):
     request: AuthenticatedHttpRequest
 
     def get_queryset(self) -> QuerySet[ExtractionInstance]:
+        # ExtractionInstance.text is a verbatim copy of the report body, so a
+        # withdrawn report's instance must 404 for staff too.
         if self.request.user.is_staff:
-            return ExtractionInstance.objects.all()
-        return ExtractionInstance.objects.filter(task__job__owner=self.request.user)
+            return ExtractionInstance.objects.filter(report__withdrawn_at__isnull=True)
+        return ExtractionInstance.objects.filter(
+            task__job__owner=self.request.user, report__withdrawn_at__isnull=True
+        )
 
 
 class ExtractionResultListView(
@@ -706,7 +711,9 @@ class ExtractionResultListView(
 
     def get_table_data(self):
         job = cast(ExtractionJob, self.get_object())
-        return ExtractionInstance.objects.filter(task__job=job)
+        # output holds values extracted from the report text, so a withdrawn
+        # report's row is hidden like the report itself.
+        return ExtractionInstance.objects.filter(task__job=job, report__withdrawn_at__isnull=True)
 
 
 class ExtractionResultDownloadView(ExtractionsLockedMixin, LoginRequiredMixin, DetailView):

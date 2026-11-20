@@ -174,6 +174,11 @@ def _build_filter_query(filters: SearchFilters) -> Q:
     # Group-scoped access control; ``_group_query`` is fail-closed for ``None``.
     fq = _group_query(filters.group)
 
+    # Withdrawn reports are out of circulation (reports.Report.withdrawn_at). Every
+    # provider entry point builds its WHERE clause here; search() checks the flag again
+    # when it builds a page from a cached ranking (_hydration_queryset).
+    fq &= Q(withdrawn=False)
+
     # Apply hard filter criteria
     if filters.patient_sex:
         fq &= Q(patient_sex=filters.patient_sex)
@@ -600,9 +605,12 @@ def _hydration_queryset(
 ):
     """The page slice, by primary key, which ``_hydrate`` joins to ``report`` for the
     body, the headline and the metadata; the single-table discipline belongs to the
-    candidate scan, not to these few rows. The group predicate keeps a report removed
-    from the group off the page at once even while the cached ranking still lists it."""
-    rows = ReportSearchIndex.objects.filter(report_id__in=page_ids).filter(_group_query(group))
+    candidate scan, not to these few rows. The group and withdrawn predicates keep a
+    report removed from the group or withdrawn off the page at once even while the
+    cached ranking still lists it."""
+    rows = ReportSearchIndex.objects.filter(report_id__in=page_ids, withdrawn=False).filter(
+        _group_query(group)
+    )
     if not configs or not query_str:
         return rows.annotate(
             headline=Value("", output_field=TextField()),
@@ -651,7 +659,7 @@ def _hydrate(page_ids: list[int], ranking: Ranking, group: int | None) -> list[R
     documents: list[ReportDocument] = []
     for rid in page_ids:
         row = by_id.get(rid)
-        if row is None:  # deleted, or removed from the group, since the ranking was cached
+        if row is None:  # deleted, withdrawn or removed from the group since it was cached
             continue
         documents.append(
             document_from_pgsearch_response(

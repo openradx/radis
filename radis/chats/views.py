@@ -8,6 +8,7 @@ from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied, SuspiciousOperation
+from django.db.models import Q
 from django.http import HttpResponse
 from django.shortcuts import aget_object_or_404, get_object_or_404, redirect, render
 from django.urls import reverse
@@ -40,10 +41,16 @@ def _chat_error_message(err: Exception) -> str:
     return "The LLM service could not answer this request. Please contact your administrator."
 
 
+def _visible_chats():
+    """Chats whose report is still in circulation. report is nullable --
+    general chats have none and must always stay visible."""
+    return Chat.objects.filter(Q(report__isnull=True) | Q(report__withdrawn_at__isnull=True))
+
+
 @require_GET
 @login_required
 def chat_list_view(request: AuthenticatedHttpRequest) -> HttpResponse:
-    chats = Chat.objects.filter(owner=request.user)
+    chats = _visible_chats().filter(owner=request.user)
     table = ChatTable(chats)
     RequestConfig(request).configure(table)
 
@@ -77,7 +84,9 @@ async def chat_create_view(request: AuthenticatedHttpRequest) -> HttpResponse:
                 active_group = request.user.active_group
                 if active_group is None:
                     raise PermissionDenied("An active group is required to chat about a report.")
-                report = await aget_object_or_404(Report, pk=report_id, groups=active_group)
+                report = await aget_object_or_404(
+                    Report.objects.live(), pk=report_id, groups=active_group
+                )
                 instructions_system_prompt = Template(
                     settings.CHAT_REPORT_SYSTEM_PROMPT
                 ).substitute({"report": report.body})
@@ -159,7 +168,9 @@ async def chat_create_view(request: AuthenticatedHttpRequest) -> HttpResponse:
         else:
             active_group = request.user.active_group
             assert active_group
-            report = await aget_object_or_404(Report, id=report_id, groups=active_group)
+            report = await aget_object_or_404(
+                Report.objects.live(), id=report_id, groups=active_group
+            )
             form = CreateChatForm(initial={"report_id": report.pk})
 
     return render(
@@ -172,7 +183,7 @@ async def chat_create_view(request: AuthenticatedHttpRequest) -> HttpResponse:
 @require_GET
 @login_required
 def chat_detail_view(request: AuthenticatedHttpRequest, pk: int) -> HttpResponse:
-    chat = get_object_or_404(Chat, pk=pk, owner=request.user)
+    chat = get_object_or_404(_visible_chats(), pk=pk, owner=request.user)
     form = PromptForm()
 
     return render(
@@ -196,7 +207,7 @@ async def chat_update_view(request: AuthenticatedHttpRequest, pk: int) -> HttpRe
         raise SuspiciousOperation
 
     chat = await aget_object_or_404(
-        Chat.objects.prefetch_related("report"), pk=pk, owner=request.user
+        _visible_chats().prefetch_related("report"), pk=pk, owner=request.user
     )
 
     form = PromptForm(request.POST)

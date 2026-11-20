@@ -154,7 +154,11 @@ class SubscriptionJob(AnalysisJob):
     def get_mail_context(self) -> dict:
         return {
             "subscription": self.subscription,
-            "new_items": self.subscription.items.filter(created_at__gte=self.started_at),
+            # An item's report can be withdrawn between the task that created the
+            # item and the end of the job; the mail must not list it then.
+            "new_items": self.subscription.items.filter(
+                created_at__gte=self.started_at, report__withdrawn_at__isnull=True
+            ),
         }
 
 

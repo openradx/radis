@@ -51,7 +51,7 @@ uv run cli db-backup                 # Backup database
 ### Django Apps
 
 - **radis.core/**: Core functionality, UI layouts, abstract base classes. Models: `AnalysisJob`, `AnalysisTask` (abstract bases for job/task pattern).
-- **radis.reports/**: Report management and REST API. Models: `Report` (main entity with patient info, study metadata, body text), `Language`, `Modality`, `Metadata`.
+- **radis.reports/**: Report management and REST API. Models: `Report` (main entity with patient info, study metadata, body text), `Language`, `Modality`, `Metadata`. An admin can withdraw a report (`withdrawn_at` set), which must then not be shown to users: `Report.objects` is unfiltered, so user-facing queries use `Report.objects.live()` or `report__withdrawn_at__isnull=True`, and search excludes it through `ReportSearchIndex.withdrawn`.
 - **radis.search/**: Full-text and semantic search interface. Contains `SearchView`, `SearchForm`, the request types `FullTextSearch` and `SemanticSearch`, `QueryParser` for complex query syntax, and the provider registry.
 - **radis.pgsearch/**: PostgreSQL search implementation. One `search(request)` entry point serves full-text searches (exactly the keyword hits) and semantic searches (HNSW nearest neighbours), with a ranking cache for both.
 - **radis.subscriptions/**: Notification system for new reports matching criteria. Background tasks check new reports against user subscriptions.
@@ -253,6 +253,7 @@ client.update_report("DOC-12345", {"body": "Updated findings..."}, upsert=True)
 
 ### Search Not Returning Expected Results
 
+- Check the report is not withdrawn (Django Admin → Reports, filter By withdrawn)
 - Check the `vector` extension is installed in PostgreSQL
 - Verify report has `body` text indexed
 - Check search provider is configured in settings

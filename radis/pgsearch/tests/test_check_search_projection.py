@@ -8,10 +8,11 @@ import pytest
 from adit_radis_shared.accounts.factories import GroupFactory
 from django.core.management import call_command
 from django.core.management.base import CommandError
+from django.utils import timezone
 
 from radis.pgsearch.models import ReportSearchIndex
 from radis.reports.factories import LanguageFactory, ModalityFactory, ReportFactory
-from radis.reports.models import Language, Modality
+from radis.reports.models import Language, Modality, Report
 
 pytestmark = pytest.mark.django_db
 
@@ -48,6 +49,24 @@ def test_detects_drifted_group_ids():
     ReportSearchIndex.objects.filter(report=report).update(group_ids=[9999])
 
     with pytest.raises(CommandError, match="group_ids"):
+        call_command("check_search_projection")
+
+
+def test_check_passes_after_withdraw_and_restore():
+    report = ReportFactory.create(language=LanguageFactory.create(code="en"))
+
+    Report.objects.filter(pk=report.pk).update(withdrawn_at=timezone.now())
+    call_command("check_search_projection")
+
+    Report.objects.filter(pk=report.pk).update(withdrawn_at=None)
+    call_command("check_search_projection")
+
+
+def test_check_detects_withdrawn_drift():
+    report = ReportFactory.create(language=LanguageFactory.create(code="en"))
+    ReportSearchIndex.objects.filter(report=report).update(withdrawn=True)
+
+    with pytest.raises(CommandError, match="withdrawn"):
         call_command("check_search_projection")
 
 

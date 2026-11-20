@@ -153,7 +153,7 @@ All optional, with defaults that fit a corpus of a few million reports:
 
 - `SEARCH_HNSW_EF_SEARCH`: HNSW beam width and the most reports a semantic search lists (default `500`, 1..1000)
 - `SEARCH_SEMANTIC_ITERATIVE_SCAN`: Resume the index scan under selective filters so a small group or a rare modality still fills the list (default `true`). No measurable cost on unfiltered searches at the default depth; the resumed scan costs more only under selective filters and on cold index pages
-- `SEARCH_RANKING_CACHE_TIMEOUT_SECONDS`: How long a ranking stays cached (default `300`s, `0` disables); reports created or updated within that time join a cached query's results when it expires, and a report deleted or removed from a group within that time leaves the list at once but the count only then
+- `SEARCH_RANKING_CACHE_TIMEOUT_SECONDS`: How long a ranking stays cached (default `300`s, `0` disables); reports created, updated or restored from withdrawal within that time join a cached query's results when it expires, and a report deleted, withdrawn or removed from a group within that time leaves the list at once but the count only then
 
 The production cache table holds rankings and query vectors; it is sized at 2,000 entries (`MAX_ENTRIES` in `radis/settings/production.py`) because Django's default of 300 would evict hot rankings at random.
 
@@ -312,6 +312,63 @@ Each user has an **active group** that determines which reports they can current
 Administrators can import reports programmatically via the RADIS API or using the RADIS Client library. The reports API only accepts tokens of staff users. See the **RADIS Client** section below for details.
 
 Every import or update of a report re-indexes it for search, queues it for embedding (if configured), and marks its labels for re-labeling on the next scan (see below). This also applies to updates that do not change the report text, so avoid re-pushing an unchanged corpus if you want to keep LLM load down.
+
+### Withdrawing Reports
+
+Withdrawing takes a report out of circulation without deleting it. Users can
+no longer find or open it: it disappears from search, report lists,
+collections and their Excel export, notes, chats, subscription inboxes and
+their CSV, and extraction results, and links to it show "Not Found".
+Extraction and subscription tasks that run after the withdrawal skip it.
+Nothing is deleted: the report and the notes, collection entries, chats, inbox
+items and extraction results that refer to it are kept and come back when it
+is restored. Indexing, embedding and labeling go on as for any other report.
+
+Withdrawing and restoring need the permission *reports | report | Can change
+report*.
+
+#### Withdraw
+
+1. **Navigate** to **Django Admin** --> **Reports**. The search box finds a
+   report by its exact document ID.
+2. **Select** the reports to withdraw using the checkboxes.
+3. **Choose** the action **"Withdraw selected reports"** and click **"Go"**.
+   At most 500 reports can be withdrawn at a time.
+4. **Enter a reason** on the confirmation page and confirm. The reason, the
+   acting user and the time are stored on the report and shown, read-only, on
+   its page in Django Admin.
+
+#### Find and Restore Withdrawn Reports
+
+1. **Navigate** to **Django Admin** --> **Reports** and use the **By
+   withdrawn** filter on the right: **Yes** lists the withdrawn reports, **No**
+   the others.
+2. **Select** the reports and run **"Restore selected reports"**.
+3. A restored report comes back everywhere at once, except in a search that
+   ran shortly before: that search keeps its cached result list until
+   `SEARCH_RANKING_CACHE_TIMEOUT_SECONDS` (five minutes by default) expires.
+   Restoring clears the stored reason, user and time; no record of the
+   withdrawal is kept.
+
+A restore counts as an update of the report. Subscriptions consider it again
+at their next refresh, so one that refreshed while the report was withdrawn
+still gets it (an inbox that already holds the report does not get it twice),
+and the next labeling scan re-labels it, so its labels show as stale until
+then. An extraction job that ran while the report was withdrawn skipped it and
+ended with a warning; restoring the report does not re-run the job.
+
+#### Withdrawn Reports and the API
+
+The REST API (staff tokens only) still returns withdrawn reports. Every report
+it returns carries four read-only fields: `withdrawn` (true or false),
+`withdrawn_at`, `withdrawn_by` (a user ID) and `withdrawal_reason`; values
+sent for them are ignored. Updating a withdrawn report (`PUT`,
+`PUT ...?upsert=true` or bulk upsert) changes its content but leaves it
+withdrawn -- re-imports never undo a withdrawal. The bulk upsert response lists
+the document IDs of the withdrawn reports it updated under `"withdrawn"` (an
+empty list if there are none). Deleting a withdrawn report through the API
+deletes it for good; creating a report with the same document ID afterwards
+creates a new report that is not withdrawn.
 
 ## Auto-Labeling
 

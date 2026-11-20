@@ -4,10 +4,12 @@ import pytest
 from django.contrib.auth.models import Group
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
+from django.utils import timezone
 
 from radis.core.utils.model_spec import parse_model_spec
 from radis.pgsearch.providers import count, retrieve, search
 from radis.reports.factories import ReportFactory
+from radis.reports.models import Report
 from radis.search.site import FullTextSearch, SearchFilters
 from radis.search.utils.query_parser import QueryParser
 
@@ -120,6 +122,17 @@ def test_hydration_skips_a_report_removed_from_the_group(group, corpus, embed):
     result = search(request)
 
     assert corpus["near"].document_id not in _ids(result)
+    assert result.total_count == 3  # the cached count catches up when the entry expires
+
+
+def test_hydration_skips_a_report_withdrawn_since_the_ranking_was_cached(group, corpus, embed):
+    request = _request("pneumothorax", group.pk)
+    search(request)  # caches the keyword ranking
+    Report.objects.filter(pk=corpus["near"].pk).update(withdrawn_at=timezone.now())
+
+    result = search(request)
+
+    assert _ids(result) == [corpus["twice"].document_id, corpus["bare"].document_id]
     assert result.total_count == 3  # the cached count catches up when the entry expires
 
 

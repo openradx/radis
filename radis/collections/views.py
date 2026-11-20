@@ -29,7 +29,8 @@ LAST_USED_COLLECTION_PREFERENCE = "last_used_collection"
 
 
 def _get_report_in_active_group(request: AuthenticatedHttpRequest, report_id: int) -> Report:
-    """Resolve a report the way the report views do: through the user's active group.
+    """Resolve a report the way the report views do: through the user's active group,
+    and only while it is not withdrawn.
 
     Reports outside that group are invisible elsewhere in RADIS, so they must not be
     reachable by id here either (the collection page renders the report body).
@@ -37,7 +38,7 @@ def _get_report_in_active_group(request: AuthenticatedHttpRequest, report_id: in
     active_group = request.user.active_group
     if active_group is None:
         raise PermissionDenied("An active group is required to add reports to a collection.")
-    return get_object_or_404(Report, id=report_id, groups=active_group)
+    return get_object_or_404(Report.objects.live(), id=report_id, groups=active_group)
 
 
 @runtime_checkable
@@ -61,7 +62,7 @@ class CollectionListView(LoginRequiredMixin, SingleTableView):
         return (
             Collection.objects.filter(owner=self.request.user)
             .prefetch_related("reports")
-            .annotate(num_reports=Count("reports"))
+            .annotate(num_reports=Count("reports", filter=Q(reports__withdrawn_at__isnull=True)))
         )
 
 
@@ -159,7 +160,7 @@ class CollectionDetailView(
         return ["collections/collection_detail.html"]
 
     def get_queryset(self) -> QuerySet[Report]:
-        return cast(Collection, self.object).reports.all()
+        return cast(Collection, self.object).reports.live()  # type: ignore[attr-defined]
 
     def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
         context = super().get_context_data(**kwargs)
@@ -233,11 +234,12 @@ class CollectionSelectView(LoginRequiredMixin, View):
 class CollectionCountBadgeView(LoginRequiredMixin, View):
     def get(self, request: AuthenticatedHttpRequest, report_id: int) -> HttpResponse:
         # The badge is rendered next to reports the user can see and next to reports
-        # already in one of the user's collections; any other id is not found.
+        # already in one of the user's collections; any other id, and a withdrawn
+        # report, is not found.
         visible = Q(collections__owner=request.user)
         if request.user.active_group is not None:
             visible |= Q(groups=request.user.active_group)
-        report = get_object_or_404(Report.objects.filter(visible).distinct(), id=report_id)
+        report = get_object_or_404(Report.objects.live().filter(visible).distinct(), id=report_id)
         collection_count = Collection.objects.filter(
             owner=request.user, reports__id=report.pk
         ).count()
