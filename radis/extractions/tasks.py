@@ -1,4 +1,5 @@
 import logging
+from dataclasses import replace
 from itertools import batched
 
 from django.conf import settings
@@ -7,7 +8,7 @@ from django.db import transaction
 from procrastinate.contrib.django import app
 
 from radis.reports.models import Report
-from radis.search.site import Search, SearchFilters
+from radis.search.site import FullTextSearch, SearchFilters
 from radis.search.utils.query_parser import QueryParser
 
 from . import site
@@ -91,7 +92,7 @@ def process_extraction_job(job_id: int) -> None:
         # the archive and the maximum can change while a job waits for verification.
         # Counting stops one past the maximum, which is all the check needs.
         max_reports = settings.EXTRACTION_MAXIMUM_REPORTS_COUNT
-        search = Search(
+        search = FullTextSearch(
             query=query_node,
             offset=0,
             limit=max_reports + 1,
@@ -118,7 +119,7 @@ def process_extraction_job(job_id: int) -> None:
             logger.info("Job %s failed: its search exceeds the maximum report count", job)
             return
 
-        search = search._replace(limit=None)
+        search = replace(search, limit=None)
         logger.debug("Searching reports for task with search: %s", search)
 
         for document_ids in batched(

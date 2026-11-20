@@ -1,8 +1,17 @@
+from dataclasses import dataclass
+from typing import Any
+
 from django.contrib import admin, messages
+from django.contrib.admin import helpers
+from django.contrib.admin.options import IS_POPUP_VAR
+from django.contrib.admin.utils import flatten_fieldsets, unquote
 from django.db import IntegrityError, transaction
-from django.http import HttpRequest, HttpResponseRedirect
+from django.db.models import Count, Q, QuerySet
+from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
 from django.shortcuts import get_object_or_404
+from django.template.response import TemplateResponse
 from django.urls import path, reverse
+from django.utils import timezone
 
 from radis.core.utils.model_utils import cancel_job
 
@@ -14,25 +23,198 @@ from .models import (
     LabelingScanCheckpoint,
     LabelingTask,
     LabelResult,
+    comparable_definition_value,
 )
+
+# POST field carrying the fingerprint of the definition the admin confirmed changing.
+CONFIRM_DEFINITION_CHANGE = "_confirm_definition_change"
+
+
+@dataclass(frozen=True)
+class DefinitionChangeImpact:
+    """What a definition change invalidates: `count` rows (singular `noun`) go stale."""
+
+    count: int
+    noun: str
+    details: tuple[str, ...] = ()
+
+
+class _DefinitionConfirmAdmin(admin.ModelAdmin):
+    """Asks for confirmation before a change-form save alters the definition (the model's
+    `DEFINITION_FIELDS`), and shows how many results or gate answers that makes stale. Saves
+    that leave the definition as it is (a no-op save, toggling `active`) go straight through, as
+    does the add form, since nothing exists yet to invalidate."""
+
+    confirmation_template = "admin/labels/definition_change_confirmation.html"
+    mark_stale_template = "admin/labels/mark_stale_confirmation.html"
+    actions = ["mark_stale"]
+
+    def definition_change_impact(self, obj: Any) -> DefinitionChangeImpact:
+        raise NotImplementedError
+
+    @admin.action(description="Mark selected as stale", permissions=["change"])
+    def mark_stale(self, request: HttpRequest, queryset: QuerySet) -> HttpResponse | None:
+        """Move definition_updated_at to now on the selected rows, after a page showing what
+        that invalidates. The way to force a re-run when the definition text itself did not
+        change, for instance after a prompt change or a fix to how the gate is asked."""
+        items = [(obj, self.definition_change_impact(obj)) for obj in queryset]
+        total = sum(impact.count for _, impact in items)
+        noun = items[0][1].noun if items else "result"
+        rows = f"{total} {noun}{'' if total == 1 else 's'}"
+        if request.POST.get("post") == "yes":
+            queryset.update(definition_updated_at=timezone.now())
+            self.message_user(
+                request,
+                f"Marked {rows} of {len(items)} {self.opts.verbose_name_plural} stale. Run "
+                "Labels → Labeling jobs → Run backfill now to regenerate them.",
+                level=messages.SUCCESS,
+            )
+            return None
+        context = {
+            **self.admin_site.each_context(request),
+            "title": f"Mark {self.opts.verbose_name_plural} as stale",
+            "opts": self.opts,
+            "items": items,
+            "rows": rows,
+            "queryset": queryset,
+            "action_checkbox_name": helpers.ACTION_CHECKBOX_NAME,
+            "media": self.media,
+        }
+        return TemplateResponse(request, self.mark_stale_template, context)
+
+    def changeform_view(
+        self,
+        request: HttpRequest,
+        object_id: str | None = None,
+        form_url: str = "",
+        extra_context: dict[str, Any] | None = None,
+    ) -> HttpResponse:
+        if (
+            request.method == "POST"
+            and object_id is not None
+            and "_saveasnew" not in request.POST  # creates a new object; nothing to invalidate
+        ):
+            response = self._definition_change_confirmation(request, object_id)
+            if response is not None:
+                return response
+        return super().changeform_view(request, object_id, form_url, extra_context)
+
+    @staticmethod
+    def _definition_fingerprint(obj: Any) -> str:
+        # The audit timestamp, not definition_updated_at: any save in between, such as an
+        # active toggle, must invalidate a confirmation that would replay the whole form.
+        return obj.updated_at.isoformat()
+
+    def _definition_change_confirmation(
+        self, request: HttpRequest, object_id: str
+    ) -> HttpResponse | None:
+        """The confirmation page, or None to let the regular change view handle the POST:
+        object missing, no permission, already confirmed for the definition as it is now,
+        invalid form, definition unchanged, nothing to invalidate."""
+        obj = self.get_object(request, unquote(object_id))
+        if obj is None or not self.has_change_permission(request, obj):
+            return None
+        # The fingerprint binds a confirmation to the row the admin saw: a concurrent edit in
+        # between changes it, and the page is shown again with the current values.
+        fingerprint = self._definition_fingerprint(obj)
+        confirmed = request.POST.get(CONFIRM_DEFINITION_CHANGE)
+        if confirmed == fingerprint:
+            return None
+        definition_fields = self.model.DEFINITION_FIELDS
+        # Snapshot before validating: ModelForm.is_valid() writes the cleaned data onto obj.
+        old = {f: getattr(obj, f) for f in definition_fields}
+        object_display = str(obj)
+        fieldsets = self.get_fieldsets(request, obj)
+        form_class = self.get_form(request, obj, change=True, fields=flatten_fieldsets(fieldsets))
+        form = form_class(request.POST, request.FILES, instance=obj)
+        if not form.is_valid():
+            return None
+        changes = [
+            (form.fields[f].label or f, old[f], form.cleaned_data[f])
+            for f in definition_fields
+            if f in form.cleaned_data
+            and comparable_definition_value(form.cleaned_data[f])
+            != comparable_definition_value(old[f])
+        ]
+        if not changes:
+            return None
+        impact = self.definition_change_impact(obj)
+        if impact.count == 0:
+            return None
+        if confirmed is not None:
+            messages.warning(
+                request,
+                "This record was changed by someone else since you opened this page. "
+                "Review the current differences before confirming.",
+            )
+        context = {
+            **self.admin_site.each_context(request),
+            "title": f"Confirm {self.opts.verbose_name} definition change",
+            "opts": self.opts,
+            "object_display": object_display,
+            "object_id": object_id,
+            "changes": changes,
+            "impact": impact,
+            "post_items": [
+                (name, values)
+                for name, values in request.POST.lists()
+                if name not in ("csrfmiddlewaretoken", CONFIRM_DEFINITION_CHANGE)
+            ],
+            "confirm_flag": CONFIRM_DEFINITION_CHANGE,
+            "fingerprint": fingerprint,
+            "is_popup": IS_POPUP_VAR in request.POST or IS_POPUP_VAR in request.GET,
+            "media": self.media,
+        }
+        return TemplateResponse(request, self.confirmation_template, context)
 
 
 @admin.register(LabelGroup)
-class LabelGroupAdmin(admin.ModelAdmin):
-    list_display = ("name", "gate_question", "updated_at")
+class LabelGroupAdmin(_DefinitionConfirmAdmin):
+    list_display = ("name", "gate_question", "definition_updated_at", "updated_at")
     search_fields = ("name",)  # required for LabelAdmin autocomplete
     ordering = ("name",)
-    readonly_fields = ("updated_at",)
+    readonly_fields = ("definition_updated_at", "updated_at")
+
+    def definition_change_impact(self, obj: Any) -> DefinitionChangeImpact:
+        counts = GateAnswer.objects.filter(label_group=obj).aggregate(
+            total=Count("id"), yes=Count("id", filter=Q(value=GateAnswer.Value.YES))
+        )
+        total, yes = counts["total"], counts["yes"]
+        details = [
+            f"{yes} of them currently answer Yes. A Yes that flips to No removes that report's "
+            "label results for this group; a No that flips to Yes classifies the group's active "
+            "labels for that report in one more LLM request. Results of reports whose answer "
+            "does not flip stay fresh."
+        ]
+        if not Label.objects.filter(group=obj, active=True).exists():
+            details.append(
+                "This group has no active label, so backfills skip it: its gate answers stay "
+                "stale, with no LLM calls, until one of its labels is active again."
+            )
+        return DefinitionChangeImpact(count=total, noun="gate answer", details=tuple(details))
 
 
 @admin.register(Label)
-class LabelAdmin(admin.ModelAdmin):
+class LabelAdmin(_DefinitionConfirmAdmin):
     autocomplete_fields = ["group"]
-    list_display = ("name", "group", "active", "updated_at")
+    list_display = ("name", "group", "active", "definition_updated_at", "updated_at")
     list_filter = ("active", "group")
     search_fields = ("name", "group__name", "description")
     ordering = ("group__name", "name")
-    readonly_fields = ("created_at", "updated_at")
+    readonly_fields = ("created_at", "definition_updated_at", "updated_at")
+
+    def definition_change_impact(self, obj: Any) -> DefinitionChangeImpact:
+        details = ()
+        if not obj.active:
+            details = (
+                "This label is inactive, so backfills skip it: its results stay stale, with no "
+                "LLM calls, until it is active again.",
+            )
+        return DefinitionChangeImpact(
+            count=LabelResult.objects.filter(label=obj).count(),
+            noun="label result",
+            details=details,
+        )
 
 
 class _ReadOnlyAdmin(admin.ModelAdmin):
@@ -70,10 +252,7 @@ class GateAnswerAdmin(_ReadOnlyAdmin):
 
     @admin.display(boolean=True, description="Stale")
     def is_stale(self, obj: GateAnswer) -> bool:
-        return (
-            obj.generated_at < obj.label_group.updated_at
-            or obj.generated_at < obj.report.updated_at
-        )
+        return obj.is_stale
 
 
 @admin.register(LabelingScanCheckpoint)

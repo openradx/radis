@@ -10,6 +10,7 @@ from radis.labels.labeling import label_report
 from radis.labels.models import GateAnswer, LabelResult
 from radis.labels.tests.helpers import create_labeling_openai_mock
 from radis.labels.utils.prompts import render_gate_prompt, render_label_prompt
+from radis.labels.utils.schemas import gate_field_name
 from radis.reports.factories import ReportFactory
 
 
@@ -22,7 +23,7 @@ def test_real_llm_client_two_phase_flow_persists_results():
     absent = LabelFactory.create(group=group, name="pneumothorax")
 
     client = create_labeling_openai_mock(
-        gate_values={group.name: "YES"},
+        gate_values={gate_field_name(group): "YES"},
         label_values={present.name: "PRESENT", absent.name: "ABSENT"},
     )
     with patch("openai.OpenAI", return_value=client):
@@ -45,7 +46,7 @@ def test_real_llm_client_sends_rendered_prompt_and_built_schema():
     )
 
     client = create_labeling_openai_mock(
-        gate_values={group.name: "YES"},
+        gate_values={gate_field_name(group): "YES"},
         label_values={label.name: "ABSENT"},
     )
     with patch("openai.OpenAI", return_value=client):
@@ -62,14 +63,19 @@ def test_real_llm_client_sends_rendered_prompt_and_built_schema():
     # The user message sent is exactly the labels code's rendered prompt for this report body.
     assert gate_kwargs["messages"] == [{"role": "user", "content": render_gate_prompt(report.body)}]
     assert label_kwargs["messages"] == [
-        {"role": "user", "content": render_label_prompt(report.body)}
+        {"role": "user", "content": render_label_prompt(report.body, [label])}
     ]
+    # The label definition is in the message text itself, not only in the schema.
+    assert (
+        "- ischemic stroke: acute or chronic infarction" in (label_kwargs["messages"][0]["content"])
+    )
 
-    # response_format is the dynamically-built schema: name-keyed, carrying the gate question /
-    # label definition the LLM is asked to honor.
+    # response_format is the dynamically-built schema. The gate field is keyed by the scoping
+    # question (not the group's display name), carrying that question so the model answers the
+    # scope; the label field stays keyed by the label name it is asked to classify.
     gate_schema = gate_kwargs["response_format"]
-    assert set(gate_schema.model_fields) == {group.name}
-    assert gate_schema.model_fields[group.name].description == group.gate_question
+    assert set(gate_schema.model_fields) == {gate_field_name(group)}
+    assert gate_schema.model_fields[gate_field_name(group)].description == group.gate_question
 
     label_schema = label_kwargs["response_format"]
     assert set(label_schema.model_fields) == {label.name}
@@ -83,7 +89,7 @@ def test_real_llm_client_gate_no_skips_label_classification():
     group = LabelGroupFactory.create(name="Chest")
     label = LabelFactory.create(group=group, name="pneumonia")
 
-    client = create_labeling_openai_mock(gate_values={group.name: "NO"})
+    client = create_labeling_openai_mock(gate_values={gate_field_name(group): "NO"})
     with patch("openai.OpenAI", return_value=client):
         label_report(report.pk)
 

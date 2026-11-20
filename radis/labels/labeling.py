@@ -13,6 +13,7 @@ from .utils.prompts import render_gate_prompt, render_label_prompt
 from .utils.schemas import (
     build_gate_schema,
     build_label_classification_schema,
+    gate_field_name,
 )
 
 logger = logging.getLogger(__name__)
@@ -48,7 +49,7 @@ def label_report(report_id: int) -> None:
         g
         for g in active_groups
         if g.id not in existing_gates
-        or existing_gates[g.id].generated_at < g.updated_at
+        or existing_gates[g.id].generated_at < g.definition_updated_at
         or existing_gates[g.id].generated_at < report.updated_at
     ]
     needing_ids = {g.id for g in groups_needing_gate}
@@ -63,7 +64,7 @@ def label_report(report_id: int) -> None:
         parsed = client.extract_data(render_gate_prompt(report.body), schema)
         result_map = parsed.model_dump()
         for g in gate_batch:
-            new_gate_results[g.id] = str(result_map[g.name])
+            new_gate_results[g.id] = str(result_map[gate_field_name(g)])
 
     # Phase 2 — process each group.
     for group in active_groups:
@@ -96,7 +97,7 @@ def label_report(report_id: int) -> None:
 
 def _run_label_set(client: LLMClient, report: Report, labels: list[Label]) -> None:
     schema = build_label_classification_schema(labels)
-    parsed = client.extract_data(render_label_prompt(report.body), schema)
+    parsed = client.extract_data(render_label_prompt(report.body, labels), schema)
     result_map = parsed.model_dump()
     for lbl in labels:
         LabelResult.objects.update_or_create(
@@ -105,8 +106,8 @@ def _run_label_set(client: LLMClient, report: Report, labels: list[Label]) -> No
 
 
 def _get_stale_or_missing_labels(report: Report, labels: list[Label]) -> list[Label]:
-    """Return labels whose LabelResult is missing or stale (generated before the label's or
-    the report's last update).
+    """Return labels whose LabelResult is missing or stale (generated before the label's
+    definition or the report last changed).
 
     One query answers both "should we run?" (non-empty) and "what to run?" (the list).
     A label that previously came back ABSENT/UNMENTIONED still has a fresh row → excluded.
@@ -115,7 +116,7 @@ def _get_stale_or_missing_labels(report: Report, labels: list[Label]) -> list[La
         LabelResult.objects.filter(
             report=report,
             label_id__in=[lbl.id for lbl in labels],
-            generated_at__gte=F("label__updated_at"),
+            generated_at__gte=F("label__definition_updated_at"),
         )
         .filter(generated_at__gte=report.updated_at)
         .values_list("label_id", flat=True)

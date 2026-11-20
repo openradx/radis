@@ -1,6 +1,10 @@
+from datetime import datetime
+from typing import Any, ClassVar
+
 from django.conf import settings
 from django.db import models
 from django.urls import reverse
+from django.utils import timezone
 from procrastinate.contrib.django import app
 from procrastinate.contrib.django.models import ProcrastinateJob
 
@@ -8,11 +12,106 @@ from radis.core.models import AnalysisJob, AnalysisTask
 from radis.reports.models import Report
 
 
-class LabelGroup(models.Model):
+def normalize_definition_text(value: str) -> str:
+    """Canonical form of definition text, so that CRLF line endings (what browsers submit
+    for a textarea) and surrounding whitespace never count as a definition change."""
+    return value.replace("\r\n", "\n").replace("\r", "\n").strip()
+
+
+def comparable_definition_value(value: object) -> object:
+    """A definition value as compared for change detection: text normalized, anything else
+    (a foreign key) as is."""
+    return normalize_definition_text(value) if isinstance(value, str) else value
+
+
+class DefinitionTrackedModel(models.Model):
+    """Abstract base for Label and LabelGroup.
+
+    Tracks when the definition the LLM depends on last changed. save() bumps
+    `definition_updated_at` only if a field named in `DEFINITION_FIELDS` differs from the stored
+    row (text is compared after normalization). Result staleness is measured against this field,
+    not against the auto_now `updated_at`. Like auto_now, it is not maintained by
+    QuerySet.update(), bulk_update() or loaddata.
+    """
+
+    DEFINITION_FIELDS: ClassVar[tuple[str, ...]] = ()
+    definition_updated_at = models.DateTimeField(default=timezone.now, editable=False)
+
+    class Meta:
+        abstract = True
+
+    def save(self, **kwargs: Any) -> None:
+        update_fields = kwargs.get("update_fields")
+        if update_fields is not None:
+            update_fields = set(update_fields)
+            kwargs["update_fields"] = update_fields
+        attnames = self._definition_attnames_to_save(update_fields)
+        self._normalize_definition(attnames)
+        stored = self._stored_definition(attnames)
+        if stored is not None:
+            stored_updated_at, stored_values = stored
+            if tuple(getattr(self, a) for a in attnames) != stored_values:
+                self.definition_updated_at = timezone.now()
+                if update_fields is not None:
+                    update_fields.add("definition_updated_at")
+            else:
+                # Two overlapping saves of the same text: the later one loaded the row before
+                # the earlier one's bump and would otherwise write that older value back.
+                self.definition_updated_at = stored_updated_at
+        super().save(**kwargs)
+
+    def _definition_attnames_to_save(self, update_fields: set[str] | None) -> tuple[str, ...]:
+        """Column names of the definition fields this save persists."""
+        attname_by_name = {f.name: f.attname for f in self._meta.concrete_fields}
+        # A deferred field was never loaded, so it cannot have been edited; reading it here
+        # would un-defer it and make Django write it back.
+        deferred = self.get_deferred_fields() if update_fields is None else set()
+        attnames = []
+        for name in self.DEFINITION_FIELDS:
+            attname = attname_by_name[name]
+            if update_fields is not None and not {name, attname} & update_fields:
+                continue
+            if attname in deferred:
+                continue
+            attnames.append(attname)
+        return tuple(attnames)
+
+    def _normalize_definition(self, attnames: tuple[str, ...]) -> None:
+        for attname in attnames:
+            value = getattr(self, attname)
+            if isinstance(value, str):
+                setattr(self, attname, normalize_definition_text(value))
+
+    def _stored_definition(
+        self, attnames: tuple[str, ...]
+    ) -> tuple[datetime, tuple[object, ...]] | None:
+        """The stored definition_updated_at and definition values (made comparable), or None
+        on add, when nothing is being saved, or when the row is gone."""
+        if self.pk is None or not attnames:
+            return None  # on add the field default already applies
+        # _base_manager, like refresh_from_db: a filtering default manager must not hide the
+        # row and make a real change go unrecorded.
+        row = (
+            type(self)
+            ._base_manager.using(self._state.db)
+            .filter(pk=self.pk)
+            .values_list("definition_updated_at", *attnames)
+            .first()
+        )
+        if row is None:
+            return None
+        stored_updated_at, *values = row
+        return stored_updated_at, tuple(comparable_definition_value(v) for v in values)
+
+
+class LabelGroup(DefinitionTrackedModel):
+    # The gate schema keys on the question itself, so the name is never shown to the LLM.
+    DEFINITION_FIELDS = ("gate_question",)
+
     id: int
     name = models.CharField(max_length=100, unique=True)
     gate_question = models.TextField()  # upfront Yes/No screening question for this group
-    updated_at = models.DateTimeField(auto_now=True)  # drives gate stale detection
+    updated_at = models.DateTimeField(auto_now=True)  # audit only; see definition_updated_at
 
     labels: models.QuerySet["Label"]
     gate_answers: models.QuerySet["GateAnswer"]
@@ -24,14 +123,19 @@ class LabelGroup(models.Model):
         return self.name
 
 
-class Label(models.Model):
+class Label(DefinitionTrackedModel):
+    # name is the classification schema's field key; the group decides which gate answer the
+    # results were produced under.
+    DEFINITION_FIELDS = ("group", "name", "description")
+
     id: int
+    group_id: int
     group = models.ForeignKey(LabelGroup, on_delete=models.CASCADE, related_name="labels")
     name = models.CharField(max_length=100)  # the label string that surfaces (e.g. "pneumonia")
     description = models.TextField()  # definition sent to the LLM to classify this label
     active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)  # drives result stale detection
+    updated_at = models.DateTimeField(auto_now=True)  # audit only; see definition_updated_at
 
     results: models.QuerySet["LabelResult"]
 
@@ -78,7 +182,8 @@ class LabelResult(models.Model):
     def is_stale(self) -> bool:
         """Stale when the label's definition or the report's content changed after generation."""
         return (
-            self.generated_at < self.label.updated_at or self.generated_at < self.report.updated_at
+            self.generated_at < self.label.definition_updated_at
+            or self.generated_at < self.report.updated_at
         )
 
 
@@ -105,6 +210,14 @@ class GateAnswer(models.Model):
 
     def __str__(self) -> str:
         return f"GateAnswer {self.label_group_id}={self.value} [{self.pk}]"
+
+    @property
+    def is_stale(self) -> bool:
+        """Stale when the gate question or the report's content changed after generation."""
+        return (
+            self.generated_at < self.label_group.definition_updated_at
+            or self.generated_at < self.report.updated_at
+        )
 
 
 class LabelingScanCheckpoint(models.Model):
