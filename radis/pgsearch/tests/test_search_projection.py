@@ -23,6 +23,7 @@ from radis.reports.models import Language, Modality, Report
 pytestmark = pytest.mark.django_db
 
 BACKFILL_MIGRATION = "radis.pgsearch.migrations.0004_search_projection_backfill"
+WITHDRAWN_TRIGGER_MIGRATION = "radis.pgsearch.migrations.0007_search_projection_withdrawn_trigger"
 
 
 class _MinimalSchemaEditor:
@@ -218,6 +219,53 @@ def test_restoring_a_report_updates_the_projection():
 
     index = ReportSearchIndex.objects.get(report=report)
     assert index.withdrawn is False
+
+
+def test_withdrawing_several_reports_in_one_statement_updates_every_row():
+    """The admin action withdraws a whole selection with one UPDATE, which the
+    statement-level trigger sees as one transition table."""
+    language = LanguageFactory.create(code="en")
+    selected = [ReportFactory.create(language=language) for _ in range(4)]
+    untouched = ReportFactory.create(language=language)
+    selected_ids = [report.pk for report in selected]
+
+    Report.objects.filter(pk__in=selected_ids).update(withdrawn_at=timezone.now())
+    withdrawn = ReportSearchIndex.objects.filter(report_id__in=selected_ids, withdrawn=True)
+    assert withdrawn.count() == 4
+    assert ReportSearchIndex.objects.get(report=untouched).withdrawn is False
+
+    Report.objects.filter(pk__in=selected_ids).update(withdrawn_at=None)
+    assert not ReportSearchIndex.objects.filter(withdrawn=True).exists()
+
+
+def test_withdrawn_trigger_migration_reverses_to_the_previous_function():
+    """Runs the migration's reverse SQL, then its forward SQL, inside the test
+    transaction: without the withdrawn column in the function the flag stops
+    following the report, with it the flag follows again."""
+    operation = importlib.import_module(WITHDRAWN_TRIGGER_MIGRATION).Migration.operations[0]
+    report = ReportFactory.create(language=LanguageFactory.create(code="en"))
+
+    with connection.cursor() as cursor:
+        cursor.execute(operation.reverse_sql)
+    Report.objects.filter(pk=report.pk).update(withdrawn_at=timezone.now())
+    assert ReportSearchIndex.objects.get(report=report).withdrawn is False
+
+    with connection.cursor() as cursor:
+        cursor.execute(operation.sql)
+    Report.objects.filter(pk=report.pk).update(withdrawal_reason="touched")
+    assert ReportSearchIndex.objects.get(report=report).withdrawn is True
+
+
+def test_withdrawn_trigger_migration_runs_after_the_withdrawal_fields():
+    """The function body reads reports_report.withdrawn_at, which reports 0014 adds."""
+    from django.db.migrations.loader import MigrationLoader
+
+    plan = MigrationLoader(connection).graph.forwards_plan(
+        ("pgsearch", "0007_search_projection_withdrawn_trigger")
+    )
+
+    assert ("reports", "0014_report_withdrawal_fields") in plan
+    assert ("pgsearch", "0006_reportsearchindex_withdrawn") in plan
 
 
 def test_creation_populates_the_mirrored_scalars():

@@ -467,3 +467,18 @@ def test_note_available_badge_404s_for_withdrawn_report(client: Client):
     )
 
     assert response.status_code == 404
+
+
+@pytest.mark.django_db
+def test_note_detail_view_404s_for_withdrawn_report(client: Client):
+    user = UserFactory.create(is_active=True)
+    live = NoteFactory.create(owner=user, report=create_test_report())
+    gone = NoteFactory.create(owner=user, report=create_test_report())
+    Report.objects.filter(pk=gone.report.pk).update(withdrawn_at=timezone.now())
+    client.force_login(user)
+
+    live_response = client.get(reverse("note_detail", args=[live.pk]), HTTP_HX_REQUEST="true")
+    gone_response = client.get(reverse("note_detail", args=[gone.pk]), HTTP_HX_REQUEST="true")
+
+    assert live_response.status_code == 200
+    assert gone_response.status_code == 404

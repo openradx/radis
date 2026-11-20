@@ -1,5 +1,5 @@
 import pytest
-from adit_radis_shared.accounts.factories import GroupFactory
+from adit_radis_shared.accounts.factories import GroupFactory, UserFactory
 from django.utils import timezone
 
 from radis.reports.factories import LanguageFactory, ReportFactory
@@ -40,3 +40,18 @@ def test_live_is_available_on_related_managers():
     Report.objects.filter(pk=withdrawn.pk).update(withdrawn_at=timezone.now())
 
     assert list(group.reports.live()) == [live]  # type: ignore[attr-defined]
+
+
+def test_deleting_the_withdrawing_user_keeps_the_report_withdrawn():
+    report = create_report()
+    admin = UserFactory.create(is_staff=True)
+    Report.objects.filter(pk=report.pk).update(
+        withdrawn_at=timezone.now(), withdrawn_by=admin, withdrawal_reason="wrong patient"
+    )
+
+    admin.delete()
+
+    report.refresh_from_db()
+    assert report.is_withdrawn
+    assert report.withdrawn_by is None
+    assert report.withdrawal_reason == "wrong patient"

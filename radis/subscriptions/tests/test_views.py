@@ -812,3 +812,32 @@ def test_subscription_inbox_hides_withdrawn_reports(client: Client):
     assert list(response.context["object_list"]) == [live_item]
     # The inbox row survives for when the report is restored.
     assert SubscribedItem.objects.filter(subscription=subscription).count() == 2
+
+
+@pytest.mark.django_db
+def test_subscription_inbox_download_leaves_out_withdrawn_reports(client: Client):
+    user = UserFactory.create(is_active=True)
+    subscription = create_test_subscription(owner=user)
+    language = LanguageFactory.create(code="en")
+    field = OutputFieldFactory.create(subscription=subscription, job=None, name="finding")
+    live = ReportFactory.create(language=language, patient_id="LIVE-PATIENT")
+    gone = ReportFactory.create(language=language, patient_id="GONE-PATIENT")
+    SubscribedItemFactory.create(
+        subscription=subscription, report=live, extraction_results={str(field.pk): "effusion"}
+    )
+    SubscribedItemFactory.create(
+        subscription=subscription, report=gone, extraction_results={str(field.pk): "fracture"}
+    )
+    Report.objects.filter(pk=gone.pk).update(withdrawn_at=timezone.now())
+
+    client.force_login(user)
+    response = client.get(f"/subscriptions/{subscription.pk}/inbox/download/")
+
+    csv_text = b"".join(
+        chunk if isinstance(chunk, bytes) else chunk.encode("utf-8")
+        for chunk in response.streaming_content  # type: ignore[attr-defined]
+    ).decode()
+    assert "LIVE-PATIENT" in csv_text
+    assert "effusion" in csv_text
+    assert "GONE-PATIENT" not in csv_text
+    assert "fracture" not in csv_text

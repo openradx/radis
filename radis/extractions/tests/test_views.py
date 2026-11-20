@@ -545,6 +545,25 @@ def test_extraction_instance_detail_view_404s_for_withdrawn_report(client: Clien
 
 
 @pytest.mark.django_db
+def test_extraction_instance_detail_view_404s_for_withdrawn_report_for_staff(client: Client):
+    """Staff see every user's instances, but not one whose report is withdrawn."""
+    client.force_login(UserFactory.create(is_active=True, is_staff=True))
+    task = create_test_extraction_task(job=create_test_extraction_job())
+    language = LanguageFactory.create(code="en")
+    live_report = ReportFactory.create(language=language)
+    withdrawn_report = ReportFactory.create(language=language)
+    live_instance = ExtractionInstanceFactory.create(task=task, report=live_report)
+    withdrawn_instance = ExtractionInstanceFactory.create(task=task, report=withdrawn_report)
+    Report.objects.filter(pk=withdrawn_report.pk).update(withdrawn_at=timezone.now())
+
+    live_response = client.get(f"/extractions/instances/{live_instance.pk}/")
+    withdrawn_response = client.get(f"/extractions/instances/{withdrawn_instance.pk}/")
+
+    assert live_response.status_code == 200
+    assert withdrawn_response.status_code == 404
+
+
+@pytest.mark.django_db
 @pytest.mark.parametrize(
     "url",
     ["/extractions/jobs/new/search-preview/", "/extractions/jobs/new/generate-query/"],
