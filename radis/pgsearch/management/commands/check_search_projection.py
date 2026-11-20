@@ -3,11 +3,14 @@
 from django.core.management.base import BaseCommand, CommandError
 from django.db import connection
 
-# Same aggregation as utils/projection.PROJECTION_UPDATE_SQL, the 0004 backfill
-# and the trigger functions in migrations 0003 and 0008 -- four copies, keep
-# them in sync. This one is the detector: if it ever drifts in the same
-# direction as a writer, it silently agrees with the bug and reports a healthy
-# projection.
+# The detector for the search projection, so it repeats what the writers
+# compute: the group_ids/modality_codes aggregations (also in
+# utils/projection.PROJECTION_UPDATE_SQL, the 0004 backfill and the
+# pgsearch_sync_group_ids / pgsearch_sync_modality_codes trigger functions) and
+# the scalar comparisons, withdrawn included (also in PROJECTION_UPDATE_SQL and
+# the pgsearch_sync_report_fields trigger function). If it ever drifts in the
+# same direction as a writer, it silently agrees with the bug and reports a
+# healthy projection.
 DRIFT_SQL = """
 SELECT
     count(*) FILTER (WHERE rsi.group_ids IS DISTINCT FROM COALESCE(g.ids, '{}'))

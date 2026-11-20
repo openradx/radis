@@ -19,11 +19,12 @@ Runs after the triggers (0003) on purpose. A report edited during the backfill
 is corrected by its trigger, and a chunk that later reprocesses the same row
 simply rewrites the current values.
 
-The statement below duplicates utils/projection.PROJECTION_UPDATE_SQL, the same
-way bulk_upsert_report_search_indexes duplicates the tsvector logic. Migrations
-must not import app code, which drifts under them. The two trigger functions in
-0004 and check_search_projection.DRIFT_SQL repeat the same array_agg shape --
-keep all four in sync.
+The statement below duplicates utils/projection.PROJECTION_UPDATE_SQL for the
+columns 0003 adds, the same way bulk_upsert_report_search_indexes duplicates the
+tsvector logic. Migrations must not import app code, which drifts under them.
+The membership trigger functions in 0003 and check_search_projection.DRIFT_SQL
+repeat the same array_agg shape -- keep the aggregation identical in all four.
+Columns added to the projection later are not backfilled here.
 """
 
 from django.db import migrations, transaction

@@ -5,14 +5,19 @@ Only the function body changes. The trigger declaration from 0003
 with a transition table, no column list) already fires on every report update,
 so replacing the function is the whole change. The reverse operation restores
 the 0003 body, leaving a rollback exactly as 0003 defined it.
+
+No backfill follows: reports.withdrawn_at arrives in the same release
+(reports 0014), so no report is withdrawn yet and the column default is
+already correct for every row.
 """
 
 from django.db import migrations
 
-# Same column list as utils/projection.PROJECTION_UPDATE_SQL and
-# check_search_projection.DRIFT_SQL -- keep them in sync. The drift query is
-# the detector: a change made here and not there is a bug that reports itself
-# as healthy.
+# The scalar columns of the projection, as in utils/projection.PROJECTION_UPDATE_SQL
+# and check_search_projection.DRIFT_SQL (which also cover the two array columns).
+# A new scalar needs a migration that replaces this function again, plus the same
+# column in those two statements: the drift query cannot detect a column it does
+# not compare.
 SYNC_REPORT_FIELDS_WITH_WITHDRAWN = """
 CREATE OR REPLACE FUNCTION pgsearch_sync_report_fields() RETURNS trigger
 LANGUAGE plpgsql AS $$
@@ -70,7 +75,7 @@ END $$;
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("pgsearch", "0007_reportsearchindex_withdrawn"),
+        ("pgsearch", "0006_reportsearchindex_withdrawn"),
         ("reports", "0014_report_withdrawal_fields"),
     ]
 

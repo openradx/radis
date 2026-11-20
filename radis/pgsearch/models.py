@@ -24,12 +24,12 @@ class ReportSearchIndex(models.Model):
 
     # Search projection: mirrors of the Report fields the scan filters on, so
     # the FTS candidate query stays single-table. Maintained by the projection
-    # triggers (declared in migration 0003; the report-fields function body
-    # lives in 0008) and populated on creation by signals.py / indexing.py.
-    # The scalars are nullable and the arrays NOT NULL with a constant default,
-    # which is what keeps adding a column here metadata-only on a large table.
-    # Tightening them afterwards would cost a validating scan for no benefit:
-    # check_search_projection guards against drift.
+    # triggers (the pgsearch_sync_* functions) and populated on creation by
+    # signals.py / indexing.py. Each column is either nullable or NOT NULL with
+    # a constant default, which is what keeps adding a column here
+    # metadata-only on a large table. Tightening them afterwards would cost a
+    # validating scan for no benefit: check_search_projection guards against
+    # drift.
     group_ids = ArrayField(models.IntegerField(), default=list)
     modality_codes = ArrayField(models.CharField(max_length=16), default=list)
     language_code = models.CharField(max_length=10, null=True)  # noqa: DJ001
@@ -41,9 +41,10 @@ class ReportSearchIndex(models.Model):
     report_created_at = models.DateTimeField(null=True)
     report_updated_at = models.DateTimeField(null=True)
     # Mirrors reports_report.withdrawn_at IS NOT NULL. A boolean, not a
-    # timestamp: the scan predicate only needs live/not-live, and a constant
-    # default keeps the AddField metadata-only.
-    withdrawn = models.BooleanField(default=False)
+    # timestamp: the scan predicate only needs live/not-live. db_default keeps
+    # the default in the database, so rows inserted without the column (code
+    # from before it, raw SQL) still get false.
+    withdrawn = models.BooleanField(default=False, db_default=False)
 
     class Meta:
         verbose_name = "Report search index"
