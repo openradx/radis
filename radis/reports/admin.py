@@ -12,7 +12,7 @@ from django.utils import timezone
 
 from radis.labels.models import LabelResult
 
-from .models import Language, Metadata, Modality, Report, ReportsAppSettings, WithdrawnReport
+from .models import Language, Metadata, Modality, Report, ReportsAppSettings
 from .site import reports_created_handlers, reports_deleted_handlers, reports_updated_handlers
 
 logger = logging.getLogger(__name__)
@@ -76,6 +76,12 @@ class LabelResultInline(admin.TabularInline):
         return False
 
 
+# The confirmation page posts every selected report back as a hidden input, and
+# Django rejects a request with more than DATA_UPLOAD_MAX_NUMBER_FIELDS (1,000)
+# fields, so a larger selection has to be split before the page is shown.
+WITHDRAW_MAX_REPORTS = 500
+
+
 class WithdrawReportsForm(forms.Form):
     reason = forms.CharField(
         label="Reason for withdrawal",
@@ -83,12 +89,31 @@ class WithdrawReportsForm(forms.Form):
     )
 
 
+class WithdrawnListFilter(admin.SimpleListFilter):
+    title = "withdrawn"
+    parameter_name = "withdrawn"
+
+    def lookups(self, request: HttpRequest, model_admin: admin.ModelAdmin) -> list[tuple[str, str]]:
+        return [("yes", "Yes"), ("no", "No")]
+
+    def queryset(self, request: HttpRequest, queryset: QuerySet[Report]) -> QuerySet[Report]:
+        if self.value() == "yes":
+            return queryset.filter(withdrawn_at__isnull=False)
+        if self.value() == "no":
+            return queryset.filter(withdrawn_at__isnull=True)
+        return queryset
+
+
 class ReportAdmin(admin.ModelAdmin):
     inlines = [MetadataInline, LabelResultInline]
     list_display = ("__str__", "is_withdrawn_display")
-    list_filter = (("withdrawn_at", admin.EmptyFieldListFilter),)
+    list_filter = (WithdrawnListFilter,)
+    # Exact, so that the lookup uses the unique index; the default icontains
+    # would scan the whole archive.
+    search_fields = ("document_id__exact",)
+    search_help_text = "Search by exact document ID."
     readonly_fields = ("withdrawn_at", "withdrawn_by", "withdrawal_reason")
-    actions = ("withdraw_selected",)
+    actions = ("withdraw_selected", "restore_selected")
 
     def delete_model(self, request: HttpRequest, obj: Report) -> None:
         # Called when deleting a single report (from the admin form view)
@@ -137,21 +162,31 @@ class ReportAdmin(admin.ModelAdmin):
         self, request: HttpRequest, queryset: QuerySet[Report]
     ) -> HttpResponse | None:
         queryset = queryset.filter(withdrawn_at__isnull=True)
+        selected = queryset.count()
+        if not selected:
+            self.message_user(
+                request, "The selected reports are already withdrawn.", messages.WARNING
+            )
+            return None
+        if selected > WITHDRAW_MAX_REPORTS:
+            self.message_user(
+                request,
+                f"{selected} reports selected: withdraw at most {WITHDRAW_MAX_REPORTS} at a "
+                "time. No report was withdrawn.",
+                messages.ERROR,
+            )
+            return None
         form = WithdrawReportsForm(request.POST if "apply" in request.POST else None)
-        if "apply" in request.POST and form.is_valid():
-            reason = form.cleaned_data["reason"]
-            reports = list(queryset)
-            # update() on purpose: the projection trigger is the only sync a
-            # state flip needs; skipping post_save keeps re-embedding and
-            # label staleness out of it.
-            queryset.update(
+        if form.is_valid():
+            # update(), not save(): the AFTER UPDATE trigger on reports_report
+            # mirrors the flag into the search index by itself, and save() would
+            # also bump updated_at, which marks the report's labels stale.
+            withdrawn = queryset.update(
                 withdrawn_at=timezone.now(),
                 withdrawn_by=request.user,
-                withdrawal_reason=reason,
+                withdrawal_reason=form.cleaned_data["reason"],
             )
-            for report in reports:
-                self.log_change(request, report, f"Withdrawn: {reason}")
-            self.message_user(request, f"Withdrew {len(reports)} report(s).", messages.SUCCESS)
+            self.message_user(request, f"Withdrew {withdrawn} report(s).", messages.SUCCESS)
             return None
         return TemplateResponse(
             request,
@@ -159,49 +194,30 @@ class ReportAdmin(admin.ModelAdmin):
             {
                 **self.admin_site.each_context(request),
                 "title": "Withdraw reports",
-                "queryset": queryset,
+                "reports": queryset.only("pk", "document_id"),
                 "form": form,
                 "opts": self.model._meta,
                 "action_checkbox_name": helpers.ACTION_CHECKBOX_NAME,
             },
         )
 
-
-admin.site.register(Report, ReportAdmin)
-
-
-class WithdrawnReportAdmin(ReportAdmin):
-    """Inherits ReportAdmin so hard delete keeps firing the index-cleanup
-    handlers and the change form keeps its read-only withdrawal fields."""
-
-    list_display = (
-        "document_id",
-        "patient_id",
-        "study_description",
-        "withdrawn_at",
-        "withdrawn_by",
-        "withdrawal_reason",
-    )
-    list_filter = ()
-    actions = ("restore_selected",)
-
-    def get_queryset(self, request: HttpRequest) -> QuerySet[Report]:
-        return super().get_queryset(request).filter(withdrawn_at__isnull=False)
-
-    def has_add_permission(self, request: HttpRequest) -> bool:
-        return False
-
     @admin.action(description="Restore selected reports", permissions=["change"])
     def restore_selected(self, request: HttpRequest, queryset: QuerySet[Report]) -> None:
-        report_ids = list(queryset.values_list("pk", flat=True))
-        # update() for the same reason as withdraw_selected: the projection
-        # trigger is the only sync a state flip needs.
-        queryset.update(withdrawn_at=None, withdrawn_by=None, withdrawal_reason="")
-        # Log against the concrete model: an entry stamped with the proxy's
-        # content type never surfaces in the report's admin history.
-        for report in Report.objects.filter(pk__in=report_ids):
-            self.log_change(request, report, "Restored from withdrawal")
-        self.message_user(request, f"Restored {len(report_ids)} report(s).", messages.SUCCESS)
+        # updated_at moves with the restore because subscriptions select reports
+        # by it: a report that was withdrawn while a subscription refreshed is
+        # offered to it again. The labeling scan re-labels the report as well.
+        restored = queryset.filter(withdrawn_at__isnull=False).update(
+            withdrawn_at=None,
+            withdrawn_by=None,
+            withdrawal_reason="",
+            updated_at=timezone.now(),
+        )
+        if restored:
+            self.message_user(request, f"Restored {restored} report(s).", messages.SUCCESS)
+        else:
+            self.message_user(
+                request, "None of the selected reports is withdrawn.", messages.WARNING
+            )
 
 
-admin.site.register(WithdrawnReport, WithdrawnReportAdmin)
+admin.site.register(Report, ReportAdmin)

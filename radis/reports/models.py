@@ -42,9 +42,13 @@ class Modality(models.Model):
 
 class ReportQuerySet(models.QuerySet["Report"]):
     def live(self) -> "ReportQuerySet":
-        """Reports in circulation. Every user-facing read surface filters on
-        this; the admin and ingest paths deliberately use the unfiltered
-        default manager (see the withdrawal design spec, decision 4)."""
+        """Reports that are not withdrawn.
+
+        Report.objects is unfiltered: code that shows reports to users has to ask
+        for live() itself, or filter ``report__withdrawn_at__isnull=True`` when it
+        starts from a related model. Search applies the same rule through the
+        mirrored ReportSearchIndex.withdrawn column. The admin, the REST API and
+        the indexing, embedding and labeling pipelines read all reports."""
         return self.filter(withdrawn_at__isnull=True)
 
 
@@ -99,9 +103,9 @@ class Report(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     # Withdrawal takes a report out of circulation without deleting it.
-    # withdrawn_at IS the state flag: NULL means live. who/why describe only
-    # the current withdrawal; restoring blanks all three (the admin log keeps
-    # the breadcrumbs).
+    # withdrawn_at is the state flag: NULL means live. who/why describe only
+    # the current withdrawal; restoring blanks all three, and no history of
+    # earlier withdrawals is kept.
     withdrawn_at = models.DateTimeField(null=True, blank=True)
     withdrawn_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -109,12 +113,14 @@ class Report(models.Model):
         blank=True,
         on_delete=models.SET_NULL,
         related_name="+",
-        # db_index=False: the default FK index would make 0014 a locking
-        # full-table index build. ~All rows are NULL here; SET_NULL
-        # maintenance on rare user deletion can seq-scan instead.
+        # No index: nearly every row is NULL and nothing filters on it. The cost
+        # is a scan of reports_report when a user is deleted (SET_NULL), which
+        # is rare.
         db_index=False,
     )
-    withdrawal_reason = models.TextField(blank=True, default="")
+    # db_default as well as default, so that the column keeps a database default
+    # and rows inserted without it (code from before this column, raw SQL) work.
+    withdrawal_reason = models.TextField(blank=True, default="", db_default="")
 
     objects: ReportManager = ReportManager()
 
@@ -124,9 +130,9 @@ class Report(models.Model):
     class Meta:
         ordering = ["-created_at", "document_id"]
         indexes = [
-            # Partial: only withdrawn rows enter it, so the withdrawn-reports
-            # admin listing never scans the archive and live-report writes
-            # don't pay for it.
+            # Partial: only withdrawn rows enter it, so the admin's Withdrawn
+            # filter never scans the archive and live-report writes don't pay
+            # for it.
             models.Index(
                 fields=["withdrawn_at"],
                 condition=models.Q(withdrawn_at__isnull=False),
@@ -155,15 +161,6 @@ class Report(models.Model):
             .select_related("label", "label__group")
             .order_by("label__group__name", "label__name")
         )
-
-
-class WithdrawnReport(Report):
-    """Withdrawn reports as their own admin entry -- the dedicated listing
-    the restore action lives on."""
-
-    class Meta:
-        proxy = True
-        verbose_name = "Withdrawn report"
 
 
 class Metadata(models.Model):

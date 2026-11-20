@@ -16,7 +16,7 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name='report',
             name='withdrawal_reason',
-            field=models.TextField(blank=True, default=''),
+            field=models.TextField(blank=True, db_default='', default=''),
         ),
         migrations.AddField(
             model_name='report',
