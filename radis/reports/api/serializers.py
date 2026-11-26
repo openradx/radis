@@ -46,6 +46,7 @@ class ReportSerializer(serializers.ModelSerializer):
     language = LanguageSerializer()
     metadata = MetadataSerializer(many=True)
     modalities = ModalitySerializer(many=True)
+    withdrawn = serializers.BooleanField(source="is_withdrawn", read_only=True)
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
@@ -66,6 +67,9 @@ class ReportSerializer(serializers.ModelSerializer):
     class Meta:
         model = Report
         fields = "__all__"
+        # Withdrawal is set and cleared only in the admin. Read-only here so that
+        # a routine re-import (PUT, upsert, bulk upsert) cannot undo it.
+        read_only_fields = ("withdrawn_at", "withdrawn_by", "withdrawal_reason")
 
     def _strip_unique_validator(self, field_name: str) -> None:
         field = self.fields.get(field_name)
@@ -115,7 +119,10 @@ class ReportSerializer(serializers.ModelSerializer):
             for attr, value in validated_data.items():
                 setattr(report, attr, value)
 
-            report.save()
+            # Only the fields this update sets. The instance was loaded before
+            # validation, and a full save() would write its withdrawal state back
+            # over a withdraw or restore an admin made in the meantime.
+            report.save(update_fields=[*validated_data, "language", "updated_at"])
 
             report.groups.set(groups)
 

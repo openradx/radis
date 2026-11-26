@@ -18,11 +18,13 @@ import pytest
 from adit_radis_shared.accounts.factories import GroupFactory, UserFactory
 from channels.db import database_sync_to_async
 from django.http import HttpResponse
-from django.test import AsyncClient
+from django.test import AsyncClient, Client
 from django.urls import reverse
+from django.utils import timezone
 
 from radis.chats.models import Chat, ChatMessage, ChatRole
 from radis.reports.factories import ReportFactory
+from radis.reports.models import Report
 
 # HTMX marker header. Passed via ``headers=`` so the test client sets HTTP_HX_REQUEST,
 # which the views require (a missing header raises SuspiciousOperation -> 400).
@@ -387,3 +389,135 @@ async def test_create_chat_renders_an_error_when_the_provider_rejects_the_reques
     context = render_mock.call_args.args[2]
     assert context["error"]
     assert "busy" not in context["error"]
+
+
+# --------------------------------------------------------------------------- #
+# Withdrawn reports
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.django_db
+def test_chat_list_hides_chats_on_withdrawn_reports(client: Client):
+    user = UserFactory.create(is_active=True)
+    Chat.objects.create(owner=user, title="general chat")
+    report = ReportFactory.create()
+    Chat.objects.create(owner=user, title="report chat", report=report)
+    Report.objects.filter(pk=report.pk).update(withdrawn_at=timezone.now())
+    client.force_login(user)
+
+    response = client.get(reverse("chat_list"))
+
+    content = response.content.decode()
+    assert "general chat" in content
+    assert "report chat" not in content
+
+
+@pytest.mark.django_db
+def test_chat_detail_404s_when_report_withdrawn(client: Client):
+    user = UserFactory.create(is_active=True)
+    report = ReportFactory.create()
+    chat = Chat.objects.create(owner=user, title="report chat", report=report)
+    Report.objects.filter(pk=report.pk).update(withdrawn_at=timezone.now())
+    client.force_login(user)
+
+    response = client.get(reverse("chat_detail", args=[chat.pk]))
+
+    assert response.status_code == 404
+
+
+@pytest.mark.django_db
+def test_chat_detail_still_serves_reportless_chats(client: Client):
+    user = UserFactory.create(is_active=True)
+    chat = Chat.objects.create(owner=user, title="general chat")
+    client.force_login(user)
+
+    with _stub_render():
+        response = client.get(reverse("chat_detail", args=[chat.pk]))
+
+    assert response.status_code == 200
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db(transaction=True)
+async def test_create_chat_post_with_withdrawn_report_is_not_found():
+    user, group = await _create_user_with_active_group()
+    report = await database_sync_to_async(ReportFactory.create)(body="WITHDRAWN-FINDINGS")
+    await database_sync_to_async(report.groups.add)(group)
+    await database_sync_to_async(Report.objects.filter(pk=report.pk).update)(
+        withdrawn_at=timezone.now()
+    )
+    client = await _login(user)
+
+    openai_mock, capture = make_capturing_async_openai_mock("answer", "title")
+    with patch("openai.AsyncOpenAI", return_value=openai_mock):
+        resp = await client.post(
+            reverse("chat_create"),
+            data={"prompt": "Summarize", "report_id": str(report.pk)},
+            headers=HX_HEADERS,
+        )
+
+    assert resp.status_code == 404
+    assert capture.calls == []
+    assert await database_sync_to_async(Chat.objects.count)() == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db(transaction=True)
+async def test_create_chat_page_opens_for_a_live_report_only():
+    user, group = await _create_user_with_active_group()
+    live = await database_sync_to_async(ReportFactory.create)()
+    gone = await database_sync_to_async(ReportFactory.create)()
+    for report in (live, gone):
+        await database_sync_to_async(report.groups.add)(group)
+    await database_sync_to_async(Report.objects.filter(pk=gone.pk).update)(
+        withdrawn_at=timezone.now()
+    )
+    client = await _login(user)
+
+    with _stub_render():
+        live_resp = await client.get(reverse("chat_create"), {"report_id": live.pk})
+        gone_resp = await client.get(reverse("chat_create"), {"report_id": gone.pk})
+
+    assert live_resp.status_code == 200
+    assert gone_resp.status_code == 404
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db(transaction=True)
+async def test_update_chat_on_withdrawn_report_is_not_found():
+    user = await database_sync_to_async(UserFactory.create)(is_active=True)
+    report = await database_sync_to_async(ReportFactory.create)()
+    chat = await database_sync_to_async(Chat.objects.create)(owner=user, title="t", report=report)
+    await database_sync_to_async(ChatMessage.objects.create)(
+        chat=chat, role=ChatRole.SYSTEM, content="SYS-PROMPT"
+    )
+    await database_sync_to_async(Report.objects.filter(pk=report.pk).update)(
+        withdrawn_at=timezone.now()
+    )
+    client = await _login(user)
+
+    openai_mock, capture = make_capturing_async_openai_mock("answer")
+    with patch("openai.AsyncOpenAI", return_value=openai_mock):
+        resp = await client.post(
+            reverse("chat_update", args=[chat.pk]),
+            data={"prompt": "another question"},
+            headers=HX_HEADERS,
+        )
+
+    assert resp.status_code == 404
+    assert capture.calls == []
+    assert await database_sync_to_async(chat.messages.count)() == 1
+
+
+@pytest.mark.django_db
+def test_chat_on_a_live_report_stays_listed_and_readable(client: Client):
+    user = UserFactory.create(is_active=True)
+    chat = Chat.objects.create(owner=user, title="live report chat", report=ReportFactory.create())
+    client.force_login(user)
+
+    listing = client.get(reverse("chat_list"))
+    with _stub_render():
+        detail = client.get(reverse("chat_detail", args=[chat.pk]))
+
+    assert "live report chat" in listing.content.decode()
+    assert detail.status_code == 200

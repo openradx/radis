@@ -10,16 +10,19 @@ the prompt and the requested schema so we can assert the report text + questions
 reach the model.
 """
 
+from datetime import timedelta
 from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
 from adit_radis_shared.accounts.factories import GroupFactory, UserFactory
 from adit_radis_shared.common.utils.testing_helpers import add_user_to_group
+from django.utils import timezone
 from pydantic import BaseModel, create_model
 
 from radis.core.models import AnalysisJob, AnalysisTask
 from radis.reports.factories import ReportFactory
+from radis.reports.models import Report
 from radis.subscriptions.factories import (
     FilterQuestionFactory,
     SubscriptionFactory,
@@ -306,3 +309,48 @@ def test_running_same_report_twice_creates_one_subscribed_item():
     processor.process_report(report, task)
 
     assert SubscribedItem.objects.filter(subscription=subscription, report=report).count() == 1
+
+
+@pytest.mark.django_db
+def test_process_task_skips_withdrawn_reports(monkeypatch):
+    task = _make_task_with_reports(["Is this relevant?"], num_reports=2)
+    withdrawn = task.reports.order_by("pk").first()
+    assert withdrawn is not None
+    Report.objects.filter(pk=withdrawn.pk).update(withdrawn_at=timezone.now())
+
+    processed: list[int] = []
+    monkeypatch.setattr(
+        SubscriptionTaskProcessor,
+        "process_report",
+        lambda self, report, task: processed.append(report.pk),
+    )
+    # Read before process_task(): its `finally: close_old_connections()` breaks
+    # this test's atomic-wrapped connection for any query issued after it returns.
+    live_reports = task.reports.live()  # type: ignore[attr-defined]
+    live_report_pks = set(live_reports.values_list("pk", flat=True))
+    SubscriptionTaskProcessor(task).process_task(task)
+
+    assert withdrawn.pk not in processed
+    assert set(processed) == live_report_pks
+
+
+@pytest.mark.django_db
+def test_finished_mail_leaves_out_reports_withdrawn_during_the_job():
+    task = _make_task_with_reports(["Is this relevant?"], num_reports=2)
+    job = task.job
+    job.status = SubscriptionJob.Status.SUCCESS
+    job.started_at = timezone.now() - timedelta(minutes=5)
+    job.save()
+    live, gone = task.reports.order_by("pk")
+    Report.objects.filter(pk=live.pk).update(patient_id="LIVE-PATIENT")
+    Report.objects.filter(pk=gone.pk).update(patient_id="GONE-PATIENT")
+    for report in (live, gone):
+        SubscribedItem.objects.create(subscription=job.subscription, report=report, job=job)
+    Report.objects.filter(pk=gone.pk).update(withdrawn_at=timezone.now())
+
+    with patch("radis.core.models.send_mail") as send_mail:
+        job._send_job_finished_mail()
+
+    html = send_mail.call_args.kwargs["html_message"]
+    assert "LIVE-PATIENT" in html
+    assert "GONE-PATIENT" not in html

@@ -17,9 +17,11 @@ from datetime import UTC, date, datetime
 import pytest
 from adit_radis_shared.accounts.factories import AdminUserFactory, GroupFactory, UserFactory
 from django.urls import reverse
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APIClient
 
+from radis.reports.api.serializers import ReportSerializer
 from radis.reports.factories import LanguageFactory, ReportFactory
 from radis.reports.models import Language, Modality, Report
 
@@ -412,3 +414,121 @@ def test_update_rejected_for_non_admin(user_client):
     assert response.status_code == status.HTTP_403_FORBIDDEN
     report.refresh_from_db()
     assert report.body != "This is the report"
+
+
+# ---------------------------------------------------------------------------
+# Withdrawal state on the API (read-only; upsert never restores)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_retrieve_shows_withdrawal_state(admin_client):
+    group = GroupFactory.create()
+    admin_client.post(
+        LIST_URL, make_payload(document_id="doc-withdrawn-get", group=group), format="json"
+    )
+    Report.objects.filter(document_id="doc-withdrawn-get").update(withdrawn_at=timezone.now())
+
+    response = admin_client.get(detail_url("doc-withdrawn-get"))
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["withdrawn"] is True
+    assert body["withdrawn_at"] is not None
+
+
+@pytest.mark.django_db
+def test_upsert_put_on_withdrawn_report_updates_content_but_stays_withdrawn(admin_client):
+    group = GroupFactory.create()
+    create_response = admin_client.post(
+        LIST_URL, make_payload(document_id="doc-withdrawn-upsert", group=group), format="json"
+    )
+    assert create_response.status_code == 201
+    Report.objects.filter(document_id="doc-withdrawn-upsert").update(
+        withdrawn_at=timezone.now(), withdrawal_reason="wrong patient"
+    )
+
+    payload = make_payload(document_id="doc-withdrawn-upsert", group=group)
+    payload["body"] = "Corrected findings"
+    # A client trying to clear the state must be ignored (read-only fields).
+    payload["withdrawn_at"] = None
+    payload["withdrawal_reason"] = ""
+    response = admin_client.put(
+        detail_url("doc-withdrawn-upsert") + "?upsert=true", payload, format="json"
+    )
+
+    assert response.status_code == 200
+    assert response.json()["withdrawn"] is True
+    report = Report.objects.get(document_id="doc-withdrawn-upsert")
+    assert report.body == "Corrected findings"
+    assert report.is_withdrawn
+    assert report.withdrawal_reason == "wrong patient"
+
+
+@pytest.mark.django_db
+def test_bulk_upsert_reports_withdrawn_document_ids(admin_client):
+    group = GroupFactory.create()
+    admin_client.post(
+        LIST_URL, make_payload(document_id="doc-bulk-live", group=group), format="json"
+    )
+    admin_client.post(
+        LIST_URL, make_payload(document_id="doc-bulk-withdrawn", group=group), format="json"
+    )
+    Report.objects.filter(document_id="doc-bulk-withdrawn").update(withdrawn_at=timezone.now())
+
+    payloads = [
+        make_payload(document_id="doc-bulk-live", group=group),
+        make_payload(document_id="doc-bulk-withdrawn", group=group),
+        make_payload(document_id="doc-bulk-new", group=group),
+    ]
+    response = admin_client.post(BULK_UPSERT_URL, payloads, format="json")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["created"] == 1
+    assert body["updated"] == 2
+    assert body["withdrawn"] == ["doc-bulk-withdrawn"]
+    assert Report.objects.get(document_id="doc-bulk-withdrawn").is_withdrawn
+
+
+@pytest.mark.django_db
+def test_writes_cannot_set_the_withdrawal_fields(admin_client):
+    group = GroupFactory.create()
+    admin_client.post(LIST_URL, make_payload(document_id="doc-live", group=group), format="json")
+    payload = make_payload(document_id="doc-live", group=group)
+    payload["withdrawn_at"] = timezone.now().isoformat()
+    payload["withdrawn_by"] = AdminUserFactory.create().pk
+    payload["withdrawal_reason"] = "set by a client"
+
+    response = admin_client.put(detail_url("doc-live") + "?upsert=true", payload, format="json")
+
+    assert response.status_code == 200
+    report = Report.objects.get(document_id="doc-live")
+    assert not report.is_withdrawn
+    assert report.withdrawn_by is None
+    assert report.withdrawal_reason == ""
+
+
+@pytest.mark.django_db
+def test_update_keeps_a_withdrawal_made_after_the_report_was_loaded():
+    """The view loads the report before validating the payload; an admin can
+    withdraw it in between, and saving the loaded copy must not undo that."""
+    group = GroupFactory.create()
+    report = ReportFactory.create(
+        document_id="doc-race", language=LanguageFactory.create(code="en")
+    )
+    loaded = Report.objects.get(pk=report.pk)
+    Report.objects.filter(pk=report.pk).update(
+        withdrawn_at=timezone.now(), withdrawal_reason="wrong patient"
+    )
+
+    serializer = ReportSerializer(
+        loaded, data=make_payload(document_id="doc-race", group=group, body="Corrected")
+    )
+    serializer.is_valid(raise_exception=True)
+    serializer.save()
+
+    report.refresh_from_db()
+    assert report.body == "Corrected"
+    assert report.is_withdrawn
+    assert report.withdrawal_reason == "wrong patient"

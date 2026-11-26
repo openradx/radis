@@ -577,10 +577,11 @@ DATABASES["default"].setdefault("OPTIONS", {})["options"] = (
 # How long a ranking (ordered ids and scores of a full-text search or a semantic list)
 # stays cached, in seconds. Pagination re-runs the search for every page and ranking
 # every keyword hit of a common term costs seconds on a large corpus, so page 2..n and
-# repeated searches reuse the cached ranking. The trade is freshness: reports created or
-# updated within the TTL join a cached query's results only after it expires, and a report
-# deleted or removed from the group leaves the page at once but the count only then. 0
-# disables the cache. A semantic list whose embedding failed is never cached.
+# repeated searches reuse the cached ranking. The trade is freshness: reports created,
+# updated or restored from withdrawal within the TTL join a cached query's results only
+# after it expires, and a report deleted, withdrawn or removed from the group leaves the
+# page at once but the count only then. 0 disables the cache. A semantic list whose
+# embedding failed is never cached.
 SEARCH_RANKING_CACHE_TIMEOUT_SECONDS = _optional_env(
     "SEARCH_RANKING_CACHE_TIMEOUT_SECONDS", int, 300
 )

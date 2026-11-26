@@ -3,10 +3,14 @@
 from django.core.management.base import BaseCommand, CommandError
 from django.db import connection
 
-# Same aggregation as utils/projection.PROJECTION_UPDATE_SQL, the 0004 backfill
-# and the trigger functions in migration 0003 -- four copies, keep them in
-# sync. This one is the detector: if it ever drifts in the same direction as a
-# writer, it silently agrees with the bug and reports a healthy projection.
+# The detector for the search projection, so it repeats what the writers
+# compute: the group_ids/modality_codes aggregations (also in
+# utils/projection.PROJECTION_UPDATE_SQL, the 0004 backfill and the
+# pgsearch_sync_group_ids / pgsearch_sync_modality_codes trigger functions) and
+# the scalar comparisons, withdrawn included (also in PROJECTION_UPDATE_SQL and
+# the pgsearch_sync_report_fields trigger function). If it ever drifts in the
+# same direction as a writer, it silently agrees with the bug and reports a
+# healthy projection.
 DRIFT_SQL = """
 SELECT
     count(*) FILTER (WHERE rsi.group_ids IS DISTINCT FROM COALESCE(g.ids, '{}'))
@@ -28,7 +32,9 @@ SELECT
     count(*) FILTER (WHERE rsi.report_created_at IS DISTINCT FROM r.created_at)
         AS report_created_at,
     count(*) FILTER (WHERE rsi.report_updated_at IS DISTINCT FROM r.updated_at)
-        AS report_updated_at
+        AS report_updated_at,
+    count(*) FILTER (WHERE rsi.withdrawn IS DISTINCT FROM (r.withdrawn_at IS NOT NULL))
+        AS withdrawn
 FROM pgsearch_reportsearchindex rsi
 JOIN reports_report r ON r.id = rsi.report_id
 LEFT JOIN reports_language l ON l.id = r.language_id

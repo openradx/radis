@@ -51,14 +51,18 @@ class SubscriptionListView(LoginRequiredMixin, SingleTableView):
         return context
 
     def get_queryset(self) -> QuerySet[Subscription]:
+        live_item = Q(items__report__withdrawn_at__isnull=True)
         return (
             Subscription.objects.filter(owner=self.request.user)
-            .annotate(num_reports=Count("items"))
+            .annotate(num_reports=Count("items", filter=live_item))
             .annotate(
                 num_new_reports=Count(
                     "items",
-                    filter=Q(items__created_at__gt=F("last_viewed_at"))
-                    | Q(last_viewed_at__isnull=True),
+                    filter=live_item
+                    & (
+                        Q(items__created_at__gt=F("last_viewed_at"))
+                        | Q(last_viewed_at__isnull=True)
+                    ),
                 )
             )
             .order_by("-created_at")
@@ -260,6 +264,7 @@ class SubscriptionInboxView(
         ordering = self.get_ordering()
         return (
             SubscribedItem.objects.filter(subscription_id=subscription.pk)
+            .filter(report__withdrawn_at__isnull=True)
             .select_related("subscription")
             .prefetch_related(
                 "report",
@@ -347,6 +352,7 @@ class SubscriptionInboxDownloadView(LoginRequiredMixin, RelatedFilterMixin, Deta
         ordering = self.get_ordering()
         return (
             SubscribedItem.objects.filter(subscription_id=subscription.pk)
+            .filter(report__withdrawn_at__isnull=True)
             .exclude(extraction_results__isnull=True)  # Only items with results
             .exclude(extraction_results={})  # Only items with non-empty results
             .select_related("subscription")

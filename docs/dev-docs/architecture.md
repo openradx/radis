@@ -109,6 +109,7 @@ Unsupported syntax (`-term`, `field:value`, wildcards) is stripped and the corre
 - Study description, patient sex, patient age range
 - Patient ID, labels, group access
 - Created before/after and updated after timestamps (for subscriptions and labeling)
+- Withdrawn reports are always excluded (not a user filter): every entry point filters on the mirrored `withdrawn` column, and a page built from a cached ranking checks it again
 
 **Two modes**: A full-text search runs the single-table candidate query (up to `SEARCH_FTS_MAX_RESULTS` keyword hits ranked by `ts_rank` under each document's own text-search configuration) and returns exactly those hits, without calling the embedding service. A semantic search embeds the description and runs one HNSW scan under the same filters, capped at `SEARCH_HNSW_EF_SEARCH`, inside a transaction with `hnsw.iterative_scan = strict_order` when `SEARCH_SEMANTIC_ITERATIVE_SCAN` is on. Rankings are cached (`SEARCH_RANKING_CACHE_TIMEOUT_SECONDS`): keyword rankings whenever the cache is on, semantic lists only when the embedding succeeded as well. An embedding failure raises `SemanticSearchUnavailable` instead of returning a result; a query embedding is bounded by `EMBEDDINGS_QUERY_REQUEST_TIMEOUT_SECONDS`. Summaries are escaped in Python, because PostgreSQL drops only whole tag tokens from a headline and lets bare `<`, `>`, `&` and unfinished tags through; the highlight markers are control characters restored to `<em>` after escaping.
 

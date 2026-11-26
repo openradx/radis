@@ -1,0 +1,26 @@
+{% extends "admin/base_site.html" %}
+{% load admin_urls l10n %}
+{% block content %}
+    <p>
+        You are about to withdraw the following {{ reports|length }} report(s).
+        They disappear from search and from every page users see until an admin
+        restores them.
+    </p>
+    <ul>
+        {% for report in reports %}<li>{{ report }}</li>{% endfor %}
+    </ul>
+    <form method="post">
+        {% csrf_token %}
+        {{ form.as_p }}
+        {% for report in reports %}
+            <input type="hidden"
+                   name="{{ action_checkbox_name }}"
+                   value="{{ report.pk|unlocalize }}">
+        {% endfor %}
+        <input type="hidden" name="action" value="withdraw_selected">
+        <input type="hidden" name="apply" value="1">
+        <button type="submit" class="button">Withdraw</button>
+        <a href="{% url opts|admin_urlname:'changelist' %}"
+           class="button cancel-link">Cancel</a>
+    </form>
+{% endblock %}

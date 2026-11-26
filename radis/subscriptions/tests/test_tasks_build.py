@@ -14,9 +14,13 @@ invariant; these focus on the build/launch behaviour.
 import pytest
 from adit_radis_shared.accounts.factories import GroupFactory, UserFactory
 from adit_radis_shared.common.utils.testing_helpers import add_user_to_group
+from django.contrib.admin import helpers
 from django.core.exceptions import ImproperlyConfigured
+from django.urls import reverse
+from django.utils import timezone
 
 from radis.reports.factories import LanguageFactory, ReportFactory
+from radis.reports.models import Report
 from radis.subscriptions import site as subscription_site
 from radis.subscriptions.factories import SubscriptionFactory, SubscriptionJobFactory
 from radis.subscriptions.models import SubscriptionJob, SubscriptionTask
@@ -298,3 +302,45 @@ def test_prep_job_in_unexpected_status_is_ignored(monkeypatch):
     job.refresh_from_db()
     assert job.status == SubscriptionJob.Status.SUCCESS
     assert job.tasks.count() == 0
+
+
+@pytest.mark.django_db
+def test_a_report_withdrawn_during_a_refresh_is_offered_again_once_restored(
+    monkeypatch, admin_client
+):
+    """The refresh skips a withdrawn report and moves last_refreshed past it, so
+    only a restore that moves updated_at brings it back to the subscription."""
+    user = UserFactory.create(is_active=True)
+    group = GroupFactory.create()
+    add_user_to_group(user, group)
+    subscription = SubscriptionFactory.create(
+        owner=user,
+        group=group,
+        language=LanguageFactory.create(code="en"),
+        patient_id="",
+        study_description="",
+        patient_sex="",
+        age_from=None,
+        age_till=None,
+    )
+    report = ReportFactory.create(language=subscription.language)
+    report.groups.add(group)
+    Report.objects.filter(pk=report.pk).update(withdrawn_at=timezone.now())
+    monkeypatch.setattr(SubscriptionTask, "delay", lambda self: None, raising=True)
+
+    def refresh() -> SubscriptionJob:
+        job = SubscriptionJobFactory.create(subscription=subscription, owner=user)
+        job.status = SubscriptionJob.Status.PREPARING
+        job.save()
+        process_subscription_job(int(job.pk))
+        return job
+
+    while_withdrawn = refresh()
+    admin_client.post(
+        reverse("admin:reports_report_changelist"),
+        {"action": "restore_selected", helpers.ACTION_CHECKBOX_NAME: [str(report.pk)]},
+    )
+    after_restore = refresh()
+
+    assert while_withdrawn.tasks.count() == 0
+    assert [list(task.reports.all()) for task in after_restore.tasks.all()] == [[report]]

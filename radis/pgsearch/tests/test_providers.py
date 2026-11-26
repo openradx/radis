@@ -523,3 +523,46 @@ def test_summary_escapes_report_text_and_keeps_highlights():
     assert "&lt;5mm" in summary
     assert "&amp;" in summary
     assert "<5mm" not in summary
+
+
+# ---------------------------------------------------------------------------
+# Withdrawn reports are excluded from every provider entry point.
+# ---------------------------------------------------------------------------
+
+
+def test_search_excludes_withdrawn_reports():
+    live = make_report("acute pneumothorax on the left")
+    withdrawn = make_report("chronic pneumothorax on the right")
+    Report.objects.filter(pk=withdrawn.pk).update(withdrawn_at=timezone.now())
+
+    assert run_search("pneumothorax") == [live.document_id]
+
+
+def test_count_excludes_withdrawn_reports():
+    make_report("pneumothorax after biopsy")
+    withdrawn = make_report("tension pneumothorax")
+    Report.objects.filter(pk=withdrawn.pk).update(withdrawn_at=timezone.now())
+
+    node = parse("pneumothorax")
+    assert node is not None
+    assert providers.count(_search(node)) == 1
+
+
+def test_retrieve_excludes_withdrawn_reports():
+    live = make_report("small apical pneumothorax")
+    withdrawn = make_report("resolving pneumothorax")
+    Report.objects.filter(pk=withdrawn.pk).update(withdrawn_at=timezone.now())
+
+    node = parse("pneumothorax")
+    assert node is not None
+    assert list(providers.retrieve(_search(node))) == [live.document_id]
+
+
+def test_filter_excludes_withdrawn_reports():
+    live = make_report("unremarkable follow-up examination")
+    withdrawn = make_report("unremarkable baseline examination")
+    Report.objects.filter(pk=withdrawn.pk).update(withdrawn_at=timezone.now())
+
+    document_ids = set(providers.filter(SearchFilters(group=_search_group().pk)))
+    assert live.document_id in document_ids
+    assert withdrawn.document_id not in document_ids

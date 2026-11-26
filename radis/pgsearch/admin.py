@@ -36,11 +36,12 @@ class ReportSearchIndexAdmin(admin.ModelAdmin):
     # load. raw_id_fields swaps that for a text input + lookup popup so
     # opening a single row doesn't enumerate the whole table.
     raw_id_fields = ("report",)
-    # Every field is machine-maintained (signals, the 0004/0007 triggers, the
-    # embedding tasks), so the change form is inspection-only. group_ids
-    # especially is access-control data: an editable form would grant or hide
-    # report visibility out of sync with the membership tables, and even
-    # saving an untouched form would clobber trigger-maintained values.
+    # Every field is machine-maintained (signals, the projection triggers, the
+    # embedding tasks), so the change form is inspection-only. group_ids and
+    # withdrawn especially decide who can see a report: an editable form would
+    # grant or hide visibility out of sync with the membership tables and the
+    # report's withdrawal state, and even saving an untouched form would
+    # clobber trigger-maintained values.
     readonly_fields = (
         "report",
         "search_vector",
@@ -55,6 +56,7 @@ class ReportSearchIndexAdmin(admin.ModelAdmin):
         "study_description",
         "report_created_at",
         "report_updated_at",
+        "withdrawn",
     )
 
     def has_add_permission(self, request):

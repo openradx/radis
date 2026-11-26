@@ -1,9 +1,11 @@
 import pytest
 from adit_radis_shared.accounts.factories import GroupFactory, UserFactory
 from django.test import Client
+from django.utils import timezone
 
 from radis.collections.factories import CollectionFactory
 from radis.reports.factories import LanguageFactory, ReportFactory
+from radis.reports.models import Report
 
 
 def create_test_report():
@@ -28,6 +30,26 @@ def test_collection_list_view(client: Client):
 
     response = client.get("/collections/")
     assert response.status_code == 200
+
+
+@pytest.mark.django_db
+def test_collection_list_view_num_reports_excludes_withdrawn(client: Client):
+    user = UserFactory.create(is_active=True)
+    collection = CollectionFactory.create(owner=user)
+    live = create_test_report()
+    withdrawn = create_test_report()
+    collection.reports.add(live, withdrawn)
+    Report.objects.filter(pk=withdrawn.pk).update(withdrawn_at=timezone.now())
+    client.force_login(user)
+
+    response = client.get("/collections/")
+
+    assert response.status_code == 200
+    table_data = list(response.context["table"].data)
+    annotated = next(c for c in table_data if c.pk == collection.pk)
+    assert annotated.num_reports == 1
+    # The membership row survives; only the count hides it.
+    assert collection.reports.count() == 2
 
 
 @pytest.mark.django_db
@@ -286,3 +308,53 @@ def test_collection_with_reports(client: Client):
 
     response = client.get(f"/collections/{collection.pk}/")
     assert response.status_code == 200
+
+
+@pytest.mark.django_db
+def test_collection_detail_view_hides_withdrawn_reports(client: Client):
+    user = UserFactory.create(is_active=True)
+    collection = CollectionFactory.create(owner=user)
+    live = create_test_report()
+    withdrawn = create_test_report()
+    collection.reports.add(live, withdrawn)
+    Report.objects.filter(pk=withdrawn.pk).update(withdrawn_at=timezone.now())
+    client.force_login(user)
+
+    response = client.get(f"/collections/{collection.pk}/")
+
+    assert response.status_code == 200
+    reports = list(response.context["reports"])
+    assert live in reports
+    assert withdrawn not in reports
+    # The membership row survives; only the listing hides it.
+    assert collection.reports.count() == 2
+
+
+@pytest.mark.django_db
+def test_collection_select_view_add_withdrawn_report_is_not_found(client: Client):
+    user, group = create_user_with_active_group()
+    collection = CollectionFactory.create(owner=user)
+    report = create_test_report()
+    report.groups.add(group)
+    Report.objects.filter(pk=report.pk).update(withdrawn_at=timezone.now())
+    client.force_login(user)
+
+    response = client.post(
+        f"/collections/select/{report.pk}/", {"action": "add", "collection": collection.pk}
+    )
+
+    assert response.status_code == 404
+    assert not collection.reports.contains(report)
+
+
+@pytest.mark.django_db
+def test_collection_count_badge_view_for_withdrawn_report_is_not_found(client: Client):
+    user, group = create_user_with_active_group()
+    report = create_test_report()
+    report.groups.add(group)
+    Report.objects.filter(pk=report.pk).update(withdrawn_at=timezone.now())
+    client.force_login(user)
+
+    response = client.get(f"/collections/count-badge/{report.pk}/")
+
+    assert response.status_code == 404

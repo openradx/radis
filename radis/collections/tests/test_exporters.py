@@ -9,12 +9,14 @@ from datetime import UTC, date, datetime
 
 import pytest
 from adit_radis_shared.accounts.factories import UserFactory
+from django.utils import timezone
 from openpyxl import load_workbook
 from openpyxl.worksheet.worksheet import Worksheet
 
 from radis.collections.factories import CollectionFactory
 from radis.collections.utils.exporters import export_collection
 from radis.reports.factories import LanguageFactory, ReportFactory
+from radis.reports.models import Report
 
 EXPECTED_HEADER = [
     "PACS",
@@ -113,3 +115,19 @@ def test_export_empty_collection_has_header_only():
     assert header == EXPECTED_HEADER
     rows = list(ws.iter_rows(min_row=2, values_only=True))
     assert rows == []
+
+
+@pytest.mark.django_db
+def test_export_collection_skips_withdrawn_reports():
+    user = UserFactory.create(is_active=True)
+    collection = CollectionFactory.create(owner=user)
+    language = LanguageFactory.create(code="en")
+    live = ReportFactory.create(language=language, patient_id="live-patient")
+    withdrawn = ReportFactory.create(language=language, patient_id="withdrawn-patient")
+    collection.reports.add(live, withdrawn)
+    Report.objects.filter(pk=withdrawn.pk).update(withdrawn_at=timezone.now())
+
+    ws = _load_sheet(collection)
+
+    patient_ids = [row[1] for row in ws.iter_rows(min_row=2, values_only=True)]
+    assert patient_ids == ["live-patient"]
